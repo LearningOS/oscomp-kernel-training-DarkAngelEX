@@ -7,8 +7,8 @@ KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 
 
-SMP := 4
-
+SMP := 1
+MEMORY_SIZE := 6M
 
 # BOARD
 BOARD ?= qemu
@@ -84,6 +84,7 @@ ifeq ($(BOARD),qemu)
 		-nographic \
 		-smp $(SMP) \
 		-bios $(BOOTLOADER) \
+		-m $(MEMORY_SIZE) \
 		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA)
 else
 	(which $(K210-BURNER)) || (cd .. && git clone https://github.com/sipeed/kflash.py.git && mv kflash.py tools)
