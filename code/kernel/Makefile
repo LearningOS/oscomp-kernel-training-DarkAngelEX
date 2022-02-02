@@ -8,7 +8,7 @@ DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 
 
 SMP := 1
-MEMORY_SIZE := 6M
+MEMORY_SIZE := 64M
 
 # BOARD
 BOARD ?= qemu

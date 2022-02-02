@@ -36,17 +36,22 @@ SECTIONS
         sdata = .;
         *(.data .data.*)
         *(.sdata .sdata.*)
+        . = ALIGN(4K);
         edata = .;
     }
 
     .stack : {
+        sstack = .;
         *(.bss.stack)
+        . = ALIGN(4K);
+        estack = .;
     }
 
     .bss : {
         sbss = .;
         *(.bss .bss.*)
         *(.sbss .sbss.*)
+        . = ALIGN(4K);
         ebss = .;
     }
 

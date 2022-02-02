@@ -1,6 +1,6 @@
 use core::fmt::{self, Debug, Formatter};
 
-use crate::config::{MEMORY_SIZE, PAGE_SIZE, PAGE_SIZE_BITS, PHYSICAL_MEMORY_OFFSET};
+use crate::config::{DIRECT_MAP_OFFSET, DIRECT_MAP_SIZE, PAGE_SIZE, PAGE_SIZE_BITS};
 
 use super::page_table::PageTableEntry;
 
@@ -54,12 +54,12 @@ impl Debug for PhyAddrRef {
 }
 impl Debug for PhyAddrMasked {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("VA masked:{:#x}", self.0))
+        f.write_fmt(format_args!("PA masked:{:#x}", self.0))
     }
 }
 impl Debug for VirAddrMasked {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("PA masked:{:#x}", self.0))
+        f.write_fmt(format_args!("VA masked:{:#x}", self.0))
     }
 }
 impl Debug for PhyAddrRefMasked {
@@ -89,14 +89,14 @@ impl_from_usize!(
     PhyAddr,
     v,
     Self(v),
-    debug_check!(v < MEMORY_SIZE, "into PhyAddrRef error: {}", v)
+    debug_check!(v < DIRECT_MAP_SIZE, "into PhyAddrRef error: {}", v)
 );
 impl_from_usize!(
     PhyAddrRef,
     v,
     Self(v),
     debug_check!(
-        v - PHYSICAL_MEMORY_OFFSET < MEMORY_SIZE,
+        v - DIRECT_MAP_OFFSET < DIRECT_MAP_SIZE,
         "into PhyAddr error: {:x}",
         v
     )
@@ -156,12 +156,12 @@ macro_rules! impl_phy_ref_translate {
     ($phy_name: ident, $phy_ref_name: ident) => {
         impl From<$phy_name> for $phy_ref_name {
             fn from(v: $phy_name) -> Self {
-                Self(usize::from(v) + PHYSICAL_MEMORY_OFFSET)
+                Self(usize::from(v) + DIRECT_MAP_OFFSET)
             }
         }
         impl From<$phy_ref_name> for $phy_name {
             fn from(v: $phy_ref_name) -> Self {
-                Self(usize::from(v) - PHYSICAL_MEMORY_OFFSET)
+                Self(usize::from(v) - DIRECT_MAP_OFFSET)
             }
         }
     };
@@ -173,7 +173,7 @@ impl_phy_ref_translate!(PhyAddrMasked, PhyAddrRefMasked);
 impl VirAddrMasked {
     pub fn indexes(&self) -> [usize; 3] {
         let v = self.vpn();
-        [v, v >> 9, v >> 18].map(|a| a & 0x1ff)
+        [v >> 18, v >> 9, v].map(|a| a & 0x1ff)
     }
     pub fn vpn(&self) -> usize {
         self.0 >> PAGE_SIZE_BITS
@@ -181,8 +181,12 @@ impl VirAddrMasked {
     pub fn sub_one_page(&self) -> Self {
         Self(self.0 - PAGE_SIZE)
     }
+    pub unsafe fn from_usize(n: usize) -> Self {
+        Self(n)
+    }
 }
 impl PhyAddrMasked {
+    /// physical page number
     pub fn ppn(&self) -> usize {
         self.0 >> PAGE_SIZE_BITS
     }
@@ -191,14 +195,18 @@ impl PhyAddrMasked {
         let ppn = satp & (1usize << 38) - 1;
         Self(ppn << 12)
     }
+    /// assume n % PAGE_SIZE
     pub unsafe fn from_usize(n: usize) -> Self {
         Self(n)
+    }
+    pub fn into_ref(&self) -> PhyAddrRefMasked {
+        PhyAddrRefMasked::from(*self)
     }
 }
 
 impl Default for PhyAddrRefMasked {
     fn default() -> Self {
-        Self(PHYSICAL_MEMORY_OFFSET)
+        Self(DIRECT_MAP_OFFSET)
     }
 }
 
@@ -206,13 +214,19 @@ impl PhyAddrRefMasked {
     pub fn get_pte_array(&self) -> &'static [PageTableEntry; 512] {
         self.get_mut()
     }
-    pub fn get_bytes_array(&self) -> &'static [u8; 4096] {
-        self.get_mut()
-    }
     pub fn get_pte_array_mut(&mut self) -> &'static mut [PageTableEntry; 512] {
         self.get_mut()
     }
+    pub fn get_bytes_array(&self) -> &'static [u8; 4096] {
+        self.get_mut()
+    }
     pub fn get_bytes_array_mut(&mut self) -> &'static mut [u8; 4096] {
+        self.get_mut()
+    }
+    pub fn get_usize_array(&self) -> &'static [usize; 512] {
+        self.get_mut()
+    }
+    pub fn get_usize_array_mut(&mut self) -> &'static mut [usize; 512] {
         self.get_mut()
     }
     pub fn get_mut<T>(&self) -> &'static mut T {

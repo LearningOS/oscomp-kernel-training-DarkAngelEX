@@ -7,10 +7,15 @@ struct Stdout;
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() {
-            sbi::console_putchar(c as usize);
+            putchar(c);
         }
         Ok(())
     }
+}
+
+#[inline(always)]
+pub fn putchar(c: char) {
+    sbi::console_putchar(c as usize);
 }
 
 pub fn print(args: fmt::Arguments) {

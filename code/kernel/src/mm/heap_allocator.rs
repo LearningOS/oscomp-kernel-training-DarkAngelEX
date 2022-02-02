@@ -1,5 +1,5 @@
 ///
-/// this module is used in 
+/// this module is used in
 
 use crate::config::KERNEL_HEAP_SIZE;
 use buddy_system_allocator::LockedHeap;

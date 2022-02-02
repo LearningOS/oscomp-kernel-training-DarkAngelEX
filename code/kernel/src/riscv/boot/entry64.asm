@@ -23,6 +23,7 @@ _start:
     csrw    satp, t0
     # csrrw   a2, satp, t0
     sfence.vma
+    # sfence.vma x0, x0
 
     # 3. jump to rust_main (absolute address)
     lui     t0, %hi(rust_main)

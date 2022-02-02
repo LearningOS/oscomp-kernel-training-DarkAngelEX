@@ -5,7 +5,7 @@ use alloc::vec::Vec;
 use core::{default::default, fmt::Debug};
 
 use crate::{
-    config::{INIT_MEMORY_END, MEMORY_KERNEL_OFFSET},
+    config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP},
     mm::address::PhyAddrRef,
     sync::mutex::SpinLock,
 };
@@ -64,11 +64,11 @@ impl Drop for FrameTrackerDpa {
 
 trait FrameAllocator {
     fn new() -> Self;
-    fn alloc(&mut self) -> Option<PhyAddrRefMasked>;
+    fn alloc(&mut self) -> Result<PhyAddrRefMasked, ()>;
     fn dealloc(&mut self, data: PhyAddrRefMasked);
     fn alloc_range(&mut self, range: &mut [PhyAddrRefMasked]) -> Result<(), ()>;
     fn dealloc_range(&mut self, range: &[PhyAddrRefMasked]);
-    fn alloc_dpa(&mut self) -> Option<PhyAddrMasked>;
+    fn alloc_dpa(&mut self) -> Result<PhyAddrMasked, ()>;
     fn dealloc_dpa(&mut self, data: PhyAddrMasked);
     fn alloc_range_dpa(&mut self, range: &mut [PhyAddrMasked]) -> Result<(), ()>;
     fn dealloc_range_dpa(&mut self, range: &[PhyAddrMasked]);
@@ -87,6 +87,11 @@ impl StackFrameAllocator {
         self.begin = begin;
         self.current = begin;
         self.end = end;
+        println!(
+            "StackFrameAllocator init range: [{:#x} - {:#x}]",
+            usize::from(begin),
+            usize::from(end)
+        );
     }
     fn alloc_range_impl<T>(
         &mut self,
@@ -121,15 +126,15 @@ impl FrameAllocator for StackFrameAllocator {
             recycled: Vec::new(),
         }
     }
-    fn alloc(&mut self) -> Option<PhyAddrRefMasked> {
+    fn alloc(&mut self) -> Result<PhyAddrRefMasked, ()> {
         if let Some(pam) = self.recycled.pop() {
-            Some(pam)
+            Ok(pam)
         } else if self.current == self.end {
-            None
+            Err(())
         } else {
             let ret = self.current;
             self.current.step();
-            Some(ret)
+            Ok(ret)
         }
     }
     fn alloc_range(&mut self, range: &mut [PhyAddrRefMasked]) -> Result<(), ()> {
@@ -151,7 +156,7 @@ impl FrameAllocator for StackFrameAllocator {
         range.iter().for_each(|&a| self.recycled.push(a));
     }
 
-    fn alloc_dpa(&mut self) -> Option<PhyAddrMasked> {
+    fn alloc_dpa(&mut self) -> Result<PhyAddrMasked, ()> {
         self.alloc().map(|a| a.into())
     }
 
@@ -180,12 +185,12 @@ pub fn init_frame_allocator() {
         fn end();
     }
     FRAME_ALLOCATOR.lock().init(
-        PhyAddrRef::from(end as usize - MEMORY_KERNEL_OFFSET).ceil(),
-        PhyAddrRef::from(INIT_MEMORY_END - MEMORY_KERNEL_OFFSET).floor(),
+        PhyAddrRef::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
+        PhyAddrRef::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
     );
 }
 
-pub fn frame_alloc() -> Option<FrameTracker> {
+pub fn frame_alloc() -> Result<FrameTracker, ()> {
     FRAME_ALLOCATOR
         .lock()
         .alloc()
@@ -204,7 +209,7 @@ pub unsafe fn frame_range_dealloc(range: &mut [PhyAddrRefMasked]) {
     FRAME_ALLOCATOR.lock().dealloc_range(range);
 }
 
-pub fn frame_alloc_dpa() -> Option<FrameTrackerDpa> {
+pub fn frame_alloc_dpa() -> Result<FrameTrackerDpa, ()> {
     FRAME_ALLOCATOR
         .lock()
         .alloc_dpa()

@@ -4,6 +4,7 @@ use core::{
 };
 
 pub mod cpu;
+pub mod csr;
 pub mod interrupt;
 pub mod sbi;
 
@@ -42,6 +43,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         fn etext();
         fn erodata();
         fn edata();
+        fn sstack();
+        fn estack();
         fn sbss();
         fn ebss();
         fn end();
@@ -57,9 +60,12 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     xprlntln(etext, "etext");
     xprlntln(erodata, "erodata");
     xprlntln(edata, "edata");
+    xprlntln(sstack, "sstack");
+    xprlntln(estack, "estack");
     xprlntln(sbss, "sbss");
     xprlntln(ebss, "ebss");
     xprlntln(end, "end");
+    println!("cur sp : {:#x}", csr::get_sp());
 
     println!("init complete! weakup the other cores.");
     AP_CAN_INIT.store(true, Ordering::Relaxed);
