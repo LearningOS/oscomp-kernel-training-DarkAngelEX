@@ -7,6 +7,7 @@ use crate::{
     config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE},
     debug::PRINT_MAP_ALL,
     mm::frame_allocator::frame_dealloc_dpa,
+    riscv::csr,
 };
 
 use super::{
@@ -91,7 +92,7 @@ impl PageTableEntry {
     pub unsafe fn dealloc(&mut self) {
         assert!(self.is_valid());
         frame_dealloc_dpa(self.phy_addr());
-        self.bits &= !(PTEFlags::V.bits as usize);
+        *self = Self::empty();
     }
 }
 
@@ -218,9 +219,9 @@ impl PageTable {
             x1_r,
             x2_l,
             x2_r,
-            pbegin.into(),
             flags,
             vbegin,
+            pbegin.into(),
         )?;
         Ok(self)
     }
@@ -233,9 +234,9 @@ impl PageTable {
         x1_r: usize,
         x2_l: usize,
         x2_r: usize,
-        pbegin: PhyAddrMasked,
         flags: PTEFlags,
-        va: VirAddrMasked,
+        mut va: VirAddrMasked,
+        mut pa: PhyAddrMasked,
     ) -> Result<(), ()> {
         // println!("level 0: {:?} {}-{}", va, x0_l, x0_r);
         for (i, pte) in &mut parm.get_pte_array_mut()[x0_l..=x0_r].iter_mut().enumerate() {
@@ -248,10 +249,7 @@ impl PageTable {
             } else {
                 (511, 511)
             };
-            let off = i * (PAGE_SIZE << (9 * 2));
-            let pam_off = unsafe { PhyAddrMasked::from_usize(usize::from(pbegin) + off) };
-            let va_off = unsafe { VirAddrMasked::from_usize(usize::from(va) + off) };
-            Self::alloc_range_1(pte, x1_l, x1_r, x2_l, x2_r, pam_off, flags, va_off)?
+            (va, pa) = Self::alloc_range_1(pte, x1_l, x1_r, x2_l, x2_r, flags, va, pa)?
         }
         Ok(())
     }
@@ -262,10 +260,10 @@ impl PageTable {
         x1_r: usize,
         x2_l: usize,
         x2_r: usize,
-        pbegin: PhyAddrMasked,
         flags: PTEFlags,
-        va: VirAddrMasked,
-    ) -> Result<(), ()> {
+        mut va: VirAddrMasked,
+        mut pa: PhyAddrMasked,
+    ) -> Result<(VirAddrMasked, PhyAddrMasked), ()> {
         // println!("level 1: {:?} {}-{}", va, x1_l, x1_r);
         for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x1_l..=x1_r]
             .iter_mut()
@@ -276,36 +274,32 @@ impl PageTable {
             }
             let x2_l = if i == 0 { x2_l } else { 0 };
             let x2_r = if i == x1_r - x1_l { x2_r } else { 511 };
-            let off = i * (PAGE_SIZE << (9 * 1));
-            let pam_off = unsafe { PhyAddrMasked::from_usize(usize::from(pbegin) + off) };
-            let va_off = unsafe { VirAddrMasked::from_usize(usize::from(va) + off) };
-            Self::alloc_range_2(pte, x2_l, x2_r, pam_off, flags, va_off);
+            (va, pa) = Self::alloc_range_2(pte, x2_l, x2_r, flags, va, pa);
         }
-        Ok(())
+        Ok((va, pa))
     }
     #[inline(always)]
     fn alloc_range_2(
         pte: &mut PageTableEntry,
         x2_l: usize,
         x2_r: usize,
-        pbegin: PhyAddrMasked,
         flags: PTEFlags,
-        va: VirAddrMasked,
-    ) {
+        mut va: VirAddrMasked,
+        mut pa: PhyAddrMasked,
+    ) -> (VirAddrMasked, PhyAddrMasked) {
         // println!("level 2: {:?}", va);
-        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x2_l..=x2_r]
-            .iter_mut()
-            .enumerate()
-        {
-            let off = i * (PAGE_SIZE << (9 * 0));
-            let pam_off = unsafe { PhyAddrMasked::from_usize(usize::from(pbegin) + off) };
-            let va_off = unsafe { VirAddrMasked::from_usize(usize::from(va) + off) };
-            assert!(!pte.is_valid(), "remap of {:?} -> {:?}", va_off, pam_off);
+        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x2_l..=x2_r] {
+            assert!(!pte.is_valid(), "remap of {:?} -> {:?}", va, pa);
             // if PRINT_MAP_ALL {
-            //     println!("{:?} -> {:?}", va_off, pam_off);
+            //     println!("{:?} -> {:?}", va, pa);
             // }
-            *pte = PageTableEntry::new(pam_off, flags | PTEFlags::V);
+            *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+            unsafe {
+                va = VirAddrMasked::from_usize(va.into_usize() + PAGE_SIZE);
+                pa = PhyAddrMasked::from_usize(pa.into_usize() + PAGE_SIZE);
+            }
         }
+        (va, pa)
     }
     /// clear [vbegin, vend)
     #[allow(unused)]
@@ -338,7 +332,6 @@ impl PageTable {
                     (511, 511)
                 };
                 Self::free_range_1(pte, x1_l, x1_r, x2_l, x2_r);
-                unsafe { pte.dealloc() }
             }
         }
     }
@@ -352,7 +345,9 @@ impl PageTable {
                 let x2_l = if i == 0 { x2_l } else { 0 };
                 let x2_r = if i == x1_r - x1_l { x2_r } else { 511 };
                 Self::free_range_2(pte, x2_l, x2_r);
-                unsafe { pte.dealloc() }
+                if x2_l == 0 && x2_r == 511 {
+                    unsafe { pte.dealloc() }
+                }
             }
         }
     }
@@ -487,4 +482,13 @@ pub unsafe fn translated_byte_buffer_force(
         start = end_va.into();
     }
     v
+}
+
+pub fn init_kernel_page_table() {
+    print!("[FTL OS]init kerne page table");
+    let page_table = new_kernel_page_table().expect("new kernel page table error.");
+    unsafe {
+        csr::set_satp(page_table.satp());
+        csr::sfence_vma_all_global();
+    }
 }

@@ -28,44 +28,19 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 
     if hartid != BOOT_HART_ID {
         while !AP_CAN_INIT.load(Ordering::Relaxed) {}
-        println!("hart {} started", hartid);
+        println!("[FTL OS]hart {} started", hartid);
         others_main(hartid); // -> !
     }
 
     // init all module there
-    println!("init FTLOS from hart {}", hartid);
+    println!("[FTL OS]start initialization from hart {}", hartid);
     clear_bss();
-    crate::mm::init();
-    println!("hello FTLOS! from hart {}", hartid);
-    extern "C" {
-        fn boot_page_table_sv39();
-        fn start();
-        fn etext();
-        fn erodata();
-        fn edata();
-        fn sstack();
-        fn estack();
-        fn sbss();
-        fn ebss();
-        fn end();
-    }
-    fn xprlntln(a: unsafe extern "C" fn(), name: &str) {
-        let s = a as usize;
-        println!("{:7}: {:#x}", name, s);
-    }
-    println!("tree: {}", device_tree_paddr);
+    show_seg();
 
-    xprlntln(boot_page_table_sv39, "boot_page_table_sv39");
-    xprlntln(start, "start");
-    xprlntln(etext, "etext");
-    xprlntln(erodata, "erodata");
-    xprlntln(edata, "edata");
-    xprlntln(sstack, "sstack");
-    xprlntln(estack, "estack");
-    xprlntln(sbss, "sbss");
-    xprlntln(ebss, "ebss");
-    xprlntln(end, "end");
-    println!("cur sp : {:#x}", csr::get_sp());
+    crate::mm::init();
+    println!("[FTL OS]hello! from hart {}", hartid);
+
+    println!("tree: {}", device_tree_paddr);
 
     println!("init complete! weakup the other cores.");
     AP_CAN_INIT.store(true, Ordering::Relaxed);
@@ -84,7 +59,33 @@ fn clear_bss() {
     (sbss as usize..ebss as usize).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
 }
 
-fn xget(a: usize) -> &'static mut usize {
-    let a = a as *mut usize;
-    unsafe { &mut *a }
+fn show_seg() {
+    extern "C" {
+        fn boot_page_table_sv39();
+        fn start();
+        fn etext();
+        fn erodata();
+        fn edata();
+        fn sstack();
+        fn estack();
+        fn sbss();
+        fn ebss();
+        fn end();
+    }
+    fn xprlntln(a: unsafe extern "C" fn(), name: &str) {
+        let s = a as usize;
+        println!("    {:7}: {:#x}", name, s);
+    }
+    println!("[FTL OS]show segment:");
+    xprlntln(boot_page_table_sv39, "boot_page_table_sv39");
+    xprlntln(start, "start");
+    xprlntln(etext, "etext");
+    xprlntln(erodata, "erodata");
+    xprlntln(edata, "edata");
+    xprlntln(sstack, "sstack");
+    xprlntln(estack, "estack");
+    xprlntln(sbss, "sbss");
+    xprlntln(ebss, "ebss");
+    xprlntln(end, "end");
+    println!("    cur sp : {:#x}", csr::get_sp());
 }

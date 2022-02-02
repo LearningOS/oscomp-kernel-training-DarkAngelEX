@@ -1,4 +1,4 @@
-pub const PRINT_MAP_ALL: bool = true;
+pub const PRINT_MAP_ALL: bool = false;
 
 pub const _DEBUG: bool = true;
 

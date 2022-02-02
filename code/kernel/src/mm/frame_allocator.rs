@@ -184,6 +184,7 @@ pub fn init_frame_allocator() {
     extern "C" {
         fn end();
     }
+    println!("[FTL OS]init_frame_allocator");
     FRAME_ALLOCATOR.lock().init(
         PhyAddrRef::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
         PhyAddrRef::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),

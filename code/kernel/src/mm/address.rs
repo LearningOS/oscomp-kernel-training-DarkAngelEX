@@ -184,6 +184,9 @@ impl VirAddrMasked {
     pub unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
+    pub fn into_usize(&self) -> usize {
+        self.0
+    }
 }
 impl PhyAddrMasked {
     /// physical page number
@@ -201,6 +204,9 @@ impl PhyAddrMasked {
     }
     pub fn into_ref(&self) -> PhyAddrRefMasked {
         PhyAddrRefMasked::from(*self)
+    }
+    pub fn into_usize(&self) -> usize {
+        self.0
     }
 }
 

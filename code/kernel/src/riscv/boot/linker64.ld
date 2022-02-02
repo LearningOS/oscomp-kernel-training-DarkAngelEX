@@ -17,6 +17,8 @@ SECTIONS
     .text : {
         stext = .;
         *(.text.entry)
+        strampoline = .;
+        *(.text.trampoline)
         _copy_user_start = .;
         *(.text.copy_user)
         _copy_user_end = .;
