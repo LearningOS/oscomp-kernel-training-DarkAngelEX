@@ -6,7 +6,7 @@ use core::{default::default, fmt::Debug};
 
 use crate::{
     config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP},
-    mm::address::PhyAddrRef,
+    memory::address::PhyAddrRef,
     sync::mutex::SpinLock,
 };
 
@@ -63,7 +63,6 @@ impl Drop for FrameTrackerDpa {
 }
 
 trait FrameAllocator {
-    fn new() -> Self;
     fn alloc(&mut self) -> Result<PhyAddrRefMasked, ()>;
     fn dealloc(&mut self, data: PhyAddrRefMasked);
     fn alloc_range(&mut self, range: &mut [PhyAddrRefMasked]) -> Result<(), ()>;
@@ -82,6 +81,14 @@ pub struct StackFrameAllocator {
 }
 
 impl StackFrameAllocator {
+    const fn new() -> Self {
+        Self {
+            begin: unsafe { PhyAddrRefMasked::from_usize(0) },
+            current: unsafe { PhyAddrRefMasked::from_usize(0) },
+            end: unsafe { PhyAddrRefMasked::from_usize(0) },
+            recycled: Vec::new(),
+        }
+    }
     pub fn init(&mut self, begin: PhyAddrRefMasked, end: PhyAddrRefMasked) {
         assert!(begin < end);
         self.begin = begin;
@@ -118,14 +125,6 @@ impl StackFrameAllocator {
     }
 }
 impl FrameAllocator for StackFrameAllocator {
-    fn new() -> Self {
-        Self {
-            begin: default(),
-            current: default(),
-            end: default(),
-            recycled: Vec::new(),
-        }
-    }
     fn alloc(&mut self) -> Result<PhyAddrRefMasked, ()> {
         if let Some(pam) = self.recycled.pop() {
             Ok(pam)
@@ -175,10 +174,7 @@ impl FrameAllocator for StackFrameAllocator {
 
 type FrameAllocatorImpl = StackFrameAllocator;
 
-lazy_static! {
-    pub static ref FRAME_ALLOCATOR: SpinLock<FrameAllocatorImpl> =
-        SpinLock::new(FrameAllocatorImpl::new());
-}
+pub static FRAME_ALLOCATOR: SpinLock<FrameAllocatorImpl> = SpinLock::new(FrameAllocatorImpl::new());
 
 pub fn init_frame_allocator() {
     extern "C" {
@@ -229,20 +225,20 @@ pub unsafe fn frame_range_dealloc_dpa(range: &mut [PhyAddrMasked]) {
     FRAME_ALLOCATOR.lock().dealloc_range_dpa(range);
 }
 
-#[allow(unused)]
-pub fn frame_allocator_test() {
-    let mut v: Vec<FrameTracker> = Vec::new();
-    for i in 0..5 {
-        let frame = frame_alloc().unwrap();
-        println!("{:?}", frame);
-        v.push(frame);
-    }
-    v.clear();
-    for i in 0..5 {
-        let frame = frame_alloc().unwrap();
-        println!("{:?}", frame);
-        v.push(frame);
-    }
-    drop(v);
-    println!("frame_allocator_test passed!");
-}
+// #[allow(unused)]
+// pub fn frame_allocator_test() {
+//     let mut v: Vec<FrameTracker> = Vec::new();
+//     for i in 0..5 {
+//         let frame = frame_alloc().unwrap();
+//         println!("{:?}", frame);
+//         v.push(frame);
+//     }
+//     v.clear();
+//     for i in 0..5 {
+//         let frame = frame_alloc().unwrap();
+//         println!("{:?}", frame);
+//         v.push(frame);
+//     }
+//     drop(v);
+//     println!("frame_allocator_test passed!");
+// }

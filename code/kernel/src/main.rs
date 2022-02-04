@@ -6,6 +6,7 @@
 #![feature(const_fn_trait_bound)]
 #![feature(default_free_fn)]
 #![feature(bench_black_box)]
+#![feature(split_array)]
 
 extern crate alloc;
 extern crate bitflags;
@@ -19,12 +20,12 @@ mod console;
 #[macro_use]
 mod debug;
 mod lang_items;
-mod mm;
+mod loader;
+mod memory;
 mod process;
 mod riscv;
 mod sync;
 mod syscall;
-mod task;
 mod trap;
 
 global_asm!(include_str!("link_app.S"));

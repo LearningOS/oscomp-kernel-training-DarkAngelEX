@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(dead_code)]
 
 pub const USER_STACK_SIZE: usize = 4096 * 2; // 4096 * 2
 pub const KERNEL_STACK_SIZE: usize = 4096 * 2; // 4096 * 2

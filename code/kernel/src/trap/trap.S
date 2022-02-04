@@ -52,9 +52,10 @@ __trap_entry:
     // set kernel_sp
     ld sp, 35*8(sp)
     // load trap_hander
-    ld t3, 36*8(sp)
-
-    call t3 // call trap_hander !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # ld t3, 36*8(sp)
+    // call trap_hander !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    # call t3
+    call trap_hander
 __trap_return:
     // return from same place.
     csrw sscratch, a0

@@ -7,8 +7,5 @@ extern crate user_lib;
 #[no_mangle]
 pub fn main() -> i32 {
     println!("Hello world from user mode program!");
-    for i in 0..10 {
-        println!("output: {}", i);
-    }
     0
 }

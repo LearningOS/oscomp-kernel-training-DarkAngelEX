@@ -3,6 +3,8 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
+use crate::{loader, memory};
+
 pub mod cpu;
 pub mod csr;
 pub mod interrupt;
@@ -37,10 +39,12 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     clear_bss();
     show_seg();
 
-    crate::mm::init();
-    println!("[FTL OS]hello! from hart {}", hartid);
+    crate::memory::init();
 
-    println!("tree: {}", device_tree_paddr);
+    println!("[FTL OS]hello! from hart {}", hartid);
+    loader::list_apps();
+
+    // println!("tree: {}", device_tree_paddr);
 
     println!("init complete! weakup the other cores.");
     AP_CAN_INIT.store(true, Ordering::Relaxed);
@@ -48,6 +52,9 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 }
 
 fn others_main(hartid: usize) -> ! {
+    println!("[FTL OS]hart {} init by global satp", hartid);
+    unsafe { memory::set_satp_by_global() };
+    println!("[FTL OS]hart {} init complete", hartid);
     crate::kmain();
 }
 

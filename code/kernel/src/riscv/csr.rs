@@ -1,4 +1,4 @@
-#![allow(unused)]
+#![allow(dead_code)]
 use core::{arch::asm, mem::MaybeUninit};
 
 pub unsafe fn set_satp(satp: usize) {

@@ -1,12 +1,15 @@
+// #![allow(dead_code)]
 use core::fmt::Debug;
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
 
 use crate::{
-    config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE},
+    config::{
+        DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
+    },
     debug::PRINT_MAP_ALL,
-    mm::frame_allocator::frame_dealloc_dpa,
+    memory::frame_allocator::frame_dealloc_dpa,
     riscv::csr,
 };
 
@@ -14,6 +17,8 @@ use super::{
     address::{PhyAddr, PhyAddrMasked, PhyAddrRefMasked, StepByOne, VirAddr, VirAddrMasked},
     frame_allocator::{frame_alloc_dpa, FrameTrackerDpa},
 };
+
+static mut KERNEL_GLOBAL: Option<PageTable> = None;
 
 bitflags! {
     // riscv-privileged 4.3.1 P87
@@ -57,6 +62,14 @@ impl PageTableEntry {
     pub fn is_valid(&self) -> bool {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
     }
+    pub fn is_directory(&self) -> bool {
+        self.is_valid()
+            && (self.flags() & (PTEFlags::R | PTEFlags::W | PTEFlags::X)) == PTEFlags::empty()
+    }
+    pub fn is_leaf(&self) -> bool {
+        self.is_valid()
+            && (self.flags() & (PTEFlags::R | PTEFlags::W | PTEFlags::X)) != PTEFlags::empty()
+    }
     pub fn readable(&self) -> bool {
         (self.flags() & PTEFlags::R) != PTEFlags::empty()
     }
@@ -78,11 +91,19 @@ impl PageTableEntry {
     pub fn reserved_bit(&self) -> usize {
         self.bits & ((1usize << 10 - 1) << 54)
     }
+    pub fn alloc_leaf(&mut self, pam: PhyAddrMasked, flags: PTEFlags) {
+        assert!(!self.is_valid(), "try alloc to a valid pte");
+        *self = Self::new(pam, flags | PTEFlags::V);
+    }
+    pub fn alloc_directory(&mut self, pam: PhyAddrMasked, flags: PTEFlags) {
+        assert!(!self.is_valid(), "try alloc to a valid pte");
+        *self = Self::new(pam, flags | PTEFlags::V);
+    }
     pub fn alloc(&mut self, flags: PTEFlags) -> Result<(), ()> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         let pam = frame_alloc_dpa()?.consume();
         PhyAddrRefMasked::from(pam)
-            .get_pte_array_mut()
+            .as_pte_array_mut()
             .iter_mut()
             .for_each(|x| *x = PageTableEntry::empty());
         *self = Self::new(pam, flags | PTEFlags::V);
@@ -102,17 +123,37 @@ impl Debug for PageTableEntry {
     }
 }
 
-pub struct PageTable {
+struct PageTable {
     satp: usize, // [63:60 MODE, 8 is SV39][59:44 ASID][43:0 PPN]
 }
 
 // /// Assume that it won't oom when creating/mapping.
 impl PageTable {
-    // asid set to zero must be success.
-    pub fn new(asid: usize) -> Result<Self, ()> {
-        let ppn = frame_alloc_dpa()?.consume().ppn();
+    /// this function will not set all empty.
+    ///
+    /// asid set to zero must be success.
+    pub fn new_empty(asid: usize) -> Result<Self, ()> {
+        let phy_ptr = frame_alloc_dpa()?.consume();
+        let arr = phy_ptr.into_ref().as_pte_array_mut();
+        arr.iter_mut()
+            .for_each(|pte| *pte = PageTableEntry::empty());
         Ok(PageTable {
-            satp: 8usize << 60 | (asid & 0xffff) << 44 | ppn,
+            satp: 8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn(),
+        })
+    }
+    pub fn from_global(asid: usize) -> Result<Self, ()> {
+        let phy_ptr = frame_alloc_dpa()?.consume();
+        let arr = phy_ptr.into_ref().as_pte_array_mut();
+        let src = unsafe { KERNEL_GLOBAL.as_ref().unwrap_unchecked() }
+            .root_pam()
+            .into_ref()
+            .as_pte_array();
+        arr[..256].copy_from_slice(&src[..256]);
+        arr[256..]
+            .iter_mut()
+            .for_each(|pte| *pte = PageTableEntry::empty());
+        Ok(PageTable {
+            satp: 8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn(),
         })
     }
     pub fn satp(&self) -> usize {
@@ -121,8 +162,11 @@ impl PageTable {
     pub fn set_asid(&mut self, asid: usize) {
         self.satp = (self.satp & !(0xffff << 44)) | (asid & 0xffff) << 44
     }
+    pub fn set_satp(&mut self, satp: usize) {
+        self.satp = satp
+    }
     /// Temporarily used to get arguments from user space.
-    pub fn from_satp(satp: usize) -> Self {
+    pub const fn from_satp(satp: usize) -> Self {
         Self { satp }
     }
     fn root_pam(&self) -> PhyAddrMasked {
@@ -137,7 +181,7 @@ impl PageTable {
         let px = [&mut alloc_0, &mut alloc_1];
 
         for (i, &idx) in idxs.iter().enumerate() {
-            let pte = &mut parm.get_pte_array_mut()[idx];
+            let pte = &mut parm.as_pte_array_mut()[idx];
             if i == 2 {
                 core::mem::forget(alloc_0);
                 core::mem::forget(alloc_1);
@@ -159,7 +203,7 @@ impl PageTable {
         let idxs = vam.indexes();
         let mut parm: PhyAddrRefMasked = self.root_pam().into();
         for (i, &idx) in idxs.iter().enumerate() {
-            let pte = &mut parm.get_pte_array_mut()[idx];
+            let pte = &mut parm.as_pte_array_mut()[idx];
             if i == 2 {
                 return Some(pte);
             }
@@ -171,20 +215,7 @@ impl PageTable {
         }
         unreachable!()
     }
-    /// PhyAddrRefMasked
-    ///
-    /// assume memory enough
-    pub fn map_range_with_direct(
-        &mut self,
-        vbegin: VirAddrMasked,
-        pbegin: PhyAddrRefMasked,
-        size: usize,
-        flags: PTEFlags,
-    ) -> &mut Self {
-        self.map_range(vbegin, pbegin, size, flags).unwrap();
-        let xvbegin = unsafe { VirAddrMasked::from_usize(usize::from(pbegin)) };
-        self.map_range(xvbegin, pbegin, size, flags).unwrap()
-    }
+
     pub fn map_range(
         &mut self,
         vbegin: VirAddrMasked,
@@ -198,8 +229,8 @@ impl PageTable {
         assert!(size % PAGE_SIZE == 0);
         let parm: PhyAddrRefMasked = self.root_pam().into();
         let vend = unsafe { VirAddrMasked::from_usize(usize::from(vbegin) + size) };
-        let [x0_l, x1_l, x2_l] = vbegin.indexes();
-        let [x0_r, x1_r, x2_r] = vend.sub_one_page().indexes();
+        let l = &vbegin.indexes();
+        let r = &vend.sub_one_page().indexes();
         if PRINT_MAP_ALL {
             println!(
                 "map_range: {:#x} - {:#x} size = {}",
@@ -207,91 +238,117 @@ impl PageTable {
                 usize::from(vend),
                 size
             );
-            println!("l:[{}, {}, {}]", x0_l, x1_l, x2_l);
-            println!("r:[{}, {}, {}]", x0_r, x1_r, x2_r);
+            println!("l:{:?}", l);
+            println!("r:{:?}", r);
         }
         // clear 12 + 9 * 3 = 39 bit
-        Self::alloc_range_0(
-            parm,
-            x0_l,
-            x0_r,
-            x1_l,
-            x1_r,
-            x2_l,
-            x2_r,
-            flags,
-            vbegin,
-            pbegin.into(),
-        )?;
+        Self::map_range_0(parm, l, r, flags, vbegin, pbegin.into())?;
         Ok(self)
     }
     #[inline(always)]
-    fn alloc_range_0(
-        mut parm: PhyAddrRefMasked,
-        x0_l: usize,
-        x0_r: usize,
-        x1_l: usize,
-        x1_r: usize,
-        x2_l: usize,
-        x2_r: usize,
+    fn next_lr<'a, 'b, const N1: usize, const N: usize>(
+        l: &'a [usize; N1],
+        r: &'b [usize; N1],
+        xbegin: &'a [usize; N],
+        xend: &'b [usize; N],
+        i: usize,
+    ) -> (&'a [usize; N], &'b [usize; N], bool) {
+        let xl = if i == 0 {
+            l.rsplit_array_ref::<N>().1
+        } else {
+            xbegin
+        };
+        let xr = if i == r[0] - l[0] {
+            r.rsplit_array_ref::<N>().1
+        } else {
+            xend
+        };
+        (xl, xr, xl.eq(xbegin) && xr.eq(xend))
+    }
+    #[inline(always)]
+    fn map_range_0(
+        parm: PhyAddrRefMasked,
+        l: &[usize; 3],
+        r: &[usize; 3],
         flags: PTEFlags,
         mut va: VirAddrMasked,
         mut pa: PhyAddrMasked,
     ) -> Result<(), ()> {
-        // println!("level 0: {:?} {}-{}", va, x0_l, x0_r);
-        for (i, pte) in &mut parm.get_pte_array_mut()[x0_l..=x0_r].iter_mut().enumerate() {
-            if !pte.is_valid() {
-                pte.alloc(PTEFlags::V)?;
-            }
-            let (x1_l, x2_l) = if i == 0 { (x1_l, x2_l) } else { (0, 0) };
-            let (x1_r, x2_r) = if i == x0_r - x0_l {
-                (x1_r, x2_r)
+        // println!("level 0: {:?} {:?}-{:?}", va, l, r);
+        let xbegin = &[0, 0];
+        let xend = &[511, 511];
+        for (i, pte) in &mut parm.as_pte_array_mut()[l[0]..=r[0]].iter_mut().enumerate() {
+            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
+            if full {
+                // 1GB page table
+                assert!(!pte.is_valid(), "1GB pagetable: remap");
+                debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 2)) == 0);
+                // if true || PRINT_MAP_ALL {
+                //     println!("map 1GB {:?} -> {:?}", va, pa);
+                // }
+                *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                unsafe {
+                    va = VirAddrMasked::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 2));
+                    pa = PhyAddrMasked::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 2));
+                }
             } else {
-                (511, 511)
-            };
-            (va, pa) = Self::alloc_range_1(pte, x1_l, x1_r, x2_l, x2_r, flags, va, pa)?
+                if !pte.is_valid() {
+                    pte.alloc(PTEFlags::V)?;
+                }
+                (va, pa) = Self::map_range_1(pte, l, r, flags, va, pa)?
+            }
         }
         Ok(())
     }
     #[inline(always)]
-    fn alloc_range_1(
+    fn map_range_1(
         pte: &mut PageTableEntry,
-        x1_l: usize,
-        x1_r: usize,
-        x2_l: usize,
-        x2_r: usize,
+        l: &[usize; 2],
+        r: &[usize; 2],
         flags: PTEFlags,
         mut va: VirAddrMasked,
         mut pa: PhyAddrMasked,
     ) -> Result<(VirAddrMasked, PhyAddrMasked), ()> {
-        // println!("level 1: {:?} {}-{}", va, x1_l, x1_r);
-        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x1_l..=x1_r]
+        // println!("level 1: {:?} {:?}-{:?}", va, l, r);
+        let xbegin = &[0];
+        let xend = &[511];
+        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]]
             .iter_mut()
             .enumerate()
         {
-            if !pte.is_valid() {
-                pte.alloc(PTEFlags::V)?;
+            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
+            if full {
+                // 1MB page table
+                assert!(!pte.is_valid(), "1MB pagetable: remap");
+                debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 1)) == 0);
+                *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                unsafe {
+                    va = VirAddrMasked::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 1));
+                    pa = PhyAddrMasked::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 1));
+                }
+            } else {
+                if !pte.is_valid() {
+                    pte.alloc(PTEFlags::V)?;
+                }
+                (va, pa) = Self::map_range_2(pte, l, r, flags, va, pa);
             }
-            let x2_l = if i == 0 { x2_l } else { 0 };
-            let x2_r = if i == x1_r - x1_l { x2_r } else { 511 };
-            (va, pa) = Self::alloc_range_2(pte, x2_l, x2_r, flags, va, pa);
         }
         Ok((va, pa))
     }
     #[inline(always)]
-    fn alloc_range_2(
+    fn map_range_2(
         pte: &mut PageTableEntry,
-        x2_l: usize,
-        x2_r: usize,
+        l: &[usize; 1],
+        r: &[usize; 1],
         flags: PTEFlags,
         mut va: VirAddrMasked,
         mut pa: PhyAddrMasked,
     ) -> (VirAddrMasked, PhyAddrMasked) {
-        // println!("level 2: {:?}", va);
-        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x2_l..=x2_r] {
+        // println!("level 2: {:?} {:?}-{:?}", va, l, r);
+        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]] {
             assert!(!pte.is_valid(), "remap of {:?} -> {:?}", va, pa);
-            // if PRINT_MAP_ALL {
-            //     println!("{:?} -> {:?}", va, pa);
+            // if true || PRINT_MAP_ALL {
+            //     println!("map: {:?} -> {:?}", va, pa);
             // }
             *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
             unsafe {
@@ -302,65 +359,57 @@ impl PageTable {
         (va, pa)
     }
     /// clear [vbegin, vend)
-    #[allow(unused)]
     pub fn unmap_range(&mut self, vbegin: VirAddrMasked, vend: VirAddrMasked) {
         assert!(vbegin <= vend, "free_range vbegin <= vend");
         if vbegin == vend {
             return;
         }
         let parm: PhyAddrRefMasked = self.root_pam().into();
-        let [x0_l, x1_l, x2_l] = vbegin.indexes();
-        let [x0_r, x1_r, x2_r] = vend.sub_one_page().indexes();
-        Self::free_range_0(parm, x0_l, x0_r, x1_l, x1_r, x2_l, x2_r);
+        let l = &vbegin.indexes();
+        let r = &vend.sub_one_page().indexes();
+        Self::unmap_range_0(parm, l, r);
     }
-    #[inline(always)]
-    fn free_range_0(
-        mut parm: PhyAddrRefMasked,
-        x0_l: usize,
-        x0_r: usize,
-        x1_l: usize,
-        x1_r: usize,
-        x2_l: usize,
-        x2_r: usize,
-    ) {
-        for (i, pte) in &mut parm.get_pte_array_mut()[x0_l..=x0_r].iter_mut().enumerate() {
-            if pte.is_valid() {
-                let (x1_l, x2_l) = if i == 0 { (x1_l, x2_l) } else { (0, 0) };
-                let (x1_r, x2_r) = if i == x0_r - x0_l {
-                    (x1_r, x2_r)
-                } else {
-                    (511, 511)
-                };
-                Self::free_range_1(pte, x1_l, x1_r, x2_l, x2_r);
+    fn unmap_range_0(parm: PhyAddrRefMasked, l: &[usize; 3], r: &[usize; 3]) {
+        let xbegin = &[0, 0];
+        let xend = &[511, 511];
+        for (i, pte) in &mut parm.as_pte_array_mut()[l[0]..=r[0]].iter_mut().enumerate() {
+            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
+            if full {
+                // 1GB page table
+                debug_check!(pte.is_leaf());
+                *pte = PageTableEntry::empty();
+            } else {
+                debug_check!(pte.is_directory());
+                Self::unmap_range_1(pte, l, r);
             }
         }
     }
     #[inline(always)]
-    fn free_range_1(pte: &mut PageTableEntry, x1_l: usize, x1_r: usize, x2_l: usize, x2_r: usize) {
-        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x1_l..=x1_r]
+    fn unmap_range_1(pte: &mut PageTableEntry, l: &[usize; 2], r: &[usize; 2]) {
+        let xbegin = &[0];
+        let xend = &[511];
+        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]]
             .iter_mut()
             .enumerate()
         {
-            if pte.is_valid() {
-                let x2_l = if i == 0 { x2_l } else { 0 };
-                let x2_r = if i == x1_r - x1_l { x2_r } else { 511 };
-                Self::free_range_2(pte, x2_l, x2_r);
-                if x2_l == 0 && x2_r == 511 {
-                    unsafe { pte.dealloc() }
-                }
+            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
+            if full {
+                debug_check!(pte.is_leaf());
+                *pte = PageTableEntry::empty();
+            } else {
+                debug_check!(pte.is_directory());
+                Self::unmap_range_2(pte, l, r);
             }
         }
     }
     #[inline(always)]
-    fn free_range_2(pte: &mut PageTableEntry, x2_l: usize, x2_r: usize) {
-        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).get_pte_array_mut()[x2_l..=x2_r] {
-            if pte.is_valid() {
-                unsafe { pte.dealloc() }
-            }
+    fn unmap_range_2(pte: &mut PageTableEntry, l: &[usize; 1], r: &[usize; 1]) {
+        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]] {
+            debug_check!(pte.is_leaf());
+            *pte = PageTableEntry::empty();
         }
     }
     /// if return Err, frame exhausted.
-    #[allow(unused)]
     pub fn map(
         &mut self,
         vam: VirAddrMasked,
@@ -372,7 +421,6 @@ impl PageTable {
         *pte = PageTableEntry::new(parm.into(), flags | PTEFlags::V);
         Ok(())
     }
-    #[allow(unused)]
     pub fn unmap(&mut self, vam: VirAddrMasked) {
         let pte = self.find_pte(vam).expect("unmap invalid virtual address!");
         assert!(pte.is_valid(), "pte {:?} is invalid before unmapping", pte);
@@ -387,8 +435,8 @@ impl PageTable {
             .unwrap_or_else(|| panic!("translate_uncheck: invalid pte from {:?}", vam))
     }
     pub fn copy_kernel_from(&mut self, src: &Self) {
-        let src = src.root_pam().into_ref().get_pte_array();
-        let dst = self.root_pam().into_ref().get_pte_array_mut();
+        let src = src.root_pam().into_ref().as_pte_array();
+        let dst = self.root_pam().into_ref().as_pte_array_mut();
         dst[0..256].copy_from_slice(&src[0..256]);
         // dst.array_chunks_mut::<256>();
     }
@@ -397,7 +445,7 @@ impl PageTable {
 /// new a kernel page table
 /// set asid to 0.
 /// if return None, means no enough memory.
-pub fn new_kernel_page_table() -> Result<PageTable, ()> {
+fn new_kernel_page_table() -> Result<PageTable, ()> {
     extern "C" {
         // kernel segment ALIGN 4K
         fn stext();
@@ -417,7 +465,7 @@ pub fn new_kernel_page_table() -> Result<PageTable, ()> {
         // end ALIGN 4K
         fn end();
     }
-    let mut page_table = PageTable::new(0)?;
+    let mut page_table = PageTable::new_empty(0)?;
     fn get_usize_va(va: usize) -> VirAddrMasked {
         unsafe { VirAddrMasked::from_usize(va) }
     }
@@ -427,35 +475,56 @@ pub fn new_kernel_page_table() -> Result<PageTable, ()> {
     fn get_va(xva: usize) -> VirAddrMasked {
         get_usize_va(xva)
     }
-    fn get_pa(xva: usize) -> PhyAddrRefMasked {
+    fn pa_from_kernel(xva: usize) -> PhyAddrRefMasked {
         get_usize_pa(xva - KERNEL_OFFSET_FROM_DIRECT_MAP)
+    }
+    fn pa_from_dirref(xva: usize) -> PhyAddrRefMasked {
+        get_usize_pa(xva)
     }
     fn get_size(b: usize, e: usize) -> usize {
         assert!(b % PAGE_SIZE == 0);
         assert!(e % PAGE_SIZE == 0);
         e.checked_sub(b).unwrap()
     }
-    fn xmap_impl(pt: &mut PageTable, b: usize, e: usize, flags: PTEFlags) {
-        pt.map_range_with_direct(get_va(b), get_pa(b), get_size(b, e), flags);
+    fn xmap_fn(
+        pt: &mut PageTable,
+        b: usize,
+        e: usize,
+        flags: PTEFlags,
+        pa_fn: impl FnOnce(usize) -> PhyAddrRefMasked,
+    ) {
+        pt.map_range(get_va(b), pa_fn(b), get_size(b, e), flags)
+            .unwrap();
     }
-    fn xmap(
+    fn xmap_impl_kernel(pt: &mut PageTable, b: usize, e: usize, flags: PTEFlags) {
+        pt.map_range(get_va(b), pa_from_kernel(b), get_size(b, e), flags)
+            .unwrap();
+    }
+    fn xmap_impl_dirref(pt: &mut PageTable, b: usize, e: usize, flags: PTEFlags) {
+        pt.map_range(get_va(b), pa_from_dirref(b), get_size(b, e), flags)
+            .unwrap();
+    }
+    fn xmap_kernel(
         pt: &mut PageTable,
         b: unsafe extern "C" fn(),
         e: unsafe extern "C" fn(),
         flags: PTEFlags,
     ) {
-        xmap_impl(pt, b as usize, e as usize, flags);
+        xmap_impl_kernel(pt, b as usize, e as usize, flags);
     }
     let execable = PTEFlags::G | PTEFlags::R | PTEFlags::X;
     let readonly = PTEFlags::G | PTEFlags::R;
     let writable = PTEFlags::G | PTEFlags::R | PTEFlags::W;
-    xmap(&mut page_table, stext, etext, execable);
-    xmap(&mut page_table, srodata, erodata, readonly);
-    xmap(&mut page_table, sdata, edata, writable);
-    xmap(&mut page_table, sstack, estack, writable);
-    xmap(&mut page_table, sbss, ebss, writable);
+    xmap_kernel(&mut page_table, stext, etext, execable);
+    xmap_kernel(&mut page_table, srodata, erodata, readonly);
+    xmap_kernel(&mut page_table, sdata, edata, writable);
+    xmap_kernel(&mut page_table, sstack, estack, writable);
+    xmap_kernel(&mut page_table, sbss, ebss, writable);
     // memory used in init frame.
-    xmap_impl(&mut page_table, end as usize, INIT_MEMORY_END, writable);
+    xmap_impl_kernel(&mut page_table, end as usize, INIT_MEMORY_END, writable);
+    // direct map
+    println!("map DIRECT_MAP");
+    xmap_impl_dirref(&mut page_table, DIRECT_MAP_BEGIN, DIRECT_MAP_END, writable);
     Ok(page_table)
 }
 
@@ -471,24 +540,83 @@ pub unsafe fn translated_byte_buffer_force(
     while start < end {
         let start_va = VirAddr::from(start);
         let mut vam = start_va.floor();
-        let mut parm: PhyAddrRefMasked = page_table.translate_uncheck(vam).phy_addr().into(); // unsafe
+        let parm: PhyAddrRefMasked = page_table.translate_uncheck(vam).phy_addr().into(); // unsafe
         vam.step();
         let end_va = VirAddr::from(vam).min(VirAddr::from(end));
         if end_va.page_offset() == 0 {
-            v.push(&mut parm.get_bytes_array_mut()[start_va.page_offset()..]);
+            v.push(&mut parm.as_bytes_array_mut()[start_va.page_offset()..]);
         } else {
-            v.push(&mut parm.get_bytes_array_mut()[start_va.page_offset()..end_va.page_offset()]);
+            v.push(&mut parm.as_bytes_array_mut()[start_va.page_offset()..end_va.page_offset()]);
         }
         start = end_va.into();
     }
     v
 }
 
-pub fn init_kernel_page_table() {
-    print!("[FTL OS]init kerne page table");
-    let page_table = new_kernel_page_table().expect("new kernel page table error.");
+fn direct_map_test() {
     unsafe {
-        csr::set_satp(page_table.satp());
+        println!("direct_map_test");
+        let a = INIT_MEMORY_END - 8;
+        let ptr = a as *mut usize;
+        let xptr = PhyAddrRefMasked::from_usize(ptr as usize - KERNEL_OFFSET_FROM_DIRECT_MAP);
+        *xptr.get_mut() = 1234usize;
+        assert_eq!(*ptr, 1234);
+    };
+}
+
+pub fn init_kernel_page_table() {
+    println!("[FTL OS]init kerne page table");
+    let new_satp = new_kernel_page_table().expect("new kernel page table error.");
+    let satp = new_satp.satp();
+    unsafe {
+        assert!(
+            KERNEL_GLOBAL.is_none(),
+            "KERNEL_GLOBAL has been initialized"
+        );
+        KERNEL_GLOBAL = Some(new_satp);
+        csr::set_satp(satp);
         csr::sfence_vma_all_global();
+        debug_run!(direct_map_test());
+    }
+}
+
+/// used by another hart
+pub unsafe fn set_satp_by_global() {
+    csr::set_satp(
+        KERNEL_GLOBAL
+            .as_ref()
+            .expect("KERNEL_GLOBAL has not been initialized")
+            .satp(),
+    );
+    csr::sfence_vma_all_global();
+}
+
+/// auto free root space.
+pub struct UserPageTable {
+    page_table: PageTable,
+}
+
+impl UserPageTable {
+    pub fn from_global(asid: usize) -> Result<Self, ()> {
+        Ok(Self {
+            page_table: PageTable::from_global(asid)?,
+        })
+    }
+    pub fn satp(&self) -> usize {
+        self.page_table.satp()
+    }
+    pub fn check_user_empty(&self) {
+        // if error happen, panic.
+        todo!()
+    }
+}
+
+impl Drop for UserPageTable {
+    fn drop(&mut self) {
+        debug_run! {self.check_user_empty()};
+        let ptr = self.page_table.root_pam();
+        unsafe {
+            frame_dealloc_dpa(ptr);
+        }
     }
 }

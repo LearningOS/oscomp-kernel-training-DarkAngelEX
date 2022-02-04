@@ -181,10 +181,10 @@ impl VirAddrMasked {
     pub fn sub_one_page(&self) -> Self {
         Self(self.0 - PAGE_SIZE)
     }
-    pub unsafe fn from_usize(n: usize) -> Self {
+    pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
-    pub fn into_usize(&self) -> usize {
+    pub const fn into_usize(&self) -> usize {
         self.0
     }
 }
@@ -199,13 +199,13 @@ impl PhyAddrMasked {
         Self(ppn << 12)
     }
     /// assume n % PAGE_SIZE
-    pub unsafe fn from_usize(n: usize) -> Self {
+    pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
     pub fn into_ref(&self) -> PhyAddrRefMasked {
         PhyAddrRefMasked::from(*self)
     }
-    pub fn into_usize(&self) -> usize {
+    pub const fn into_usize(&self) -> usize {
         self.0
     }
 }
@@ -217,33 +217,36 @@ impl Default for PhyAddrRefMasked {
 }
 
 impl PhyAddrRefMasked {
-    pub fn get_pte_array(&self) -> &'static [PageTableEntry; 512] {
+    pub fn as_pte_array(&self) -> &'static [PageTableEntry; 512] {
         self.get_mut()
     }
-    pub fn get_pte_array_mut(&mut self) -> &'static mut [PageTableEntry; 512] {
+    pub fn as_pte_array_mut(&self) -> &'static mut [PageTableEntry; 512] {
         self.get_mut()
     }
-    pub fn get_bytes_array(&self) -> &'static [u8; 4096] {
+    pub fn as_bytes_array(&self) -> &'static [u8; 4096] {
         self.get_mut()
     }
-    pub fn get_bytes_array_mut(&mut self) -> &'static mut [u8; 4096] {
+    pub fn as_bytes_array_mut(&self) -> &'static mut [u8; 4096] {
         self.get_mut()
     }
-    pub fn get_usize_array(&self) -> &'static [usize; 512] {
+    pub fn as_usize_array(&self) -> &'static [usize; 512] {
         self.get_mut()
     }
-    pub fn get_usize_array_mut(&mut self) -> &'static mut [usize; 512] {
+    pub fn as_usize_array_mut(&self) -> &'static mut [usize; 512] {
         self.get_mut()
     }
     pub fn get_mut<T>(&self) -> &'static mut T {
         let pa: PhyAddrRef = (*self).into();
         unsafe { &mut *(pa.0 as *mut T) }
     }
-    pub unsafe fn from_usize(n: usize) -> Self {
+    pub const fn into_usize(&self) -> usize {
+        self.0
+    }
+    pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
-    pub fn add_n_pg(&self, n: usize) -> Self {
-        unsafe { Self::from_usize(usize::from(*self) + n * PAGE_SIZE) }
+    pub const fn add_n_pg(&self, n: usize) -> Self {
+        unsafe { Self::from_usize(self.0 + n * PAGE_SIZE) }
     }
 }
 
