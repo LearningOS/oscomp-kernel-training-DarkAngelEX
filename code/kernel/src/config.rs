@@ -1,7 +1,11 @@
 #![allow(dead_code)]
 
-pub const USER_STACK_SIZE: usize = 4096 * 2; // 4096 * 2
-pub const KERNEL_STACK_SIZE: usize = 4096 * 2; // 4096 * 2
+pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
+pub const USER_STACK_RESERVE: usize = PAGE_SIZE * 1; // 4096 * 2
+pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 1; // 4096 * 2
+
+/// ============================== KERNEL ==============================
+
 /// 0x2_0000 = 128KB
 pub const KERNEL_HEAP_SIZE: usize = 0x2_0000; // 128KB
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
@@ -47,3 +51,21 @@ pub const KERNEL_BASE: usize = 0xffff_ffc0_0000_0000;
 
 pub const PHYSICAL_KERNEL_TEXT_BEGIN: usize = 0x8000_0000;
 pub const DIRECT_MAP_OFFSET: usize = DIRECT_MAP_BEGIN;
+
+/// ============================== USER ==============================
+pub const USER_BASE: usize = 0x10000;
+/// 32GB
+pub const USER_DATA_BEGIN: usize = 0x10000;
+pub const USER_DATA_END: usize = 0x8_0000_0000;
+/// 32GB
+pub const USER_HEAP_BEGIN: usize = 0x8_0000_0000;
+pub const USER_HEAP_END: usize = 0x10_0000_0000;
+/// 64GB
+pub const USER_STACK_BEGIN: usize = 0x10_0000_0000;
+pub const USER_STACK_END: usize = 0x20_0000_0000;
+pub const USER_MAX_THREADS: usize = (USER_STACK_END - USER_STACK_BEGIN) / USER_STACK_SIZE;
+/// 128GB
+pub const USER_MMAP_BEGIN: usize = 0x20_0000_0000;
+pub const USER_MMAP_END: usize = 0x40_0000_0000;
+
+pub const USER_END: usize = 0x40_0000_0000;

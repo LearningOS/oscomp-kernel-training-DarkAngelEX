@@ -1,19 +1,23 @@
-use super::{address::PhyAddrRefMasked, frame_allocator};
+use crate::tools::error::FrameOutOfMemory;
+
+use super::{address::PhyAddrRef4K, allocator};
+
+use allocator::frame;
 
 // manager
 struct FrameTracker<const N: usize> {
-    ptr: PhyAddrRefMasked,
+    ptr: PhyAddrRef4K,
 }
 
 impl<const N: usize> FrameTracker<N> {
-    pub fn new() -> Result<Self, ()> {
+    pub fn new() -> Result<Self, FrameOutOfMemory> {
         if N != 1 {
             todo!("frame_track N = {N} is implement")
         }
-        let ptr = frame_allocator::frame_alloc()?.consume();
+        let ptr = frame::alloc()?.consume();
         Ok(Self { ptr })
     }
-    pub fn ptr(&self) -> PhyAddrRefMasked {
+    pub fn ptr(&self) -> PhyAddrRef4K {
         self.ptr
     }
 }
@@ -23,6 +27,6 @@ impl<const N: usize> Drop for FrameTracker<N> {
         if N != 1 {
             todo!("frame_track N = {N} is implement")
         }
-        unsafe { frame_allocator::frame_dealloc(self.ptr) }
+        unsafe { frame::dealloc(self.ptr) }
     }
 }

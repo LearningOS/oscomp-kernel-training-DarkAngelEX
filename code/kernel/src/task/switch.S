@@ -30,5 +30,6 @@ __switch:
     ld s11, 11*8(a1)
     ld  ra, 12*8(a1)
     ld  sp, 13*8(a1)
+    // function return value
+    ld  a0, 14*8(a1)
     ret
-    

@@ -1,13 +1,19 @@
-use core::fmt::{self, Debug, Formatter};
+use core::{
+    fmt::{self, Debug, Formatter},
+    ops::{Add, AddAssign},
+};
 
-use crate::config::{DIRECT_MAP_OFFSET, DIRECT_MAP_SIZE, PAGE_SIZE, PAGE_SIZE_BITS};
+use crate::{
+    config::{DIRECT_MAP_OFFSET, DIRECT_MAP_SIZE, PAGE_SIZE, PAGE_SIZE_BITS, USER_END, USER_HEAP_BEGIN},
+    impl_usize_from, tools,
+};
 
 use super::page_table::PageTableEntry;
 
-const PA_WIDTH_SV39: usize = 56;
-const VA_WIDTH_SV39: usize = 39;
-const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_SIZE_BITS;
-const VPN_WIDTH_SV39: usize = VA_WIDTH_SV39 - PAGE_SIZE_BITS;
+// const PA_WIDTH_SV39: usize = 56;
+// const VA_WIDTH_SV39: usize = 39;
+// const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_SIZE_BITS;
+// const VPN_WIDTH_SV39: usize = VA_WIDTH_SV39 - PAGE_SIZE_BITS;
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirAddr(usize);
@@ -23,17 +29,31 @@ pub struct PhyAddr(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhyAddrRef(usize);
 
-/// assert self & 0xfff = 0
+/// only valid in user space
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct VirAddrMasked(usize);
+pub struct UserAddr(usize);
 
 /// assert self & 0xfff = 0
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PhyAddrMasked(usize);
+pub struct VirAddr4K(usize);
 
 /// assert self & 0xfff = 0
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PhyAddrRefMasked(usize);
+pub struct PhyAddr4K(usize);
+
+/// assert self & 0xfff = 0
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct PhyAddrRef4K(usize);
+
+/// assert self & 0xfff = 0
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct UserAddr4K(usize);
+
+pub type KernelAddr = PhyAddrRef;
+pub type KernelAddr4K = PhyAddrRef4K;
+
+#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct PageCount(usize);
 
 /// Debugging
 
@@ -52,21 +72,38 @@ impl Debug for PhyAddrRef {
         f.write_fmt(format_args!("PA ref:{:#x}", self.0))
     }
 }
-impl Debug for PhyAddrMasked {
+impl Debug for UserAddr {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("PA masked:{:#x}", self.0))
+        f.write_fmt(format_args!("UA:{:#x}", self.0))
     }
 }
-impl Debug for VirAddrMasked {
+impl Debug for PhyAddr4K {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("VA masked:{:#x}", self.0))
+        f.write_fmt(format_args!("PA 4K:{:#x}", self.0))
     }
 }
-impl Debug for PhyAddrRefMasked {
+impl Debug for VirAddr4K {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        f.write_fmt(format_args!("PA ref masked:{:#x}", self.0))
+        f.write_fmt(format_args!("VA 4K:{:#x}", self.0))
     }
 }
+impl Debug for PhyAddrRef4K {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("PA ref 4K:{:#x}", self.0))
+    }
+}
+impl Debug for UserAddr4K {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("UA 4K:{:#x}", self.0))
+    }
+}
+
+impl Debug for PageCount {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        f.write_fmt(format_args!("PC:{:#x}", self.0))
+    }
+}
+
 /// T: {PhysAddr, VirtAddr, PhysPageNum, VirtPageNum}
 /// T -> usize: T.0
 /// usize -> T: usize.into()
@@ -101,32 +138,26 @@ impl_from_usize!(
         v
     )
 );
-
-macro_rules! impl_usize_from {
-    ($name: ident, $v: ident, $body: stmt) => {
-        impl From<$name> for usize {
-            fn from($v: $name) -> Self {
-                $body
-            }
-        }
-    };
-}
+impl_from_usize!(UserAddr, v, Self(v), ());
 
 impl_usize_from!(VirAddr, v, v.0);
 impl_usize_from!(PhyAddr, v, v.0);
 impl_usize_from!(PhyAddrRef, v, v.0);
-impl_usize_from!(VirAddrMasked, v, v.0);
-impl_usize_from!(PhyAddrMasked, v, v.0);
-impl_usize_from!(PhyAddrRefMasked, v, v.0);
+impl_usize_from!(UserAddr, v, v.0);
+impl_usize_from!(VirAddr4K, v, v.0);
+impl_usize_from!(PhyAddr4K, v, v.0);
+impl_usize_from!(PhyAddrRef4K, v, v.0);
+impl_usize_from!(UserAddr4K, v, v.0);
+impl_usize_from!(PageCount, v, v.0);
 
-macro_rules! impl_addr_masked_common {
-    ($name: ident, $mask_name: ident) => {
+macro_rules! impl_addr_4K_common {
+    ($name: ident, $x4K_name: ident) => {
         impl $name {
-            pub const fn floor(&self) -> $mask_name {
-                $mask_name(self.0 & !(PAGE_SIZE - 1))
+            pub const fn floor(&self) -> $x4K_name {
+                $x4K_name(self.0 & !(PAGE_SIZE - 1))
             }
-            pub const fn ceil(&self) -> $mask_name {
-                $mask_name((self.0 + PAGE_SIZE - 1) & !(PAGE_SIZE - 1))
+            pub const fn ceil(&self) -> $x4K_name {
+                $x4K_name((self.0 + PAGE_SIZE - 1) & !(PAGE_SIZE - 1))
             }
             pub const fn page_offset(&self) -> usize {
                 self.0 & (PAGE_SIZE - 1)
@@ -135,22 +166,23 @@ macro_rules! impl_addr_masked_common {
                 self.page_offset() == 0
             }
         }
-        impl From<$name> for $mask_name {
+        impl From<$name> for $x4K_name {
             fn from(v: $name) -> Self {
                 v.floor()
             }
         }
-        impl From<$mask_name> for $name {
-            fn from(v: $mask_name) -> Self {
+        impl From<$x4K_name> for $name {
+            fn from(v: $x4K_name) -> Self {
                 Self(v.0)
             }
         }
     };
 }
 
-impl_addr_masked_common!(VirAddr, VirAddrMasked);
-impl_addr_masked_common!(PhyAddr, PhyAddrMasked);
-impl_addr_masked_common!(PhyAddrRef, PhyAddrRefMasked);
+impl_addr_4K_common!(VirAddr, VirAddr4K);
+impl_addr_4K_common!(PhyAddr, PhyAddr4K);
+impl_addr_4K_common!(PhyAddrRef, PhyAddrRef4K);
+impl_addr_4K_common!(UserAddr, UserAddr4K);
 
 macro_rules! impl_phy_ref_translate {
     ($phy_name: ident, $phy_ref_name: ident) => {
@@ -168,32 +200,62 @@ macro_rules! impl_phy_ref_translate {
 }
 
 impl_phy_ref_translate!(PhyAddr, PhyAddrRef);
-impl_phy_ref_translate!(PhyAddrMasked, PhyAddrRefMasked);
+impl_phy_ref_translate!(PhyAddr4K, PhyAddrRef4K);
 
-impl VirAddrMasked {
-    pub fn indexes(&self) -> [usize; 3] {
-        let v = self.vpn();
-        [v >> 18, v >> 9, v].map(|a| a & 0x1ff)
+impl From<UserAddr> for VirAddr {
+    fn from(ua: UserAddr) -> Self {
+        Self(ua.into())
     }
-    pub fn vpn(&self) -> usize {
+}
+impl UserAddr {
+    pub const fn is_4k_align(&self) -> bool {
+        (self.into_usize() % PAGE_SIZE) == 0
+    }
+    pub const fn valid(&self) -> Result<(), ()> {
+        tools::bool_result(self.0 <= USER_END)
+    }
+    pub const unsafe fn from_usize(addr: usize) -> Self {
+        Self(addr)
+    }
+    pub fn get_mut<T>(&self) -> &'static mut T {
+        unsafe { &mut *(self.0 as *mut T) }
+    }
+}
+impl VirAddr {
+    pub fn as_ptr<T>(&self) -> *mut T {
+        self.into_usize() as *mut T
+    }
+    pub unsafe fn as_ref<T>(&self) -> &'static T {
+        &*self.as_ptr()
+    }
+    pub unsafe fn as_mut<T>(&self) -> &'static mut T {
+        &mut *self.as_ptr()
+    }
+}
+impl VirAddr4K {
+    pub const fn indexes(&self) -> [usize; 3] {
+        let v = self.vpn();
+        const fn f(a: usize) -> usize {
+            a & 0x1ff
+        }
+        [f(v >> 18), f(v >> 9), f(v)]
+    }
+    pub const fn vpn(&self) -> usize {
         self.0 >> PAGE_SIZE_BITS
     }
-    pub fn sub_one_page(&self) -> Self {
+    pub const fn sub_one_page(&self) -> Self {
         Self(self.0 - PAGE_SIZE)
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
-    pub const fn into_usize(&self) -> usize {
-        self.0
-    }
 }
-impl PhyAddrMasked {
+impl PhyAddr4K {
     /// physical page number
-    pub fn ppn(&self) -> usize {
+    pub const fn ppn(&self) -> usize {
         self.0 >> PAGE_SIZE_BITS
     }
-    pub fn from_satp(satp: usize) -> Self {
+    pub const fn from_satp(satp: usize) -> Self {
         // let ppn = satp & (1usize << 44) - 1;
         let ppn = satp & (1usize << 38) - 1;
         Self(ppn << 12)
@@ -202,51 +264,107 @@ impl PhyAddrMasked {
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
-    pub fn into_ref(&self) -> PhyAddrRefMasked {
-        PhyAddrRefMasked::from(*self)
-    }
-    pub const fn into_usize(&self) -> usize {
-        self.0
+    pub fn into_ref(&self) -> PhyAddrRef4K {
+        PhyAddrRef4K::from(*self)
     }
 }
 
-impl Default for PhyAddrRefMasked {
-    fn default() -> Self {
-        Self(DIRECT_MAP_OFFSET)
-    }
-}
-
-impl PhyAddrRefMasked {
+impl PhyAddrRef4K {
     pub fn as_pte_array(&self) -> &'static [PageTableEntry; 512] {
-        self.get_mut()
+        self.as_mut()
     }
     pub fn as_pte_array_mut(&self) -> &'static mut [PageTableEntry; 512] {
-        self.get_mut()
+        self.as_mut()
     }
     pub fn as_bytes_array(&self) -> &'static [u8; 4096] {
-        self.get_mut()
+        self.as_mut()
     }
     pub fn as_bytes_array_mut(&self) -> &'static mut [u8; 4096] {
-        self.get_mut()
+        self.as_mut()
     }
     pub fn as_usize_array(&self) -> &'static [usize; 512] {
-        self.get_mut()
+        self.as_mut()
     }
     pub fn as_usize_array_mut(&self) -> &'static mut [usize; 512] {
-        self.get_mut()
+        self.as_mut()
     }
-    pub fn get_mut<T>(&self) -> &'static mut T {
+    pub fn as_mut<T>(&self) -> &'static mut T {
         let pa: PhyAddrRef = (*self).into();
         unsafe { &mut *(pa.0 as *mut T) }
-    }
-    pub const fn into_usize(&self) -> usize {
-        self.0
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
+    /// the answer is in the return value!
+    #[must_use = "the answer is in the return value!"]
     pub const fn add_n_pg(&self, n: usize) -> Self {
         unsafe { Self::from_usize(self.0 + n * PAGE_SIZE) }
+    }
+}
+
+impl UserAddr4K {
+    pub const unsafe fn from_usize(n: usize) -> Self {
+        Self(n)
+    }
+    pub const fn from_usize_check(n: usize) -> Self {
+        assert!(n % PAGE_SIZE == 0 && n <= USER_END);
+        Self(n)
+    }
+    pub const fn heap_offset(n: PageCount) -> Self {
+        Self(USER_HEAP_BEGIN + n.byte_space())
+    }
+    /// the answer is in the return value!
+    #[must_use = "the answer is in the return value!"]
+    pub const fn sub_one_page(&self) -> Self {
+        Self(self.0 - PAGE_SIZE)
+    }
+    #[must_use = "the answer is in the return value!"]
+    /// the answer is in the return value!
+    pub const fn add_one_page(&self) -> Self {
+        Self(self.0 + PAGE_SIZE)
+    }
+    #[must_use = "the answer is in the return value!"]
+    /// the answer is in the return value!
+    pub const fn add_n_pg(&self, n: usize) -> Self {
+        unsafe { Self::from_usize(self.0 + n * PAGE_SIZE) }
+    }
+    pub const fn vpn(&self) -> usize {
+        self.0 >> PAGE_SIZE_BITS
+    }
+    pub const fn indexes(&self) -> [usize; 3] {
+        let v = self.vpn();
+        const fn f(a: usize) -> usize {
+            a & 0x1ff
+        }
+        [f(v >> 18), f(v >> 9), f(v)]
+    }
+    pub const fn null() -> Self {
+        unsafe { Self::from_usize(0) }
+    }
+    pub const fn user_max() -> Self {
+        unsafe { Self::from_usize(USER_END) }
+    }
+}
+
+impl PageCount {
+    pub const fn from_usize(v: usize) -> Self {
+        Self(v)
+    }
+    pub const fn byte_space(&self) -> usize {
+        self.0 * PAGE_SIZE
+    }
+}
+
+impl Add for PageCount {
+    type Output = PageCount;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        Self::Output::from_usize(self.0 + rhs.0)
+    }
+}
+impl AddAssign for PageCount {
+    fn add_assign(&mut self, rhs: Self) {
+        self.0 += rhs.0
     }
 }
 
@@ -264,71 +382,7 @@ macro_rules! impl_step_by_one {
     };
 }
 
-impl_step_by_one!(VirAddrMasked);
-impl_step_by_one!(PhyAddrMasked);
-impl_step_by_one!(PhyAddrRefMasked);
-
-#[derive(Copy, Clone)]
-pub struct SimpleRange<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
-    l: T,
-    r: T,
-}
-impl<T> SimpleRange<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
-    pub fn new(start: T, end: T) -> Self {
-        assert!(start <= end, "start {:?} > end {:?}!", start, end);
-        Self { l: start, r: end }
-    }
-    pub fn get_start(&self) -> T {
-        self.l
-    }
-    pub fn get_end(&self) -> T {
-        self.r
-    }
-}
-impl<T> IntoIterator for SimpleRange<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
-    type Item = T;
-    type IntoIter = SimpleRangeIterator<T>;
-    fn into_iter(self) -> Self::IntoIter {
-        SimpleRangeIterator::new(self.l, self.r)
-    }
-}
-pub struct SimpleRangeIterator<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
-    current: T,
-    end: T,
-}
-impl<T> SimpleRangeIterator<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
-    pub fn new(l: T, r: T) -> Self {
-        Self { current: l, end: r }
-    }
-}
-impl<T> Iterator for SimpleRangeIterator<T>
-where
-    T: StepByOne + Copy + PartialEq + PartialOrd + Debug,
-{
-    type Item = T;
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.current == self.end {
-            None
-        } else {
-            let t = self.current;
-            self.current.step();
-            Some(t)
-        }
-    }
-}
-pub type VPNRange = SimpleRange<VirAddrMasked>;
+impl_step_by_one!(VirAddr4K);
+impl_step_by_one!(PhyAddr4K);
+impl_step_by_one!(PhyAddrRef4K);
+impl_step_by_one!(UserAddr4K);

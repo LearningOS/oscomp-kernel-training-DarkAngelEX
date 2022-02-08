@@ -77,10 +77,10 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
             while self.lock.load(Ordering::Relaxed) {
                 unsafe { &*self.support.as_ptr() }.cpu_relax();
                 try_count += 1;
-                if try_count == 0x100000 {
+                if try_count == 0x1000000 {
                     let (cid, tid) = unsafe { *self.user.get() };
                     panic!(
-                        "Mutex: deadlock detected! try_count > 0x100000.\n locked by cpu {} thread {} @ {:?}",
+                        "Mutex: deadlock detected! try_count > 0x1000000.\n locked by cpu {} thread {} @ {:?}",
                         cid, tid, self as *const Self
                     );
                 }

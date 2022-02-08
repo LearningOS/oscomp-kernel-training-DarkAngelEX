@@ -18,3 +18,10 @@ macro_rules! debug_check {
         if crate::debug::_DEBUG { assert!($($arg)*); }
     }
 }
+
+#[macro_export]
+macro_rules! debug_check_eq {
+    ($($arg:tt)*) => {
+        if crate::debug::_DEBUG { assert_eq!($($arg)*); }
+    }
+}

@@ -35,6 +35,7 @@ impl Write for Stdout {
     }
 }
 
+#[link_section = "data"]
 static WRITE_MUTEX: SpinLock<Stdout> = SpinLock::new(Stdout);
 
 pub fn print(args: fmt::Arguments) {

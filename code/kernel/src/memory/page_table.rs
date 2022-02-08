@@ -9,13 +9,18 @@ use crate::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
     debug::PRINT_MAP_ALL,
-    memory::frame_allocator::frame_dealloc_dpa,
-    riscv::csr,
+    memory::asid,
+    riscv::register::csr,
+    tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
 };
 
 use super::{
-    address::{PhyAddr, PhyAddrMasked, PhyAddrRefMasked, StepByOne, VirAddr, VirAddrMasked},
-    frame_allocator::{frame_alloc_dpa, FrameTrackerDpa},
+    address::{
+        PageCount, PhyAddr, PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K,
+    },
+    allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
+    asid::{Asid, AsidInfoTracker},
+    user_space::UserArea,
 };
 
 static mut KERNEL_GLOBAL: Option<PageTable> = None;
@@ -42,16 +47,16 @@ pub struct PageTableEntry {
 }
 
 impl PageTableEntry {
-    pub fn new(pa_mask: PhyAddrMasked, flags: PTEFlags) -> Self {
+    pub fn new(pa_4k: PhyAddr4K, flags: PTEFlags) -> Self {
         PageTableEntry {
-            bits: (usize::from(pa_mask) >> 2) & ((1 << 54usize) - 1) | flags.bits as usize,
+            bits: (usize::from(pa_4k) >> 2) & ((1 << 54usize) - 1) | flags.bits as usize,
         }
     }
     pub fn empty() -> Self {
         PageTableEntry { bits: 0 }
     }
     /// this function will clear reserved bit in [63:54]
-    pub fn phy_addr(&self) -> PhyAddrMasked {
+    pub fn phy_addr(&self) -> PhyAddr4K {
         // (self.bits >> 10 & ((1usize << 44) - 1)).into()
         PhyAddr::from((self.bits & ((1usize << 54) - 1)) << 2).into()
     }
@@ -91,29 +96,33 @@ impl PageTableEntry {
     pub fn reserved_bit(&self) -> usize {
         self.bits & ((1usize << 10 - 1) << 54)
     }
-    pub fn alloc_leaf(&mut self, pam: PhyAddrMasked, flags: PTEFlags) {
+    pub fn alloc_by(
+        &mut self,
+        flags: PTEFlags,
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<(), FrameOutOfMemory> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
-        *self = Self::new(pam, flags | PTEFlags::V);
-    }
-    pub fn alloc_directory(&mut self, pam: PhyAddrMasked, flags: PTEFlags) {
-        assert!(!self.is_valid(), "try alloc to a valid pte");
-        *self = Self::new(pam, flags | PTEFlags::V);
-    }
-    pub fn alloc(&mut self, flags: PTEFlags) -> Result<(), ()> {
-        assert!(!self.is_valid(), "try alloc to a valid pte");
-        let pam = frame_alloc_dpa()?.consume();
-        PhyAddrRefMasked::from(pam)
+        let pa = allocator.alloc()?.consume().into();
+        PhyAddrRef4K::from(pa)
             .as_pte_array_mut()
             .iter_mut()
             .for_each(|x| *x = PageTableEntry::empty());
-        *self = Self::new(pam, flags | PTEFlags::V);
+        *self = Self::new(pa, flags | PTEFlags::V);
         Ok(())
     }
+    #[deprecated = "replace by alloc_by"]
+    pub fn alloc(&mut self, flags: PTEFlags) -> Result<(), FrameOutOfMemory> {
+        self.alloc_by(flags, &mut frame::defualt_allocator())
+    }
     /// this function will clear V flag.
-    pub unsafe fn dealloc(&mut self) {
+    pub unsafe fn dealloc_by(&mut self, allocator: &mut impl FrameAllocator) {
         assert!(self.is_valid());
-        frame_dealloc_dpa(self.phy_addr());
+        allocator.dealloc(self.phy_addr().into());
         *self = Self::empty();
+    }
+    #[deprecated = "replace by dealloc_by"]
+    pub unsafe fn dealloc(&mut self) {
+        self.dealloc_by(&mut frame::defualt_allocator())
     }
 }
 
@@ -123,87 +132,114 @@ impl Debug for PageTableEntry {
     }
 }
 
-struct PageTable {
+pub struct PageTable {
+    asid_tracker: AsidInfoTracker,
     satp: usize, // [63:60 MODE, 8 is SV39][59:44 ASID][43:0 PPN]
 }
 
-// /// Assume that it won't oom when creating/mapping.
+impl Drop for PageTable {
+    fn drop(&mut self) {
+        assert!(self.satp != 0);
+        let allocator = &mut frame::defualt_allocator();
+        self.free_user_directory_all(allocator);
+        unsafe { allocator.dealloc(self.root_pa().into_ref()) };
+        self.satp = 0;
+    }
+}
+
 impl PageTable {
-    /// this function will not set all empty.
-    ///
     /// asid set to zero must be success.
-    pub fn new_empty(asid: usize) -> Result<Self, ()> {
-        let phy_ptr = frame_alloc_dpa()?.consume();
+    pub fn new_empty(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
+        let phy_ptr = frame::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
         arr.iter_mut()
             .for_each(|pte| *pte = PageTableEntry::empty());
+        let asid = asid_tracker.asid().into_usize();
         Ok(PageTable {
+            asid_tracker,
             satp: 8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn(),
         })
     }
-    pub fn from_global(asid: usize) -> Result<Self, ()> {
-        let phy_ptr = frame_alloc_dpa()?.consume();
+    pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
+        let phy_ptr = frame::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
-        let src = unsafe { KERNEL_GLOBAL.as_ref().unwrap_unchecked() }
-            .root_pam()
+        let src = unsafe { KERNEL_GLOBAL.as_ref().unwrap() }
+            .root_pa()
             .into_ref()
             .as_pte_array();
-        arr[..256].copy_from_slice(&src[..256]);
-        arr[256..]
+        arr[256..].copy_from_slice(&src[256..]);
+        arr[..256]
             .iter_mut()
             .for_each(|pte| *pte = PageTableEntry::empty());
+        let asid = asid_tracker.asid().into_usize();
         Ok(PageTable {
+            asid_tracker,
             satp: 8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn(),
         })
+    }
+    pub fn drop_by(mut self, allocator: &mut impl FrameAllocator) {
+        assert!(self.satp != 0);
+        self.free_user_directory_all(allocator);
+        unsafe { allocator.dealloc(self.root_pa().into_ref()) };
+        self.satp = 0;
+        // skip satp check
+        core::mem::forget(self);
     }
     pub fn satp(&self) -> usize {
         self.satp
     }
-    pub fn set_asid(&mut self, asid: usize) {
+    pub fn update_asid(&mut self, asid_tracker: AsidInfoTracker) {
+        let asid = asid_tracker.asid().into_usize();
+        self.asid_tracker = asid_tracker;
         self.satp = (self.satp & !(0xffff << 44)) | (asid & 0xffff) << 44
     }
-    pub fn set_satp(&mut self, satp: usize) {
+    unsafe fn set_asid_in_satp(&mut self, asid: Asid) {
+        self.satp = (self.satp & !(0xffff << 44)) | (asid.into_usize() & 0xffff) << 44
+    }
+    /// need sync with said_tracker
+    pub unsafe fn set_satp(&mut self, satp: usize) {
         self.satp = satp
     }
-    /// Temporarily used to get arguments from user space.
-    pub const fn from_satp(satp: usize) -> Self {
-        Self { satp }
+    pub unsafe fn set_satp_register_uncheck(&self) {
+        csr::set_satp(self.satp)
     }
-    fn root_pam(&self) -> PhyAddrMasked {
-        PhyAddrMasked::from_satp(self.satp)
+    pub fn set_satp_register(&mut self) {
+        self.version_check();
+        unsafe { self.set_satp_register_uncheck() }
     }
-    fn find_pte_create(&mut self, vam: VirAddrMasked) -> Result<&mut PageTableEntry, ()> {
-        let idxs = vam.indexes();
-        let mut parm: PhyAddrRefMasked = self.root_pam().into();
-        // auto release when fail
-        let mut alloc_0: Option<FrameTrackerDpa> = None;
-        let mut alloc_1: Option<FrameTrackerDpa> = None;
-        let px = [&mut alloc_0, &mut alloc_1];
-
+    pub fn version_check(&mut self) {
+        match self.asid_tracker.version_check() {
+            Ok(_) => (),
+            Err(asid) => unsafe { self.set_asid_in_satp(asid) },
+        }
+    }
+    pub fn root_pa(&self) -> PhyAddr4K {
+        PhyAddr4K::from_satp(self.satp)
+    }
+    fn find_pte_create(
+        &mut self,
+        va: VirAddr4K,
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<&mut PageTableEntry, FrameOutOfMemory> {
+        let idxs = va.indexes();
+        let mut par: PhyAddrRef4K = self.root_pa().into();
         for (i, &idx) in idxs.iter().enumerate() {
-            let pte = &mut parm.as_pte_array_mut()[idx];
+            let pte = &mut par.as_pte_array_mut()[idx];
             if i == 2 {
-                core::mem::forget(alloc_0);
-                core::mem::forget(alloc_1);
-                // alloc_0.map(|a| a.consume());
-                // alloc_1.map(|a| a.consume());
                 return Ok(pte);
             }
             if !pte.is_valid() {
-                let frame = frame_alloc_dpa()?; // alloc
-                let data = frame.data();
-                *px[i] = Some(frame);
-                *pte = PageTableEntry::new(data, PTEFlags::V);
+                pte.alloc_by(PTEFlags::V, allocator)?;
             }
-            parm = pte.phy_addr().into();
+            par = pte.phy_addr().into();
         }
         unreachable!()
     }
-    fn find_pte(&self, vam: VirAddrMasked) -> Option<&mut PageTableEntry> {
-        let idxs = vam.indexes();
-        let mut parm: PhyAddrRefMasked = self.root_pam().into();
+    fn find_pte(&self, va: VirAddr4K) -> Option<&mut PageTableEntry> {
+        let idxs = va.indexes();
+        let mut par: PhyAddrRef4K = self.root_pa().into();
         for (i, &idx) in idxs.iter().enumerate() {
-            let pte = &mut parm.as_pte_array_mut()[idx];
+            let pte = &mut par.as_pte_array_mut()[idx];
             if i == 2 {
                 return Some(pte);
             }
@@ -211,24 +247,287 @@ impl PageTable {
                 // println!("find_pte err! {:?} {:?}", pte, pte.phy_addr());
                 return None;
             }
-            parm = pte.phy_addr().into();
+            par = pte.phy_addr().into();
         }
         unreachable!()
     }
-
-    pub fn map_range(
+    /// return Err if out of memory
+    pub fn map_user_range(
         &mut self,
-        vbegin: VirAddrMasked,
-        pbegin: PhyAddrRefMasked,
+        map_area: &UserArea,
+        data_iter: &mut impl FrameDataIter,
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<(), FrameOutOfMemory> {
+        assert!(map_area.perm().contains(PTEFlags::U));
+        let ubegin = map_area.begin();
+        let uend = map_area.end();
+        if ubegin == uend {
+            return Ok(());
+        }
+        let ptes = self.root_pa().into_ref().as_pte_array_mut();
+        let flags = map_area.perm();
+        let l = &ubegin.indexes();
+        let r = &uend.sub_one_page().indexes();
+        return match map_user_range_0(ptes, l, r, flags, data_iter, allocator, ubegin) {
+            Ok(_ua) => Ok(()),
+            Err(ua) => {
+                // realease page table
+                let alloc_area = UserArea::new(ubegin, ua, flags);
+                self.unmap_user_range(&alloc_area, allocator);
+                Err(FrameOutOfMemory)
+            }
+        };
+
+        /// return value:
+        ///
+        /// Ok: next ua
+        ///
+        /// Err: err ua, There is no space assigned to this location
+        #[inline(always)]
+        fn map_user_range_0(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 3],
+            r: &[usize; 3],
+            flags: PTEFlags,
+            data_iter: &mut impl FrameDataIter,
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> Result<UserAddr4K, UserAddr4K> {
+            let xbegin = &[0, 0];
+            let xend = &[511, 511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if !pte.is_valid() {
+                    pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                }
+                let ptes = PageTable::ptes_from_pte(pte);
+                ua = map_user_range_1(ptes, l, r, flags, data_iter, allocator, ua)?;
+            }
+            Ok(ua)
+        }
+        #[inline(always)]
+        fn map_user_range_1(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 2],
+            r: &[usize; 2],
+            flags: PTEFlags,
+            data_iter: &mut impl FrameDataIter,
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> Result<UserAddr4K, UserAddr4K> {
+            let xbegin = &[0];
+            let xend = &[511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if !pte.is_valid() {
+                    pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                }
+                let ptes = PageTable::ptes_from_pte(pte);
+                ua = map_user_range_2(ptes, l, r, flags, data_iter, allocator, ua)?;
+            }
+            Ok(ua)
+        }
+        #[inline(always)]
+        fn map_user_range_2(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 1],
+            r: &[usize; 1],
+            flags: PTEFlags,
+            data_iter: &mut impl FrameDataIter,
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> Result<UserAddr4K, UserAddr4K> {
+            for pte in &mut ptes[l[0]..=r[0]] {
+                assert!(!pte.is_valid(), "remap of {:?}", ua);
+                let par = allocator.alloc().map_err(|_| ua)?.consume();
+                // fill zero if return Error
+                let _ = data_iter.write_to(par.as_bytes_array_mut());
+                *pte = PageTableEntry::new(par.into(), flags | PTEFlags::V);
+                ua = ua.add_one_page();
+            }
+            Ok(ua)
+        }
+    }
+
+    pub fn unmap_user_range(&mut self, map_area: &UserArea, allocator: &mut impl FrameAllocator) {
+        assert!(map_area.perm().contains(PTEFlags::U));
+        let ubegin = map_area.begin();
+        let uend = map_area.end();
+        if ubegin == uend {
+            return;
+        }
+        let ptes = self.root_pa().into_ref().as_pte_array_mut();
+        let l = &ubegin.indexes();
+        let r = &uend.sub_one_page().indexes();
+        let ua = unmap_user_range_0(ptes, l, r, allocator, ubegin);
+        debug_check_eq!(ua, uend);
+        return;
+
+        #[inline(always)]
+        fn unmap_user_range_0(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 3],
+            r: &[usize; 3],
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> UserAddr4K {
+            let xbegin = &[0, 0];
+            let xend = &[511, 511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                let ptes = PageTable::ptes_from_pte(pte);
+                ua = unmap_user_range_1(ptes, l, r, allocator, ua);
+                if full {
+                    unsafe { pte.dealloc_by(allocator) };
+                }
+            }
+            ua
+        }
+        #[inline(always)]
+        fn unmap_user_range_1(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 2],
+            r: &[usize; 2],
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> UserAddr4K {
+            let xbegin = &[0];
+            let xend = &[511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                let ptes = PageTable::ptes_from_pte(pte);
+                ua = unmap_user_range_2(ptes, l, r, allocator, ua);
+                if full {
+                    unsafe { pte.dealloc_by(allocator) };
+                }
+            }
+            ua
+        }
+        #[inline(always)]
+        fn unmap_user_range_2(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 1],
+            r: &[usize; 1],
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> UserAddr4K {
+            for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
+                assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
+                unsafe { pte.dealloc_by(allocator) };
+                ua = ua.add_one_page();
+            }
+            ua
+        }
+    }
+    pub fn unmap_user_range_lazy(
+        &mut self,
+        map_area: &UserArea,
+        allocator: &mut impl FrameAllocator,
+    ) -> PageCount {
+        assert!(map_area.perm().contains(PTEFlags::U));
+        let ubegin = map_area.begin();
+        let uend = map_area.end();
+        let page_count = PageCount::from_usize(0);
+        if ubegin == uend {
+            return page_count;
+        }
+        let ptes = self.root_pa().into_ref().as_pte_array_mut();
+        let l = &ubegin.indexes();
+        let r = &uend.sub_one_page().indexes();
+        let (page_count, ua) = unmap_user_range_lazy_0(ptes, l, r, page_count, allocator, ubegin);
+        debug_check_eq!(ua, uend);
+        return page_count;
+
+        #[inline(always)]
+        fn unmap_user_range_lazy_0(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 3],
+            r: &[usize; 3],
+            mut page_count: PageCount,
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> (PageCount, UserAddr4K) {
+            let xbegin = &[0, 0];
+            let xend = &[511, 511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                if pte.is_valid() {
+                    let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                    assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    (page_count, ua) =
+                        unmap_user_range_lazy_1(ptes, l, r, page_count, allocator, ua);
+                    if full {
+                        unsafe { pte.dealloc_by(allocator) };
+                    }
+                } else {
+                    ua = ua.add_n_pg(1 << 9 * 2);
+                }
+            }
+            (page_count, ua)
+        }
+        #[inline(always)]
+        fn unmap_user_range_lazy_1(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 2],
+            r: &[usize; 2],
+            mut page_count: PageCount,
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> (PageCount, UserAddr4K) {
+            let xbegin = &[0];
+            let xend = &[511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                if pte.is_valid() {
+                    let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                    assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    (page_count, ua) =
+                        unmap_user_range_lazy_2(ptes, l, r, page_count, allocator, ua);
+                    if full {
+                        unsafe { pte.dealloc_by(allocator) };
+                    }
+                } else {
+                    ua = ua.add_n_pg(1 << 9);
+                }
+            }
+            (page_count, ua)
+        }
+        #[inline(always)]
+        fn unmap_user_range_lazy_2(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 1],
+            r: &[usize; 1],
+            mut page_count: PageCount,
+            allocator: &mut impl FrameAllocator,
+            mut ua: UserAddr4K,
+        ) -> (PageCount, UserAddr4K) {
+            for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
+                if pte.is_valid() {
+                    assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
+                    unsafe { pte.dealloc_by(allocator) };
+                    page_count += PageCount::from_usize(0);
+                }
+                ua = ua.add_one_page();
+            }
+            (page_count, ua)
+        }
+    }
+    pub fn map_direct_range(
+        &mut self,
+        vbegin: VirAddr4K,
+        pbegin: PhyAddrRef4K,
         size: usize,
         flags: PTEFlags,
-    ) -> Result<&mut Self, ()> {
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<(), FrameOutOfMemory> {
         if size == 0 {
-            return Ok(self);
+            return Ok(());
         }
         assert!(size % PAGE_SIZE == 0);
-        let parm: PhyAddrRefMasked = self.root_pam().into();
-        let vend = unsafe { VirAddrMasked::from_usize(usize::from(vbegin) + size) };
+        let par = self.root_pa().into_ref();
+        let vend = unsafe { VirAddr4K::from_usize(usize::from(vbegin) + size) };
         let l = &vbegin.indexes();
         let r = &vend.sub_one_page().indexes();
         if PRINT_MAP_ALL {
@@ -241,10 +540,245 @@ impl PageTable {
             println!("l:{:?}", l);
             println!("r:{:?}", r);
         }
+        let ptes = par.as_pte_array_mut();
         // clear 12 + 9 * 3 = 39 bit
-        Self::map_range_0(parm, l, r, flags, vbegin, pbegin.into())?;
-        Ok(self)
+        let va = map_direct_range_0(ptes, l, r, flags, vbegin, pbegin.into(), allocator)?;
+        debug_check_eq!(va, vend);
+        return Ok(());
+
+        #[inline(always)]
+        fn map_direct_range_0(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 3],
+            r: &[usize; 3],
+            flags: PTEFlags,
+            mut va: VirAddr4K,
+            mut pa: PhyAddr4K,
+            allocator: &mut impl FrameAllocator,
+        ) -> Result<VirAddr4K, FrameOutOfMemory> {
+            // println!("level 0: {:?} {:?}-{:?}", va, l, r);
+            let xbegin = &[0, 0];
+            let xend = &[511, 511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if full {
+                    // 1GB page table
+                    assert!(!pte.is_valid(), "1GB pagetable: remap");
+                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 2)) == 0);
+                    // if true || PRINT_MAP_ALL {
+                    //     println!("map 1GB {:?} -> {:?}", va, pa);
+                    // }
+                    *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                    unsafe {
+                        va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 2));
+                        pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 2));
+                    }
+                } else {
+                    if !pte.is_valid() {
+                        pte.alloc_by(PTEFlags::V, allocator)?;
+                    }
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    (va, pa) = map_direct_range_1(ptes, l, r, flags, va, pa, allocator)?
+                }
+            }
+            Ok(va)
+        }
+        #[inline(always)]
+        fn map_direct_range_1(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 2],
+            r: &[usize; 2],
+            flags: PTEFlags,
+            mut va: VirAddr4K,
+            mut pa: PhyAddr4K,
+            allocator: &mut impl FrameAllocator,
+        ) -> Result<(VirAddr4K, PhyAddr4K), FrameOutOfMemory> {
+            // println!("level 1: {:?} {:?}-{:?}", va, l, r);
+            let xbegin = &[0];
+            let xend = &[511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if full {
+                    // 1MB page table
+                    assert!(!pte.is_valid(), "1MB pagetable: remap");
+                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 1)) == 0);
+                    *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                    unsafe {
+                        va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 1));
+                        pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 1));
+                    }
+                } else {
+                    if !pte.is_valid() {
+                        pte.alloc_by(PTEFlags::V, allocator)?;
+                    }
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    (va, pa) = map_direct_range_2(ptes, l, r, flags, va, pa, allocator);
+                }
+            }
+            Ok((va, pa))
+        }
+        #[inline(always)]
+        fn map_direct_range_2(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 1],
+            r: &[usize; 1],
+            flags: PTEFlags,
+            mut va: VirAddr4K,
+            mut pa: PhyAddr4K,
+            _allocator: &mut impl FrameAllocator,
+        ) -> (VirAddr4K, PhyAddr4K) {
+            // println!("level 2: {:?} {:?}-{:?}", va, l, r);
+            for pte in &mut ptes[l[0]..=r[0]] {
+                assert!(!pte.is_valid(), "remap of {:?} -> {:?}", va, pa);
+                // if true || PRINT_MAP_ALL {
+                //     println!("map: {:?} -> {:?}", va, pa);
+                // }
+                *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                unsafe {
+                    va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE);
+                    pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE);
+                }
+            }
+            (va, pa)
+        }
     }
+
+    /// clear [vbegin, vend)
+    pub fn unmap_direct_range(&mut self, vbegin: VirAddr4K, vend: VirAddr4K) {
+        assert!(vbegin <= vend, "free_range vbegin <= vend");
+        if vbegin == vend {
+            return;
+        }
+        let l = &vbegin.indexes();
+        let r = &vend.sub_one_page().indexes();
+        let ptes = self.root_pa().into_ref().as_pte_array_mut();
+        return unmap_direct_range_0(ptes, l, r);
+
+        #[inline(always)]
+        fn unmap_direct_range_0(ptes: &mut [PageTableEntry; 512], l: &[usize; 3], r: &[usize; 3]) {
+            let xbegin = &[0, 0];
+            let xend = &[511, 511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if full {
+                    // 1GB page table
+                    debug_check!(pte.is_leaf());
+                    *pte = PageTableEntry::empty();
+                } else {
+                    debug_check!(pte.is_directory());
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    unmap_direct_range_1(ptes, l, r);
+                }
+            }
+        }
+        #[inline(always)]
+        fn unmap_direct_range_1(ptes: &mut [PageTableEntry; 512], l: &[usize; 2], r: &[usize; 2]) {
+            let xbegin = &[0];
+            let xend = &[511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if full {
+                    debug_check!(pte.is_leaf());
+                    *pte = PageTableEntry::empty();
+                } else {
+                    debug_check!(pte.is_directory());
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    unmap_direct_range_2(ptes, l, r);
+                }
+            }
+        }
+        #[inline(always)]
+        fn unmap_direct_range_2(ptes: &mut [PageTableEntry; 512], l: &[usize; 1], r: &[usize; 1]) {
+            for pte in &mut ptes[l[0]..=r[0]] {
+                debug_check!(pte.is_leaf());
+                *pte = PageTableEntry::empty();
+            }
+        }
+    }
+
+    /// if exists valid leaf, it will panic.
+    pub fn free_user_directory_all(&mut self, allocator: &mut impl FrameAllocator) {
+        let ubegin = UserAddr4K::null();
+        let uend = UserAddr4K::user_max();
+        let l = &ubegin.indexes();
+        let r = &uend.sub_one_page().indexes();
+        let ptes = self.root_pa().into_ref().as_pte_array_mut();
+
+        let ua = free_user_directory_all_0(ptes, l, r, ubegin, allocator);
+        assert!(ua == uend);
+        return;
+        #[inline(always)]
+        fn free_user_directory_all_0(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 3],
+            r: &[usize; 3],
+            mut ua: UserAddr4K,
+            allocator: &mut impl FrameAllocator,
+        ) -> UserAddr4K {
+            let xbegin = &[0, 0];
+            let xend = &[511, 511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if pte.is_valid() {
+                    debug_check!(
+                        pte.is_directory(),
+                        "free_user_directory_all: need directory but leaf"
+                    );
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    ua = free_user_directory_all_1(ptes, l, r, ua, allocator);
+                    unsafe { pte.dealloc_by(allocator) }
+                } else {
+                    ua = ua.add_n_pg(1 << 9 * 2)
+                }
+            }
+            ua
+        }
+        #[inline(always)]
+        fn free_user_directory_all_1(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 2],
+            r: &[usize; 2],
+            mut ua: UserAddr4K,
+            allocator: &mut impl FrameAllocator,
+        ) -> UserAddr4K {
+            let xbegin = &[0];
+            let xend = &[511];
+            for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
+                if pte.is_valid() {
+                    debug_check!(
+                        pte.is_directory(),
+                        "free_user_directory_all: need directory but leaf"
+                    );
+                    let ptes = PageTable::ptes_from_pte(pte);
+                    ua = free_user_directory_all_2(ptes, l, r, ua, allocator);
+                    unsafe { pte.dealloc_by(allocator) }
+                } else {
+                    ua = ua.add_n_pg(1 << 9)
+                }
+            }
+            ua
+        }
+        #[inline(always)]
+        fn free_user_directory_all_2(
+            ptes: &mut [PageTableEntry; 512],
+            l: &[usize; 1],
+            r: &[usize; 1],
+            mut ua: UserAddr4K,
+            _allocator: &mut impl FrameAllocator,
+        ) -> UserAddr4K {
+            for pte in &mut ptes[l[0]..=r[0]] {
+                assert!(
+                    !pte.is_valid(),
+                    "free_user_directory_all: exist valid leaf: {:?}",
+                    ua
+                );
+                ua = ua.add_one_page();
+            }
+            ua
+        }
+    }
+
     #[inline(always)]
     fn next_lr<'a, 'b, const N1: usize, const N: usize>(
         l: &'a [usize; N1],
@@ -266,177 +800,41 @@ impl PageTable {
         (xl, xr, xl.eq(xbegin) && xr.eq(xend))
     }
     #[inline(always)]
-    fn map_range_0(
-        parm: PhyAddrRefMasked,
-        l: &[usize; 3],
-        r: &[usize; 3],
-        flags: PTEFlags,
-        mut va: VirAddrMasked,
-        mut pa: PhyAddrMasked,
-    ) -> Result<(), ()> {
-        // println!("level 0: {:?} {:?}-{:?}", va, l, r);
-        let xbegin = &[0, 0];
-        let xend = &[511, 511];
-        for (i, pte) in &mut parm.as_pte_array_mut()[l[0]..=r[0]].iter_mut().enumerate() {
-            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
-            if full {
-                // 1GB page table
-                assert!(!pte.is_valid(), "1GB pagetable: remap");
-                debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 2)) == 0);
-                // if true || PRINT_MAP_ALL {
-                //     println!("map 1GB {:?} -> {:?}", va, pa);
-                // }
-                *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
-                unsafe {
-                    va = VirAddrMasked::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 2));
-                    pa = PhyAddrMasked::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 2));
-                }
-            } else {
-                if !pte.is_valid() {
-                    pte.alloc(PTEFlags::V)?;
-                }
-                (va, pa) = Self::map_range_1(pte, l, r, flags, va, pa)?
-            }
-        }
-        Ok(())
+    fn ptes_from_pte(pte: &mut PageTableEntry) -> &'static mut [PageTableEntry; 512] {
+        PhyAddrRef4K::from(pte.phy_addr()).as_pte_array_mut()
     }
-    #[inline(always)]
-    fn map_range_1(
-        pte: &mut PageTableEntry,
-        l: &[usize; 2],
-        r: &[usize; 2],
-        flags: PTEFlags,
-        mut va: VirAddrMasked,
-        mut pa: PhyAddrMasked,
-    ) -> Result<(VirAddrMasked, PhyAddrMasked), ()> {
-        // println!("level 1: {:?} {:?}-{:?}", va, l, r);
-        let xbegin = &[0];
-        let xend = &[511];
-        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]]
-            .iter_mut()
-            .enumerate()
-        {
-            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
-            if full {
-                // 1MB page table
-                assert!(!pte.is_valid(), "1MB pagetable: remap");
-                debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 1)) == 0);
-                *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
-                unsafe {
-                    va = VirAddrMasked::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 1));
-                    pa = PhyAddrMasked::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 1));
-                }
-            } else {
-                if !pte.is_valid() {
-                    pte.alloc(PTEFlags::V)?;
-                }
-                (va, pa) = Self::map_range_2(pte, l, r, flags, va, pa);
-            }
-        }
-        Ok((va, pa))
-    }
-    #[inline(always)]
-    fn map_range_2(
-        pte: &mut PageTableEntry,
-        l: &[usize; 1],
-        r: &[usize; 1],
-        flags: PTEFlags,
-        mut va: VirAddrMasked,
-        mut pa: PhyAddrMasked,
-    ) -> (VirAddrMasked, PhyAddrMasked) {
-        // println!("level 2: {:?} {:?}-{:?}", va, l, r);
-        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]] {
-            assert!(!pte.is_valid(), "remap of {:?} -> {:?}", va, pa);
-            // if true || PRINT_MAP_ALL {
-            //     println!("map: {:?} -> {:?}", va, pa);
-            // }
-            *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
-            unsafe {
-                va = VirAddrMasked::from_usize(va.into_usize() + PAGE_SIZE);
-                pa = PhyAddrMasked::from_usize(pa.into_usize() + PAGE_SIZE);
-            }
-        }
-        (va, pa)
-    }
-    /// clear [vbegin, vend)
-    pub fn unmap_range(&mut self, vbegin: VirAddrMasked, vend: VirAddrMasked) {
-        assert!(vbegin <= vend, "free_range vbegin <= vend");
-        if vbegin == vend {
-            return;
-        }
-        let parm: PhyAddrRefMasked = self.root_pam().into();
-        let l = &vbegin.indexes();
-        let r = &vend.sub_one_page().indexes();
-        Self::unmap_range_0(parm, l, r);
-    }
-    fn unmap_range_0(parm: PhyAddrRefMasked, l: &[usize; 3], r: &[usize; 3]) {
-        let xbegin = &[0, 0];
-        let xend = &[511, 511];
-        for (i, pte) in &mut parm.as_pte_array_mut()[l[0]..=r[0]].iter_mut().enumerate() {
-            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
-            if full {
-                // 1GB page table
-                debug_check!(pte.is_leaf());
-                *pte = PageTableEntry::empty();
-            } else {
-                debug_check!(pte.is_directory());
-                Self::unmap_range_1(pte, l, r);
-            }
-        }
-    }
-    #[inline(always)]
-    fn unmap_range_1(pte: &mut PageTableEntry, l: &[usize; 2], r: &[usize; 2]) {
-        let xbegin = &[0];
-        let xend = &[511];
-        for (i, pte) in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]]
-            .iter_mut()
-            .enumerate()
-        {
-            let (l, r, full) = Self::next_lr(l, r, xbegin, xend, i);
-            if full {
-                debug_check!(pte.is_leaf());
-                *pte = PageTableEntry::empty();
-            } else {
-                debug_check!(pte.is_directory());
-                Self::unmap_range_2(pte, l, r);
-            }
-        }
-    }
-    #[inline(always)]
-    fn unmap_range_2(pte: &mut PageTableEntry, l: &[usize; 1], r: &[usize; 1]) {
-        for pte in &mut PhyAddrRefMasked::from(pte.phy_addr()).as_pte_array_mut()[l[0]..=r[0]] {
-            debug_check!(pte.is_leaf());
-            *pte = PageTableEntry::empty();
-        }
-    }
+
     /// if return Err, frame exhausted.
-    pub fn map(
+    pub fn map_par(
         &mut self,
-        vam: VirAddrMasked,
-        parm: PhyAddrRefMasked,
+        va: VirAddr4K,
+        par: PhyAddrRef4K,
         flags: PTEFlags,
-    ) -> Result<(), ()> {
-        let pte = self.find_pte_create(vam)?;
-        debug_check!(!pte.is_valid(), "vam {:?} is mapped before mapping", vam);
-        *pte = PageTableEntry::new(parm.into(), flags | PTEFlags::V);
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<(), FrameOutOfMemory> {
+        let pte = self.find_pte_create(va, allocator)?;
+        debug_check!(!pte.is_valid(), "va {:?} is mapped before mapping", va);
+        *pte = PageTableEntry::new(par.into(), flags | PTEFlags::V);
         Ok(())
     }
-    pub fn unmap(&mut self, vam: VirAddrMasked) {
-        let pte = self.find_pte(vam).expect("unmap invalid virtual address!");
+    /// don't release space of par.
+    pub fn unmap_par(&mut self, va: VirAddr4K, par: PhyAddrRef4K) {
+        let pte = self.find_pte(va).expect("unmap invalid virtual address!");
         assert!(pte.is_valid(), "pte {:?} is invalid before unmapping", pte);
+        assert!(pte.phy_addr().into_ref() == par);
         *pte = PageTableEntry::empty();
     }
-    pub fn translate(&self, vam: VirAddrMasked) -> Option<PageTableEntry> {
-        self.find_pte(vam).map(|pte| *pte)
+    pub fn translate(&self, va: VirAddr4K) -> Option<PageTableEntry> {
+        self.find_pte(va).map(|pte| *pte)
     }
-    pub unsafe fn translate_uncheck(&self, vam: VirAddrMasked) -> PageTableEntry {
+    pub unsafe fn translate_uncheck(&self, va: VirAddr4K) -> PageTableEntry {
         *self
-            .find_pte(vam)
-            .unwrap_or_else(|| panic!("translate_uncheck: invalid pte from {:?}", vam))
+            .find_pte(va)
+            .unwrap_or_else(|| panic!("translate_uncheck: invalid pte from {:?}", va))
     }
     pub fn copy_kernel_from(&mut self, src: &Self) {
-        let src = src.root_pam().into_ref().as_pte_array();
-        let dst = self.root_pam().into_ref().as_pte_array_mut();
+        let src = src.root_pa().into_ref().as_pte_array();
+        let dst = self.root_pa().into_ref().as_pte_array_mut();
         dst[0..256].copy_from_slice(&src[0..256]);
         // dst.array_chunks_mut::<256>();
     }
@@ -445,7 +843,7 @@ impl PageTable {
 /// new a kernel page table
 /// set asid to 0.
 /// if return None, means no enough memory.
-fn new_kernel_page_table() -> Result<PageTable, ()> {
+fn new_kernel_page_table() -> Result<PageTable, FrameOutOfMemory> {
     extern "C" {
         // kernel segment ALIGN 4K
         fn stext();
@@ -465,20 +863,20 @@ fn new_kernel_page_table() -> Result<PageTable, ()> {
         // end ALIGN 4K
         fn end();
     }
-    let mut page_table = PageTable::new_empty(0)?;
-    fn get_usize_va(va: usize) -> VirAddrMasked {
-        unsafe { VirAddrMasked::from_usize(va) }
+    let mut page_table = PageTable::new_empty(asid::alloc_asid())?;
+    fn get_usize_va(va: usize) -> VirAddr4K {
+        unsafe { VirAddr4K::from_usize(va) }
     }
-    fn get_usize_pa(pa: usize) -> PhyAddrRefMasked {
-        unsafe { PhyAddrRefMasked::from_usize(pa) }
+    fn get_usize_pa(pa: usize) -> PhyAddrRef4K {
+        unsafe { PhyAddrRef4K::from_usize(pa) }
     }
-    fn get_va(xva: usize) -> VirAddrMasked {
+    fn get_va(xva: usize) -> VirAddr4K {
         get_usize_va(xva)
     }
-    fn pa_from_kernel(xva: usize) -> PhyAddrRefMasked {
+    fn pa_from_kernel(xva: usize) -> PhyAddrRef4K {
         get_usize_pa(xva - KERNEL_OFFSET_FROM_DIRECT_MAP)
     }
-    fn pa_from_dirref(xva: usize) -> PhyAddrRefMasked {
+    fn pa_from_dirref(xva: usize) -> PhyAddrRef4K {
         get_usize_pa(xva)
     }
     fn get_size(b: usize, e: usize) -> usize {
@@ -491,62 +889,101 @@ fn new_kernel_page_table() -> Result<PageTable, ()> {
         b: usize,
         e: usize,
         flags: PTEFlags,
-        pa_fn: impl FnOnce(usize) -> PhyAddrRefMasked,
+        pa_fn: impl FnOnce(usize) -> PhyAddrRef4K,
+        allocator: &mut impl FrameAllocator,
     ) {
-        pt.map_range(get_va(b), pa_fn(b), get_size(b, e), flags)
+        pt.map_direct_range(get_va(b), pa_fn(b), get_size(b, e), flags, allocator)
             .unwrap();
     }
-    fn xmap_impl_kernel(pt: &mut PageTable, b: usize, e: usize, flags: PTEFlags) {
-        pt.map_range(get_va(b), pa_from_kernel(b), get_size(b, e), flags)
-            .unwrap();
+    fn xmap_impl_kernel(
+        pt: &mut PageTable,
+        b: usize,
+        e: usize,
+        flags: PTEFlags,
+        allocator: &mut impl FrameAllocator,
+    ) {
+        pt.map_direct_range(
+            get_va(b),
+            pa_from_kernel(b),
+            get_size(b, e),
+            flags,
+            allocator,
+        )
+        .unwrap();
     }
-    fn xmap_impl_dirref(pt: &mut PageTable, b: usize, e: usize, flags: PTEFlags) {
-        pt.map_range(get_va(b), pa_from_dirref(b), get_size(b, e), flags)
-            .unwrap();
+    fn xmap_impl_dirref(
+        pt: &mut PageTable,
+        b: usize,
+        e: usize,
+        flags: PTEFlags,
+        allocator: &mut impl FrameAllocator,
+    ) {
+        pt.map_direct_range(
+            get_va(b),
+            pa_from_dirref(b),
+            get_size(b, e),
+            flags,
+            allocator,
+        )
+        .unwrap();
     }
     fn xmap_kernel(
         pt: &mut PageTable,
         b: unsafe extern "C" fn(),
         e: unsafe extern "C" fn(),
         flags: PTEFlags,
+        allocator: &mut impl FrameAllocator,
     ) {
-        xmap_impl_kernel(pt, b as usize, e as usize, flags);
+        xmap_impl_kernel(pt, b as usize, e as usize, flags, allocator);
     }
     let execable = PTEFlags::G | PTEFlags::R | PTEFlags::X;
     let readonly = PTEFlags::G | PTEFlags::R;
     let writable = PTEFlags::G | PTEFlags::R | PTEFlags::W;
-    xmap_kernel(&mut page_table, stext, etext, execable);
-    xmap_kernel(&mut page_table, srodata, erodata, readonly);
-    xmap_kernel(&mut page_table, sdata, edata, writable);
-    xmap_kernel(&mut page_table, sstack, estack, writable);
-    xmap_kernel(&mut page_table, sbss, ebss, writable);
+    let allocator = &mut frame::defualt_allocator();
+    xmap_kernel(&mut page_table, stext, etext, execable, allocator);
+    xmap_kernel(&mut page_table, srodata, erodata, readonly, allocator);
+    // xmap_kernel(&mut page_table, sdata, edata, writable);
+    // xmap_kernel(&mut page_table, sstack, estack, writable);
+    // xmap_kernel(&mut page_table, sbss, ebss, writable);
+    xmap_kernel(&mut page_table, sdata, ebss, writable, allocator);
     // memory used in init frame.
-    xmap_impl_kernel(&mut page_table, end as usize, INIT_MEMORY_END, writable);
+    xmap_impl_kernel(
+        &mut page_table,
+        end as usize,
+        INIT_MEMORY_END,
+        writable,
+        allocator,
+    );
     // direct map
     println!("map DIRECT_MAP");
-    xmap_impl_dirref(&mut page_table, DIRECT_MAP_BEGIN, DIRECT_MAP_END, writable);
+    xmap_impl_dirref(
+        &mut page_table,
+        DIRECT_MAP_BEGIN,
+        DIRECT_MAP_END,
+        writable,
+        allocator,
+    );
     Ok(page_table)
 }
 
 pub unsafe fn translated_byte_buffer_force(
-    satp: usize,
+    page_table: &PageTable,
     ptr: *const u8,
     len: usize,
 ) -> Vec<&'static mut [u8]> {
-    let page_table = PageTable::from_satp(satp);
     let mut start = ptr as usize;
     let end = start + len;
     let mut v = Vec::new();
     while start < end {
         let start_va = VirAddr::from(start);
-        let mut vam = start_va.floor();
-        let parm: PhyAddrRefMasked = page_table.translate_uncheck(vam).phy_addr().into(); // unsafe
-        vam.step();
-        let end_va = VirAddr::from(vam).min(VirAddr::from(end));
+        let mut va4k = start_va.floor();
+        let par: PhyAddrRef4K = page_table.translate_uncheck(va4k).phy_addr().into(); // unsafe
+        va4k.step();
+        let end_va = VirAddr::from(va4k).min(VirAddr::from(end));
         if end_va.page_offset() == 0 {
-            v.push(&mut parm.as_bytes_array_mut()[start_va.page_offset()..]);
+            v.push(&mut par.as_bytes_array_mut()[start_va.page_offset()..]);
         } else {
-            v.push(&mut parm.as_bytes_array_mut()[start_va.page_offset()..end_va.page_offset()]);
+            v.push(&mut par.as_bytes_array_mut()[start_va.page_offset()..end_va.page_offset()]);
         }
         start = end_va.into();
     }
@@ -558,8 +995,8 @@ fn direct_map_test() {
         println!("direct_map_test");
         let a = INIT_MEMORY_END - 8;
         let ptr = a as *mut usize;
-        let xptr = PhyAddrRefMasked::from_usize(ptr as usize - KERNEL_OFFSET_FROM_DIRECT_MAP);
-        *xptr.get_mut() = 1234usize;
+        let xptr = PhyAddrRef4K::from_usize(ptr as usize - KERNEL_OFFSET_FROM_DIRECT_MAP);
+        *xptr.as_mut() = 1234usize;
         assert_eq!(*ptr, 1234);
     };
 }
@@ -589,34 +1026,4 @@ pub unsafe fn set_satp_by_global() {
             .satp(),
     );
     csr::sfence_vma_all_global();
-}
-
-/// auto free root space.
-pub struct UserPageTable {
-    page_table: PageTable,
-}
-
-impl UserPageTable {
-    pub fn from_global(asid: usize) -> Result<Self, ()> {
-        Ok(Self {
-            page_table: PageTable::from_global(asid)?,
-        })
-    }
-    pub fn satp(&self) -> usize {
-        self.page_table.satp()
-    }
-    pub fn check_user_empty(&self) {
-        // if error happen, panic.
-        todo!()
-    }
-}
-
-impl Drop for UserPageTable {
-    fn drop(&mut self) {
-        debug_run! {self.check_user_empty()};
-        let ptr = self.page_table.root_pam();
-        unsafe {
-            frame_dealloc_dpa(ptr);
-        }
-    }
 }
