@@ -1,6 +1,6 @@
 #![allow(dead_code, unused_macros)]
 
-use core::{arch::asm, mem::MaybeUninit, sync::atomic::Ordering};
+use core::arch::asm;
 
 pub unsafe fn set_satp(satp: usize) {
     asm!("csrw satp, {}", in(reg)satp);
@@ -18,7 +18,6 @@ pub fn get_sp() -> usize {
     }
     ret
 }
-
 
 macro_rules! read_csr {
     ($csr_number:expr, $asm_fn: ident) => {

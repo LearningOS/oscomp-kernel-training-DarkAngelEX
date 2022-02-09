@@ -2,11 +2,11 @@ use core::mem::MaybeUninit;
 
 use crate::{
     memory::address::{KernelAddr, KernelAddr4K},
-    trap::{context::TrapContext, trap_return},
+    trap::{self, context::TrapContext},
 };
 
 /// switch in kernel space
-#[derive(Debug)]
+#[repr(C)]
 pub struct TaskContext {
     s: [usize; 12],
     ra: usize,
@@ -21,7 +21,7 @@ impl TaskContext {
     pub fn goto_trap_return(kernel_sp: KernelAddr4K, trap_context: *const TrapContext) -> Self {
         Self {
             s: unsafe { MaybeUninit::uninit().assume_init() },
-            ra: trap_return as usize,
+            ra: trap::trap_return as usize,
             sp: kernel_sp.into(),
             a0: trap_context as usize,
         }

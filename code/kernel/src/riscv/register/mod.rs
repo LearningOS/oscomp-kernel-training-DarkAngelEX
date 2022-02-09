@@ -1,4 +1,5 @@
-// clone from rcore
+#![allow(dead_code)]
+// copy from r-core
 
 #[macro_use]
 pub mod csr;
@@ -8,5 +9,6 @@ pub mod mtvec;
 pub mod scause;
 pub mod sie;
 pub mod sstatus;
+pub mod stval;
 pub mod stvec;
 pub mod time;

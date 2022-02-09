@@ -4,7 +4,9 @@ use core::{
 };
 
 use crate::{
-    config::{DIRECT_MAP_OFFSET, DIRECT_MAP_SIZE, PAGE_SIZE, PAGE_SIZE_BITS, USER_END, USER_HEAP_BEGIN},
+    config::{
+        DIRECT_MAP_OFFSET, DIRECT_MAP_SIZE, PAGE_SIZE, PAGE_SIZE_BITS, USER_END, USER_HEAP_BEGIN,
+    },
     impl_usize_from, tools,
 };
 
@@ -220,6 +222,9 @@ impl UserAddr {
     pub fn get_mut<T>(&self) -> &'static mut T {
         unsafe { &mut *(self.0 as *mut T) }
     }
+    pub fn add_assign(&mut self, num: usize) {
+        self.0 += num
+    }
 }
 impl VirAddr {
     pub fn as_ptr<T>(&self) -> *mut T {
@@ -325,8 +330,21 @@ impl UserAddr4K {
     }
     #[must_use = "the answer is in the return value!"]
     /// the answer is in the return value!
-    pub const fn add_n_pg(&self, n: usize) -> Self {
-        unsafe { Self::from_usize(self.0 + n * PAGE_SIZE) }
+    pub const fn add_page(&self, n: PageCount) -> Self {
+        Self(self.0 + n.byte_space())
+    }
+    #[must_use = "the answer is in the return value!"]
+    /// the answer is in the return value!
+    pub const fn sub_page(&self, n: PageCount) -> Self {
+        Self(self.0 - n.byte_space())
+    }
+
+    pub fn add_page_assign(&mut self, n: PageCount) {
+        self.0 += n.byte_space()
+    }
+
+    pub fn sub_page_assign(&mut self, n: PageCount) {
+        self.0 -= n.byte_space()
     }
     pub const fn vpn(&self) -> usize {
         self.0 >> PAGE_SIZE_BITS

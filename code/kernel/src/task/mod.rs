@@ -41,7 +41,6 @@ pub enum TaskStatus {
     DEAD,            // 等待销毁
 }
 
-#[derive(Debug)]
 pub struct TaskControlBlock {
     // immutable
     pid: PidHandle,
@@ -55,7 +54,6 @@ pub struct TaskControlBlock {
     inner: SpinLock<TaskControlBlockInner>,
 }
 
-#[derive(Debug)]
 pub struct TaskControlBlockInner {
     tcb: Pin<&'static TaskControlBlock>,
     task_status: TaskStatus,   //
@@ -84,10 +82,12 @@ impl TaskControlBlockInner {
         kernel_sp: KernelAddr4K,
         entry_point: UserAddr,
         user_sp: UserAddr4K,
+        argc: usize,
+        argv: usize,
         tcb: *const TaskControlBlock,
     ) {
         self.task_context = TaskContext::goto_trap_return(kernel_sp, &self.trap_context);
-        self.trap_context = TrapContext::app_init(entry_point, user_sp, kernel_sp);
+        self.trap_context = TrapContext::app_init(entry_point, user_sp, kernel_sp, argc, argv);
         self.set_tcb_ptr(tcb);
     }
     pub fn set_tcb_ptr(&mut self, tcb: *const TaskControlBlock) {
@@ -141,11 +141,10 @@ impl TaskControlBlock {
             _no_pin_marker: PhantomPinned,
             inner: SpinLock::new(TaskControlBlockInner::new()),
         });
-        unsafe {
-            tcb.inner
-                .assert_unique_get()
-                .init(kernel_sp, entry_point, user_sp, tcb.as_ref());
-        }
+        let (argc, argv) = (0, 0);
+        let inner = unsafe { tcb.inner.assert_unique_get() };
+        inner.init(kernel_sp, entry_point, user_sp, argc, argv, tcb.as_ref());
+
         Ok(tcb)
     }
     pub fn task_context_ptr(&self) -> *mut TaskContext {

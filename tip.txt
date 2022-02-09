@@ -1,1 +1,5 @@
 qemu-riscv64 target/riscv64gc-unknown-none-elf/release/hello_world
+
+cd ~/os/ftl-os/code/user
+cd ~/os/ftl-os/code/user/target/riscv64gc-unknown-none-elf/release
+rust-objdump -S initproc > initproc.asm

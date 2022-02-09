@@ -1,12 +1,11 @@
 use core::mem::MaybeUninit;
 use core::pin::Pin;
 
-use crate::memory::address::{KernelAddr, KernelAddr4K, UserAddr, UserAddr4K};
+use crate::memory::address::{KernelAddr4K, UserAddr, UserAddr4K};
 use crate::riscv::register::sstatus::{self, Sstatus};
 use crate::task::TaskControlBlock;
-use crate::trap;
 
-#[derive(Debug)]
+#[repr(C)]
 pub struct TrapContext {
     pub x: [usize; 32],   // regs
     pub sstatus: Sstatus, //
@@ -32,8 +31,22 @@ impl TrapContext {
             tcb: Pin::new_unchecked(null),
         }
     }
+    pub fn sepc(&self) -> UserAddr {
+        self.sepc
+    }
     pub fn set_sp(&mut self, sp: usize) {
         self.x[2] = sp;
+    }
+    pub fn set_a0(&mut self, a0: usize) {
+        self.x[10] = a0;
+    }
+    pub fn syscall_parameter(&self) -> (usize, [usize; 3]) {
+        let cx = self.x;
+        (cx[17], [cx[10], cx[11], cx[12]])
+    }
+    /// sepc += 4
+    pub fn into_next_instruction(&mut self) {
+        self.sepc.add_assign(4);
     }
     pub fn new(sstatus: Sstatus, sepc: UserAddr, kernel_stack: KernelAddr4K) -> Self {
         #[allow(deref_nullptr)]
@@ -48,10 +61,18 @@ impl TrapContext {
             tcb: unsafe { Pin::new_unchecked(r) },
         }
     }
-    pub fn app_init(entry: UserAddr, user_stack: UserAddr4K, kernel_stack: KernelAddr4K) -> Self {
+    pub fn app_init(
+        entry: UserAddr,
+        user_stack: UserAddr4K,
+        kernel_stack: KernelAddr4K,
+        argc: usize,
+        argv: usize,
+    ) -> Self {
         let sstatus = sstatus::read();
         let mut cx = Self::new(sstatus, entry, kernel_stack);
         cx.set_sp(user_stack.into_usize());
+        cx.x[10] = argc;
+        cx.x[11] = argv;
         cx
     }
     pub fn set_tcb_ptr(&mut self, tcb: *const TaskControlBlock) {

@@ -1,11 +1,9 @@
-use core::{
-    arch::asm,
-    cell::{RefCell, UnsafeCell},
-};
-
 use alloc::{sync::Arc, vec::Vec};
 
-use crate::task::{self, TaskContext, TaskControlBlock};
+use crate::{
+    riscv::sfence,
+    task::{self, TaskContext, TaskControlBlock},
+};
 
 mod manager;
 
@@ -49,8 +47,8 @@ pub fn run_task(hart_id: usize) -> ! {
         println!("hart {} run task {:?}", hart_id, task.pid());
         // release prev task there.
         processor.current = Some(task);
+        sfence::fence_i();
         unsafe {
-            asm!("fence.i");
             let _ = task::switch(idle_cx_ptr, next_cx);
         }
     }

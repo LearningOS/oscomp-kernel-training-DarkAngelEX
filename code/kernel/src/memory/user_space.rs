@@ -7,10 +7,7 @@ use crate::{
         page_table::PTEFlags,
     },
     tools::{
-        allocator::{
-            self,
-            from_usize_allocator::{FromUsize, UsizeAllocator},
-        },
+        allocator::from_usize_allocator::{FromUsize, UsizeAllocator},
         error::{FrameOutOfMemory, TooManyUserStack},
     },
 };
@@ -91,7 +88,7 @@ impl StackAllocator {
             stack_id: StackID(num),
             stack_begin: UserAddr4K::from_usize_check(base + num * size),
             stack_end: UserAddr4K::from_usize_check(base + (num + 1) * size),
-            alloc_num: USER_STACK_RESERVE / PAGE_SIZE,
+            alloc_num: PageCount::from_usize(USER_STACK_RESERVE / PAGE_SIZE),
         })
     }
     pub unsafe fn dealloc(&mut self, stack_id: usize) {
@@ -124,7 +121,7 @@ impl<'a> UsingStackTracker<'a> {
     pub fn user_area(&self) -> UserArea {
         let using_stack = &self.using_stack;
         UserArea {
-            ubegin: using_stack.stack_end,
+            ubegin: using_stack.stack_end.sub_page(using_stack.alloc_num),
             uend: using_stack.stack_end,
             perm: PTEFlags::U | PTEFlags::R | PTEFlags::W,
         }
@@ -162,12 +159,11 @@ pub struct UsingStack {
     stack_id: StackID,
     stack_begin: UserAddr4K, // the lower address of stack
     stack_end: UserAddr4K,   // the highest address of stack
-    alloc_num: usize,        // number of pages allocated
+    alloc_num: PageCount,    // number of pages allocated
 }
 impl UsingStack {
     pub fn valid_area(&self) -> UserArea {
-        let ubegin =
-            UserAddr4K::from_usize_check(self.stack_end.into_usize() - self.alloc_num * PAGE_SIZE);
+        let ubegin = self.stack_end.sub_page(self.alloc_num);
         assert!(self.stack_begin <= ubegin);
         let perm = PTEFlags::U | PTEFlags::R | PTEFlags::W;
         UserArea::new(ubegin, self.stack_end, perm)

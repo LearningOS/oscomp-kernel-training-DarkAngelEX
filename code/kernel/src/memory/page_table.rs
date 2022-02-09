@@ -463,7 +463,7 @@ impl PageTable {
                         unsafe { pte.dealloc_by(allocator) };
                     }
                 } else {
-                    ua = ua.add_n_pg(1 << 9 * 2);
+                    ua.add_page_assign(PageCount::from_usize(1 << 9 * 2));
                 }
             }
             (page_count, ua)
@@ -490,7 +490,7 @@ impl PageTable {
                         unsafe { pte.dealloc_by(allocator) };
                     }
                 } else {
-                    ua = ua.add_n_pg(1 << 9);
+                    ua.add_page_assign(PageCount::from_usize(1 << 9));
                 }
             }
             (page_count, ua)
@@ -729,7 +729,7 @@ impl PageTable {
                     ua = free_user_directory_all_1(ptes, l, r, ua, allocator);
                     unsafe { pte.dealloc_by(allocator) }
                 } else {
-                    ua = ua.add_n_pg(1 << 9 * 2)
+                    ua.add_page_assign(PageCount::from_usize(1 << 9 * 2))
                 }
             }
             ua
@@ -755,7 +755,7 @@ impl PageTable {
                     ua = free_user_directory_all_2(ptes, l, r, ua, allocator);
                     unsafe { pte.dealloc_by(allocator) }
                 } else {
-                    ua = ua.add_n_pg(1 << 9)
+                    ua.add_page_assign(PageCount::from_usize(1 << 9))
                 }
             }
             ua
@@ -845,6 +845,7 @@ impl PageTable {
 /// set asid to 0.
 /// if return None, means no enough memory.
 fn new_kernel_page_table() -> Result<PageTable, FrameOutOfMemory> {
+    #[allow(dead_code)]
     extern "C" {
         // kernel segment ALIGN 4K
         fn stext();

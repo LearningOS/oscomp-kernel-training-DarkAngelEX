@@ -1,5 +1,9 @@
+#![allow(dead_code)]
 use core::{arch::asm, mem::MaybeUninit};
 
+pub fn fence_i() {
+    unsafe { asm!("fence.i") };
+}
 ///
 /// sfence_vma have two parameter, rs1 is address, rs2 is asid.
 ///
