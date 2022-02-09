@@ -24,6 +24,7 @@ pub struct AsidVersion(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct AsidInfo(usize);
 
+#[derive(Debug)]
 pub struct AsidInfoTracker {
     asid_info: AsidInfo,
 }
@@ -197,13 +198,13 @@ pub fn asid_test() {
     space_2.map_par(va4k, pa2, flags, allocator).unwrap();
     let old_satp = unsafe { csr::get_satp() };
 
-    space_1.set_satp_register();
+    space_1.using();
     va_set(va, 1);
-    space_2.set_satp_register();
+    space_2.using();
     va_set(va, 2);
-    space_1.set_satp_register();
+    space_1.using();
     assert_eq!(va_get(va), 1);
-    space_2.set_satp_register();
+    space_2.using();
     assert_eq!(va_get(va), 2);
 
     unsafe { csr::set_satp(old_satp) };

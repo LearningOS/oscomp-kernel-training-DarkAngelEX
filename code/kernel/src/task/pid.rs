@@ -3,7 +3,7 @@ use crate::{
     tools::allocator::{from_usize_allocator::FromUsizeAllocator, Own},
 };
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Pid(usize);
 
 impl Pid {
@@ -16,6 +16,7 @@ from_usize_impl!(Pid);
 
 type PidAllocator = FromUsizeAllocator<Pid, PidHandle>;
 
+#[derive(Debug)]
 pub struct PidHandle(Pid);
 
 impl Own<Pid> for PidHandle {}

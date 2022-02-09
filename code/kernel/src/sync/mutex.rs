@@ -66,6 +66,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
+
     fn obtain_lock(&self) {
         while self
             .lock
@@ -90,6 +91,13 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
         //let tid = processor().tid_option().unwrap_or(0);
         let tid = 0;
         unsafe { self.user.get().write((cid, tid)) };
+    }
+    /// Assume the mutex is free and get reference of value.
+    ///
+    /// This is only safe during initialization
+    pub unsafe fn assert_unique_get(&self) -> &mut T {
+        assert_eq!(self.lock.load(Ordering::Relaxed), false);
+        &mut *self.data.get()
     }
 
     /// Locks the spinlock and returns a guard.

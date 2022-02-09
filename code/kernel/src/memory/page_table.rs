@@ -10,7 +10,7 @@ use crate::{
     },
     debug::PRINT_MAP_ALL,
     memory::asid,
-    riscv::register::csr,
+    riscv::{register::csr, sfence},
     tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
 };
 
@@ -132,6 +132,7 @@ impl Debug for PageTableEntry {
     }
 }
 
+#[derive(Debug)]
 pub struct PageTable {
     asid_tracker: AsidInfoTracker,
     satp: usize, // [63:60 MODE, 8 is SV39][59:44 ASID][43:0 PPN]
@@ -203,7 +204,7 @@ impl PageTable {
     pub unsafe fn set_satp_register_uncheck(&self) {
         csr::set_satp(self.satp)
     }
-    pub fn set_satp_register(&mut self) {
+    pub fn using(&mut self) {
         self.version_check();
         unsafe { self.set_satp_register_uncheck() }
     }
@@ -1012,7 +1013,7 @@ pub fn init_kernel_page_table() {
         );
         KERNEL_GLOBAL = Some(new_satp);
         csr::set_satp(satp);
-        csr::sfence_vma_all_global();
+        sfence::sfence_vma_all_global();
         debug_run!(direct_map_test());
     }
 }
@@ -1025,5 +1026,5 @@ pub unsafe fn set_satp_by_global() {
             .expect("KERNEL_GLOBAL has not been initialized")
             .satp(),
     );
-    csr::sfence_vma_all_global();
+    sfence::sfence_vma_all_global();
 }

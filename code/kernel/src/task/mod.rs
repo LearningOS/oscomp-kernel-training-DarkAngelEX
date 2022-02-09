@@ -4,6 +4,8 @@ mod switch;
 mod thread;
 mod tid;
 
+use core::{marker::PhantomPinned, pin::Pin};
+
 use alloc::{
     boxed::Box,
     sync::{Arc, Weak},
@@ -14,6 +16,7 @@ pub use switch::switch;
 use crate::{
     config::{KERNEL_STACK_SIZE, PAGE_SIZE},
     memory::{
+        address::{KernelAddr4K, UserAddr, UserAddr4K},
         allocator::frame::{self, defualt_allocator, FrameAllocator, FrameTracker},
         StackID, UserSpace, UserSpaceCreateError,
     },
@@ -21,9 +24,14 @@ use crate::{
     trap::context::TrapContext,
 };
 
-use self::{context::TaskContext, pid::PidHandle, thread::ThreadGroup, tid::Tid};
+use self::thread::LockedThreadGroup;
+pub use self::{
+    context::TaskContext,
+    pid::{Pid, PidHandle},
+    tid::Tid,
+};
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 pub enum TaskStatus {
     RUNNING,         // 可被调度
     INTERRUPTIBLE,   // 可中断睡眠
@@ -33,19 +41,59 @@ pub enum TaskStatus {
     DEAD,            // 等待销毁
 }
 
+#[derive(Debug)]
 pub struct TaskControlBlock {
+    // immutable
     pid: PidHandle,
     tid: Tid,
     stack_id: StackID,
-    thread_group: Arc<ThreadGroup>,
+    thread_group: Arc<LockedThreadGroup>,
     kernel_stack: FrameTracker,
     user_space: Arc<SpinLock<UserSpace>>, // share with thread group
-    task_status: TaskStatus,              //
-    trap_context: TrapContext,            // switch to user
-    task_context: TaskContext,            // switch to scheduler
+    _no_pin_marker: PhantomPinned,
+    // mutable
+    inner: SpinLock<TaskControlBlockInner>,
+}
+
+#[derive(Debug)]
+pub struct TaskControlBlockInner {
+    tcb: Pin<&'static TaskControlBlock>,
+    task_status: TaskStatus,   //
+    trap_context: TrapContext, // switch to user
+    task_context: TaskContext, // switch to scheduler
     parent: Option<Weak<TaskControlBlock>>,
     children: Vec<Arc<TaskControlBlock>>,
     exec_code: i32,
+}
+impl TaskControlBlockInner {
+    pub fn new() -> Self {
+        #[allow(deref_nullptr)]
+        let null = unsafe { &*core::ptr::null() };
+        Self {
+            tcb: unsafe { Pin::new_unchecked(null) },
+            task_status: TaskStatus::RUNNING,
+            trap_context: unsafe { TrapContext::any() },
+            task_context: unsafe { TaskContext::any() },
+            parent: None,
+            children: Vec::new(),
+            exec_code: 0,
+        }
+    }
+    pub fn init(
+        &mut self,
+        kernel_sp: KernelAddr4K,
+        entry_point: UserAddr,
+        user_sp: UserAddr4K,
+        tcb: *const TaskControlBlock,
+    ) {
+        self.task_context = TaskContext::goto_trap_return(kernel_sp, &self.trap_context);
+        self.trap_context = TrapContext::app_init(entry_point, user_sp, kernel_sp);
+        self.set_tcb_ptr(tcb);
+    }
+    pub fn set_tcb_ptr(&mut self, tcb: *const TaskControlBlock) {
+        self.trap_context.set_tcb_ptr(tcb);
+        self.tcb = unsafe { Pin::new_unchecked(&*tcb) }
+    }
 }
 
 impl Drop for TaskControlBlock {
@@ -59,6 +107,7 @@ impl Drop for TaskControlBlock {
     }
 }
 
+#[derive(Debug)]
 pub enum CreateError {
     OutOfMemory,
     UserSpace(UserSpaceCreateError),
@@ -68,7 +117,7 @@ impl TaskControlBlock {
     pub fn new(
         elf_data: &[u8],
         allocator: &mut impl FrameAllocator,
-    ) -> Result<Box<Self>, CreateError> {
+    ) -> Result<Arc<Self>, CreateError> {
         assert!(
             core::mem::size_of::<TaskControlBlock>() < PAGE_SIZE,
             "size of ProcessControlBlock is too large!"
@@ -77,27 +126,35 @@ impl TaskControlBlock {
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, allocator).map_err(|e| CreateError::UserSpace(e))?;
         let pid = pid::pid_alloc();
-        let thread_group = Arc::new(ThreadGroup::new(pid.pid()));
+        let thread_group = Arc::new(LockedThreadGroup::new(pid.pid()));
         let tid = thread_group.alloc(); // it doesn't matter if leak tid there.
         let kernel_stack = frame::alloc().map_err(|_| CreateError::OutOfMemory)?;
         assert!(KERNEL_STACK_SIZE == PAGE_SIZE);
-        let kernel_stack_ptr = kernel_stack.ptr().add_n_pg(1);
-        let mut pcb = Box::new(Self {
+        let kernel_sp = kernel_stack.ptr().add_n_pg(1);
+        let tcb = Arc::new(Self {
             pid,
             tid,
             stack_id,
             thread_group,
             kernel_stack,
             user_space: Arc::new(SpinLock::new(user_space)),
-            task_status: TaskStatus::RUNNING,
-            trap_context: unsafe { TrapContext::any() },
-            task_context: unsafe { TaskContext::any() },
-            parent: None,
-            children: Vec::new(),
-            exec_code: 0,
+            _no_pin_marker: PhantomPinned,
+            inner: SpinLock::new(TaskControlBlockInner::new()),
         });
-        pcb.task_context = TaskContext::goto_trap_return(kernel_stack_ptr, &pcb.trap_context);
-        pcb.trap_context = TrapContext::app_init(entry_point, user_sp, kernel_stack_ptr);
-        Ok(pcb)
+        unsafe {
+            tcb.inner
+                .assert_unique_get()
+                .init(kernel_sp, entry_point, user_sp, tcb.as_ref());
+        }
+        Ok(tcb)
+    }
+    pub fn task_context_ptr(&self) -> *mut TaskContext {
+        &mut self.inner.lock().task_context
+    }
+    pub fn using_space(&self) {
+        self.user_space.lock().using();
+    }
+    pub fn pid(&self) -> Pid {
+        self.pid.pid()
     }
 }

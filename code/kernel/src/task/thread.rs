@@ -5,11 +5,12 @@ use super::{
     tid::{Tid, TidAllocator},
 };
 
-pub struct ThreadGroup {
+#[derive(Debug)]
+pub struct LockedThreadGroup {
     tid_allocator: SpinLock<TidAllocator>,
 }
 
-impl ThreadGroup {
+impl LockedThreadGroup {
     pub fn new(pid: Pid) -> Self {
         Self {
             tid_allocator: SpinLock::new(TidAllocator::new(pid.get_usize())),

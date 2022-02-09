@@ -1,6 +1,6 @@
 use crate::{from_usize_impl, tools::allocator::from_usize_allocator::FromUsizeAllocator};
 
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Tid(usize);
 
 from_usize_impl!(Tid);

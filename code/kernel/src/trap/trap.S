@@ -1,3 +1,13 @@
+# .altmacro
+# .macro print ch
+#     mv s11, a7
+#     mv s10, a0
+#     li a7, 1
+#     li a0, \ch
+#     ecall
+#     mv a7, s11
+#     mv a0, s10
+# .endm
     .section .text.trampoline
     .global __trap_entry
     .global __trap_return
@@ -41,22 +51,26 @@ __trap_entry:
     sd x29, 29*8(a0)
     sd x30, 30*8(a0)
     sd x31, 31*8(a0)
+    // store a0
+    csrr t2, sscratch
+    sd t2, 11*8(a0)
 
     csrr t0, sstatus
     csrr t1, sepc
     sd t0, 32*8(a0)
     sd t1, 33*8(a0)
-    // store a0
-    csrr t2, sscratch
-    sd t2, 11*8(a0)
     // set kernel_sp
-    ld sp, 35*8(sp)
+    ld sp, 34*8(a0)
     // load trap_hander
     # ld t3, 36*8(sp)
-    // call trap_hander !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+    // call trap_handler !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
     # call t3
-    call trap_hander
+
+    call trap_handler
+    # print 'b'
 __trap_return:
+    # print 'c'
+
     // return from same place.
     csrw sscratch, a0
 

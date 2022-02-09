@@ -13,4 +13,5 @@ pub use user_space::{StackID, UserSpace, UserSpaceCreateError};
 pub fn init() {
     allocator::init();
     page_table::init_kernel_page_table();
+    asid::asid_test();
 }

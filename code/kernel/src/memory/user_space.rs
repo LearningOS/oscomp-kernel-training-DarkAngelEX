@@ -1,4 +1,4 @@
-use alloc::vec::Vec;
+use alloc::{collections::BTreeMap, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
@@ -25,6 +25,7 @@ use super::{
 };
 
 /// all map to frame.
+#[derive(Debug)]
 pub struct UserArea {
     ubegin: UserAddr4K,
     uend: UserAddr4K,
@@ -46,7 +47,7 @@ impl UserArea {
     }
 }
 
-#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct StackID(usize);
 impl FromUsize for StackID {
     fn from_usize(v: usize) -> Self {
@@ -59,6 +60,7 @@ impl StackID {
     }
 }
 
+#[derive(Debug)]
 struct StackAllocator {
     allocator: UsizeAllocator,
 }
@@ -78,22 +80,19 @@ impl StackAllocator {
     pub fn stack_max() -> usize {
         USER_MAX_THREADS
     }
-    pub fn alloc(&mut self) -> Result<UsingStackTracker, TooManyUserStack> {
+    pub fn alloc(&mut self) -> Result<UsingStack, TooManyUserStack> {
         if self.allocator.using() >= Self::stack_max() {
             return Err(TooManyUserStack);
         }
         let num = self.allocator.alloc();
         let base = USER_STACK_BEGIN;
         let size = USER_STACK_SIZE;
-        Ok(UsingStackTracker::new(
-            self,
-            UsingStack {
-                stack_id: StackID(num),
-                stack_begin: UserAddr4K::from_usize_check(base + num * size),
-                stack_end: UserAddr4K::from_usize_check(base + (num + 1) * size),
-                alloc_num: USER_STACK_RESERVE / PAGE_SIZE,
-            },
-        ))
+        Ok(UsingStack {
+            stack_id: StackID(num),
+            stack_begin: UserAddr4K::from_usize_check(base + num * size),
+            stack_end: UserAddr4K::from_usize_check(base + (num + 1) * size),
+            alloc_num: USER_STACK_RESERVE / PAGE_SIZE,
+        })
     }
     pub unsafe fn dealloc(&mut self, stack_id: usize) {
         self.allocator.dealloc(stack_id)
@@ -101,17 +100,17 @@ impl StackAllocator {
 }
 
 struct UsingStackTracker<'a> {
-    allocator: &'a mut StackAllocator,
+    allocator: &'a mut StackSpaceManager,
     using_stack: UsingStack,
 }
 impl<'a> Drop for UsingStackTracker<'a> {
     fn drop(&mut self) {
-        unsafe { self.allocator.dealloc(self.using_stack.stack_id.id()) }
+        unsafe { self.allocator.dealloc(self.using_stack.stack_id()) }
     }
 }
 
 impl<'a> UsingStackTracker<'a> {
-    pub fn new(allocator: &'a mut StackAllocator, using_stack: UsingStack) -> Self {
+    pub fn new(allocator: &'a mut StackSpaceManager, using_stack: UsingStack) -> Self {
         Self {
             allocator,
             using_stack,
@@ -130,18 +129,19 @@ impl<'a> UsingStackTracker<'a> {
             perm: PTEFlags::U | PTEFlags::R | PTEFlags::W,
         }
     }
-    pub fn id(&self) -> StackID {
-        self.using_stack.stack_id
+    pub fn stack_id(&self) -> StackID {
+        self.using_stack.stack_id()
     }
     pub fn bottom_ptr(&self) -> UserAddr4K {
         self.using_stack.stack_end
     }
     /// (stack, user_sp)
     pub fn info(&self) -> (StackID, UserAddr4K) {
-        (self.id(), self.bottom_ptr())
+        (self.stack_id(), self.bottom_ptr())
     }
 }
 
+#[derive(Debug)]
 pub enum UserStackCreateError {
     FrameOutOfMemory(FrameOutOfMemory),
     TooManyUserStack(TooManyUserStack),
@@ -157,7 +157,7 @@ impl From<TooManyUserStack> for UserStackCreateError {
     }
 }
 
-#[derive(Copy, Clone, PartialEq, Eq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct UsingStack {
     stack_id: StackID,
     stack_begin: UserAddr4K, // the lower address of stack
@@ -172,11 +172,15 @@ impl UsingStack {
         let perm = PTEFlags::U | PTEFlags::R | PTEFlags::W;
         UserArea::new(ubegin, self.stack_end, perm)
     }
+    pub fn stack_id(&self) -> StackID {
+        self.stack_id
+    }
 }
 
+#[derive(Debug)]
 struct StackSpaceManager {
     allocator: StackAllocator,
-    using_stacks: Vec<UsingStack>,
+    using_stacks: BTreeMap<StackID, UsingStack>,
 }
 impl Drop for StackSpaceManager {
     fn drop(&mut self) {
@@ -187,32 +191,30 @@ impl StackSpaceManager {
     pub const fn new() -> Self {
         Self {
             allocator: StackAllocator::new(),
-            using_stacks: Vec::new(),
+            using_stacks: BTreeMap::new(),
         }
     }
     pub fn using_size(&self) -> usize {
         self.using_stacks.len()
     }
     pub fn alloc(&mut self) -> Result<UsingStackTracker, TooManyUserStack> {
-        self.allocator.alloc()
+        let using_stack = self.allocator.alloc()?;
+        self.using_stacks
+            .insert(using_stack.stack_id(), using_stack)
+            .map(|s| panic!("stack double alloc! {:?}", s));
+        Ok(UsingStackTracker::new(self, using_stack))
     }
     pub unsafe fn dealloc(&mut self, stack_id: StackID) {
         self.allocator.dealloc(stack_id.id())
     }
     pub fn pop_stack_by_id(&mut self, stack_id: StackID) -> UsingStack {
-        let i = match self
-            .using_stacks
-            .iter()
-            .enumerate()
-            .find(|(_i, stack)| stack.stack_id == stack_id)
-        {
-            Some((i, _s)) => i,
-            None => panic!("pop_stack_by_id error: {:?}", stack_id),
-        };
-        self.using_stacks.remove(i)
+        self.using_stacks
+            .remove(&stack_id)
+            .expect("pop_stack_by_id: no find")
     }
 }
 
+#[derive(Debug)]
 struct HeapManager {
     heap_size: PageCount,
     heap_alloc: PageCount, // lazy alloc cnt
@@ -250,7 +252,7 @@ impl HeapManager {
     }
     // do this when lazy allocation occurs
     pub fn add_alloc_count(&mut self, n: PageCount) {
-        self.heap_free += n;
+        self.heap_alloc += n;
     }
     // do this when resize small
     pub fn add_free_count(&mut self, n: PageCount) {
@@ -261,6 +263,7 @@ impl HeapManager {
 /// auto free root space.
 ///
 /// shared between threads, necessary synchronizations operations are required
+#[derive(Debug)]
 pub struct UserSpace {
     page_table: PageTable,
     text_area: Vec<UserArea>, // used in drop
@@ -269,6 +272,7 @@ pub struct UserSpace {
     // mmap_size: usize,
 }
 
+#[derive(Debug)]
 pub enum UserSpaceCreateError {
     FrameOutOfMemory(FrameOutOfMemory),
     ElfAnalysisFail(&'static str),
@@ -315,6 +319,9 @@ impl UserSpace {
     }
     pub fn satp(&self) -> usize {
         self.page_table.satp()
+    }
+    pub fn using(&mut self) {
+        self.page_table.using();
     }
     pub fn map_user_range(
         &mut self,

@@ -10,6 +10,7 @@
 #![feature(bool_to_option)]
 #![feature(asm_const)]
 #![feature(trait_alias)]
+#![feature(const_btree_new)]
 
 extern crate alloc;
 extern crate bitflags;
@@ -32,6 +33,7 @@ mod scheduler;
 mod sync;
 mod syscall;
 mod task;
+mod timer;
 pub mod tools;
 mod trap;
 
@@ -42,6 +44,6 @@ global_asm!(include_str!("link_app.S"));
 ///
 /// It will run on each core.
 ///
-pub fn kmain() -> ! {
-    loop {}
+pub fn kmain(hart_id: usize) -> ! {
+    scheduler::run_task(hart_id);
 }

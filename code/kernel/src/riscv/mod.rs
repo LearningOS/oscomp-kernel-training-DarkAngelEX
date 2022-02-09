@@ -6,14 +6,16 @@ use core::{
 use crate::{
     fdt::FdtHeader,
     loader,
-    memory::{self, address::PhyAddr}, riscv::register::csr,
+    memory::{self, address::PhyAddr},
+    riscv::register::csr,
+    scheduler, timer, trap,
 };
 
 pub mod cpu;
+pub mod sfence;
 pub mod interrupt;
 pub mod register;
 pub mod sbi;
-
 
 global_asm!(include_str!("./boot/entry64.asm"));
 
@@ -69,22 +71,25 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     // assert!(DEVICE_TREE_PADDR.load(Ordering::Relaxed) != 0);
     // show_device();
 
-    crate::memory::init();
-    crate::memory::asid::asid_test();
+    memory::init();
+    scheduler::init(cpu::count());
+    trap::init();
+    trap::enable_timer_interrupt();
+    timer::set_next_trigger();
 
     println!("[FTL OS]hello! from hart {}", hartid);
     loader::list_apps();
 
     println!("init complete! weakup the other cores.");
     AP_CAN_INIT.store(true, Ordering::Release);
-    crate::kmain();
+    crate::kmain(hartid);
 }
 
 fn others_main(hartid: usize) -> ! {
     println!("[FTL OS]hart {} init by global satp", hartid);
     unsafe { memory::set_satp_by_global() };
     println!("[FTL OS]hart {} init complete", hartid);
-    crate::kmain();
+    crate::kmain(hartid);
 }
 
 /// clear bss to set some variable into zero.
@@ -101,6 +106,7 @@ fn show_seg() {
         // fn boot_page_table_sv39();
         fn start();
         fn etext();
+        fn srodata();
         fn erodata();
         fn sdata();
         fn edata();
@@ -118,15 +124,16 @@ fn show_seg() {
     // xprlntln(boot_page_table_sv39, "boot_page_table_sv39");
     xprlntln(start, "start");
     xprlntln(etext, "etext");
+    xprlntln(srodata, "srodata");
     xprlntln(erodata, "erodata");
     xprlntln(sdata, "sdata");
     xprlntln(edata, "edata");
     xprlntln(sstack, "sstack");
+    println!("    cur sp : {:#x}", csr::get_sp());
     xprlntln(estack, "estack");
     xprlntln(sbss, "sbss");
     xprlntln(ebss, "ebss");
     xprlntln(end, "end");
-    println!("    cur sp : {:#x}", csr::get_sp());
 }
 
 fn show_device() {
