@@ -1,5 +1,9 @@
 use core::arch::global_asm;
 
+// ASCII: Goto Task
+#[allow(unused)]
+pub const ADD_TASK_MAGIC: usize = 0x476F746F_5461736B;
+
 use crate::{
     riscv::{
         cpu,
@@ -29,8 +33,9 @@ pub fn get_trap_entry() -> usize {
     }
     __trap_entry as usize
 }
+// add_task will return 0xf
 #[no_mangle]
-pub fn fast_syscall_handler(
+pub fn syscall_handler(
     trap_context: &mut TrapContext,
     // a0 in trap
     a1: usize,
@@ -38,15 +43,19 @@ pub fn fast_syscall_handler(
     _a3: usize,
     _a4: usize,
     _a5: usize,
-    a6: usize,
+    a0: usize,
     a7: usize,
 ) -> (isize, &mut TrapContext) {
     set_kernel_trap_entry();
+    assert!(trap_context.need_add_task == 0);
     trap_context.into_next_instruction();
-    let a0 = a6;
     let ret = syscall::syscall(a7, [a0, a1, a2]);
-    // todo!("fast_syscall_handler");
-    before_trap_return();
+    // todo!("syscall_handler");
+    if trap_context.need_add_task == 0 {
+        before_trap_return();
+    } else {
+        debug_check!(trap_context.need_add_task == ADD_TASK_MAGIC);
+    }
     (ret, trap_context)
 }
 /// return value is sscratch = ptr of TrapContext
@@ -58,11 +67,12 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
     match scause.cause() {
         scause::Trap::Exception(e) => match e {
             Exception::UserEnvCall => {
-                // system call
-                trap_context.into_next_instruction();
-                let (a7, paras) = trap_context.syscall_parameter();
-                let ret = syscall::syscall(a7, paras);
-                trap_context.set_a0(ret as usize);
+                // // system call
+                // trap_context.into_next_instruction();
+                // let (a7, paras) = trap_context.syscall_parameter();
+                // let ret = syscall::syscall(a7, paras);
+                // trap_context.set_a0(ret as usize);
+                panic!("should into syscall_handler!");
             }
             Exception::StoreFault
             | Exception::StorePageFault
@@ -107,6 +117,11 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
 }
 
 #[no_mangle]
+pub fn trap_add_task(a0: isize, trap_context: &mut TrapContext) -> (isize, &mut TrapContext) {
+    assert_eq!(trap_context.need_add_task, ADD_TASK_MAGIC);
+    (a0, trap_context)
+}
+#[no_mangle]
 pub fn trap_from_kernel() -> ! {
     panic!(
         "a trap {:?} from kernel! hart = {}",
@@ -121,12 +136,21 @@ pub fn before_trap_return() {
 }
 
 #[inline(always)]
-pub fn trap_return(trap_context: &mut TrapContext) -> ! {
+pub fn exec_return(trap_context: &mut TrapContext) -> ! {
     extern "C" {
-        fn __trap_return(a0: usize) -> !;
+        fn __exec_return(a0: usize) -> !;
     }
     before_trap_return();
-    unsafe { __trap_return(trap_context as *mut TrapContext as usize) }
+    unsafe { __exec_return(trap_context as *mut TrapContext as usize) }
+}
+
+#[inline(always)]
+pub fn fork_return(trap_context: &mut TrapContext) -> ! {
+    extern "C" {
+        fn __fork_return(a0: usize) -> !;
+    }
+    before_trap_return();
+    unsafe { __fork_return(trap_context as *mut TrapContext as usize) }
 }
 
 fn set_kernel_trap_entry() {

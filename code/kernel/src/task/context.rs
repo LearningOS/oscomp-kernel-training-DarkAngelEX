@@ -18,12 +18,9 @@ impl TaskContext {
     pub unsafe fn any() -> Self {
         MaybeUninit::uninit().assume_init()
     }
-    pub fn goto_trap_return(kernel_sp: KernelAddr4K, trap_context: *const TrapContext) -> Self {
-        Self {
-            s: unsafe { MaybeUninit::uninit().assume_init() },
-            ra: trap::trap_return as usize,
-            sp: kernel_sp.into(),
-            a0: trap_context as usize,
-        }
+    pub fn exec_init(&mut self, kernel_sp: KernelAddr4K, trap_context: *const TrapContext) {
+        self.ra = trap::exec_return as usize;
+        self.sp = kernel_sp.into();
+        self.a0 = trap_context as usize;
     }
 }

@@ -7,7 +7,6 @@ mod tid;
 use core::{marker::PhantomPinned, pin::Pin};
 
 use alloc::{
-    boxed::Box,
     sync::{Arc, Weak},
     vec::Vec,
 };
@@ -77,7 +76,7 @@ impl TaskControlBlockInner {
             exec_code: 0,
         }
     }
-    pub fn init(
+    pub fn exec_init(
         &mut self,
         kernel_sp: KernelAddr4K,
         entry_point: UserAddr,
@@ -86,8 +85,9 @@ impl TaskControlBlockInner {
         argv: usize,
         tcb: *const TaskControlBlock,
     ) {
-        self.task_context = TaskContext::goto_trap_return(kernel_sp, &self.trap_context);
-        self.trap_context = TrapContext::app_init(entry_point, user_sp, kernel_sp, argc, argv);
+        self.task_context.exec_init(kernel_sp, &self.trap_context);
+        self.trap_context
+            .exec_init(entry_point, user_sp, kernel_sp, argc, argv);
         self.set_tcb_ptr(tcb);
     }
     pub fn set_tcb_ptr(&mut self, tcb: *const TaskControlBlock) {
@@ -143,7 +143,7 @@ impl TaskControlBlock {
         });
         let (argc, argv) = (0, 0);
         let inner = unsafe { tcb.inner.assert_unique_get() };
-        inner.init(kernel_sp, entry_point, user_sp, argc, argv, tcb.as_ref());
+        inner.exec_init(kernel_sp, entry_point, user_sp, argc, argv, tcb.as_ref());
 
         Ok(tcb)
     }
