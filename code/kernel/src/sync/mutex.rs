@@ -13,7 +13,7 @@ pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
 // pub type SleepLock<T> = Mutex<T, Condvar>;
 
 pub struct Mutex<T: ?Sized, S: MutexSupport> {
-    lock: AtomicBool,
+    pub lock: AtomicBool,
     support: MaybeUninit<S>,
     support_initialization: AtomicU8, // 0 = uninitialized, 1 = initializing, 2 = initialized
     user: UnsafeCell<(usize, usize)>, // (cid, tid)
@@ -66,7 +66,6 @@ impl<T, S: MutexSupport> Mutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
-
     fn obtain_lock(&self) {
         while self
             .lock
@@ -81,8 +80,8 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
                 if try_count == 0x1000000 {
                     let (cid, tid) = unsafe { *self.user.get() };
                     panic!(
-                        "Mutex: deadlock detected! try_count > 0x1000000.\n locked by cpu {} thread {} @ {:?}",
-                        cid, tid, self as *const Self
+                        "Mutex: deadlock detected! try_count > {:#x}.\n locked by cpu {} thread {} @ {:?}",
+                        try_count, cid, tid, self as *const Self
                     );
                 }
             }

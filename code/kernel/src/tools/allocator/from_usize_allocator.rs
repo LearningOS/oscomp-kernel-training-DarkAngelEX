@@ -25,7 +25,7 @@ macro_rules! from_usize_impl {
     };
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FromUsizeIter<T: FromUsize> {
     next: usize,
     _marker: PhantomData<T>,
@@ -47,7 +47,7 @@ impl<T: FromUsize> FromUsizeIter<T> {
 }
 pub type UsizeAllocator = FromUsizeAllocator<usize, usize>;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct FromUsizeAllocator<T: FromUsize, R: From<T>> {
     iter: FromUsizeIter<T>,
     recycled: Vec<T>,

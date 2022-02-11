@@ -122,9 +122,9 @@ impl StackGlobalFrameAllocator {
         }
         let nt = n.min(n0);
         for (i, pa) in range.iter_mut().take(nt).enumerate() {
-            *pa = f_tran(self.current.add_n_pg(i));
+            *pa = f_tran(self.current.add_one_page());
         }
-        self.current = self.current.add_n_pg(nt);
+        self.current = self.current.add_one_page();
         if n == nt {
             return Ok(());
         }

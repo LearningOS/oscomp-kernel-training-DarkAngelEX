@@ -8,7 +8,7 @@ mod user_space;
 
 pub use page_table::set_satp_by_global;
 use page_table::PageTable;
-pub use user_space::{StackID, UserSpace, UserSpaceCreateError};
+pub use user_space::{StackID, USpaceCreateError, UserSpace};
 
 pub fn init() {
     allocator::init();

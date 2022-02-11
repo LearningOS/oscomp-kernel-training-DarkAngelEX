@@ -1,11 +1,13 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    riscv::sfence,
-    task::{self, TaskContext, TaskControlBlock},
+    riscv::{cpu, sfence},
+    task::{self, TaskContext, TaskControlBlock}, memory::{set_satp_by_global, self},
 };
 
 mod manager;
+
+pub use manager::add_task;
 
 struct Processor {
     current: Option<Arc<TaskControlBlock>>,
@@ -34,6 +36,11 @@ fn get_processor(hart_id: usize) -> &'static mut Processor {
     unsafe { &mut PROCESSOR[hart_id] }
 }
 
+pub fn get_current_task() -> Arc<TaskControlBlock> {
+    let p = get_processor(cpu::hart_id());
+    p.current.as_ref().unwrap().clone()
+}
+
 pub fn run_task(hart_id: usize) -> ! {
     let processor = get_processor(hart_id);
     let idle_cx_ptr = processor.idle_cx_ptr();
@@ -51,5 +58,6 @@ pub fn run_task(hart_id: usize) -> ! {
         unsafe {
             let _ = task::switch(idle_cx_ptr, next_cx);
         }
+        memory::set_satp_by_global();
     }
 }

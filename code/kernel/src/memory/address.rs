@@ -1,6 +1,7 @@
 use core::{
+    convert::TryFrom,
     fmt::{self, Debug, Formatter},
-    ops::{Add, AddAssign},
+    ops::{Add, AddAssign, Sub, SubAssign},
 };
 
 use crate::{
@@ -56,6 +57,9 @@ pub type KernelAddr4K = PhyAddrRef4K;
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PageCount(usize);
+
+#[derive(Debug)]
+pub struct OutOfUserRange;
 
 /// Debugging
 
@@ -209,6 +213,28 @@ impl From<UserAddr> for VirAddr {
         Self(ua.into())
     }
 }
+impl TryFrom<*const u8> for UserAddr {
+    type Error = OutOfUserRange;
+
+    fn try_from(value: *const u8) -> Result<Self, Self::Error> {
+        let r = Self(value as usize);
+        match r.valid() {
+            Ok(_) => Ok(r),
+            Err(_) => Err(OutOfUserRange),
+        }
+    }
+}
+impl TryFrom<*mut u8> for UserAddr {
+    type Error = OutOfUserRange;
+
+    fn try_from(value: *mut u8) -> Result<Self, Self::Error> {
+        let r = Self(value as usize);
+        match r.valid() {
+            Ok(_) => Ok(r),
+            Err(_) => Err(OutOfUserRange),
+        }
+    }
+}
 impl UserAddr {
     pub const fn is_4k_align(&self) -> bool {
         (self.into_usize() % PAGE_SIZE) == 0
@@ -225,16 +251,25 @@ impl UserAddr {
     pub fn add_assign(&mut self, num: usize) {
         self.0 += num
     }
+    pub unsafe fn as_ptr<T>(&self) -> &'static T {
+        &*(self.0 as *const T)
+    }
+    pub unsafe fn as_ptr_mut<T>(&self) -> &'static mut T {
+        &mut *(self.0 as *mut T)
+    }
 }
 impl VirAddr {
-    pub fn as_ptr<T>(&self) -> *mut T {
+    pub fn as_ptr<T>(&self) -> *const T {
+        self.into_usize() as *const T
+    }
+    pub fn as_ptr_mut<T>(&self) -> *mut T {
         self.into_usize() as *mut T
     }
     pub unsafe fn as_ref<T>(&self) -> &'static T {
         &*self.as_ptr()
     }
     pub unsafe fn as_mut<T>(&self) -> &'static mut T {
-        &mut *self.as_ptr()
+        &mut *self.as_ptr_mut()
     }
 }
 impl VirAddr4K {
@@ -302,8 +337,29 @@ impl PhyAddrRef4K {
     }
     /// the answer is in the return value!
     #[must_use = "the answer is in the return value!"]
-    pub const fn add_n_pg(&self, n: usize) -> Self {
-        unsafe { Self::from_usize(self.0 + n * PAGE_SIZE) }
+    pub const fn add_one_page(&self) -> Self {
+        Self(self.0 + PAGE_SIZE)
+    }
+    /// the answer is in the return value!
+    #[must_use = "the answer is in the return value!"]
+    pub const fn sub_one_page(&self) -> Self {
+        Self(self.0 - PAGE_SIZE)
+    }
+    #[must_use = "the answer is in the return value!"]
+    /// the answer is in the return value!
+    pub const fn add_page(&self, n: PageCount) -> Self {
+        Self(self.0 + n.byte_space())
+    }
+    #[must_use = "the answer is in the return value!"]
+    /// the answer is in the return value!
+    pub const fn sub_page(&self, n: PageCount) -> Self {
+        Self(self.0 - n.byte_space())
+    }
+    pub fn add_page_assign(&mut self, n: PageCount) {
+        self.0 += n.byte_space()
+    }
+    pub fn sub_page_assign(&mut self, n: PageCount) {
+        self.0 -= n.byte_space()
     }
 }
 
@@ -320,13 +376,13 @@ impl UserAddr4K {
     }
     /// the answer is in the return value!
     #[must_use = "the answer is in the return value!"]
-    pub const fn sub_one_page(&self) -> Self {
-        Self(self.0 - PAGE_SIZE)
-    }
-    #[must_use = "the answer is in the return value!"]
-    /// the answer is in the return value!
     pub const fn add_one_page(&self) -> Self {
         Self(self.0 + PAGE_SIZE)
+    }
+    /// the answer is in the return value!
+    #[must_use = "the answer is in the return value!"]
+    pub const fn sub_one_page(&self) -> Self {
+        Self(self.0 - PAGE_SIZE)
     }
     #[must_use = "the answer is in the return value!"]
     /// the answer is in the return value!
@@ -338,7 +394,6 @@ impl UserAddr4K {
     pub const fn sub_page(&self, n: PageCount) -> Self {
         Self(self.0 - n.byte_space())
     }
-
     pub fn add_page_assign(&mut self, n: PageCount) {
         self.0 += n.byte_space()
     }
@@ -383,6 +438,18 @@ impl Add for PageCount {
 impl AddAssign for PageCount {
     fn add_assign(&mut self, rhs: Self) {
         self.0 += rhs.0
+    }
+}
+impl Sub for PageCount {
+    type Output = PageCount;
+
+    fn sub(self, rhs: Self) -> Self::Output {
+        Self::Output::from_usize(self.0 - rhs.0)
+    }
+}
+impl SubAssign for PageCount {
+    fn sub_assign(&mut self, rhs: Self) {
+        self.0 -= rhs.0
     }
 }
 

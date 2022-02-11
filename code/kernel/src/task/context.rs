@@ -23,4 +23,12 @@ impl TaskContext {
         self.sp = kernel_sp.into();
         self.a0 = trap_context as usize;
     }
+    pub fn fork(&self, kernel_sp: KernelAddr4K, trap_context: *const TrapContext) -> Self {
+        Self {
+            s: self.s,
+            ra: trap::fork_return as usize,
+            sp: kernel_sp.into(),
+            a0: trap_context as usize,
+        }
+    }
 }

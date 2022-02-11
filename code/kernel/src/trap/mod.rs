@@ -13,7 +13,7 @@ use crate::{
             stvec::{self, TrapMode},
         },
     },
-    syscall,
+    scheduler, syscall,
 };
 
 use self::context::TrapContext;
@@ -49,8 +49,7 @@ pub fn syscall_handler(
     set_kernel_trap_entry();
     assert!(trap_context.need_add_task == 0);
     trap_context.into_next_instruction();
-    let ret = syscall::syscall(a7, [a0, a1, a2]);
-    // todo!("syscall_handler");
+    let ret = syscall::syscall(trap_context, a7, [a0, a1, a2]);
     if trap_context.need_add_task == 0 {
         before_trap_return();
     } else {
@@ -117,15 +116,24 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
 }
 
 #[no_mangle]
-pub fn trap_add_task(a0: isize, trap_context: &mut TrapContext) -> (isize, &mut TrapContext) {
+pub fn trap_after_save_sx(a0: usize, trap_context: &mut TrapContext) -> (isize, &mut TrapContext) {
+    // now only fork run this.
     assert_eq!(trap_context.need_add_task, ADD_TASK_MAGIC);
+    trap_context.need_add_task = 0;
+    let a0 = syscall::assert_fork(a0);
+    assert_eq!(a0, 0);
+    let task_new = trap_context.task_new.take().unwrap();
+    task_new.as_ref().set_user_ret(task_new.pid().get_usize());
+    scheduler::add_task(task_new);
+    before_trap_return();
     (a0, trap_context)
 }
 #[no_mangle]
 pub fn trap_from_kernel() -> ! {
     panic!(
-        "a trap {:?} from kernel! hart = {}",
+        "a trap {:?} from kernel! bad addr = {:#x}, hart = {}",
         scause::read().cause(),
+        stval::read(),
         cpu::hart_id()
     );
 }

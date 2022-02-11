@@ -13,7 +13,7 @@ use crate::{
 };
 
 use super::{
-    address::{PageCount, UserAddr, UserAddr4K},
+    address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
     allocator::frame::{
         iter::{FrameDataIter, NullFrameDataIter},
         FrameAllocator,
@@ -22,7 +22,7 @@ use super::{
 };
 
 /// all map to frame.
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub struct UserArea {
     ubegin: UserAddr4K,
     uend: UserAddr4K,
@@ -42,6 +42,9 @@ impl UserArea {
     pub fn perm(&self) -> PTEFlags {
         self.perm
     }
+    pub fn user_assert(&self) {
+        assert!(self.perm & PTEFlags::U != PTEFlags::empty());
+    }
 }
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
@@ -57,7 +60,7 @@ impl StackID {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct StackAllocator {
     allocator: UsizeAllocator,
 }
@@ -173,7 +176,7 @@ impl UsingStack {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct StackSpaceManager {
     allocator: StackAllocator,
     using_stacks: BTreeMap<StackID, UsingStack>,
@@ -206,11 +209,17 @@ impl StackSpaceManager {
     pub fn pop_stack_by_id(&mut self, stack_id: StackID) -> UsingStack {
         self.using_stacks
             .remove(&stack_id)
-            .expect("pop_stack_by_id: no find")
+            .unwrap_or_else(|| panic!("pop_stack_by_id: no find {:?}", stack_id))
+    }
+    // pub fn iter(&mut self) -> impl Iterator<Item = (&StackID, &UsingStack)> {
+    //     self.using_stacks.iter()
+    // }
+    pub unsafe fn get_any_id(&self) -> Option<StackID> {
+        self.using_stacks.first_key_value().map(|(&id, _s)| id)
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 struct HeapManager {
     heap_size: PageCount,
     heap_alloc: PageCount, // lazy alloc cnt
@@ -269,13 +278,13 @@ pub struct UserSpace {
 }
 
 #[derive(Debug)]
-pub enum UserSpaceCreateError {
+pub enum USpaceCreateError {
     FrameOutOfMemory(FrameOutOfMemory),
     ElfAnalysisFail(&'static str),
     TooManyUserStack(TooManyUserStack),
 }
 
-impl From<UserStackCreateError> for UserSpaceCreateError {
+impl From<UserStackCreateError> for USpaceCreateError {
     fn from(e: UserStackCreateError) -> Self {
         match e {
             UserStackCreateError::FrameOutOfMemory(e) => Self::FrameOutOfMemory(e),
@@ -283,7 +292,7 @@ impl From<UserStackCreateError> for UserSpaceCreateError {
         }
     }
 }
-impl From<FrameOutOfMemory> for UserSpaceCreateError {
+impl From<FrameOutOfMemory> for USpaceCreateError {
     fn from(e: FrameOutOfMemory) -> Self {
         Self::FrameOutOfMemory(e)
     }
@@ -346,6 +355,7 @@ impl UserSpace {
     }
     pub unsafe fn stack_dealloc(&mut self, stack_id: StackID, allocator: &mut impl FrameAllocator) {
         let user_area = self.stacks.pop_stack_by_id(stack_id);
+        self.stacks.dealloc(stack_id);
         self.page_table
             .unmap_user_range(&user_area.valid_area(), allocator);
     }
@@ -364,20 +374,18 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(Self, StackID, UserAddr4K, UserAddr), UserSpaceCreateError> {
-        let err_fn = UserSpaceCreateError::ElfAnalysisFail;
-        let oom_fn = UserSpaceCreateError::from;
-        let stack_fn = UserSpaceCreateError::from;
-        let mut space = Self::from_global().map_err(oom_fn)?;
-        let elf = xmas_elf::ElfFile::new(elf_data).map_err(err_fn)?;
+    ) -> Result<(Self, StackID, UserAddr4K, UserAddr), USpaceCreateError> {
+        let elf_fail = USpaceCreateError::ElfAnalysisFail;
+        let mut space = Self::from_global()?;
+        let elf = xmas_elf::ElfFile::new(elf_data).map_err(elf_fail)?;
         let elf_header = elf.header;
         let magic = elf_header.pt1.magic;
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
         let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
         for i in 0..ph_count {
-            let ph = elf.program_header(i).map_err(err_fn)?;
-            if ph.get_type().map_err(err_fn)? == xmas_elf::program::Type::Load {
+            let ph = elf.program_header(i).map_err(elf_fail)?;
+            if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
                 let start_va: UserAddr = (ph.virtual_addr() as usize).into();
                 let end_va: UserAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
                 let mut perm = PTEFlags::U;
@@ -398,17 +406,47 @@ impl UserSpace {
                 let data =
                     &elf.input[ph.offset() as usize..(ph.offset() + ph.file_size()) as usize];
                 let mut slice_iter = SliceFrameDataIter::new(data);
-                space
-                    .map_user_range(map_area, &mut slice_iter, allocator)
-                    .map_err(oom_fn)?;
+                space.map_user_range(map_area, &mut slice_iter, allocator)?;
             }
         }
         // map user stack
-        let (stack_id, user_sp) = space.stack_alloc(allocator).map_err(stack_fn)?;
+        let (stack_id, user_sp) = space.stack_alloc(allocator)?;
         // set heap
         space.heap_resize(PageCount::from_usize(1), allocator);
 
         let entry_point = elf.header.pt2.entry_point() as usize;
         Ok((space, stack_id, user_sp, entry_point.into()))
+    }
+    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, USpaceCreateError> {
+        let page_table = self.page_table.fork(allocator)?;
+        let text_area = self.text_area.clone();
+        let stacks = self.stacks.clone();
+        let heap = self.heap.clone();
+        // let oom_fn = USpaceCreateError::from;
+        // let stack_fn = USpaceCreateError::from;
+        Ok(Self {
+            page_table,
+            text_area,
+            stacks,
+            heap,
+        })
+    }
+    pub unsafe fn clear_user_stack_all(&mut self, allocator: &mut impl FrameAllocator) {
+        while let Some(stack_id) = self.stacks.get_any_id() {
+            self.stack_dealloc(stack_id, allocator);
+        }
+    }
+    pub fn using_size(&self) -> usize {
+        self.stacks.using_size()
+    }
+}
+
+#[derive(Debug)]
+pub enum UserPtrTranslateErr {
+    OutOfUserRange(OutOfUserRange),
+}
+impl From<OutOfUserRange> for UserPtrTranslateErr {
+    fn from(e: OutOfUserRange) -> Self {
+        Self::OutOfUserRange(e)
     }
 }

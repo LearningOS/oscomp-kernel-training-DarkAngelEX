@@ -1,5 +1,6 @@
     .section .text
     .globl __switch
+    .globl __goto_task
 __switch:
     sd  s0,  0*8(a0)
     sd  s1,  1*8(a0)
@@ -16,6 +17,7 @@ __switch:
     sd  ra, 12*8(a0)
     sd  sp, 13*8(a0)
 
+switch_load:
     ld  s0,  0*8(a1)
     ld  s1,  1*8(a1)
     ld  s2,  2*8(a1)
@@ -30,6 +32,9 @@ __switch:
     ld s11, 11*8(a1)
     ld  ra, 12*8(a1)
     ld  sp, 13*8(a1)
-    // function return value
+    // function return value, used in add_task when exec / fork
     ld  a0, 14*8(a1)
     ret
+__goto_task:
+    mv a1, a0
+    j switch_load

@@ -11,10 +11,12 @@
 #![feature(asm_const)]
 #![feature(trait_alias)]
 #![feature(const_btree_new)]
+#![feature(map_first_last)]
+#![feature(never_type)]
 
 extern crate alloc;
 extern crate bitflags;
-extern crate lazy_static;
+// extern crate lazy_static;
 extern crate xmas_elf;
 
 use core::arch::global_asm;
@@ -36,6 +38,7 @@ mod task;
 mod timer;
 pub mod tools;
 mod trap;
+mod user;
 
 global_asm!(include_str!("link_app.S"));
 

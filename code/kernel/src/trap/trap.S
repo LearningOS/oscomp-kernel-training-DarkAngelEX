@@ -11,11 +11,11 @@
 //
 // trap_handler_entry => save t0-t6, a0-a7 -> call trap_handler -> RETURN_COMMON -> load t0-t6, a0-a7 -> sret
 //
-// syscall_entry => mv a6, user a0 -> call syscall_handler -> judge xreturn / xadd_task
+// syscall_entry => mv a6, user a0 -> call syscall_handler -> judge syscall_return / trap_after_save_sx_entry
 //
-// xreturn => RETURN_COMMON -> set a0(return value) -> sret
+// syscall_return => RETURN_COMMON -> set a0(return value) -> sret
 //
-// xadd_task => save s0-s11 -> call trap_add_task -> xreturn
+// trap_after_save_sx_entry => save s0-s11 -> call trap_after_save_sx -> syscall_return
 //
 // __exec_return => RETURN_COMMON -> load a0, a1 -> sret
 //
@@ -38,25 +38,28 @@
     sd   ra,   1*8(\f)
     sd   sp,   2*8(\f)
     sd   gp,   3*8(\f)
-    sd   tp,   4*8(\f)
+    sd   tp,   4*8(\f) # save user tp
     csrr ra,  sstatus
     csrr sp,  sepc
     sd   ra,  32*8(\f)
     sd   sp,  33*8(\f)
     ld   sp,  34*8(\f)
+    ld   tp,  35*8(\f) # load kernel tp(hart id)
 .endm
 
 .macro RETURN_COMMON f
-    # ra sp will be cover then.
+    # ra sp will be load then.
     ld   ra,  32*8(\f)
     ld   sp,  33*8(\f)
     csrw sscratch, \f
     csrw sstatus,  ra
     csrw sepc,     sp
+    # swap tp, 4*8(\f)
+    sd   tp,  35*8(\f) # save kernel tp(hart id)
     ld   ra,   1*8(\f)
     ld   sp,   2*8(\f)
     ld   gp,   3*8(\f)
-    ld   tp,   4*8(\f)
+    ld   tp,   4*8(\f) # load user tp
 .endm
 
 .macro judge_syscall t goto
@@ -120,7 +123,8 @@ __trap_entry:
     // 32*8(f) sstatus
     // 33*8(f) sepc
     // 34*8(f) kernel_sp
-    // 35*8(f) need_add_task
+    // 35*8(f) kernel_tp
+    // 36*8(f) need_add_task
     ENTRY_COMMON a0
     judge_syscall ra syscall_entry
 trap_handler_entry:
@@ -134,7 +138,7 @@ trap_handler_entry:
     sd  a6, 16*8(a0)
     sd  a7, 17*8(a0)
     csrr ra, sscratch
-    sd   ra, 10*8(a0)
+    sd  ra, 10*8(a0) // sd a0 there
     call trap_handler // -> a0: frame ptr
     RETURN_COMMON a0
     LOAD_TX a0
@@ -146,27 +150,23 @@ trap_handler_entry:
     ld  a5, 15*8(a0)
     ld  a6, 16*8(a0)
     ld  a7, 17*8(a0)
-    // load a0
-    ld a0, 10*8(a0)
+    ld  a0, 10*8(a0)  // load a0 there
     sret
 
 syscall_entry:
-    csrr ra, sscratch
-    mv a6, ra // (user a0)
-    // a0 is trap_frame
-    // a1-a5, a7 is same as user
-    // a6 is user a0
-    // parameter: a0: frame ptr, a1-a7: call
+    csrr a6, sscratch // a6 <- (user a0)
+    // parameter: a0: frame ptr, a1-a7: call, a6 is a0(user)
     call syscall_handler // -> (a0: return value, a1: frame ptr)
-    ld t1, 35*8(a1)
-    bnez t1, xadd_task
+    ld t1, 36*8(a1)
+    bnez t1, trap_after_save_sx_entry
     RETURN_COMMON a1
     sret
 
-xadd_task:
-    SAVE_SX a1
+trap_after_save_sx_entry:
+    ld t0, 37*8(a1)
+    SAVE_SX t0
     // parameter: a0: from syscall a1: frame ptr
-    call trap_add_task // -> (a0: return value, a1: frame ptr)
+    call trap_after_save_sx // -> (a0: return value, a1: frame ptr)
     RETURN_COMMON a1
     sret
 
