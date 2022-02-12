@@ -45,7 +45,7 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
         SYSCALL_PIPE => todo!(),
         SYSCALL_READ => fs::sys_read(trap_context, send_parameter(args)),
         SYSCALL_WRITE => fs::sys_write(trap_context, send_parameter(args)),
-        SYSCALL_EXIT => todo!(),
+        SYSCALL_EXIT => process::sys_exit(trap_context, send_parameter(args)),
         SYSCALL_SLEEP => todo!(),
         SYSCALL_YIELD => todo!(),
         SYSCALL_KILL => todo!(),

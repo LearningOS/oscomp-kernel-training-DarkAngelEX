@@ -35,6 +35,7 @@ switch_load:
     // function return value, used in add_task when exec / fork
     ld  a0, 14*8(a1)
     ret
+    unimp
 __goto_task:
     mv a1, a0
     j switch_load

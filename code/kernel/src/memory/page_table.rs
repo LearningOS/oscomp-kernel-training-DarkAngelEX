@@ -11,8 +11,9 @@ use crate::{
     debug::PRINT_MAP_ALL,
     memory::asid,
     riscv::{
+        self,
         register::csr,
-        sfence::{self, sfence_vma_all_global}, self,
+        sfence::{self, sfence_vma_all_global},
     },
     tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
 };
@@ -148,6 +149,7 @@ impl Drop for PageTable {
         self.free_user_directory_all(allocator);
         unsafe { allocator.dealloc(self.root_pa().into_ref()) };
         self.satp = 0;
+        memory_trace!("PageTable::drop end");
     }
 }
 
@@ -908,7 +910,7 @@ impl PageTable {
                 Err(FrameOutOfMemory)
             }
         };
-
+        #[inline(always)]
         fn copy_user_range_lazy_0(
             dst_ptes: &mut [PageTableEntry; 512],
             src_ptes: &mut [PageTableEntry; 512],
@@ -938,6 +940,7 @@ impl PageTable {
             }
             Ok(ua)
         }
+        #[inline(always)]
         fn copy_user_range_lazy_1(
             dst_ptes: &mut [PageTableEntry; 512],
             src_ptes: &mut [PageTableEntry; 512],
@@ -966,6 +969,7 @@ impl PageTable {
             }
             Ok(ua)
         }
+        #[inline(always)]
         fn copy_user_range_lazy_2(
             dst_ptes: &mut [PageTableEntry; 512],
             src_ptes: &mut [PageTableEntry; 512],
@@ -975,43 +979,16 @@ impl PageTable {
             allocator: &mut impl FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
             memory_trace!("copy_user_range_lazy_2");
-            println!("lazy_2 ua: {:#x}", ua.into_usize());
-            memory_trace!("copy_user_range_lazy_2");
-            println!("current sp: {:#016x}", riscv::current_sp());
-            println!(" src_ptes: {:#x}", src_ptes as *const _ as usize);
-            println!(" dst_ptes: {:#x}", dst_ptes as *const _ as usize);
             let dst_it = dst_ptes[l[0]..=r[0]].iter_mut();
             let src_it = src_ptes[l[0]..=r[0]].iter_mut();
             for (dst_pte, src_pte) in &mut dst_it.zip(src_it) {
                 if src_pte.is_valid() {
-                    let sptr = src_pte as *const PageTableEntry;
-                    let value = unsafe { *sptr };
-                    println!("a");
-                    println!("ptr {:#016x}", sptr as usize);
-                    println!("val {:#016x}", value.bits);
-                    deubg_print_place!();
-                    println!(
-                        "iter-src_pte: {:#016x} -> {:#016x} of {:#x}",
-                        sptr as usize,
-                        value.phy_addr().into_ref().into_usize(),
-                        ua.into_usize()
-                    );
-                    println!("b ");
-                    assert!(src_pte.is_leaf());
-                    assert!(src_pte.is_user());
+                    assert!(src_pte.is_leaf() && src_pte.is_user());
                     let perm =
-                    src_pte.flags() & (PTEFlags::U | PTEFlags::R | PTEFlags::W | PTEFlags::X);
+                        src_pte.flags() & (PTEFlags::U | PTEFlags::R | PTEFlags::W | PTEFlags::X);
                     dst_pte.alloc_by(perm, allocator).map_err(|_| ua)?;
                     let src = src_pte.phy_addr().into_ref().as_usize_array();
                     let dst = dst_pte.phy_addr().into_ref().as_usize_array_mut();
-                    let xsrc = core::hint::black_box(src as *const _ as usize);
-                    let xdst = core::hint::black_box(dst as *const _ as usize);
-                    let current = crate::debug::trace::current_count();
-                    if current >= 78 {
-                        println!("current: {}", current);
-                        println!("src: {:#x}", xsrc);
-                        println!("dst: {:#x}", xdst);
-                    }
                     dst[0..512].copy_from_slice(&src[0..512]);
                     memory_trace!("copy_user_range_lazy_2");
                 }

@@ -358,7 +358,7 @@ impl UserSpace {
         Ok(info)
     }
     pub unsafe fn stack_dealloc(&mut self, stack_id: StackID, allocator: &mut impl FrameAllocator) {
-        memory_trace!("UserSpace::stack_dealloc");
+         memory_trace!("UserSpace::stack_dealloc");
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
         self.page_table

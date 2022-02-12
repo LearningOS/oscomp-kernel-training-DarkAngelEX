@@ -1,13 +1,15 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
+    memory::{self},
     riscv::{cpu, sfence},
-    task::{self, TaskContext, TaskControlBlock}, memory::{set_satp_by_global, self},
+    task::{self, TaskContext, TaskControlBlock, TaskStatus},
 };
 
+pub mod app;
 mod manager;
 
-pub use manager::add_task;
+pub use manager::{add_task, get_initproc};
 
 struct Processor {
     current: Option<Arc<TaskControlBlock>>,
@@ -35,10 +37,26 @@ pub fn init(cpu_count: usize) {
 fn get_processor(hart_id: usize) -> &'static mut Processor {
     unsafe { &mut PROCESSOR[hart_id] }
 }
-
+fn try_get_processor(hart_id: usize) -> Option<&'static mut Processor> {
+    unsafe { PROCESSOR.get_mut(hart_id) }
+}
+fn get_current_processor() -> &'static mut Processor {
+    get_processor(cpu::hart_id())
+}
+fn get_current_idle_cx_ptr() -> *mut TaskContext {
+    get_processor(cpu::hart_id()).idle_cx_ptr()
+}
 pub fn get_current_task() -> Arc<TaskControlBlock> {
-    let p = get_processor(cpu::hart_id());
+    let p = get_current_processor();
     p.current.as_ref().unwrap().clone()
+}
+pub fn get_current_task_ptr() -> *const TaskControlBlock {
+    let p = get_current_processor();
+    p.current.as_ref().unwrap().as_ref()
+}
+pub fn try_get_current_task_ptr() -> Option<*const TaskControlBlock> {
+    let p = try_get_processor(cpu::hart_id())?;
+    p.current.as_ref().map(|a| a.as_ref() as *const _)
 }
 
 pub fn run_task(hart_id: usize) -> ! {
@@ -59,5 +77,9 @@ pub fn run_task(hart_id: usize) -> ! {
             let _ = task::switch(idle_cx_ptr, next_cx);
         }
         memory::set_satp_by_global();
+        memory_trace!("run_task");
+        processor.current = None; // release
+                                  // println!("run_task switch out");
+        memory_trace!("run_task");
     }
 }

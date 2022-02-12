@@ -1,7 +1,7 @@
 //! Implementation of global allocator
 //!
 use crate::{
-    config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, KERNEL_BASE, PAGE_SIZE},
+    config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
     debug::trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
     tools::{allocator::Own, error::FrameOutOfMemory},
 };

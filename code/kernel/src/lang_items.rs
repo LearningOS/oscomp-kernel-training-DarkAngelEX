@@ -17,5 +17,7 @@ fn panic(info: &PanicInfo) -> ! {
         let count =trace::current_count();
         println!("current trace count: {}", count);
     }
+    trace::using_stack_size_print();
+    print!("\n");
     shutdown()
 }

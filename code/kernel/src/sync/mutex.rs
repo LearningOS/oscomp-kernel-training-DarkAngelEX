@@ -125,6 +125,10 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
             support_guard,
         }
     }
+    ///
+    pub fn get_ptr(&self) -> *mut T {
+        self.data.get()
+    }
 
     /// lock using busy waiting
     pub fn busy_lock(&self) -> MutexGuard<T, S> {

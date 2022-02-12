@@ -5,6 +5,7 @@ pub mod error;
 pub mod manager;
 mod page_table;
 mod user_space;
+pub mod stack;
 
 pub use page_table::set_satp_by_global;
 use page_table::PageTable;

@@ -1,5 +1,7 @@
 //! global heap
-use crate::config::KERNEL_HEAP_SIZE;
+use core::{alloc::Layout, ptr::NonNull};
+
+use crate::{config::KERNEL_HEAP_SIZE, tools::error::HeapOutOfMemory};
 use buddy_system_allocator::LockedHeap;
 
 #[global_allocator]
@@ -19,4 +21,15 @@ pub fn init_heap() {
 #[alloc_error_handler]
 pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
     panic!("Heap allocation error, layout = {:?}", layout);
+}
+
+pub fn global_heap_alloc(layout: Layout) -> Result<NonNull<u8>, HeapOutOfMemory> {
+    HEAP_ALLOCATOR
+        .lock()
+        .alloc(layout)
+        .map_err(|_| HeapOutOfMemory)
+}
+
+pub fn global_heap_dealloc(ptr: NonNull<u8>, layout: Layout) {
+    HEAP_ALLOCATOR.lock().dealloc(ptr, layout)
 }

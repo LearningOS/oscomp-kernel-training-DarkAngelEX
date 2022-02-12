@@ -48,7 +48,7 @@ pub fn syscall_handler(
 ) -> (isize, &mut TrapContext) {
     set_kernel_trap_entry();
     memory_trace!("syscall_handler entry");
-    println!("syscall_handler sp: {:#016x}", riscv::current_sp());
+    debug_check_eq!(trap_context.kernel_stack, trap_context.get_tcb().kernel_bottom());
     assert!(trap_context.need_add_task == 0);
     trap_context.into_next_instruction();
     let ret = syscall::syscall(trap_context, a7, [a0, a1, a2]);
@@ -64,6 +64,7 @@ pub fn syscall_handler(
 #[no_mangle]
 pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
     set_kernel_trap_entry();
+    debug_check_eq!(trap_context.kernel_stack, trap_context.get_tcb().kernel_bottom());
     let scause = scause::read();
     let stval = stval::read();
     match scause.cause() {

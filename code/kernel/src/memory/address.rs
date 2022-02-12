@@ -52,8 +52,8 @@ pub struct PhyAddrRef4K(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct UserAddr4K(usize);
 
-pub type KernelAddr = PhyAddrRef;
-pub type KernelAddr4K = PhyAddrRef4K;
+pub type KernelAddr = VirAddr;
+pub type KernelAddr4K = VirAddr4K;
 
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PageCount(usize);
@@ -235,6 +235,48 @@ impl TryFrom<*mut u8> for UserAddr {
         }
     }
 }
+
+macro_rules! add_sub_impl {
+    ($name_4k: ident) => {
+        impl $name_4k {
+            /// the answer is in the return value!
+            #[must_use = "the answer is in the return value!"]
+            pub const fn add_one_page(&self) -> Self {
+                Self(self.0 + PAGE_SIZE)
+            }
+            /// the answer is in the return value!
+            #[must_use = "the answer is in the return value!"]
+            pub const fn sub_one_page(&self) -> Self {
+                Self(self.0 - PAGE_SIZE)
+            }
+            #[must_use = "the answer is in the return value!"]
+            /// the answer is in the return value!
+            pub const fn add_page(&self, n: PageCount) -> Self {
+                Self(self.0 + n.byte_space())
+            }
+            #[must_use = "the answer is in the return value!"]
+            /// the answer is in the return value!
+            pub const fn sub_page(&self, n: PageCount) -> Self {
+                Self(self.0 - n.byte_space())
+            }
+            pub fn add_page_assign(&mut self, n: PageCount) {
+                self.0 += n.byte_space()
+            }
+            pub fn sub_page_assign(&mut self, n: PageCount) {
+                self.0 -= n.byte_space()
+            }
+        }
+    };
+}
+
+
+add_sub_impl!(VirAddr);
+add_sub_impl!(PhyAddr);
+add_sub_impl!(PhyAddrRef);
+add_sub_impl!(VirAddr4K);
+add_sub_impl!(PhyAddr4K);
+add_sub_impl!(PhyAddrRef4K);
+
 impl UserAddr {
     pub const fn is_4k_align(&self) -> bool {
         (self.into_usize() % PAGE_SIZE) == 0
@@ -282,9 +324,6 @@ impl VirAddr4K {
     }
     pub const fn vpn(&self) -> usize {
         self.0 >> PAGE_SIZE_BITS
-    }
-    pub const fn sub_one_page(&self) -> Self {
-        Self(self.0 - PAGE_SIZE)
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
@@ -334,32 +373,6 @@ impl PhyAddrRef4K {
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
-    }
-    /// the answer is in the return value!
-    #[must_use = "the answer is in the return value!"]
-    pub const fn add_one_page(&self) -> Self {
-        Self(self.0 + PAGE_SIZE)
-    }
-    /// the answer is in the return value!
-    #[must_use = "the answer is in the return value!"]
-    pub const fn sub_one_page(&self) -> Self {
-        Self(self.0 - PAGE_SIZE)
-    }
-    #[must_use = "the answer is in the return value!"]
-    /// the answer is in the return value!
-    pub const fn add_page(&self, n: PageCount) -> Self {
-        Self(self.0 + n.byte_space())
-    }
-    #[must_use = "the answer is in the return value!"]
-    /// the answer is in the return value!
-    pub const fn sub_page(&self, n: PageCount) -> Self {
-        Self(self.0 - n.byte_space())
-    }
-    pub fn add_page_assign(&mut self, n: PageCount) {
-        self.0 += n.byte_space()
-    }
-    pub fn sub_page_assign(&mut self, n: PageCount) {
-        self.0 -= n.byte_space()
     }
 }
 

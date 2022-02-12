@@ -1,8 +1,7 @@
-use lazy_static::__Deref;
-
 use crate::{
     loader::get_app_data_by_name,
     memory::allocator::frame,
+    scheduler,
     syscall::SYSCALL_FORK,
     trap::{context::TrapContext, ADD_TASK_MAGIC},
     user,
@@ -63,4 +62,9 @@ pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 1]) -> isize {
             return -1;
         }
     }
+}
+
+pub fn sys_exit(trap_context: &mut TrapContext, args: [usize; 1]) -> ! {
+    let exit_code = args[0] as i32;
+    scheduler::app::exit_current_and_run_next(trap_context, exit_code);
 }
