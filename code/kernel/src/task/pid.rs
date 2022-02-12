@@ -7,7 +7,7 @@ use crate::{
 pub struct Pid(usize);
 
 impl Pid {
-    pub fn get_usize(&self) -> usize {
+    pub fn into_usize(&self) -> usize {
         self.0
     }
 }
@@ -26,7 +26,7 @@ impl PidHandle {
         self.0
     }
     pub fn get_usize(&self) -> usize {
-        self.pid().get_usize()
+        self.pid().into_usize()
     }
 }
 

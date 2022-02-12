@@ -129,7 +129,7 @@ pub fn trap_after_save_sx(a0: usize, trap_context: &mut TrapContext) -> (isize, 
     let a0 = syscall::assert_fork(a0);
     assert_eq!(a0, 0);
     let task_new = trap_context.task_new.take().unwrap();
-    task_new.as_ref().set_user_ret(task_new.pid().get_usize());
+    task_new.as_ref().set_user_ret(task_new.pid().into_usize());
     scheduler::add_task(task_new);
     memory_trace!("trap_after_save_sx return");
     before_trap_return();

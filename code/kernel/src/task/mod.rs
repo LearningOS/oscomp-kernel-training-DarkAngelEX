@@ -26,7 +26,7 @@ use crate::{
     },
     riscv::sfence,
     scheduler::{self, get_current_task, get_initproc},
-    sync::mutex::SpinLock,
+    sync::mutex::{MutexGuard, Spin, SpinLock},
     tools::error::{FrameOutOfMemory, HeapOutOfMemory},
     trap::context::TrapContext,
 };
@@ -102,6 +102,9 @@ impl TaskControlBlockInner {
         self.trap_context = src.trap_context.fork_no_sx(new_ksp, tcb);
         self.task_context = src.task_context.fork(new_ksp, &self.trap_context);
         self.children = Vec::new();
+    }
+    pub fn get_children(&mut self) -> &mut Vec<Arc<TaskControlBlock>> {
+        &mut self.children
     }
 }
 
@@ -183,12 +186,14 @@ impl TaskControlBlock {
         self.alive.as_ref().map(|a| a.as_ref())
     }
     pub fn alive(&self) -> &AliveTaskControlBlock {
-        let flag = self.task_status.lock().clone();
-        assert!(flag != TaskStatus::ZOMBIE && flag != TaskStatus::DEAD);
+        debug_run! {{
+            let flag = self.task_status.lock().clone();
+            assert!(flag != TaskStatus::ZOMBIE && flag != TaskStatus::DEAD);
+        }};
         self.alive.as_ref().unwrap()
     }
-    pub fn debug_inner_lock(&self) {
-        self.alive().inner.lock();
+    pub fn lock(&self) -> MutexGuard<TaskControlBlockInner, Spin> {
+        self.alive().inner.lock()
     }
     pub fn trap_context_ptr(&self) -> *mut TrapContext {
         unsafe { &mut (*self.alive().inner.get_ptr()).trap_context }
@@ -201,6 +206,12 @@ impl TaskControlBlock {
     }
     pub fn pid(&self) -> Pid {
         self.pid.pid()
+    }
+    pub fn is_zombie(&self) -> bool {
+        *self.task_status.lock() == TaskStatus::ZOMBIE
+    }
+    pub fn exit_code(&self) -> i32 {
+        self.exit_code.load(Ordering::Acquire)
     }
     pub fn set_parent(&self, parent: &Arc<Self>) {
         let weak = Some(Arc::downgrade(parent));

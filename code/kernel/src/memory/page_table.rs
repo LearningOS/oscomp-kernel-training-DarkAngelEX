@@ -1174,7 +1174,7 @@ pub fn init_kernel_page_table() {
         KERNEL_GLOBAL = Some(new_satp);
         csr::set_satp(satp);
         sfence::sfence_vma_all_global();
-        debug_run!(direct_map_test());
+        debug_run!({ direct_map_test() });
     }
 }
 

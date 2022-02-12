@@ -1,3 +1,6 @@
+use alloc::sync::Arc;
+use lazy_static::__Deref;
+
 use crate::{
     loader::get_app_data_by_name,
     memory::allocator::frame,
@@ -6,6 +9,49 @@ use crate::{
     trap::{context::TrapContext, ADD_TASK_MAGIC},
     user,
 };
+
+pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
+    let pid = args[0] as isize;
+    let exit_code_ptr = args[1] as *mut i32;
+    let mut task = trap_context.get_tcb().lock();
+    let children = task.get_children();
+    if pid != -1
+        && !children
+            .iter()
+            .any(|p| p.pid().into_usize() == pid as usize)
+    {
+        return -1;
+    }
+    let pair = children
+        .iter()
+        .enumerate()
+        .find(|(_, p)| p.is_zombie() && (pid == -1 || p.pid().into_usize() == pid as usize));
+
+    if let Some((idx, _x)) = pair {
+        let child = children.remove(idx);
+        assert_eq!(Arc::strong_count(&child), 1);
+        let found_pid = child.pid();
+        // ++++ temporarily access child TCB exclusively
+        let exit_code = child.exit_code();
+        // ++++ release child PCB
+        let data = match user::translated_user_write_range(trap_context, exit_code_ptr as *mut _, 4)
+        {
+            Ok(x) => x,
+            Err(e) => {
+                println!("{:?}", e);
+                return -2;
+            }
+        };
+        let write_range = &mut *data.access_mut();
+        let src_ptr = &exit_code as *const i32 as *const [u8; 4];
+        let src = unsafe { &*src_ptr };
+        write_range.copy_from_slice(&src[0..4]);
+
+        found_pid.into_usize() as isize
+    } else {
+        -2
+    }
+}
 
 pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
     println!("call sys_fork");

@@ -53,7 +53,7 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
         SYSCALL_GETPID => todo!(),
         SYSCALL_FORK => process::sys_fork(trap_context, send_parameter(args)),
         SYSCALL_EXEC => process::sys_exec(trap_context, send_parameter(args)),
-        SYSCALL_WAITPID => todo!(),
+        SYSCALL_WAITPID => process::sys_waitpid(trap_context, send_parameter(args)),
         SYSCALL_THREAD_CREATE => todo!(),
         SYSCALL_GETTID => todo!(),
         SYSCALL_WAITTID => todo!(),

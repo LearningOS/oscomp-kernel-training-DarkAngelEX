@@ -13,7 +13,7 @@ pub struct LockedThreadGroup {
 impl LockedThreadGroup {
     pub fn new(pid: Pid) -> Self {
         Self {
-            tid_allocator: SpinLock::new(TidAllocator::new(pid.get_usize())),
+            tid_allocator: SpinLock::new(TidAllocator::new(pid.into_usize())),
         }
     }
     pub fn alloc(&self) -> Tid {
