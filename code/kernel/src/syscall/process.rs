@@ -8,7 +8,9 @@ use crate::{
     user,
 };
 
-pub fn sys_fork(trap_context: &mut TrapContext, args: [usize; 0]) -> isize {
+pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
+    println!("call sys_fork");
+    memory_trace!("sys_fork");
     assert!(trap_context.task_new.is_none());
     let allocator = &mut frame::defualt_allocator();
     match trap_context.get_tcb().fork(allocator) {
@@ -24,7 +26,8 @@ pub fn sys_fork(trap_context: &mut TrapContext, args: [usize; 0]) -> isize {
 
 pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 1]) -> isize {
     let path = args[0] as *const u8;
-    // let tcb = trap_context.get_tcb();
+    println!("call sys_exec");
+    memory_trace!("sys_exec entry");
     let exec_name = match user::translated_user_str_zero_end(trap_context, path) {
         Ok(str) => str,
         Err(e) => {

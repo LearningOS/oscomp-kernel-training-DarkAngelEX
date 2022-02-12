@@ -300,6 +300,7 @@ impl From<FrameOutOfMemory> for USpaceCreateError {
 
 impl Drop for UserSpace {
     fn drop(&mut self) {
+        memory_trace!("UserSpace::drop begin");
         // free text
         let allocator = &mut frame::defualt_allocator();
         while let Some(area) = self.text_area.pop() {
@@ -309,6 +310,7 @@ impl Drop for UserSpace {
         self.heap_resize(PageCount::from_usize(0), allocator);
         // check stack empty
         assert_eq!(self.stacks.using_size(), 0);
+        memory_trace!("UserSpace::drop end");
     }
 }
 
@@ -334,6 +336,7 @@ impl UserSpace {
         data_iter: &mut impl FrameDataIter,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(), FrameOutOfMemory> {
+        memory_trace!("UserSpace::map_user_range");
         self.page_table
             .map_user_range(&map_area, data_iter, allocator)?;
         self.text_area.push(map_area);
@@ -344,6 +347,7 @@ impl UserSpace {
         &mut self,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(StackID, UserAddr4K), UserStackCreateError> {
+        memory_trace!("UserSpace::stack_alloc");
         let stack = self.stacks.alloc().map_err(UserStackCreateError::from)?;
         let user_area = stack.user_area();
         let info = stack.info();
@@ -354,12 +358,14 @@ impl UserSpace {
         Ok(info)
     }
     pub unsafe fn stack_dealloc(&mut self, stack_id: StackID, allocator: &mut impl FrameAllocator) {
+        memory_trace!("UserSpace::stack_dealloc");
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
         self.page_table
             .unmap_user_range(&user_area.valid_area(), allocator);
     }
     pub fn heap_resize(&mut self, page_count: PageCount, allocator: &mut impl FrameAllocator) {
+        memory_trace!("UserSpace::heap_resize begin");
         if page_count >= self.heap.size() {
             self.heap.set_size_bigger(page_count);
         } else {
@@ -367,6 +373,7 @@ impl UserSpace {
             let free_count = self.page_table.unmap_user_range_lazy(free_area, allocator);
             self.heap.add_free_count(free_count);
         }
+        memory_trace!("UserSpace::heap_resize end");
     }
     /// return (space, stack_id, user_sp, entry_point)
     ///
@@ -375,6 +382,7 @@ impl UserSpace {
         elf_data: &[u8],
         allocator: &mut impl FrameAllocator,
     ) -> Result<(Self, StackID, UserAddr4K, UserAddr), USpaceCreateError> {
+        memory_trace!("UserSpace::from_elf 0");
         let elf_fail = USpaceCreateError::ElfAnalysisFail;
         let mut space = Self::from_global()?;
         let elf = xmas_elf::ElfFile::new(elf_data).map_err(elf_fail)?;
@@ -409,8 +417,10 @@ impl UserSpace {
                 space.map_user_range(map_area, &mut slice_iter, allocator)?;
             }
         }
+        memory_trace!("UserSpace::from_elf 1");
         // map user stack
         let (stack_id, user_sp) = space.stack_alloc(allocator)?;
+        memory_trace!("UserSpace::from_elf 2");
         // set heap
         space.heap_resize(PageCount::from_usize(1), allocator);
 
@@ -418,6 +428,7 @@ impl UserSpace {
         Ok((space, stack_id, user_sp, entry_point.into()))
     }
     pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, USpaceCreateError> {
+        memory_trace!("UserSpace::fork");
         let page_table = self.page_table.fork(allocator)?;
         let text_area = self.text_area.clone();
         let stacks = self.stacks.clone();

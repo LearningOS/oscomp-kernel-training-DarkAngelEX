@@ -1,5 +1,5 @@
 // #![allow(dead_code)]
-use core::fmt::Debug;
+use core::{fmt::Debug, slice::SlicePattern};
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
@@ -10,7 +10,10 @@ use crate::{
     },
     debug::PRINT_MAP_ALL,
     memory::asid,
-    riscv::{register::csr, sfence},
+    riscv::{
+        register::csr,
+        sfence::{self, sfence_vma_all_global}, self,
+    },
     tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
 };
 
@@ -58,7 +61,8 @@ impl PageTableEntry {
     /// this function will clear reserved bit in [63:54]
     pub fn phy_addr(&self) -> PhyAddr4K {
         // (self.bits >> 10 & ((1usize << 44) - 1)).into()
-        PhyAddr::from((self.bits & ((1usize << 54) - 1)) << 2).into()
+        let mask = ((1usize << 44) - 1) << 10;
+        unsafe { PhyAddr4K::from_usize((self.bits & mask) << 2) }
     }
     pub fn flags(&self) -> PTEFlags {
         // PTEFlags::from_bits(self.bits as u8).unwrap()
@@ -102,12 +106,11 @@ impl PageTableEntry {
         allocator: &mut impl FrameAllocator,
     ) -> Result<(), FrameOutOfMemory> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
-        let pa = allocator.alloc()?.consume().into();
-        PhyAddrRef4K::from(pa)
-            .as_pte_array_mut()
+        let pa = allocator.alloc()?.consume();
+        pa.as_pte_array_mut()
             .iter_mut()
             .for_each(|x| *x = PageTableEntry::empty());
-        *self = Self::new(pa, flags | PTEFlags::V);
+        *self = Self::new(PhyAddr4K::from(pa), flags | PTEFlags::V);
         Ok(())
     }
     #[deprecated = "replace by alloc_by"]
@@ -162,6 +165,7 @@ impl PageTable {
         })
     }
     pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
+        memory_trace!("PageTable::from_global");
         let phy_ptr = frame::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
         let src = unsafe { KERNEL_GLOBAL.as_ref().unwrap() }
@@ -259,6 +263,7 @@ impl PageTable {
         data_iter: &mut impl FrameDataIter,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(), FrameOutOfMemory> {
+        memory_trace!("PageTable::map_user_range");
         assert!(map_area.perm().contains(PTEFlags::U));
         let ubegin = map_area.begin();
         let uend = map_area.end();
@@ -300,6 +305,7 @@ impl PageTable {
             let xbegin = &[0, 0];
             let xend = &[511, 511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                memory_trace!("PageTable::map_user_range_0-0");
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if !pte.is_valid() {
                     pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
@@ -322,6 +328,7 @@ impl PageTable {
             let xbegin = &[0];
             let xend = &[511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
+                memory_trace!("PageTable::map_user_range_1-0");
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if !pte.is_valid() {
                     pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
@@ -343,9 +350,12 @@ impl PageTable {
         ) -> Result<UserAddr4K, UserAddr4K> {
             for pte in &mut ptes[l[0]..=r[0]] {
                 assert!(!pte.is_valid(), "remap of {:?}", ua);
+                memory_trace!("PageTable::map_user_range_2-0");
                 let par = allocator.alloc().map_err(|_| ua)?.consume();
+                memory_trace!("PageTable::map_user_range_2-1");
                 // fill zero if return Error
                 let _ = data_iter.write_to(par.as_bytes_array_mut());
+                memory_trace!("PageTable::map_user_range_2-2");
                 *pte = PageTableEntry::new(par.into(), flags | PTEFlags::V);
                 ua = ua.add_one_page();
             }
@@ -860,13 +870,16 @@ impl PageTable {
     ///
     /// alloc new space for user
     pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOutOfMemory> {
+        memory_trace!("PageTable::fork begin");
         let mut pt = Self::from_global(asid::alloc_asid())?;
+        // println!("PageTable::fork {:#x}", self as *const Self as usize);
         Self::copy_user_range_lazy(
             &mut pt,
             self,
             &UserArea::new(UserAddr4K::null(), UserAddr4K::user_max(), PTEFlags::U),
             allocator,
         )?;
+        println!("PageTable::fork end");
         Ok(pt)
     }
     /// lazy copy all range, skip invalid leaf.
@@ -876,6 +889,7 @@ impl PageTable {
         map_area: &UserArea,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(), FrameOutOfMemory> {
+        memory_trace!("copy_user_range_lazy");
         map_area.user_assert();
         let ubegin = map_area.begin();
         let uend = map_area.end();
@@ -903,6 +917,7 @@ impl PageTable {
             mut ua: UserAddr4K,
             allocator: &mut impl FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
+            memory_trace!("copy_user_range_lazy_0");
             let xbegin = &[0, 0];
             let xend = &[511, 511];
             let dst_it = dst_ptes[l[0]..=r[0]].iter_mut();
@@ -911,12 +926,14 @@ impl PageTable {
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if src_pte.is_valid() {
                     assert!(src_pte.is_directory());
+                    memory_trace!("copy_user_range_lazy_0 0");
                     dst_pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                    memory_trace!("copy_user_range_lazy_0 1");
                     let dst_ptes = PageTable::ptes_from_pte(dst_pte);
                     let src_ptes = PageTable::ptes_from_pte(src_pte);
                     ua = copy_user_range_lazy_1(dst_ptes, src_ptes, l, r, ua, allocator)?;
                 } else {
-                    ua.add_page_assign(PageCount::from_usize(1 << 9 * 2));
+                    ua.add_page_assign(PageTable::indexes_diff(l, r));
                 }
             }
             Ok(ua)
@@ -929,6 +946,8 @@ impl PageTable {
             mut ua: UserAddr4K,
             allocator: &mut impl FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
+            memory_trace!("copy_user_range_lazy_1");
+            // println!("lazy_1 ua: {:#x}", ua.into_usize());
             let xbegin = &[0];
             let xend = &[511];
             let dst_it = dst_ptes[l[0]..=r[0]].iter_mut();
@@ -942,7 +961,7 @@ impl PageTable {
                     let src_ptes = PageTable::ptes_from_pte(src_pte);
                     ua = copy_user_range_lazy_2(dst_ptes, src_ptes, l, r, ua, allocator)?;
                 } else {
-                    ua.add_page_assign(PageCount::from_usize(1 << 9));
+                    ua.add_page_assign(PageTable::indexes_diff(l, r));
                 }
             }
             Ok(ua)
@@ -955,20 +974,50 @@ impl PageTable {
             mut ua: UserAddr4K,
             allocator: &mut impl FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
+            memory_trace!("copy_user_range_lazy_2");
+            println!("lazy_2 ua: {:#x}", ua.into_usize());
+            memory_trace!("copy_user_range_lazy_2");
+            println!("current sp: {:#016x}", riscv::current_sp());
+            println!(" src_ptes: {:#x}", src_ptes as *const _ as usize);
+            println!(" dst_ptes: {:#x}", dst_ptes as *const _ as usize);
             let dst_it = dst_ptes[l[0]..=r[0]].iter_mut();
             let src_it = src_ptes[l[0]..=r[0]].iter_mut();
             for (dst_pte, src_pte) in &mut dst_it.zip(src_it) {
                 if src_pte.is_valid() {
+                    let sptr = src_pte as *const PageTableEntry;
+                    let value = unsafe { *sptr };
+                    println!("a");
+                    println!("ptr {:#016x}", sptr as usize);
+                    println!("val {:#016x}", value.bits);
+                    deubg_print_place!();
+                    println!(
+                        "iter-src_pte: {:#016x} -> {:#016x} of {:#x}",
+                        sptr as usize,
+                        value.phy_addr().into_ref().into_usize(),
+                        ua.into_usize()
+                    );
+                    println!("b ");
                     assert!(src_pte.is_leaf());
+                    assert!(src_pte.is_user());
                     let perm =
-                        src_pte.flags() & (PTEFlags::U | PTEFlags::R | PTEFlags::W | PTEFlags::X);
+                    src_pte.flags() & (PTEFlags::U | PTEFlags::R | PTEFlags::W | PTEFlags::X);
                     dst_pte.alloc_by(perm, allocator).map_err(|_| ua)?;
                     let src = src_pte.phy_addr().into_ref().as_usize_array();
                     let dst = dst_pte.phy_addr().into_ref().as_usize_array_mut();
-                    *dst = *src;
+                    let xsrc = core::hint::black_box(src as *const _ as usize);
+                    let xdst = core::hint::black_box(dst as *const _ as usize);
+                    let current = crate::debug::trace::current_count();
+                    if current >= 78 {
+                        println!("current: {}", current);
+                        println!("src: {:#x}", xsrc);
+                        println!("dst: {:#x}", xdst);
+                    }
+                    dst[0..512].copy_from_slice(&src[0..512]);
+                    memory_trace!("copy_user_range_lazy_2");
                 }
                 ua = ua.add_one_page();
             }
+            memory_trace!("copy_user_range_lazy_2");
             Ok(ua)
         }
     }

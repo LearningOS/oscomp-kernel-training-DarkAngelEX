@@ -5,6 +5,7 @@ use alloc::vec::Vec;
 use crate::{
     impl_usize_from,
     memory::{address::VirAddr, page_table::PageTable},
+    riscv::sfence,
     sync::mutex::SpinLock,
     tools,
 };
@@ -13,6 +14,8 @@ const ASID_BIT: usize = 16;
 const MAX_ASID: usize = 1usize << ASID_BIT;
 const ASID_MASK: usize = MAX_ASID - 1;
 const ASID_VERSION_MASK: usize = !ASID_MASK;
+
+const TLB_SHOT_DOWM_IPML: bool = false;
 
 /// raw asid, assume self & ASID_MASK == self
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -144,7 +147,11 @@ impl AsidManager {
     }
     pub unsafe fn dealloc(&mut self, asid_info: AsidInfo) {
         if asid_info.version() == self.version {
-            self.recycled.push(asid_info.asid())
+            if TLB_SHOT_DOWM_IPML {
+                todo!("TLB shot down"); // need TLB_SHOT_DOWN other hart.
+                sfence::sfence_vma_asid(asid_info.asid().into_usize());
+                self.recycled.push(asid_info.asid())
+            }
         }
     }
 }

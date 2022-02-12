@@ -37,7 +37,8 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
     fn send_parameter<const N: usize>(args: [usize; 3]) -> [usize; N] {
         *args.split_array_ref().0
     }
-    match syscall_id {
+    memory_trace!("syscall entry");
+    let ret = match syscall_id {
         SYSCALL_DUP => todo!(),
         SYSCALL_OPEN => todo!(),
         SYSCALL_CLOSE => todo!(),
@@ -66,7 +67,9 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
         SYSCALL_CONDVAR_SIGNAL => todo!(),
         SYSCALL_CONDVAR_WAIT => todo!(),
         _ => panic!("[kernel]unsupported syscall_id: {}", syscall_id),
-    }
+    };
+    memory_trace!("syscall return");
+    ret
 }
 
 pub fn assert_fork(a0: usize) -> isize {

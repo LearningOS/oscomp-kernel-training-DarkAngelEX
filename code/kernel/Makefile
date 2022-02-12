@@ -2,10 +2,10 @@
 ARCH ?= riscv64
 TARGET := riscv64gc-unknown-none-elf
 MODE := release
+
 KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
-
 
 SMP := 1
 MEMORY_SIZE := 64M
@@ -57,7 +57,11 @@ ifeq ($(ARCH), riscv64)
 ifeq ($(BOARD), qemu)
 	@echo Platform: qemu
 	@cp src/riscv/boot/linker64.ld src/linker.ld
+ifeq ($(MODE), release)
 	@cargo build --release
+else
+	@cargo build
+endif
 	@rm src/linker.ld
 endif
 endif

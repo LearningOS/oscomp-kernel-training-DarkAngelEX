@@ -1,4 +1,4 @@
-use core::arch::global_asm;
+use core::arch::{asm, global_asm};
 
 // ASCII: Goto Task
 #[allow(unused)]
@@ -11,7 +11,7 @@ use crate::{
             scause::{self, Exception, Interrupt},
             sie, stval,
             stvec::{self, TrapMode},
-        },
+        }, self,
     },
     scheduler, syscall,
 };
@@ -47,6 +47,8 @@ pub fn syscall_handler(
     a7: usize,
 ) -> (isize, &mut TrapContext) {
     set_kernel_trap_entry();
+    memory_trace!("syscall_handler entry");
+    println!("syscall_handler sp: {:#016x}", riscv::current_sp());
     assert!(trap_context.need_add_task == 0);
     trap_context.into_next_instruction();
     let ret = syscall::syscall(trap_context, a7, [a0, a1, a2]);
@@ -55,6 +57,7 @@ pub fn syscall_handler(
     } else {
         debug_check!(trap_context.need_add_task == ADD_TASK_MAGIC);
     }
+    memory_trace!("syscall_handler return");
     (ret, trap_context)
 }
 /// return value is sscratch = ptr of TrapContext
@@ -111,6 +114,7 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
             Interrupt::Unknown => todo!(),
         },
     }
+    memory_trace!("trap_handler return");
     before_trap_return();
     trap_context
 }
@@ -118,6 +122,7 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
 #[no_mangle]
 pub fn trap_after_save_sx(a0: usize, trap_context: &mut TrapContext) -> (isize, &mut TrapContext) {
     // now only fork run this.
+    memory_trace!("trap_after_save_sx entry");
     assert_eq!(trap_context.need_add_task, ADD_TASK_MAGIC);
     trap_context.need_add_task = 0;
     let a0 = syscall::assert_fork(a0);
@@ -125,15 +130,22 @@ pub fn trap_after_save_sx(a0: usize, trap_context: &mut TrapContext) -> (isize, 
     let task_new = trap_context.task_new.take().unwrap();
     task_new.as_ref().set_user_ret(task_new.pid().get_usize());
     scheduler::add_task(task_new);
+    memory_trace!("trap_after_save_sx return");
     before_trap_return();
     (a0, trap_context)
 }
 #[no_mangle]
 pub fn trap_from_kernel() -> ! {
+    memory_trace_show!("trap_from_kernel entry");
+    let sepc: usize;
+    unsafe {
+        asm!("csrr {}, sepc", out(reg)sepc);
+    }
     panic!(
-        "a trap {:?} from kernel! bad addr = {:#x}, hart = {}",
+        "a trap {:?} from kernel! bad addr = {:#x}, sepc = {:#x}, hart = {}",
         scause::read().cause(),
         stval::read(),
+        sepc,
         cpu::hart_id()
     );
 }

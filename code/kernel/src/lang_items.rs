@@ -1,4 +1,4 @@
-use crate::{riscv::sbi::shutdown, println};
+use crate::{debug::trace, println, riscv::sbi::shutdown};
 use core::panic::PanicInfo;
 
 #[panic_handler]
@@ -12,6 +12,10 @@ fn panic(info: &PanicInfo) -> ! {
         );
     } else {
         println!("panicked: {}", info.message().unwrap());
+    }
+    if trace::OPEN_MEMORY_TRACE {
+        let count =trace::current_count();
+        println!("current trace count: {}", count);
     }
     shutdown()
 }

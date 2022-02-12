@@ -107,10 +107,12 @@ impl TaskControlBlockInner {
 impl Drop for TaskControlBlock {
     fn drop(&mut self) {
         unsafe {
+            memory_trace!("TaskControlBlock::stack_alloc begin");
             let allocator = &mut defualt_allocator();
             let mut space = self.user_space.lock();
             space.stack_dealloc(self.stack_id, allocator);
             self.thread_group.dealloc(self.tid);
+            memory_trace!("TaskControlBlock::stack_alloc end");
         }
     }
 }
@@ -181,6 +183,7 @@ impl TaskControlBlock {
         self.pid.pid()
     }
     pub fn fork(&self, allocator: &mut impl FrameAllocator) -> Result<Arc<Self>, TCBCreateError> {
+        memory_trace!("TaskControlBlock::fork");
         let user_space = self.user_space.lock().fork(allocator)?;
         let kernel_stack = frame::alloc()?;
         let pid_handle = pid::pid_alloc();
@@ -221,6 +224,7 @@ impl TaskControlBlock {
         argv: usize,
         allocator: &mut impl FrameAllocator,
     ) -> Result<!, USpaceCreateError> {
+        memory_trace!("TaskControlBlock::exec 0");
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, allocator)?;
         // assume only 1 process
@@ -237,6 +241,7 @@ impl TaskControlBlock {
         unsafe {
             *ptr = stack_id;
         };
+        memory_trace!("TaskControlBlock::exec 1");
         let ncx = {
             let mut inner = self.inner.lock();
             inner.exec_init(
@@ -250,6 +255,7 @@ impl TaskControlBlock {
             &mut inner.task_context as *mut TaskContext
         };
         self.using_space();
+        memory_trace!("TaskControlBlock::exec 2");
         sfence::fence_i();
         unsafe { switch::goto_task(ncx) }
     }

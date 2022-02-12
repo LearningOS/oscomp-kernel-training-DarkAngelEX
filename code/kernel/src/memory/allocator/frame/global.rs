@@ -1,7 +1,8 @@
 //! Implementation of global allocator
 //!
 use crate::{
-    config::PAGE_SIZE,
+    config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, KERNEL_BASE, PAGE_SIZE},
+    debug::trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
     tools::{allocator::Own, error::FrameOutOfMemory},
 };
 use alloc::vec::Vec;
@@ -139,20 +140,36 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         self.recycled.len() + (self.end.into_usize() - self.current.into_usize()) / PAGE_SIZE
     }
     fn alloc(&mut self) -> Result<PhyAddrRef4K, FrameOutOfMemory> {
+        fn pa_check(pa: PhyAddrRef4K) {
+            assert!(pa.into_usize() > DIRECT_MAP_BEGIN && pa.into_usize() < DIRECT_MAP_END);
+        }
         if let Some(pa) = self.recycled.pop() {
+            pa_check(pa);
             Ok(pa)
         } else if self.current == self.end {
             Err(FrameOutOfMemory)
         } else {
             let ret = self.current;
+            pa_check(ret);
             self.current.step();
+            if OPEN_MEMORY_TRACE && ret == PhyAddrRef::from(TRACE_ADDR).floor() {
+                trace::call_when_alloc();
+            }
             Ok(ret)
         }
     }
+
     fn alloc_range(&mut self, range: &mut [PhyAddrRef4K]) -> Result<(), FrameOutOfMemory> {
         self.alloc_range_impl(range, |a| a)
     }
+
     fn dealloc(&mut self, data: PhyAddrRef4K) {
+        if OPEN_MEMORY_TRACE && data == PhyAddrRef::from(TRACE_ADDR).floor() {
+            trace::call_when_dealloc();
+        }
+        // skip null
+        debug_check!(data.into_usize() % PAGE_SIZE == 0);
+        assert!(data.into_usize() > DIRECT_MAP_BEGIN && data.into_usize() < DIRECT_MAP_END);
         self.recycled.push(data);
     }
 

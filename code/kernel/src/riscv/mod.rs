@@ -1,5 +1,5 @@
 use core::{
-    arch::global_asm,
+    arch::{global_asm, asm},
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
@@ -12,10 +12,10 @@ use crate::{
 };
 
 pub mod cpu;
-pub mod sfence;
 pub mod interrupt;
 pub mod register;
 pub mod sbi;
+pub mod sfence;
 
 global_asm!(include_str!("./boot/entry64.asm"));
 
@@ -145,4 +145,12 @@ fn show_device() {
     println!("fdt ptr: {:#x}", ptr as usize);
     println!("{:?}", x);
     panic!();
+}
+
+pub fn current_sp() -> usize {
+    let ret: usize;
+    unsafe {
+        asm!("mv {}, sp", out(reg)ret);
+    }
+    ret
 }

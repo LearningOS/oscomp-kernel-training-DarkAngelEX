@@ -2,6 +2,8 @@ use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::{convert::TryFrom, ptr, str::Utf8Error};
 
+use alloc::vec::Vec;
+
 use crate::{riscv::register::sstatus, trap::context::TrapContext};
 
 use crate::memory::address::{OutOfUserRange, PageCount, UserAddr};
@@ -47,8 +49,11 @@ impl UserData {
         UserDataGuard {
             data: unsafe { &*self.data },
             _auto_sum: AutoSum::new(),
-            _mark: PhantomData
+            _mark: PhantomData,
         }
+    }
+    pub fn into_vec(&self) -> Vec<u8> {
+        self.access().to_vec()
     }
 }
 pub struct UserDataMut {
@@ -63,15 +68,18 @@ impl UserDataMut {
         UserDataGuard {
             data: unsafe { &*self.data },
             _auto_sum: AutoSum::new(),
-            _mark: PhantomData
+            _mark: PhantomData,
         }
     }
     pub fn access_mut(&self) -> UserDataGuardMut {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
             _auto_sum: AutoSum::new(),
-            _mark: PhantomData
+            _mark: PhantomData,
         }
+    }
+    pub fn into_vec(&self) -> Vec<u8> {
+        self.access().to_vec()
     }
 }
 

@@ -13,6 +13,7 @@
 #![feature(const_btree_new)]
 #![feature(map_first_last)]
 #![feature(never_type)]
+#![feature(slice_pattern)]
 
 extern crate alloc;
 extern crate bitflags;
