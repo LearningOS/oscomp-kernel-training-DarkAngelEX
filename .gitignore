@@ -11,3 +11,5 @@ Cargo.lock
 **/*.rs.bk
 
 login_gitee.sh
+**/kernel/disasm.sh
+**/kernel/kernel.asm

@@ -1,5 +1,5 @@
 // #![allow(dead_code)]
-use core::{fmt::Debug, slice::SlicePattern};
+use core::{fmt::Debug, slice::SlicePattern, sync::atomic::{self, Ordering}};
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
@@ -1172,13 +1172,16 @@ pub fn init_kernel_page_table() {
             "KERNEL_GLOBAL has been initialized"
         );
         KERNEL_GLOBAL = Some(new_satp);
+        atomic::fence(Ordering::Release);
         csr::set_satp(satp);
         sfence::sfence_vma_all_global();
+        sfence::fence_i();
         debug_run!({ direct_map_test() });
     }
 }
 
-/// used by another hart
+
+/// don't call sfence::fence_i();
 pub fn set_satp_by_global() {
     unsafe {
         csr::set_satp(

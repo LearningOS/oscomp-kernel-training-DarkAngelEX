@@ -1,6 +1,6 @@
 use core::{
     arch::{global_asm, asm},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering, self},
 };
 
 use crate::{
@@ -87,8 +87,10 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 
 fn others_main(hartid: usize) -> ! {
     println!("[FTL OS]hart {} init by global satp", hartid);
+    atomic::fence(Ordering::Acquire);
     memory::set_satp_by_global();
     sfence::sfence_vma_all_global();
+    sfence::fence_i();
     println!("[FTL OS]hart {} init complete", hartid);
     crate::kmain(hartid);
 }

@@ -141,7 +141,7 @@ pub extern "C" fn trap_after_save_sx(
     scheduler::add_task(task_new);
     // println!("fork return: {}", pid);
     memory_trace!("trap_after_save_sx return");
-    scheduler::app::suspend_current_and_run_next(trap_context); // let subpross run first
+    // scheduler::app::suspend_current_and_run_next(trap_context); // let subpross run first
     before_trap_return();
     (pid as isize, trap_context)
 }
@@ -191,6 +191,7 @@ fn set_kernel_trap_entry() {
     }
 }
 
+#[inline(always)]
 fn set_user_trap_entry() {
     unsafe {
         stvec::write(get_trap_entry(), TrapMode::Direct);

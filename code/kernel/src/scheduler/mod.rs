@@ -1,9 +1,12 @@
+use core::sync::atomic::Ordering;
+
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
+    debug::trace,
     memory::{self},
     riscv::{cpu, sfence},
-    task::{self, TaskContext, TaskControlBlock}, debug::trace,
+    task::{self, TaskContext, TaskControlBlock},
 };
 
 pub mod app;
@@ -70,14 +73,17 @@ pub fn run_task(hart_id: usize) -> ! {
         };
         let next_cx = task.task_context_ptr();
         task.using_space();
+        sfence::fence_i();
         // let pid = task.pid();
         // println!("hart {} run task {:?}", hart_id, pid);
+
         // release prev task there.
         processor.current = Some(task);
-        // sfence::fence_i();
+        // core::sync::atomic::fence(Ordering::SeqCst);
         unsafe {
             let _ = task::switch(idle_cx_ptr, next_cx);
         }
+        // core::sync::atomic::fence(Ordering::SeqCst);
         memory::set_satp_by_global();
         // println!("hart {} exit task {:?}", hart_id, pid);
         processor.current = None; // release
