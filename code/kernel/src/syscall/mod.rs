@@ -37,35 +37,43 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
     fn send_parameter<const N: usize>(args: [usize; 3]) -> [usize; N] {
         *args.split_array_ref().0
     }
+    macro_rules! call {
+        () => {
+            todo!()
+        };
+        ($sys_fn: expr) => {
+            $sys_fn(trap_context, send_parameter(args))
+        };
+    }
     memory_trace!("syscall entry");
     let ret = match syscall_id {
-        SYSCALL_DUP => todo!(),
-        SYSCALL_OPEN => todo!(),
-        SYSCALL_CLOSE => todo!(),
-        SYSCALL_PIPE => todo!(),
-        SYSCALL_READ => fs::sys_read(trap_context, send_parameter(args)),
-        SYSCALL_WRITE => fs::sys_write(trap_context, send_parameter(args)),
-        SYSCALL_EXIT => process::sys_exit(trap_context, send_parameter(args)),
-        SYSCALL_SLEEP => todo!(),
-        SYSCALL_YIELD => todo!(),
-        SYSCALL_KILL => todo!(),
-        SYSCALL_GET_TIME => todo!(),
-        SYSCALL_GETPID => todo!(),
-        SYSCALL_FORK => process::sys_fork(trap_context, send_parameter(args)),
-        SYSCALL_EXEC => process::sys_exec(trap_context, send_parameter(args)),
-        SYSCALL_WAITPID => process::sys_waitpid(trap_context, send_parameter(args)),
-        SYSCALL_THREAD_CREATE => todo!(),
-        SYSCALL_GETTID => todo!(),
-        SYSCALL_WAITTID => todo!(),
-        SYSCALL_MUTEX_CREATE => todo!(),
-        SYSCALL_MUTEX_LOCK => todo!(),
-        SYSCALL_MUTEX_UNLOCK => todo!(),
-        SYSCALL_SEMAPHORE_CREATE => todo!(),
-        SYSCALL_SEMAPHORE_UP => todo!(),
-        SYSCALL_SEMAPHORE_DOWN => todo!(),
-        SYSCALL_CONDVAR_CREATE => todo!(),
-        SYSCALL_CONDVAR_SIGNAL => todo!(),
-        SYSCALL_CONDVAR_WAIT => todo!(),
+        SYSCALL_DUP => call!(),
+        SYSCALL_OPEN => call!(),
+        SYSCALL_CLOSE => call!(),
+        SYSCALL_PIPE => call!(),
+        SYSCALL_READ => call!(fs::sys_read),
+        SYSCALL_WRITE => call!(fs::sys_write),
+        SYSCALL_EXIT => call!(process::sys_exit),
+        SYSCALL_SLEEP => call!(),
+        SYSCALL_YIELD => call!(process::sys_yield),
+        SYSCALL_KILL => call!(process::sys_kill),
+        SYSCALL_GET_TIME => call!(),
+        SYSCALL_GETPID => call!(process::sys_getpid),
+        SYSCALL_FORK => call!(process::sys_fork),
+        SYSCALL_EXEC => call!(process::sys_exec),
+        SYSCALL_WAITPID => call!(process::sys_waitpid),
+        SYSCALL_THREAD_CREATE => call!(),
+        SYSCALL_GETTID => call!(),
+        SYSCALL_WAITTID => call!(),
+        SYSCALL_MUTEX_CREATE => call!(),
+        SYSCALL_MUTEX_LOCK => call!(),
+        SYSCALL_MUTEX_UNLOCK => call!(),
+        SYSCALL_SEMAPHORE_CREATE => call!(),
+        SYSCALL_SEMAPHORE_UP => call!(),
+        SYSCALL_SEMAPHORE_DOWN => call!(),
+        SYSCALL_CONDVAR_CREATE => call!(),
+        SYSCALL_CONDVAR_SIGNAL => call!(),
+        SYSCALL_CONDVAR_WAIT => call!(),
         _ => panic!("[kernel]unsupported syscall_id: {}", syscall_id),
     };
     memory_trace!("syscall return");

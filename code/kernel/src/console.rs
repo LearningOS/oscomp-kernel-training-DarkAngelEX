@@ -39,8 +39,8 @@ impl Write for Stdout {
 static WRITE_MUTEX: SpinLock<Stdout> = SpinLock::new(Stdout);
 
 pub fn print(args: fmt::Arguments) {
-    // WRITE_MUTEX.lock().write_fmt(args).unwrap();
-    Stdout.write_fmt(args).unwrap()
+    WRITE_MUTEX.lock().write_fmt(args).unwrap();
+    // Stdout.write_fmt(args).unwrap()
 }
 
 #[macro_export]

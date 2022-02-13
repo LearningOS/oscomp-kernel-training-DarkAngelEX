@@ -3,7 +3,7 @@ use alloc::{sync::Arc, vec::Vec};
 use crate::{
     memory::{self},
     riscv::{cpu, sfence},
-    task::{self, TaskContext, TaskControlBlock, TaskStatus},
+    task::{self, TaskContext, TaskControlBlock}, debug::trace,
 };
 
 pub mod app;
@@ -62,6 +62,7 @@ pub fn try_get_current_task_ptr() -> Option<*const TaskControlBlock> {
 pub fn run_task(hart_id: usize) -> ! {
     let processor = get_processor(hart_id);
     let idle_cx_ptr = processor.idle_cx_ptr();
+    // trace::print_sp();
     loop {
         let task = match manager::fetch_task() {
             Some(task) => task,
@@ -69,17 +70,16 @@ pub fn run_task(hart_id: usize) -> ! {
         };
         let next_cx = task.task_context_ptr();
         task.using_space();
-        println!("hart {} run task {:?}", hart_id, task.pid());
+        // let pid = task.pid();
+        // println!("hart {} run task {:?}", hart_id, pid);
         // release prev task there.
         processor.current = Some(task);
-        sfence::fence_i();
+        // sfence::fence_i();
         unsafe {
             let _ = task::switch(idle_cx_ptr, next_cx);
         }
         memory::set_satp_by_global();
-        memory_trace!("run_task");
+        // println!("hart {} exit task {:?}", hart_id, pid);
         processor.current = None; // release
-                                  // println!("run_task switch out");
-        memory_trace!("run_task");
     }
 }

@@ -11,9 +11,9 @@ use crate::{
             scause::{self, Exception, Interrupt},
             sie, stval,
             stvec::{self, TrapMode},
-        }, self,
+        },
     },
-    scheduler, syscall,
+    scheduler, syscall, timer,
 };
 
 use self::context::TrapContext;
@@ -48,7 +48,10 @@ pub fn syscall_handler(
 ) -> (isize, &mut TrapContext) {
     set_kernel_trap_entry();
     memory_trace!("syscall_handler entry");
-    debug_check_eq!(trap_context.kernel_stack, trap_context.get_tcb().kernel_bottom());
+    debug_check_eq!(
+        trap_context.kernel_stack,
+        trap_context.get_tcb().kernel_bottom()
+    );
     assert!(trap_context.need_add_task == 0);
     trap_context.into_next_instruction();
     let ret = syscall::syscall(trap_context, a7, [a0, a1, a2]);
@@ -62,19 +65,17 @@ pub fn syscall_handler(
 }
 /// return value is sscratch = ptr of TrapContext
 #[no_mangle]
-pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
+pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
     set_kernel_trap_entry();
-    debug_check_eq!(trap_context.kernel_stack, trap_context.get_tcb().kernel_bottom());
+    debug_check_eq!(
+        trap_context.kernel_stack,
+        trap_context.get_tcb().kernel_bottom()
+    );
     let scause = scause::read();
     let stval = stval::read();
     match scause.cause() {
         scause::Trap::Exception(e) => match e {
             Exception::UserEnvCall => {
-                // // system call
-                // trap_context.into_next_instruction();
-                // let (a7, paras) = trap_context.syscall_parameter();
-                // let ret = syscall::syscall(a7, paras);
-                // trap_context.set_a0(ret as usize);
                 panic!("should into syscall_handler!");
             }
             Exception::StoreFault
@@ -108,7 +109,10 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
             Interrupt::SupervisorSoft => todo!(),
             Interrupt::UserTimer => todo!(),
             Interrupt::VirtualSupervisorTimer => todo!(),
-            Interrupt::SupervisorTimer => todo!(),
+            Interrupt::SupervisorTimer => {
+                timer::set_next_trigger();
+                scheduler::app::suspend_current_and_run_next(trap_context);
+            }
             Interrupt::UserExternal => todo!(),
             Interrupt::VirtualSupervisorExternal => todo!(),
             Interrupt::SupervisorExternal => todo!(),
@@ -121,20 +125,27 @@ pub fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
 }
 
 #[no_mangle]
-pub fn trap_after_save_sx(a0: usize, trap_context: &mut TrapContext) -> (isize, &mut TrapContext) {
+#[allow(improper_ctypes_definitions)]
+pub extern "C" fn trap_after_save_sx(
+    a0: usize,
+    trap_context: &mut TrapContext,
+) -> (isize, *mut TrapContext) {
     // now only fork run this.
     memory_trace!("trap_after_save_sx entry");
     assert_eq!(trap_context.need_add_task, ADD_TASK_MAGIC);
     trap_context.need_add_task = 0;
-    let a0 = syscall::assert_fork(a0);
-    assert_eq!(a0, 0);
+    syscall::assert_fork(a0);
     let task_new = trap_context.task_new.take().unwrap();
-    task_new.as_ref().set_user_ret(task_new.pid().into_usize());
+    let pid = task_new.pid().into_usize();
+    task_new.as_ref().set_user_ret(0);
     scheduler::add_task(task_new);
+    // println!("fork return: {}", pid);
     memory_trace!("trap_after_save_sx return");
+    scheduler::app::suspend_current_and_run_next(trap_context); // let subpross run first
     before_trap_return();
-    (a0, trap_context)
+    (pid as isize, trap_context)
 }
+
 #[no_mangle]
 pub fn trap_from_kernel() -> ! {
     memory_trace_show!("trap_from_kernel entry");

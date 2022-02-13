@@ -881,7 +881,7 @@ impl PageTable {
             &UserArea::new(UserAddr4K::null(), UserAddr4K::user_max(), PTEFlags::U),
             allocator,
         )?;
-        println!("PageTable::fork end");
+        memory_trace!("PageTable::fork end");
         Ok(pt)
     }
     /// lazy copy all range, skip invalid leaf.

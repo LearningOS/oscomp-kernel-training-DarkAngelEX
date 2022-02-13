@@ -98,10 +98,10 @@ impl TaskControlBlockInner {
     pub fn set_tcb_ptr(&mut self, tcb: *const TaskControlBlock) {
         self.trap_context.set_tcb_ptr(tcb);
     }
-    pub fn fork_init(&mut self, src: &Self, new_ksp: KernelAddr4K, tcb: *const TaskControlBlock) {
+    /// self will become subprocess
+    fn fork_init(&mut self, src: &Self, new_ksp: KernelAddr4K, tcb: *const TaskControlBlock) {
         self.trap_context = src.trap_context.fork_no_sx(new_ksp, tcb);
         self.task_context = src.task_context.fork(new_ksp, &self.trap_context);
-        self.children = Vec::new();
     }
     pub fn get_children(&mut self) -> &mut Vec<Arc<TaskControlBlock>> {
         &mut self.children
@@ -223,6 +223,7 @@ impl TaskControlBlock {
     pub fn try_kernel_bottom(&self) -> Option<KernelAddr4K> {
         self.try_alive().map(|x| x.kernel_stack.bottom())
     }
+
     pub fn fork(&self, allocator: &mut impl FrameAllocator) -> Result<Arc<Self>, TCBCreateError> {
         memory_trace!("TaskControlBlock::fork");
         let alive = self.alive();
@@ -237,7 +238,7 @@ impl TaskControlBlock {
         let new = Arc::new(Self {
             pid: pid_handle,
             task_status: SpinLock::new(TaskStatus::RUNNING),
-            parent: SpinLock::new(Some(Arc::downgrade(&get_current_task()))),
+            parent: SpinLock::new(Some(Arc::downgrade(&get_current_task()))), // move parent
             exit_code: AtomicI32::new(0),
             alive: Some(Box::new(AliveTaskControlBlock {
                 tid,
@@ -251,7 +252,11 @@ impl TaskControlBlock {
         });
         let new_alive = new.alive();
         let inner = unsafe { new_alive.inner.assert_unique_get() };
-        inner.fork_init(&alive.inner.lock(), kernel_sp, new.as_ref());
+        let mut self_inner = alive.inner.lock();
+        inner.fork_init(&self_inner, kernel_sp, new.as_ref());
+        self_inner.children.push(new.clone());
+        // let this = get_current_task();
+        // println!("fork this rc: {}", Arc::strong_count(&this));
         Ok(new)
     }
     pub fn copy_sx_from(&self, trap_context: &mut TrapContext) -> &Self {
@@ -315,6 +320,7 @@ impl TaskControlBlock {
             }
         }
         *self.task_status.lock() = TaskStatus::ZOMBIE;
+        // unsafe!!!!! other hard need lock read status.
         let x = &self.alive as *const _ as *mut Option<Box<AliveTaskControlBlock>>;
         unsafe { *x = None };
         memory_trace!("TaskControlBlock::exit return");

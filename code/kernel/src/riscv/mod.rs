@@ -74,8 +74,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     memory::init();
     scheduler::init(cpu::count());
     trap::init();
-    // trap::enable_timer_interrupt();
-    // timer::set_next_trigger();
+    trap::enable_timer_interrupt();
+    timer::set_next_trigger();
 
     println!("[FTL OS]hello! from hart {}", hartid);
     loader::list_apps();
