@@ -1,6 +1,8 @@
 use alloc::{collections::VecDeque, sync::Arc};
 
-use crate::{loader, memory::allocator::frame, sync::mutex::SpinLock, task::TaskControlBlock};
+use crate::{
+    loader, memory::allocator::frame, riscv::cpu, sync::mutex::SpinLock, task::TaskControlBlock, debug::PRINT_SCHEDULER,
+};
 
 type PTCB = Arc<TaskControlBlock>;
 struct ReadyManager {
@@ -44,10 +46,28 @@ pub fn init() {
     READY_MANAGER.lock(place!()).init();
 }
 pub fn add_task(task: PTCB) {
+    if PRINT_SCHEDULER {
+        println!(
+            "\x1b[32m<<<\x1b[0m {:?} hart {}",
+            task.pid(),
+            cpu::hart_id()
+        );
+    }
     READY_MANAGER.lock(place!()).add(task);
 }
 pub fn fetch_task() -> Option<PTCB> {
-    READY_MANAGER.lock(place!()).fetch()
+    if PRINT_SCHEDULER {
+        READY_MANAGER.lock(place!()).fetch().map(|task| {
+            println!(
+                "\x1b[31m>>>\x1b[0m {:?} hart {}",
+                task.pid(),
+                cpu::hart_id()
+            );
+            task
+        })
+    } else {
+        READY_MANAGER.lock(place!()).fetch()
+    }
 }
 pub fn get_initproc() -> PTCB {
     let initproc = get_initproc_ref();

@@ -1,11 +1,11 @@
-use crate::{task, trap::context::TrapContext};
+use crate::{scheduler::add_task_later, task, trap::context::TrapContext};
 
-use super::{get_current_idle_cx_ptr, get_current_task, manager};
+use super::get_current_idle_cx_ptr;
 
 pub fn suspend_current_and_run_next(trap_context: &mut TrapContext) {
     memory_trace!("suspend_current_and_run_next");
-    let ptr_task = get_current_task();
-    manager::add_task(ptr_task);
+    // DANGER! task can be fetched before schedule!
+    add_task_later();
     schedule(trap_context);
 }
 

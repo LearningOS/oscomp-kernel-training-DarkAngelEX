@@ -5,6 +5,7 @@ use core::arch::{asm, global_asm};
 pub const ADD_TASK_MAGIC: usize = 0x476F746F_5461736B;
 
 use crate::{
+    debug::{PRINT_FORK, PRINT_TRAP, PRINT_SPECIAL_RETURN},
     riscv::{
         cpu,
         register::{
@@ -13,8 +14,9 @@ use crate::{
             stvec::{self, TrapMode},
         },
     },
-    scheduler::{self, get_current_task_ptr, get_current_task},
+    scheduler::{self, get_current_task, get_current_task_ptr},
     syscall, timer,
+    user::AutoSum,
 };
 
 use self::context::TrapContext;
@@ -57,6 +59,14 @@ pub fn syscall_handler(
         trap_context.get_tcb().kernel_bottom()
     );
     assert!(trap_context.need_add_task == 0);
+    if PRINT_TRAP {
+        println!(
+            "call syscall_handler hart: {} {:?} a7:{}",
+            cpu::hart_id(),
+            trap_context.get_tcb().pid(),
+            a7
+        );
+    }
     trap_context.into_next_instruction();
     let ret = syscall::syscall(trap_context, a7, [a0, a1, a2]);
     if trap_context.need_add_task == 0 {
@@ -92,12 +102,15 @@ pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapConte
             | Exception::LoadPageFault
             | Exception::InstructionFault
             | Exception::InstructionPageFault => {
+                let x = AutoSum::new();
                 println!(
-                "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:?}, {:?}, kernel killed it.",
+                "[kernel] {:?} in application {:?} kernel killed it. bad addr = {:#x}, bad instruction = {:?}, user_sp: {:#x} hart: {}",
                 scause.cause(),
+                get_current_task().pid(),
                 stval,
                 trap_context.sepc(),
-                get_current_task().pid()
+                trap_context.x[2],
+                cpu::hart_id()
             );
                 panic!();
             }
@@ -150,6 +163,15 @@ pub extern "C" fn trap_after_save_sx(
     scheduler::add_task(task_new);
     // println!("fork return: {}", pid);
     memory_trace!("trap_after_save_sx return");
+    if PRINT_FORK || PRINT_SPECIAL_RETURN {
+        println!(
+            "!!! fork_old_return {:?} -> {} !!! hart = {} sepc: {:#x}",
+            trap_context.get_tcb().pid(),
+            pid as isize,
+            cpu::hart_id(),
+            trap_context.sepc().into_usize()
+        );
+    }
     // scheduler::app::suspend_current_and_run_next(trap_context); // let subpross run first
     before_trap_return();
     (pid as isize, trap_context)
@@ -173,23 +195,44 @@ pub fn trap_from_kernel() -> ! {
 
 #[inline(always)]
 pub fn before_trap_return() {
-    println!("call before_trap_return hart: {} {:?}", cpu::hart_id(), get_current_task().pid());
+    if PRINT_TRAP {
+        println!(
+            "call before_trap_return hart: {} {:?}",
+            cpu::hart_id(),
+            get_current_task().pid()
+        );
+    }
     set_user_trap_entry();
 }
 
-#[inline(always)]
 pub fn exec_return(trap_context: &mut TrapContext) -> ! {
     extern "C" {
         fn __exec_return(a0: usize) -> !;
+    }
+    if PRINT_SPECIAL_RETURN {
+        println!(
+            "!!! exec_return {:?} !!! hart = {} trap_ptr: {:#x} sp: {:#x}",
+            trap_context.get_tcb().pid(),
+            cpu::hart_id(),
+            trap_context as *const _ as usize,
+            trap_context.x[2]
+        );
     }
     before_trap_return();
     unsafe { __exec_return(trap_context as *mut TrapContext as usize) }
 }
 
-#[inline(always)]
 pub fn fork_return(trap_context: &mut TrapContext) -> ! {
     extern "C" {
         fn __fork_return(a0: usize) -> !;
+    }
+    if PRINT_FORK || PRINT_SPECIAL_RETURN {
+        println!(
+            "!!! fork_new_return {:?} -> {} !!! hart = {}",
+            trap_context.get_tcb().pid(),
+            trap_context.x[10],
+            cpu::hart_id()
+        );
     }
     before_trap_return();
     unsafe { __fork_return(trap_context as *mut TrapContext as usize) }

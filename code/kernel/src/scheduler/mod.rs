@@ -14,9 +14,11 @@ mod manager;
 
 pub use manager::{add_task, get_initproc};
 
+/// this block can only be access by each hart, no lock is required.
 struct Processor {
     current: Option<Arc<TaskControlBlock>>,
     idle_cx: TaskContext,
+    add_task_later: bool,
 }
 impl Processor {
     pub fn idle_cx_ptr(&mut self) -> *mut TaskContext {
@@ -33,6 +35,7 @@ pub fn init(cpu_count: usize) {
             PROCESSOR.push(Processor {
                 current: None,
                 idle_cx: TaskContext::any(),
+                add_task_later: false,
             });
         }
     }
@@ -40,8 +43,8 @@ pub fn init(cpu_count: usize) {
 unsafe fn get_processor(hart_id: usize) -> &'static mut Processor {
     &mut PROCESSOR[hart_id]
 }
-fn try_get_processor(hart_id: usize) -> Option<&'static mut Processor> {
-    unsafe { PROCESSOR.get_mut(hart_id) }
+unsafe fn try_get_processor(hart_id: usize) -> Option<&'static mut Processor> {
+    PROCESSOR.get_mut(hart_id)
 }
 fn get_current_processor() -> &'static mut Processor {
     unsafe { get_processor(cpu::hart_id()) }
@@ -58,8 +61,14 @@ pub fn get_current_task_ptr() -> *const TaskControlBlock {
     p.current.as_ref().unwrap().as_ref()
 }
 pub fn try_get_current_task_ptr() -> Option<*const TaskControlBlock> {
-    let p = try_get_processor(cpu::hart_id())?;
+    let p = unsafe { try_get_processor(cpu::hart_id())? };
     p.current.as_ref().map(|a| a.as_ref() as *const _)
+}
+
+pub fn add_task_later() {
+    let f = &mut get_current_processor().add_task_later;
+    debug_check!(!*f);
+    *f = true;
 }
 
 pub fn run_task(hart_id: usize) -> ! {
@@ -87,6 +96,11 @@ pub fn run_task(hart_id: usize) -> ! {
         // core::sync::atomic::fence(Ordering::SeqCst);
         memory::set_satp_by_global();
         // println!("hart {} exit task {:?}", hart_id, pid);
-        processor.current = None; // release
+        if processor.add_task_later {
+            manager::add_task(processor.current.take().unwrap());
+            processor.add_task_later = false;
+        } else {
+            processor.current = None; // release
+        }
     }
 }

@@ -1,12 +1,14 @@
 use alloc::sync::Arc;
 
 use crate::{
+    debug::PRINT_SYSCALL,
     loader::get_app_data_by_name,
     memory::allocator::frame,
+    riscv::cpu,
     scheduler::{self, app::suspend_current_and_run_next},
     syscall::SYSCALL_FORK,
     trap::{context::TrapContext, ADD_TASK_MAGIC},
-    user, riscv::cpu,
+    user,
 };
 
 pub fn sys_getpid(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
@@ -14,6 +16,14 @@ pub fn sys_getpid(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
 }
 
 pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
+    memory_trace!("sys_waitpid");
+    if PRINT_SYSCALL {
+        println!(
+            "call sys_waitpid hart: {} {:?}",
+            cpu::hart_id(),
+            trap_context.get_tcb().pid()
+        );
+    }
     let pid = args[0] as isize;
     let exit_code_ptr = args[1] as *mut i32;
     loop {
@@ -61,8 +71,10 @@ pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
 }
 
 pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
-    println!("call sys_fork hart: {}", cpu::hart_id());
     memory_trace!("sys_fork");
+    if PRINT_SYSCALL {
+        println!("call sys_fork hart: {}", cpu::hart_id());
+    }
     assert!(trap_context.task_new.is_none());
     let allocator = &mut frame::defualt_allocator();
     match trap_context.get_tcb().fork(allocator) {
@@ -79,7 +91,13 @@ pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
 pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
     let path = args[0] as *const u8;
     let args = args[1];
-    println!("call sys_exec hart: {}", cpu::hart_id());
+    if PRINT_SYSCALL {
+        println!(
+            "call sys_exec {:?} hart: {}",
+            trap_context.get_tcb().pid(),
+            cpu::hart_id()
+        );
+    }
     memory_trace!("sys_exec entry");
     let exec_name = match user::translated_user_str_zero_end(trap_context, path) {
         Ok(str) => str,

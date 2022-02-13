@@ -1,5 +1,6 @@
 qemu-riscv64 target/riscv64gc-unknown-none-elf/release/hello_world
 
 cd /home/daex/os/ftl-os/code/user
-cd /home/daex/os/ftl-os/code/user/target/riscv64gc-unknown-none-elf/debug
+cd /home/daex/os/ftl-os/code/user/target/riscv64gc-unknown-none-elf/release
 rust-objdump -S initproc > initproc.asm
+rust-objdump -S user_shell > user_shell.asm

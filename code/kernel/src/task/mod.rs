@@ -24,11 +24,11 @@ use crate::{
         stack::{self, KernelStackTracker},
         StackID, USpaceCreateError, UserSpace,
     },
-    riscv::{sfence, cpu},
+    riscv::{cpu, sfence},
     scheduler::{self, get_current_task, get_initproc},
     sync::mutex::{MutexGuard, Spin, SpinLock},
     tools::error::{FrameOutOfMemory, HeapOutOfMemory},
-    trap::context::TrapContext,
+    trap::context::TrapContext, debug::PRINT_DROP_TCB,
 };
 
 use self::thread::LockedThreadGroup;
@@ -94,7 +94,9 @@ pub struct TaskControlBlock {
 }
 impl Drop for TaskControlBlock {
     fn drop(&mut self) {
-        println!("TCB drop! pid: {:?}", self.pid());
+        if PRINT_DROP_TCB {
+            println!("TCB drop! pid: {:?}", self.pid());
+        }
     }
 }
 
@@ -320,7 +322,7 @@ impl TaskControlBlock {
         allocator: &mut impl FrameAllocator,
     ) -> Result<!, USpaceCreateError> {
         memory_trace!("TaskControlBlock::exec 0");
-        println!("TCB exec 0 hart = {}", cpu::hart_id());
+        // println!("TCB exec 0 hart = {}", cpu::hart_id());
         let alive = self.alive();
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, allocator)?;
@@ -334,7 +336,6 @@ impl TaskControlBlock {
             *cur_space = user_space;
             // release lock of user_space
         }
-        println!("TCB exec 1");
         let ptr = &alive.stack_id as *const StackID as *mut StackID;
         unsafe {
             *ptr = stack_id;
@@ -346,13 +347,11 @@ impl TaskControlBlock {
             inner.exec_init(kernel_sp, entry_point, user_sp, self, argc, argv);
             &mut inner.task_context as *mut TaskContext
         };
-        println!("TCB exec 2 hart = {}", cpu::hart_id());
         // ERROR when hart = 4
         self.using_space();
-        println!("TCB exec 3");
         memory_trace!("TaskControlBlock::exec 2");
         sfence::fence_i();
-        println!("TCB exec end! goto task");
+        // println!("TCB exec end! goto task");
         unsafe { switch::goto_task(ncx) }
     }
     pub fn exit(&self, exit_code: i32) {
@@ -373,7 +372,7 @@ impl TaskControlBlock {
         unsafe {
             assert!((*x).is_some());
             *x = None
-         };
+        };
         memory_trace!("TaskControlBlock::exit return");
     }
 }
