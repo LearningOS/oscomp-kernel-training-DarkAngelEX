@@ -1,5 +1,9 @@
 // #![allow(dead_code)]
-use core::{fmt::Debug, slice::SlicePattern, sync::atomic::{self, Ordering}};
+use core::{
+    fmt::Debug,
+    slice::SlicePattern,
+    sync::atomic::{self, Ordering},
+};
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
@@ -645,11 +649,25 @@ impl PageTable {
         ) -> (VirAddr4K, PhyAddr4K) {
             // println!("level 2: {:?} {:?}-{:?}", va, l, r);
             for pte in &mut ptes[l[0]..=r[0]] {
+                if va.into_usize() <= 0xffffffff803f0008
+                    && va.add_one_page().into_usize() >= 0xffffffff803f0008
+                {
+                    println!("xva: {:#x} -> {:#x}", pte as *mut _ as usize, unsafe {
+                        *(pte as *mut _ as *mut usize)
+                    });
+                }
                 assert!(!pte.is_valid(), "remap of {:?} -> {:?}", va, pa);
                 // if true || PRINT_MAP_ALL {
                 //     println!("map: {:?} -> {:?}", va, pa);
                 // }
                 *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                if va.into_usize() <= 0xffffffff803f0008
+                    && va.add_one_page().into_usize() >= 0xffffffff803f0008
+                {
+                    println!("xva: {:#x} -> {:#x}", pte as *mut _ as usize, unsafe {
+                        *(pte as *mut _ as *mut usize)
+                    });
+                }
                 unsafe {
                     va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE);
                     pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE);
@@ -1179,7 +1197,6 @@ pub fn init_kernel_page_table() {
         debug_run!({ direct_map_test() });
     }
 }
-
 
 /// don't call sfence::fence_i();
 pub fn set_satp_by_global() {

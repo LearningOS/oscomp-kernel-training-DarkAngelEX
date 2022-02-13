@@ -86,7 +86,7 @@ impl Asid {
         self.0 += 1;
     }
     fn reset(&mut self) {
-        self.0 = 0;
+        self.0 = 1;
     }
 }
 
@@ -118,7 +118,7 @@ impl AsidManager {
     pub const fn new() -> Self {
         Self {
             version: AsidVersion(0),
-            current: Asid(0),
+            current: Asid(1),
             recycled: Vec::new(),
         }
     }
@@ -159,19 +159,19 @@ impl AsidManager {
 static ASID_MANAGER: SpinLock<AsidManager> = SpinLock::new(AsidManager::new());
 
 pub fn alloc_asid() -> AsidInfoTracker {
-    ASID_MANAGER.lock().alloc()
+    ASID_MANAGER.lock(place!()).alloc()
 }
 
 pub unsafe fn dealloc_asid(asid_info: AsidInfo) {
-    ASID_MANAGER.lock().dealloc(asid_info)
+    ASID_MANAGER.lock(place!()).dealloc(asid_info)
 }
 
 pub fn version_check(asid_info: AsidInfo) -> bool {
-    ASID_MANAGER.lock().version_check(asid_info)
+    ASID_MANAGER.lock(place!()).version_check(asid_info)
 }
 
 pub fn version_check_alloc(asid_info: AsidInfo) -> Result<(), AsidInfoTracker> {
-    ASID_MANAGER.lock().version_check_alloc(asid_info)
+    ASID_MANAGER.lock(place!()).version_check_alloc(asid_info)
 }
 
 // #[allow(dead_code)]

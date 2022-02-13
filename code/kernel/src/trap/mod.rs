@@ -13,7 +13,8 @@ use crate::{
             stvec::{self, TrapMode},
         },
     },
-    scheduler, syscall, timer,
+    scheduler::{self, get_current_task_ptr, get_current_task},
+    syscall, timer,
 };
 
 use self::context::TrapContext;
@@ -48,6 +49,9 @@ pub fn syscall_handler(
 ) -> (isize, &mut TrapContext) {
     set_kernel_trap_entry();
     memory_trace!("syscall_handler entry");
+    let tcb_ptr = trap_context.tcb.get_ref() as *const _;
+    debug_check_ne!(tcb_ptr, core::ptr::null());
+    debug_check_eq!(tcb_ptr, get_current_task_ptr());
     debug_check_eq!(
         trap_context.kernel_stack,
         trap_context.get_tcb().kernel_bottom()
@@ -67,10 +71,14 @@ pub fn syscall_handler(
 #[no_mangle]
 pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
     set_kernel_trap_entry();
+    let tcb_ptr = trap_context.tcb.get_ref() as *const _;
+    debug_check_ne!(tcb_ptr, core::ptr::null());
+    debug_check_eq!(tcb_ptr, get_current_task_ptr());
     debug_check_eq!(
         trap_context.kernel_stack,
         trap_context.get_tcb().kernel_bottom()
     );
+    println!("enter trap_handler");
     let scause = scause::read();
     let stval = stval::read();
     match scause.cause() {
@@ -85,10 +93,11 @@ pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapConte
             | Exception::InstructionFault
             | Exception::InstructionPageFault => {
                 println!(
-                "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:?}, kernel killed it.",
+                "[kernel] {:?} in application, bad addr = {:#x}, bad instruction = {:?}, {:?}, kernel killed it.",
                 scause.cause(),
                 stval,
                 trap_context.sepc(),
+                get_current_task().pid()
             );
                 panic!();
             }
@@ -164,6 +173,7 @@ pub fn trap_from_kernel() -> ! {
 
 #[inline(always)]
 pub fn before_trap_return() {
+    println!("call before_trap_return hart: {} {:?}", cpu::hart_id(), get_current_task().pid());
     set_user_trap_entry();
 }
 
@@ -185,7 +195,7 @@ pub fn fork_return(trap_context: &mut TrapContext) -> ! {
     unsafe { __fork_return(trap_context as *mut TrapContext as usize) }
 }
 
-fn set_kernel_trap_entry() {
+pub fn set_kernel_trap_entry() {
     unsafe {
         stvec::write(trap_from_kernel as usize, TrapMode::Direct);
     }

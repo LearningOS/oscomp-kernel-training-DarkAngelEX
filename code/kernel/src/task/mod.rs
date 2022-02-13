@@ -6,7 +6,7 @@ mod tid;
 
 use core::{
     marker::PhantomPinned,
-    sync::atomic::{AtomicI32, Ordering},
+    sync::atomic::{AtomicI32, AtomicUsize, Ordering},
 };
 
 use alloc::{
@@ -24,7 +24,7 @@ use crate::{
         stack::{self, KernelStackTracker},
         StackID, USpaceCreateError, UserSpace,
     },
-    riscv::sfence,
+    riscv::{sfence, cpu},
     scheduler::{self, get_current_task, get_initproc},
     sync::mutex::{MutexGuard, Spin, SpinLock},
     tools::error::{FrameOutOfMemory, HeapOutOfMemory},
@@ -38,22 +38,64 @@ pub use self::{
     tid::Tid,
 };
 
-#[derive(Debug, Copy, Clone, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TaskStatus {
-    RUNNING,         // 可被调度
-    INTERRUPTIBLE,   // 可中断睡眠
-    UNINTERRUPTIBLE, // 不可中断睡眠 等待资源
-    STOPPED,         // 被暂停
-    ZOMBIE,          // 等待回收
-    DEAD,            // 等待销毁
+    RUNNING = 0,         // 可被调度
+    INTERRUPTIBLE = 1,   // 可中断睡眠
+    UNINTERRUPTIBLE = 2, // 不可中断睡眠 等待资源
+    STOPPED = 3,         // 被暂停
+    ZOMBIE = 4,          // 等待回收
+    DEAD = 5,            // 等待销毁
+}
+impl From<usize> for TaskStatus {
+    fn from(v: usize) -> Self {
+        match v {
+            0 => TaskStatus::RUNNING,
+            1 => TaskStatus::INTERRUPTIBLE,
+            2 => TaskStatus::UNINTERRUPTIBLE,
+            3 => TaskStatus::STOPPED,
+            4 => TaskStatus::ZOMBIE,
+            5 => TaskStatus::DEAD,
+            _ => panic!(),
+        }
+    }
+}
+
+pub struct AtomicTaskStatus(AtomicUsize);
+
+impl From<TaskStatus> for AtomicTaskStatus {
+    fn from(ts: TaskStatus) -> Self {
+        Self(AtomicUsize::new(ts as usize))
+    }
+}
+impl From<AtomicTaskStatus> for TaskStatus {
+    fn from(ts: AtomicTaskStatus) -> Self {
+        ts.0.load(Ordering::Acquire).into()
+    }
+}
+impl AtomicTaskStatus {
+    pub fn load(&self) -> TaskStatus {
+        self.0.load(Ordering::Acquire).into()
+    }
+    pub fn store(&self, val: TaskStatus) {
+        self.0.store(val as usize, Ordering::Release)
+    }
+    pub fn load_relax(&self) -> TaskStatus {
+        self.0.load(Ordering::Relaxed).into()
+    }
 }
 
 pub struct TaskControlBlock {
     pid: PidHandle,
     parent: SpinLock<Option<Weak<TaskControlBlock>>>,
-    task_status: SpinLock<TaskStatus>, //
+    pub task_status: AtomicTaskStatus,
     alive: Option<Box<AliveTaskControlBlock>>,
     exit_code: AtomicI32,
+}
+impl Drop for TaskControlBlock {
+    fn drop(&mut self) {
+        println!("TCB drop! pid: {:?}", self.pid());
+    }
 }
 
 pub struct AliveTaskControlBlock {
@@ -113,7 +155,7 @@ impl Drop for AliveTaskControlBlock {
         unsafe {
             memory_trace!("TaskControlBlock::stack_alloc begin");
             let allocator = &mut frame::defualt_allocator();
-            let mut space = self.user_space.lock();
+            let mut space = self.user_space.lock(place!());
             space.stack_dealloc(self.stack_id, allocator);
             self.thread_group.dealloc(self.tid);
             memory_trace!("TaskControlBlock::stack_alloc end");
@@ -164,7 +206,7 @@ impl TaskControlBlock {
         let kernel_sp = kernel_stack.bottom();
         let tcb = Arc::new(Self {
             pid,
-            task_status: SpinLock::new(TaskStatus::RUNNING),
+            task_status: AtomicTaskStatus::from(TaskStatus::RUNNING),
             parent: SpinLock::new(None),
             exit_code: AtomicI32::new(0),
             alive: Some(Box::new(AliveTaskControlBlock {
@@ -187,13 +229,13 @@ impl TaskControlBlock {
     }
     pub fn alive(&self) -> &AliveTaskControlBlock {
         debug_run! {{
-            let flag = self.task_status.lock().clone();
+            let flag = self.task_status.load();
             assert!(flag != TaskStatus::ZOMBIE && flag != TaskStatus::DEAD);
         }};
         self.alive.as_ref().unwrap()
     }
     pub fn lock(&self) -> MutexGuard<TaskControlBlockInner, Spin> {
-        self.alive().inner.lock()
+        self.alive().inner.lock(place!())
     }
     pub fn trap_context_ptr(&self) -> *mut TrapContext {
         unsafe { &mut (*self.alive().inner.get_ptr()).trap_context }
@@ -202,20 +244,20 @@ impl TaskControlBlock {
         unsafe { &mut (*self.alive().inner.get_ptr()).task_context }
     }
     pub fn using_space(&self) {
-        self.alive().user_space.lock().using();
+        self.alive().user_space.lock(place!()).using();
     }
     pub fn pid(&self) -> Pid {
         self.pid.pid()
     }
     pub fn is_zombie(&self) -> bool {
-        *self.task_status.lock() == TaskStatus::ZOMBIE
+        self.task_status.load() == TaskStatus::ZOMBIE
     }
     pub fn exit_code(&self) -> i32 {
         self.exit_code.load(Ordering::Acquire)
     }
     pub fn set_parent(&self, parent: &Arc<Self>) {
         let weak = Some(Arc::downgrade(parent));
-        *self.parent.lock() = weak;
+        *self.parent.lock(place!()) = weak;
     }
     pub fn kernel_bottom(&self) -> KernelAddr4K {
         self.alive().kernel_stack.bottom()
@@ -227,7 +269,7 @@ impl TaskControlBlock {
     pub fn fork(&self, allocator: &mut impl FrameAllocator) -> Result<Arc<Self>, TCBCreateError> {
         memory_trace!("TaskControlBlock::fork");
         let alive = self.alive();
-        let user_space = alive.user_space.lock().fork(allocator)?;
+        let user_space = alive.user_space.lock(place!()).fork(allocator)?;
         let kernel_stack = stack::alloc_kernel_stack()?;
         let pid_handle = pid::pid_alloc();
         let pid = pid_handle.pid();
@@ -237,7 +279,7 @@ impl TaskControlBlock {
         let kernel_sp = kernel_stack.bottom();
         let new = Arc::new(Self {
             pid: pid_handle,
-            task_status: SpinLock::new(TaskStatus::RUNNING),
+            task_status: AtomicTaskStatus::from(TaskStatus::RUNNING),
             parent: SpinLock::new(Some(Arc::downgrade(&get_current_task()))), // move parent
             exit_code: AtomicI32::new(0),
             alive: Some(Box::new(AliveTaskControlBlock {
@@ -252,7 +294,7 @@ impl TaskControlBlock {
         });
         let new_alive = new.alive();
         let inner = unsafe { new_alive.inner.assert_unique_get() };
-        let mut self_inner = alive.inner.lock();
+        let mut self_inner = alive.inner.lock(place!());
         inner.fork_init(&self_inner, kernel_sp, new.as_ref());
         self_inner.children.push(new.clone());
         // let this = get_current_task();
@@ -278,12 +320,13 @@ impl TaskControlBlock {
         allocator: &mut impl FrameAllocator,
     ) -> Result<!, USpaceCreateError> {
         memory_trace!("TaskControlBlock::exec 0");
+        println!("TCB exec 0 hart = {}", cpu::hart_id());
         let alive = self.alive();
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, allocator)?;
         // assume only 1 process
         {
-            let mut cur_space = alive.user_space.lock();
+            let mut cur_space = alive.user_space.lock(place!());
             assert_eq!(cur_space.using_size(), 1);
             unsafe {
                 cur_space.clear_user_stack_all(allocator);
@@ -291,6 +334,7 @@ impl TaskControlBlock {
             *cur_space = user_space;
             // release lock of user_space
         }
+        println!("TCB exec 1");
         let ptr = &alive.stack_id as *const StackID as *mut StackID;
         unsafe {
             *ptr = stack_id;
@@ -298,31 +342,38 @@ impl TaskControlBlock {
         memory_trace!("TaskControlBlock::exec 1");
         let kernel_sp = alive.kernel_stack.bottom();
         let ncx = {
-            let mut inner = alive.inner.lock();
+            let mut inner = alive.inner.lock(place!());
             inner.exec_init(kernel_sp, entry_point, user_sp, self, argc, argv);
             &mut inner.task_context as *mut TaskContext
         };
+        println!("TCB exec 2 hart = {}", cpu::hart_id());
+        // ERROR when hart = 4
         self.using_space();
+        println!("TCB exec 3");
         memory_trace!("TaskControlBlock::exec 2");
         sfence::fence_i();
+        println!("TCB exec end! goto task");
         unsafe { switch::goto_task(ncx) }
     }
     pub fn exit(&self, exit_code: i32) {
         memory_trace!("TaskControlBlock::exit entry");
         self.exit_code.store(exit_code, Ordering::Relaxed);
         {
-            let mut children = core::mem::take(&mut self.alive().inner.lock().children);
+            let mut children = core::mem::take(&mut self.alive().inner.lock(place!()).children);
             let initproc = get_initproc();
-            let inner = &mut initproc.alive().inner.lock().children;
+            let inner = &mut initproc.alive().inner.lock(place!()).children;
             while let Some(child) = children.pop() {
                 child.set_parent(&initproc);
                 inner.push(child);
             }
         }
-        *self.task_status.lock() = TaskStatus::ZOMBIE;
+        self.task_status.store(TaskStatus::ZOMBIE);
         // unsafe!!!!! other hard need lock read status.
         let x = &self.alive as *const _ as *mut Option<Box<AliveTaskControlBlock>>;
-        unsafe { *x = None };
+        unsafe {
+            assert!((*x).is_some());
+            *x = None
+         };
         memory_trace!("TaskControlBlock::exit return");
     }
 }

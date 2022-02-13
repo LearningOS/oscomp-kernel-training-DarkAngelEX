@@ -17,9 +17,9 @@ impl LockedThreadGroup {
         }
     }
     pub fn alloc(&self) -> Tid {
-        self.tid_allocator.lock().alloc()
+        self.tid_allocator.lock(place!()).alloc()
     }
     pub unsafe fn dealloc(&self, tid: Tid) {
-        self.tid_allocator.lock().dealloc(tid);
+        self.tid_allocator.lock(place!()).dealloc(tid);
     }
 }

@@ -167,6 +167,7 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         if OPEN_MEMORY_TRACE && data == PhyAddrRef::from(TRACE_ADDR).floor() {
             trace::call_when_dealloc();
         }
+        // return;
         // skip null
         debug_check!(data.into_usize() % PAGE_SIZE == 0);
         assert!(data.into_usize() > DIRECT_MAP_BEGIN && data.into_usize() < DIRECT_MAP_END);
@@ -203,49 +204,49 @@ pub fn init_frame_allocator() {
         fn end();
     }
     println!("[FTL OS]init_frame_allocator");
-    FRAME_ALLOCATOR.lock().init(
+    FRAME_ALLOCATOR.lock(place!()).init(
         PhyAddrRef::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
         PhyAddrRef::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
     );
 }
 pub fn size() -> usize {
-    FRAME_ALLOCATOR.lock().size()
+    FRAME_ALLOCATOR.lock(place!()).size()
 }
 
 pub fn alloc() -> Result<FrameTracker, FrameOutOfMemory> {
     FRAME_ALLOCATOR
-        .lock()
+        .lock(place!())
         .alloc()
         .map(|a| unsafe { FrameTracker::new(a) })
 }
 
 pub fn alloc_range_to(range: &mut [PhyAddrRef4K]) -> Result<(), FrameOutOfMemory> {
-    FRAME_ALLOCATOR.lock().alloc_range(range)
+    FRAME_ALLOCATOR.lock(place!()).alloc_range(range)
 }
 
 pub unsafe fn dealloc(par: PhyAddrRef4K) {
-    FRAME_ALLOCATOR.lock().dealloc(par);
+    FRAME_ALLOCATOR.lock(place!()).dealloc(par);
 }
 
 pub unsafe fn dealloc_range_from(range: &mut [PhyAddrRef4K]) {
-    FRAME_ALLOCATOR.lock().dealloc_range(range);
+    FRAME_ALLOCATOR.lock(place!()).dealloc_range(range);
 }
 
 pub fn alloc_dpa() -> Result<FrameTrackerDpa, FrameOutOfMemory> {
     FRAME_ALLOCATOR
-        .lock()
+        .lock(place!())
         .alloc_dpa()
         .map(|a| unsafe { FrameTrackerDpa::new(a) })
 }
 
 pub fn alloc_range_dpa_to(range: &mut [PhyAddr4K]) -> Result<(), FrameOutOfMemory> {
-    FRAME_ALLOCATOR.lock().alloc_range_dpa(range)
+    FRAME_ALLOCATOR.lock(place!()).alloc_range_dpa(range)
 }
 
 pub unsafe fn dealloc_dpa(pa: PhyAddr4K) {
-    FRAME_ALLOCATOR.lock().dealloc_dpa(pa);
+    FRAME_ALLOCATOR.lock(place!()).dealloc_dpa(pa);
 }
 
 pub unsafe fn dealloc_range_dpa_from(range: &mut [PhyAddr4K]) {
-    FRAME_ALLOCATOR.lock().dealloc_range_dpa(range);
+    FRAME_ALLOCATOR.lock(place!()).dealloc_range_dpa(range);
 }

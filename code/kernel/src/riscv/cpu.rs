@@ -16,6 +16,9 @@ pub fn hart_id() -> usize {
     }
     cpu_id
 }
+pub fn hart_id_range_check() {
+    assert!(hart_id() < CPU_COUNT.load(Ordering::Relaxed));
+}
 
 pub unsafe fn increase_cpu() {
     CPU_COUNT.fetch_add(1, Ordering::Relaxed);

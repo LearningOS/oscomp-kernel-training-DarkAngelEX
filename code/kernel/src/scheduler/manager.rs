@@ -41,13 +41,13 @@ static mut INITPROC: Option<PTCB> = None;
 
 pub fn init() {
     println!("[FTL OS]scheduler manager init");
-    READY_MANAGER.lock().init();
+    READY_MANAGER.lock(place!()).init();
 }
 pub fn add_task(task: PTCB) {
-    READY_MANAGER.lock().add(task);
+    READY_MANAGER.lock(place!()).add(task);
 }
 pub fn fetch_task() -> Option<PTCB> {
-    READY_MANAGER.lock().fetch()
+    READY_MANAGER.lock(place!()).fetch()
 }
 pub fn get_initproc() -> PTCB {
     let initproc = get_initproc_ref();

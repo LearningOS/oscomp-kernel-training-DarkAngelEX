@@ -6,12 +6,12 @@ pub const USER_STACK_RESERVE: usize = PAGE_SIZE * 1; // 4096 * 2
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 4; // 4096 * 2
 
 /// ============================== KERNEL ==============================
-
+///
 /// 0x2_0000 = 128KB
 pub const KERNEL_HEAP_SIZE: usize = 0x2_0000; // 128KB
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12
-
+#[deprecated]
 pub const TRAMPOLINE: usize = 0xffff_ffff_ffff_f000;
 
 // 1GB

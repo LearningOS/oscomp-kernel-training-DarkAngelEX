@@ -37,17 +37,17 @@ pub fn init(cpu_count: usize) {
         }
     }
 }
-fn get_processor(hart_id: usize) -> &'static mut Processor {
-    unsafe { &mut PROCESSOR[hart_id] }
+unsafe fn get_processor(hart_id: usize) -> &'static mut Processor {
+    &mut PROCESSOR[hart_id]
 }
 fn try_get_processor(hart_id: usize) -> Option<&'static mut Processor> {
     unsafe { PROCESSOR.get_mut(hart_id) }
 }
 fn get_current_processor() -> &'static mut Processor {
-    get_processor(cpu::hart_id())
+    unsafe { get_processor(cpu::hart_id()) }
 }
 fn get_current_idle_cx_ptr() -> *mut TaskContext {
-    get_processor(cpu::hart_id()).idle_cx_ptr()
+    unsafe { get_processor(cpu::hart_id()).idle_cx_ptr() }
 }
 pub fn get_current_task() -> Arc<TaskControlBlock> {
     let p = get_current_processor();
@@ -63,7 +63,7 @@ pub fn try_get_current_task_ptr() -> Option<*const TaskControlBlock> {
 }
 
 pub fn run_task(hart_id: usize) -> ! {
-    let processor = get_processor(hart_id);
+    let processor = unsafe { get_processor(hart_id) };
     let idle_cx_ptr = processor.idle_cx_ptr();
     // trace::print_sp();
     loop {
@@ -74,6 +74,7 @@ pub fn run_task(hart_id: usize) -> ! {
         let next_cx = task.task_context_ptr();
         task.using_space();
         sfence::fence_i();
+        // sfence::sfence_vma_all_no_global();
         // let pid = task.pid();
         // println!("hart {} run task {:?}", hart_id, pid);
 

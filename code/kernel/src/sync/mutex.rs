@@ -66,7 +66,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
-    fn obtain_lock(&self) {
+    fn obtain_lock(&self, place: &str) {
         while self
             .lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -80,8 +80,8 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
                 if try_count == 0x1000000 {
                     let (cid, tid) = unsafe { *self.user.get() };
                     panic!(
-                        "Mutex: deadlock detected! try_count > {:#x}.\n locked by cpu {} thread {} @ {:?}",
-                        try_count, cid, tid, self as *const Self
+                        "Mutex: deadlock detected! try_count > {:#x} in {}\n locked by cpu {} thread {} @ {:?}",
+                        try_count, place, cid, tid, self as *const Self
                     );
                 }
             }
@@ -114,12 +114,12 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     /// }
     ///
     /// ```
-    pub fn lock(&self) -> MutexGuard<T, S> {
+    pub fn lock(&self, place: &str) -> MutexGuard<T, S> {
         let support_guard = S::before_lock();
 
         self.ensure_support();
 
-        self.obtain_lock();
+        self.obtain_lock(place);
         MutexGuard {
             mutex: self,
             support_guard,

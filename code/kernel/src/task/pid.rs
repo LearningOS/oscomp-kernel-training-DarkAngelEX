@@ -40,7 +40,7 @@ impl Drop for PidHandle {
     fn drop(&mut self) {
         unsafe {
             //println!("drop pid {}", self.0);
-            PID_ALLOCATOR.lock().dealloc(self.pid());
+            PID_ALLOCATOR.lock(place!()).dealloc(self.pid());
         }
     }
 }
@@ -48,5 +48,5 @@ impl Drop for PidHandle {
 static PID_ALLOCATOR: SpinLock<PidAllocator> = SpinLock::new(PidAllocator::new(0));
 
 pub fn pid_alloc() -> PidHandle {
-    PID_ALLOCATOR.lock().alloc()
+    PID_ALLOCATOR.lock(place!()).alloc()
 }

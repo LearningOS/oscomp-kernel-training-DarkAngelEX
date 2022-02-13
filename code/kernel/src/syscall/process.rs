@@ -6,7 +6,7 @@ use crate::{
     scheduler::{self, app::suspend_current_and_run_next},
     syscall::SYSCALL_FORK,
     trap::{context::TrapContext, ADD_TASK_MAGIC},
-    user,
+    user, riscv::cpu,
 };
 
 pub fn sys_getpid(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
@@ -33,7 +33,7 @@ pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
 
         if let Some((idx, _x)) = pair {
             let child = children.remove(idx);
-            assert_eq!(Arc::strong_count(&child), 1);
+            // assert_eq!(Arc::strong_count(&child), 1);
             let found_pid = child.pid();
             // ++++ temporarily access child TCB exclusively
             let exit_code = child.exit_code();
@@ -61,7 +61,7 @@ pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
 }
 
 pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
-    println!("call sys_fork");
+    println!("call sys_fork hart: {}", cpu::hart_id());
     memory_trace!("sys_fork");
     assert!(trap_context.task_new.is_none());
     let allocator = &mut frame::defualt_allocator();
@@ -79,7 +79,7 @@ pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
 pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
     let path = args[0] as *const u8;
     let args = args[1];
-    println!("call sys_exec");
+    println!("call sys_exec hart: {}", cpu::hart_id());
     memory_trace!("sys_exec entry");
     let exec_name = match user::translated_user_str_zero_end(trap_context, path) {
         Ok(str) => str,

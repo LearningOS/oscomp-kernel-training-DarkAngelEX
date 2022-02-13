@@ -58,7 +58,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     if hartid != BOOT_HART_ID {
         while !AP_CAN_INIT.load(Ordering::Acquire) {}
         println!("[FTL OS]hart {} started", hartid);
-        others_main(hartid); // -> !
+        others_main(hartid); // -> !!!!!!!!!!!!!!! main !!!!!!!!!!!!!!!
     }
     // init all module there
     println!("[FTL OS]start initialization from hart {}", hartid);
@@ -74,12 +74,13 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     memory::init();
     scheduler::init(cpu::count());
     trap::init();
-    trap::enable_timer_interrupt();
-    timer::set_next_trigger();
+    // trap::enable_timer_interrupt();
+    // timer::set_next_trigger();
 
     println!("[FTL OS]hello! from hart {}", hartid);
     loader::list_apps();
 
+    sfence::fence_i();
     println!("init complete! weakup the other cores.");
     AP_CAN_INIT.store(true, Ordering::Release);
     crate::kmain(hartid);
@@ -87,10 +88,10 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 
 fn others_main(hartid: usize) -> ! {
     println!("[FTL OS]hart {} init by global satp", hartid);
-    atomic::fence(Ordering::Acquire);
     memory::set_satp_by_global();
     sfence::sfence_vma_all_global();
     sfence::fence_i();
+    trap::set_kernel_trap_entry();
     println!("[FTL OS]hart {} init complete", hartid);
     crate::kmain(hartid);
 }

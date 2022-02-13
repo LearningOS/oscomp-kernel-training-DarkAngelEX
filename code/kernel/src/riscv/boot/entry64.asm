@@ -8,7 +8,7 @@ _start:
     # 1. set sp
     # sp = bootstack + (hartid + 1) * 0x10000
     add     t0, a0, 1
-    slli    t0, t0, 14
+    slli    t0, t0, 14 # 16KB
     lui     sp, %hi(bootstack)
     add     sp, sp, t0
 
