@@ -4,7 +4,7 @@ use core::{
     ptr::NonNull,
 };
 
-use crate::{config::KERNEL_HEAP_SIZE, tools::error::HeapOutOfMemory};
+use crate::{config::KERNEL_HEAP_SIZE, tools::error::HeapOutOfMemory, debug::CLOSE_HEAP_DEALLOC};
 use buddy_system_allocator::LockedHeap;
 
 struct GlobalHeap {
@@ -26,6 +26,9 @@ impl GlobalHeap {
         self.heap.lock().alloc(layout)
     }
     pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
+        if CLOSE_HEAP_DEALLOC {
+            return;
+        }
         self.heap.lock().dealloc(ptr, layout)
     }
 }

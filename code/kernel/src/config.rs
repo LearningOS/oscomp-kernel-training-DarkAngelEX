@@ -7,8 +7,8 @@ pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 4; // 4096 * 2
 
 /// ============================== KERNEL ==============================
 ///
-/// 0x2_0000 = 128KB
-pub const KERNEL_HEAP_SIZE: usize = 0x2_0000; // 128KB
+/// 0x8_0000 = 512KB
+pub const KERNEL_HEAP_SIZE: usize = 0x8_0000; // 512KB
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12
 #[deprecated]

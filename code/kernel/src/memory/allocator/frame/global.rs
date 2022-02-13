@@ -2,7 +2,7 @@
 //!
 use crate::{
     config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
-    debug::trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
+    debug::{trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR}, CLOSE_FRAME_DEALLOC},
     tools::{allocator::Own, error::FrameOutOfMemory},
 };
 use alloc::vec::Vec;
@@ -166,6 +166,9 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     fn dealloc(&mut self, data: PhyAddrRef4K) {
         if OPEN_MEMORY_TRACE && data == PhyAddrRef::from(TRACE_ADDR).floor() {
             trace::call_when_dealloc();
+        }
+        if CLOSE_FRAME_DEALLOC {
+            return;
         }
         // return;
         // skip null
