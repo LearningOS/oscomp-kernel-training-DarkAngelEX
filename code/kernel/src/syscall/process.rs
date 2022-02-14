@@ -78,8 +78,8 @@ pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
     assert!(trap_context.task_new.is_none());
     let allocator = &mut frame::defualt_allocator();
     match trap_context.get_tcb().fork(allocator) {
-        Ok(new_tcb) => {
-            trap_context.new_trap_cx_ptr = new_tcb.trap_context_ptr();
+        Ok((new_tcb, new_trap_cx_ptr)) => {
+            trap_context.new_trap_cx_ptr = new_trap_cx_ptr;
             trap_context.task_new = Some(new_tcb);
             trap_context.need_add_task = ADD_TASK_MAGIC;
             SYSCALL_FORK as isize
@@ -137,16 +137,37 @@ pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
 }
 
 pub fn sys_exit(trap_context: &mut TrapContext, args: [usize; 1]) -> ! {
+    if PRINT_SYSCALL {
+        println!(
+            "call sys_exit {:?} hart: {}",
+            trap_context.get_tcb().pid(),
+            cpu::hart_id()
+        );
+    }
     let exit_code = args[0] as i32;
     scheduler::app::exit_current_and_run_next(trap_context, exit_code);
 }
 
 pub fn sys_yield(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
+    if PRINT_SYSCALL {
+        println!(
+            "call sys_yield {:?} hart: {}",
+            trap_context.get_tcb().pid(),
+            cpu::hart_id()
+        );
+    }
     scheduler::app::suspend_current_and_run_next(trap_context);
     0
 }
 
 pub fn sys_kill(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
+    if PRINT_SYSCALL {
+        println!(
+            "call sys_kill {:?} hart: {}",
+            trap_context.get_tcb().pid(),
+            cpu::hart_id()
+        );
+    }
     todo!()
     // let pid = args[0];
     // let signal = args[1] as u32;

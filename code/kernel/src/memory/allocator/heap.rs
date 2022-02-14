@@ -4,7 +4,11 @@ use core::{
     ptr::NonNull,
 };
 
-use crate::{config::KERNEL_HEAP_SIZE, tools::error::HeapOutOfMemory, debug::CLOSE_HEAP_DEALLOC};
+use crate::{
+    config::{KERNEL_HEAP_SIZE, KERNEL_OFFSET_FROM_DIRECT_MAP},
+    debug::CLOSE_HEAP_DEALLOC,
+    tools::error::HeapOutOfMemory,
+};
 use buddy_system_allocator::LockedHeap;
 
 struct GlobalHeap {
@@ -49,10 +53,10 @@ static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE];
 pub fn init_heap() {
     println!("[FTL OS]init_heap");
     unsafe {
-        HEAP_ALLOCATOR
-            .heap
-            .lock()
-            .init(HEAP_SPACE.as_ptr() as usize, KERNEL_HEAP_SIZE);
+        HEAP_ALLOCATOR.heap.lock().init(
+            HEAP_SPACE.as_ptr() as usize - KERNEL_OFFSET_FROM_DIRECT_MAP,
+            KERNEL_HEAP_SIZE,
+        );
     }
 }
 

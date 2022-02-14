@@ -1,13 +1,13 @@
 use core::arch::{asm, global_asm};
 
-// ASCII: Goto Task
+/// ASCII: Goto Task
 #[allow(unused)]
 pub const ADD_TASK_MAGIC: usize = 0x476F746F_5461736B;
 
 use crate::{
-    debug::{PRINT_FORK, PRINT_TRAP, PRINT_SPECIAL_RETURN},
+    debug::{PRINT_FORK, PRINT_SPECIAL_RETURN, PRINT_TRAP},
     riscv::{
-        cpu,
+        self, cpu,
         register::{
             scause::{self, Exception, Interrupt},
             sie, stval,
@@ -159,7 +159,7 @@ pub extern "C" fn trap_after_save_sx(
     syscall::assert_fork(a0);
     let task_new = trap_context.task_new.take().unwrap();
     let pid = task_new.pid().into_usize();
-    task_new.as_ref().set_user_ret(0);
+    task_new.as_ref().fork_set_new_ret(0);
     scheduler::add_task(task_new);
     // println!("fork return: {}", pid);
     memory_trace!("trap_after_save_sx return");
@@ -185,11 +185,12 @@ pub fn trap_from_kernel() -> ! {
         asm!("csrr {}, sepc", out(reg)sepc);
     }
     panic!(
-        "a trap {:?} from kernel! bad addr = {:#x}, sepc = {:#x}, hart = {}",
+        "a trap {:?} from kernel! bad addr = {:#x}, sepc = {:#x}, hart = {} sp = {:#x}",
         scause::read().cause(),
         stval::read(),
         sepc,
-        cpu::hart_id()
+        cpu::hart_id(),
+        riscv::current_sp()
     );
 }
 

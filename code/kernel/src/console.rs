@@ -1,6 +1,8 @@
 #![allow(dead_code)]
 
-use crate::{riscv::sbi, place};
+const OUTPUT_LOCK: bool = true;
+
+use crate::{place, riscv::sbi};
 
 use core::fmt::{self, Write};
 
@@ -39,8 +41,11 @@ impl Write for Stdout {
 static WRITE_MUTEX: SpinLock<Stdout> = SpinLock::new(Stdout);
 
 pub fn print(args: fmt::Arguments) {
-    WRITE_MUTEX.lock(place!()).write_fmt(args).unwrap();
-    // Stdout.write_fmt(args).unwrap()
+    if OUTPUT_LOCK {
+        WRITE_MUTEX.lock(place!()).write_fmt(args).unwrap();
+    } else {
+        Stdout.write_fmt(args).unwrap()
+    }
 }
 
 #[macro_export]

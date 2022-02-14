@@ -80,13 +80,12 @@ pub fn run_task(hart_id: usize) -> ! {
             Some(task) => task,
             None => continue,
         };
-        let next_cx = task.task_context_ptr();
-        task.using_space();
+        let next_cx = task.task_context_ptr_scheduler();
+        task.using_space_scheduler();
         sfence::fence_i();
         // sfence::sfence_vma_all_no_global();
         // let pid = task.pid();
         // println!("hart {} run task {:?}", hart_id, pid);
-
         // release prev task there.
         processor.current = Some(task);
         // core::sync::atomic::fence(Ordering::SeqCst);

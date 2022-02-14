@@ -4,7 +4,8 @@ use core::{alloc::Layout, ptr::NonNull};
 
 use crate::{
     config::{KERNEL_STACK_SIZE, PAGE_SIZE},
-    tools::error::HeapOutOfMemory, memory::address::KernelAddr,
+    memory::address::KernelAddr,
+    tools::error::HeapOutOfMemory,
 };
 
 use super::{
@@ -25,6 +26,9 @@ impl KernelStackTracker {
     pub fn bottom(&self) -> KernelAddr4K {
         self.ptr
             .add_page(PageCount::from_usize(KERNEL_STACK_SIZE / PAGE_SIZE))
+    }
+    pub fn addr_begin(&self) -> KernelAddr4K {
+        self.ptr
     }
 }
 

@@ -27,3 +27,24 @@ macro_rules! impl_usize_from {
         }
     };
 }
+
+pub struct FailRun<T: FnOnce()> {
+    drop_run: Option<T>,
+}
+
+impl<T: FnOnce()> Drop for FailRun<T> {
+    fn drop(&mut self) {
+        if let Some(f) = self.drop_run.take() {
+            f()
+        }
+    }
+}
+
+impl<T: FnOnce()> FailRun<T> {
+    pub fn new(f: T) -> Self {
+        Self { drop_run: Some(f) }
+    }
+    pub fn consume(mut self) {
+        self.drop_run = None;
+    }
+}

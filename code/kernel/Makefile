@@ -8,7 +8,7 @@ KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 
 SMP := 1
-MEMORY_SIZE := 64M
+MEMORY_SIZE := 128M
 
 # BOARD
 BOARD ?= qemu
