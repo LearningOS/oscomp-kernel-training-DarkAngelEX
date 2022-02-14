@@ -18,11 +18,13 @@ impl TaskContext {
     pub unsafe fn any() -> Self {
         MaybeUninit::uninit().assume_init()
     }
+    // goto exec_return
     pub fn exec_init(&mut self, kernel_sp: KernelAddr4K, trap_context: *const TrapContext) {
         self.ra = trap::exec_return as usize;
         self.sp = kernel_sp.into();
         self.a0 = trap_context as usize;
     }
+    // goto fork_return
     pub fn fork(&self, kernel_sp: KernelAddr4K, trap_context: *const TrapContext) -> Self {
         Self {
             s: self.s,

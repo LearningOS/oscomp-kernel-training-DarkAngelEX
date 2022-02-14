@@ -25,49 +25,52 @@ pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
         );
     }
     let pid = args[0] as isize;
+
     let exit_code_ptr = args[1] as *mut i32;
-    loop {
-        let mut task = trap_context.get_tcb().lock();
-        let children = task.get_children();
-        if !children
-            .iter()
-            .any(|p| pid == -1 || p.pid().into_usize() == pid as usize)
-        {
-            return -1;
-        }
+    todo!();
+    // loop {
+    //     let mut task = trap_context.get_tcb();
+    //     let children = task.get_children();
+    //     if !children
+    //         .iter()
+    //         .any(|p| pid == -1 || p.pid().into_usize() == pid as usize)
+    //     {
+    //         return -1;
+    //     }
 
-        let pair = children
-            .iter()
-            .enumerate()
-            .find(|(_, p)| p.is_zombie() && (pid == -1 || p.pid().into_usize() == pid as usize));
+    //     let pair = children
+    //         .iter()
+    //         .enumerate()
+    //         .find(|(_, p)| p.is_zombie() && (pid == -1 || p.pid().into_usize() == pid as usize));
 
-        if let Some((idx, _x)) = pair {
-            let child = children.remove(idx);
-            // assert_eq!(Arc::strong_count(&child), 1);
-            let found_pid = child.pid();
-            // ++++ temporarily access child TCB exclusively
-            let exit_code = child.exit_code();
-            // ++++ release child PCB
+    //     if let Some((idx, _x)) = pair {
+    //         let child = children.remove(idx);
+    //         // assert_eq!(Arc::strong_count(&child), 1);
+    //         let found_pid = child.pid();
+    //         // ++++ temporarily access child TCB exclusively
+    //         let exit_code = child.exit_code();
+    //         // ++++ release child PCB
 
-            let data =
-                match user::translated_user_write_range(trap_context, exit_code_ptr as *mut _, 4) {
-                    Ok(x) => x,
-                    Err(e) => {
-                        println!("{:?}", e);
-                        return -2;
-                    }
-                };
-            let write_range = &mut *data.access_mut();
-            let src_ptr = &exit_code as *const i32 as *const [u8; 4];
-            let src = unsafe { &*src_ptr };
-            write_range.copy_from_slice(&src[0..4]);
+    //         let data =
+    //             match user::translated_user_write_range(trap_context, exit_code_ptr as *mut _, 4) {
+    //                 Ok(x) => x,
+    //                 Err(e) => {
+    //                     println!("{:?}", e);
+    //                     return -2;
+    //                 }
+    //             };
+    //         let write_range = &mut *data.access_mut();
+    //         let src_ptr = &exit_code as *const i32 as *const [u8; 4];
+    //         let src = unsafe { &*src_ptr };
+    //         write_range.copy_from_slice(&src[0..4]);
 
-            return found_pid.into_usize() as isize;
-        } else {
-            drop(task);
-            suspend_current_and_run_next(trap_context)
-        }
-    }
+    //         return found_pid.into_usize() as isize;
+    //     } else {
+    //         drop(task);
+    //         suspend_current_and_run_next(trap_context)
+    //     }
+    // }
+    
 }
 
 pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
