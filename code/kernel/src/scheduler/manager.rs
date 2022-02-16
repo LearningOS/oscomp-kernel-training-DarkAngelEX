@@ -1,7 +1,7 @@
 use alloc::{collections::VecDeque, sync::Arc};
 
 use crate::{
-    loader, memory::allocator::frame, riscv::cpu, sync::mutex::SpinLock, task::TaskControlBlock, debug::PRINT_SCHEDULER,
+    loader, memory::allocator::frame, riscv::cpu, sync::mutex::SpinLock, task::TaskControlBlock, xdebug::PRINT_SCHEDULER,
 };
 
 type PTCB = Arc<TaskControlBlock>;

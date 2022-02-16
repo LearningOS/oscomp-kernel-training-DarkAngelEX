@@ -17,7 +17,7 @@ pub use switch::{goto_task, switch};
 
 use crate::{
     config::PAGE_SIZE,
-    debug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
+    xdebug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
     memory::{
         self,
         address::{KernelAddr4K, UserAddr, UserAddr4K},

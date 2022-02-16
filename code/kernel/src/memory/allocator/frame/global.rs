@@ -2,7 +2,7 @@
 //!
 use crate::{
     config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
-    debug::{
+    xdebug::{
         trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
         CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
     },

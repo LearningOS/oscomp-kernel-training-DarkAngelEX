@@ -26,7 +26,7 @@ mod config;
 #[macro_use]
 mod console;
 #[macro_use]
-mod debug;
+mod xdebug;
 mod fdt;
 mod lang_items;
 mod loader;

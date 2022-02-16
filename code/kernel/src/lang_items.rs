@@ -1,5 +1,5 @@
 use crate::{
-    debug::{stack_trace, trace},
+    xdebug::{stack_trace, trace},
     println,
     riscv::{cpu, sbi::shutdown},
     scheduler,

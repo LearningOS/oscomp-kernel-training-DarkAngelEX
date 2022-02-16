@@ -6,7 +6,7 @@ use core::{
 
 use crate::{
     config::{KERNEL_HEAP_SIZE, KERNEL_OFFSET_FROM_DIRECT_MAP},
-    debug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
+    xdebug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
     tools::error::HeapOutOfMemory,
 };
 use buddy_system_allocator::LockedHeap;

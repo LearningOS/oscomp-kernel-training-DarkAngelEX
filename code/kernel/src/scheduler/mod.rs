@@ -1,7 +1,7 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    debug::{stack_trace::StackTrace, trace},
+    xdebug::{stack_trace::StackTrace, trace},
     memory::{self, stack::KernelStackTracker},
     riscv::{self, cpu, sfence},
     task::{self, TaskContext, TaskControlBlock},

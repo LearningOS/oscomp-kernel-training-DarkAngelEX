@@ -12,7 +12,7 @@ use crate::{
     config::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
-    debug::PRINT_MAP_ALL,
+    xdebug::PRINT_MAP_ALL,
     memory::asid,
     riscv::{
         self,

@@ -5,7 +5,7 @@ use core::arch::{asm, global_asm};
 pub const ADD_TASK_MAGIC: usize = 0x476F746F_5461736B;
 
 use crate::{
-    debug::{PRINT_FORK, PRINT_SPECIAL_RETURN, PRINT_TRAP},
+    xdebug::{PRINT_FORK, PRINT_SPECIAL_RETURN, PRINT_TRAP},
     riscv::{
         self, cpu,
         register::{

@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 
 use crate::{
-    debug::PRINT_SYSCALL,
+    xdebug::PRINT_SYSCALL,
     loader::get_app_data_by_name,
     memory::allocator::frame,
     riscv::cpu,
