@@ -1,6 +1,6 @@
 use core::{
-    arch::{global_asm, asm},
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering, self},
+    arch::{asm, global_asm},
+    sync::atomic::{self, AtomicBool, AtomicUsize, Ordering}, time,
 };
 
 use crate::{
@@ -9,6 +9,7 @@ use crate::{
     memory::{self, address::PhyAddr},
     riscv::register::csr,
     scheduler, timer, trap,
+    xdebug::CLOSE_TIME_INTERRUPT,
 };
 
 pub mod cpu;
@@ -72,11 +73,13 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     // show_device();
 
     memory::init();
+    timer::init();
     scheduler::init(cpu::count());
     trap::init();
-    // trap::enable_timer_interrupt();
-    // timer::set_next_trigger();
-
+    if !CLOSE_TIME_INTERRUPT {
+        trap::enable_timer_interrupt();
+        timer::set_next_trigger();
+    }
     println!("[FTL OS]hello! from hart {}", hartid);
     loader::list_apps();
 
@@ -92,6 +95,10 @@ fn others_main(hartid: usize) -> ! {
     sfence::sfence_vma_all_global();
     sfence::fence_i();
     trap::set_kernel_trap_entry();
+    if !CLOSE_TIME_INTERRUPT {
+        trap::enable_timer_interrupt();
+        timer::set_next_trigger();
+    }
     println!("[FTL OS]hart {} init complete", hartid);
     crate::kmain(hartid);
 }

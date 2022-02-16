@@ -1,21 +1,26 @@
 use alloc::sync::Arc;
 
 use crate::{
-    xdebug::PRINT_SYSCALL,
     loader::get_app_data_by_name,
     memory::allocator::frame,
     riscv::cpu,
-    scheduler::{self, app::suspend_current_and_run_next},
+    scheduler::{self},
     syscall::SYSCALL_FORK,
     task::Pid,
     tools::allocator::from_usize_allocator::FromUsize,
     trap::{context::TrapContext, ADD_TASK_MAGIC},
     user,
+    xdebug::PRINT_SYSCALL, timer,
 };
 
 pub fn sys_getpid(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
     stack_trace!();
     trap_context.get_tcb().pid().into_usize() as isize
+}
+
+pub fn sys_get_time(_trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
+    stack_trace!();
+    timer::get_time_ticks().into_millisecond() as isize
 }
 
 /// [pid, exit_code_ptr]

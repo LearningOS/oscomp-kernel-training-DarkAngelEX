@@ -2,6 +2,7 @@ use crate::trap::context::TrapContext;
 
 mod fs;
 mod process;
+mod sync;
 
 const SYSCALL_DUP: usize = 24;
 const SYSCALL_OPEN: usize = 56;
@@ -55,10 +56,10 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
         SYSCALL_READ => call!(fs::sys_read),
         SYSCALL_WRITE => call!(fs::sys_write),
         SYSCALL_EXIT => call!(process::sys_exit),
-        SYSCALL_SLEEP => call!(),
+        SYSCALL_SLEEP => call!(sync::sys_sleep),
         SYSCALL_YIELD => call!(process::sys_yield),
         SYSCALL_KILL => call!(process::sys_kill),
-        SYSCALL_GET_TIME => call!(),
+        SYSCALL_GET_TIME => call!(process::sys_get_time),
         SYSCALL_GETPID => call!(process::sys_getpid),
         SYSCALL_FORK => call!(process::sys_fork),
         SYSCALL_EXEC => call!(process::sys_exec),

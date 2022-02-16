@@ -1,22 +1,39 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
-    xdebug::{stack_trace::StackTrace, trace},
     memory::{self, stack::KernelStackTracker},
     riscv::{self, cpu, sfence},
     task::{self, TaskContext, TaskControlBlock},
+    timer::{self, TimeTicks},
+    xdebug::{stack_trace::StackTrace, trace},
 };
 
 pub mod app;
 mod manager;
 
-pub use manager::{add_task, get_initproc};
+pub use manager::{add_task, add_task_group, get_initproc};
+
+enum TaskGoto {
+    None,
+    Scheduler,
+    Timer(TimeTicks), // target tick
+}
+impl Default for TaskGoto {
+    fn default() -> Self {
+        Self::None
+    }
+}
+impl TaskGoto {
+    pub fn take(&mut self) -> Self {
+        core::mem::take(self)
+    }
+}
 
 /// this block can only be access by each hart, no lock is required.
 struct Processor {
     current: Option<Arc<TaskControlBlock>>,
     idle_cx: TaskContext,
-    add_task_later: bool,
+    task_goto: TaskGoto,
     kernel_stack_save: Option<KernelStackTracker>, // delay free kernel stack
     // debug
     current_stack_trace: *mut StackTrace,
@@ -36,7 +53,7 @@ pub fn init(cpu_count: usize) {
             PROCESSOR.push(Processor {
                 current: None,
                 idle_cx: TaskContext::any(),
-                add_task_later: false,
+                task_goto: TaskGoto::None,
                 kernel_stack_save: None,
                 current_stack_trace: core::ptr::null_mut(),
             });
@@ -90,9 +107,15 @@ pub fn get_current_kernel_stack_save() -> Option<&'static KernelStackTracker> {
 }
 
 pub fn add_task_later() {
-    let f = &mut get_current_processor().add_task_later;
-    debug_check!(!*f);
-    *f = true;
+    let goto = &mut get_current_processor().task_goto;
+    debug_check!(matches!(goto, TaskGoto::None));
+    *goto = TaskGoto::Scheduler;
+}
+
+pub fn add_timer_later(target_tick: TimeTicks) {
+    let goto = &mut get_current_processor().task_goto;
+    debug_check!(matches!(goto, TaskGoto::None));
+    *goto = TaskGoto::Timer(target_tick);
 }
 
 pub fn run_task(hart_id: usize) -> ! {
@@ -118,12 +141,14 @@ pub fn run_task(hart_id: usize) -> ! {
         }
         memory::set_satp_by_global();
         clear_current_stack_trace();
+        let current_task = processor.current.take().unwrap();
         // println!("hart {} exit task {:?}", hart_id, pid);
-        if processor.add_task_later {
-            manager::add_task(processor.current.take().unwrap());
-            processor.add_task_later = false;
-        } else {
-            processor.current = None; // release
+        match processor.task_goto.take() {
+            TaskGoto::None => (),
+            TaskGoto::Scheduler => manager::add_task(current_task),
+            TaskGoto::Timer(target_tick) => {
+                timer::sleep::timer_push_task(target_tick, current_task)
+            }
         }
     }
 }

@@ -17,6 +17,8 @@ pub const CLOSE_HEAP_DEALLOC: bool = false;
 pub const FRAME_DEALLOC_OVERWRITE: bool = true;
 pub const HEAP_DEALLOC_OVERWRITE: bool = true;
 
+pub const CLOSE_TIME_INTERRUPT: bool = false;
+
 #[macro_use]
 pub mod trace;
 #[macro_use]

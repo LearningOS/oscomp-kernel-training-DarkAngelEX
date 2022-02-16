@@ -12,6 +12,14 @@ pub fn suspend_current_and_run_next(trap_context: &mut TrapContext) {
     tcb.handle_message();
 }
 
+pub fn block_current_and_run_next(trap_context: &mut TrapContext) {
+    trap_context.get_tcb().become_block();
+    schedule(trap_context);
+    let tcb = trap_context.get_tcb();
+    tcb.take_message();
+    tcb.handle_message();
+}
+
 pub fn exit_current_and_run_next(trap_context: &mut TrapContext, exit_code: i32) -> ! {
     stack_trace!();
     memory_trace!("exit_current_and_run_next");

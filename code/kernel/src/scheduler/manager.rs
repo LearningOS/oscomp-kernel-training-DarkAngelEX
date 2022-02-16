@@ -1,14 +1,14 @@
 use alloc::{collections::VecDeque, sync::Arc};
 
 use crate::{
-    loader, memory::allocator::frame, riscv::cpu, sync::mutex::SpinLock, task::TaskControlBlock, xdebug::PRINT_SCHEDULER,
+    loader, memory::allocator::frame, riscv::cpu, sync::mutex::SpinLock, task::TaskControlBlock,
+    xdebug::PRINT_SCHEDULER,
 };
 
 type PTCB = Arc<TaskControlBlock>;
 struct ReadyManager {
     ready_queue: Option<VecDeque<PTCB>>,
 }
-
 impl ReadyManager {
     pub const fn new() -> Self {
         Self { ready_queue: None }
@@ -36,6 +36,12 @@ impl ReadyManager {
     fn fetch(&mut self) -> Option<PTCB> {
         self.get_queue().pop_front()
     }
+    pub fn add_group(&mut self, mut iter: impl Iterator<Item = PTCB>) {
+        let queue = self.get_queue();
+        while let Some(task) = iter.next() {
+            queue.push_back(task)
+        }
+    }
 }
 
 static READY_MANAGER: SpinLock<ReadyManager> = SpinLock::new(ReadyManager::new());
@@ -54,6 +60,9 @@ pub fn add_task(task: PTCB) {
         );
     }
     READY_MANAGER.lock(place!()).add(task);
+}
+pub fn add_task_group(task_iter: impl Iterator<Item = PTCB>) {
+    READY_MANAGER.lock(place!()).add_group(task_iter);
 }
 pub fn fetch_task() -> Option<PTCB> {
     if PRINT_SCHEDULER {
@@ -74,7 +83,6 @@ pub fn get_initproc() -> PTCB {
     debug_check!(!initproc.is_none(), "initproc no init");
     unsafe { initproc.as_ref().unwrap_unchecked().clone() }
 }
-
 pub fn get_initproc_ref() -> &'static mut Option<PTCB> {
     unsafe { &mut INITPROC }
 }

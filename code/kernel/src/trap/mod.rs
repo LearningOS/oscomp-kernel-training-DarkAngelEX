@@ -90,7 +90,6 @@ pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapConte
         trap_context.kernel_stack,
         trap_context.get_tcb().kernel_bottom()
     );
-    println!("enter trap_handler");
     let scause = scause::read();
     let stval = stval::read();
     match scause.cause() {
@@ -135,6 +134,7 @@ pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapConte
             Interrupt::VirtualSupervisorTimer => todo!(),
             Interrupt::SupervisorTimer => {
                 timer::set_next_trigger();
+                timer::sleep::check_timer();
                 scheduler::app::suspend_current_and_run_next(trap_context);
             }
             Interrupt::UserExternal => todo!(),

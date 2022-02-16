@@ -17,7 +17,6 @@ pub use switch::{goto_task, switch};
 
 use crate::{
     config::PAGE_SIZE,
-    xdebug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
     memory::{
         self,
         address::{KernelAddr4K, UserAddr, UserAddr4K},
@@ -34,6 +33,7 @@ use crate::{
     sync::mutex::SpinLock,
     tools::error::{FrameOutOfMemory, HeapOutOfMemory},
     trap::context::TrapContext,
+    xdebug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
 };
 
 use self::{children::ChildrenSet, thread::LockedThreadGroup};
@@ -500,6 +500,18 @@ impl TaskControlBlock {
             Ok(_) => (),
             Err(_) => panic!("receive_message_force"),
         }
+    }
+}
+
+// status
+impl TaskControlBlock {
+    // only scheduler can run this.
+    pub unsafe fn become_running_by_scheduler(&self) {
+        debug_check!(self.alive_mut_uncheck().task_status != TaskStatus::RUNNING);
+        self.alive_mut_uncheck().task_status = TaskStatus::RUNNING;
+    }
+    pub fn become_block(&self) {
+        self.alive_mut().task_status = TaskStatus::INTERRUPTIBLE;
     }
 }
 
