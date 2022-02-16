@@ -1,7 +1,8 @@
 use crate::{
-    debug::trace,
+    debug::{stack_trace, trace},
     println,
     riscv::{cpu, sbi::shutdown},
+    scheduler,
 };
 use core::panic::PanicInfo;
 
@@ -24,5 +25,15 @@ fn panic(info: &PanicInfo) -> ! {
     trace::using_stack_size_print();
     println!("current hart {}", cpu::hart_id());
     print!("\n");
-    shutdown()
+    if stack_trace::STACK_TRACE {
+        let ptr = scheduler::get_current_stack_trace();
+        if ptr == core::ptr::null_mut() {
+            println!("stack trace: empty");
+        } else {
+            unsafe { (*ptr).print_all_stack() }
+        }
+    }
+    println!("loop forever!!");
+    loop {}
+    // shutdown()
 }

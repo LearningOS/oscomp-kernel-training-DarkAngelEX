@@ -148,9 +148,15 @@ pub struct PageTable {
 
 impl Drop for PageTable {
     fn drop(&mut self) {
+        stack_trace!();
+        memory_trace!("PageTable::drop begin");
         assert!(self.satp != 0);
+        let cur_satp = unsafe {csr::get_satp()};
+        assert_ne!(self.satp, cur_satp);
         let allocator = &mut frame::defualt_allocator();
+        stack_trace!();
         self.free_user_directory_all(allocator);
+        stack_trace!();
         unsafe { allocator.dealloc(self.root_pa().into_ref()) };
         self.satp = 0;
         memory_trace!("PageTable::drop end");
@@ -370,6 +376,7 @@ impl PageTable {
     }
 
     pub fn unmap_user_range(&mut self, map_area: &UserArea, allocator: &mut impl FrameAllocator) {
+        stack_trace!();
         assert!(map_area.perm().contains(PTEFlags::U));
         let ubegin = map_area.begin();
         let uend = map_area.end();
@@ -391,6 +398,7 @@ impl PageTable {
             allocator: &mut impl FrameAllocator,
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
+            stack_trace!();
             let xbegin = &[0, 0];
             let xend = &[511, 511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
@@ -412,6 +420,7 @@ impl PageTable {
             allocator: &mut impl FrameAllocator,
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
+            stack_trace!();
             let xbegin = &[0];
             let xend = &[511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
@@ -433,6 +442,7 @@ impl PageTable {
             allocator: &mut impl FrameAllocator,
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
+            stack_trace!();
             for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
                 assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
                 unsafe { pte.dealloc_by(allocator) };
@@ -732,12 +742,13 @@ impl PageTable {
 
     /// if exists valid leaf, it will panic.
     pub fn free_user_directory_all(&mut self, allocator: &mut impl FrameAllocator) {
+        stack_trace!();
         let ubegin = UserAddr4K::null();
         let uend = UserAddr4K::user_max();
         let l = &ubegin.indexes();
         let r = &uend.sub_one_page().indexes();
         let ptes = self.root_pa().into_ref().as_pte_array_mut();
-
+        stack_trace!();
         let ua = free_user_directory_all_0(ptes, l, r, ubegin, allocator);
         assert_eq!(ua, uend);
         return;
@@ -749,6 +760,7 @@ impl PageTable {
             mut ua: UserAddr4K,
             allocator: &mut impl FrameAllocator,
         ) -> UserAddr4K {
+            stack_trace!();
             let xbegin = &[0, 0];
             let xend = &[511, 511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
@@ -775,6 +787,7 @@ impl PageTable {
             mut ua: UserAddr4K,
             allocator: &mut impl FrameAllocator,
         ) -> UserAddr4K {
+            stack_trace!();
             let xbegin = &[0];
             let xend = &[511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
@@ -801,6 +814,7 @@ impl PageTable {
             mut ua: UserAddr4K,
             _allocator: &mut impl FrameAllocator,
         ) -> UserAddr4K {
+            stack_trace!();
             for pte in &mut ptes[l[0]..=r[0]] {
                 assert!(
                     !pte.is_valid(),
@@ -890,6 +904,7 @@ impl PageTable {
     ///
     /// alloc new space for user
     pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOutOfMemory> {
+        stack_trace!();
         memory_trace!("PageTable::fork begin");
         let mut pt = Self::from_global(asid::alloc_asid())?;
         // println!("PageTable::fork {:#x}", self as *const Self as usize);
@@ -1208,5 +1223,5 @@ pub fn set_satp_by_global() {
                 .satp(),
         );
     }
-    // sfence::sfence_vma_all_global();
+    sfence::sfence_vma_all_global();
 }

@@ -7,9 +7,13 @@ pub fn suspend_current_and_run_next(trap_context: &mut TrapContext) {
     // DANGER! task can be fetched before schedule!
     add_task_later();
     schedule(trap_context);
+    let tcb = trap_context.get_tcb();
+    tcb.take_message();
+    tcb.handle_message();
 }
 
 pub fn exit_current_and_run_next(trap_context: &mut TrapContext, exit_code: i32) -> ! {
+    stack_trace!();
     memory_trace!("exit_current_and_run_next");
     unsafe {
         trap_context.get_tcb().exit(exit_code);
@@ -17,7 +21,7 @@ pub fn exit_current_and_run_next(trap_context: &mut TrapContext, exit_code: i32)
     };
 }
 
-pub fn schedule(trap_context: &mut TrapContext) {
+fn schedule(trap_context: &mut TrapContext) {
     memory_trace!("schedule");
     let current_task_cx = trap_context.get_tcb().task_context_ptr();
     let next_cx_ptr = get_current_idle_cx_ptr();

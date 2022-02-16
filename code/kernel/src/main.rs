@@ -31,6 +31,7 @@ mod fdt;
 mod lang_items;
 mod loader;
 mod memory;
+mod message;
 mod riscv;
 mod scheduler;
 mod sync;

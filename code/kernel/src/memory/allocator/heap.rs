@@ -6,7 +6,7 @@ use core::{
 
 use crate::{
     config::{KERNEL_HEAP_SIZE, KERNEL_OFFSET_FROM_DIRECT_MAP},
-    debug::CLOSE_HEAP_DEALLOC,
+    debug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
     tools::error::HeapOutOfMemory,
 };
 use buddy_system_allocator::LockedHeap;
@@ -30,6 +30,10 @@ impl GlobalHeap {
         self.heap.lock().alloc(layout)
     }
     pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
+        if HEAP_DEALLOC_OVERWRITE {
+            let arr = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), layout.size()) };
+            arr.fill(0xf0);
+        }
         if CLOSE_HEAP_DEALLOC {
             return;
         }

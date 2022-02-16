@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-const OUTPUT_LOCK: bool = true;
+const OUTPUT_LOCK: bool = false;
 
 use crate::{place, riscv::sbi};
 

@@ -4,6 +4,7 @@ const FD_STDIN: usize = 0;
 const FD_STDOUT: usize = 1;
 
 pub fn sys_write(trap_context: &mut TrapContext, args: [usize; 3]) -> isize {
+    stack_trace!();
     memory_trace!("sys_write entry");
     // fd: usize, buf: *const u8, len: usize;
     let (fd, buf, len) = (args[0], args[1] as *const u8, args[2]);
@@ -34,6 +35,7 @@ pub fn sys_write(trap_context: &mut TrapContext, args: [usize; 3]) -> isize {
 }
 
 pub fn sys_read(trap_context: &mut TrapContext, args: [usize; 3]) -> isize {
+    stack_trace!();
     memory_trace!("sys_read entry");
     let (fd, buf, len) = (args[0], args[1] as *mut u8, args[2]);
 

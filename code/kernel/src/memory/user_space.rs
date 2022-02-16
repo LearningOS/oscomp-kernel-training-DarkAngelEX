@@ -300,6 +300,7 @@ impl From<FrameOutOfMemory> for USpaceCreateError {
 
 impl Drop for UserSpace {
     fn drop(&mut self) {
+        stack_trace!();
         memory_trace!("UserSpace::drop begin");
         // free text
         let allocator = &mut frame::defualt_allocator();
@@ -428,6 +429,7 @@ impl UserSpace {
         Ok((space, stack_id, user_sp, entry_point.into()))
     }
     pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, USpaceCreateError> {
+        stack_trace!();
         memory_trace!("UserSpace::fork");
         let page_table = self.page_table.fork(allocator)?;
         let text_area = self.text_area.clone();

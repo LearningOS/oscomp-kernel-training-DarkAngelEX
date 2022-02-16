@@ -7,17 +7,43 @@ use crate::{
     riscv::cpu,
     scheduler::{self, app::suspend_current_and_run_next},
     syscall::SYSCALL_FORK,
+    task::Pid,
+    tools::allocator::from_usize_allocator::FromUsize,
     trap::{context::TrapContext, ADD_TASK_MAGIC},
     user,
 };
 
 pub fn sys_getpid(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
+    stack_trace!();
     trap_context.get_tcb().pid().into_usize() as isize
 }
 
+/// [pid, exit_code_ptr]
+///
+/// pid < -1 wait any process which gpid = |pid|
+///
+/// pid = -1 wait any subprocess
+///
+/// pid = 0 wait any process with gpid = self.gpid
+///
+/// pid > 0 wait any process with pid = pid
+///
+/// return ret
+///
+/// ret > 0  pid
+///
+/// ret = 0  none
+///
+/// ret = -1 no subprocess
+///
+/// ret = -2 have running subprocess
+///
 pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
+    stack_trace!();
     memory_trace!("sys_waitpid");
-    if PRINT_SYSCALL {
+    const PRINT_WAITPID: bool = false;
+
+    if PRINT_SYSCALL || PRINT_WAITPID {
         println!(
             "call sys_waitpid hart: {} {:?}",
             cpu::hart_id(),
@@ -25,55 +51,57 @@ pub fn sys_waitpid(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
         );
     }
     let pid = args[0] as isize;
-
+    let xpid = Pid::from_usize(pid as usize);
     let exit_code_ptr = args[1] as *mut i32;
-    todo!();
-    // loop {
-    //     let mut task = trap_context.get_tcb();
-    //     let children = task.get_children();
-    //     if !children
-    //         .iter()
-    //         .any(|p| pid == -1 || p.pid().into_usize() == pid as usize)
-    //     {
-    //         return -1;
-    //     }
 
-    //     let pair = children
-    //         .iter()
-    //         .enumerate()
-    //         .find(|(_, p)| p.is_zombie() && (pid == -1 || p.pid().into_usize() == pid as usize));
+    let task = trap_context.get_tcb();
 
-    //     if let Some((idx, _x)) = pair {
-    //         let child = children.remove(idx);
-    //         // assert_eq!(Arc::strong_count(&child), 1);
-    //         let found_pid = child.pid();
-    //         // ++++ temporarily access child TCB exclusively
-    //         let exit_code = child.exit_code();
-    //         // ++++ release child PCB
+    let zombie = if pid < -1 {
+        unimplemented!()
+    } else if pid == -1 {
+        if task.no_children() {
+            return -1;
+        }
+        task.try_remove_zombie_any()
+    } else if pid == 0 {
+        unimplemented!()
+    } else {
+        assert!(pid > 0);
+        if !task.have_child_of(xpid) {
+            return -1;
+        }
+        task.try_remove_zombie(xpid)
+    };
+    let zombie = match zombie {
+        Some(zombie) => zombie,
+        None => return -2,
+    };
 
-    //         let data =
-    //             match user::translated_user_write_range(trap_context, exit_code_ptr as *mut _, 4) {
-    //                 Ok(x) => x,
-    //                 Err(e) => {
-    //                     println!("{:?}", e);
-    //                     return -2;
-    //                 }
-    //             };
-    //         let write_range = &mut *data.access_mut();
-    //         let src_ptr = &exit_code as *const i32 as *const [u8; 4];
-    //         let src = unsafe { &*src_ptr };
-    //         write_range.copy_from_slice(&src[0..4]);
+    if exit_code_ptr != core::ptr::null_mut() {
+        let exit_code = zombie.exit_code();
+        let data = match user::translated_user_write_range(trap_context, exit_code_ptr as *mut _, 4)
+        {
+            Ok(x) => x,
+            Err(e) => {
+                println!("{:?}", e);
+                return -3;
+            }
+        };
+        let write_range = &mut *data.access_mut();
+        let src_ptr = &exit_code as *const i32 as *const [u8; 4];
+        let src = unsafe { &*src_ptr };
+        write_range.copy_from_slice(&src[0..4]);
+    }
 
-    //         return found_pid.into_usize() as isize;
-    //     } else {
-    //         drop(task);
-    //         suspend_current_and_run_next(trap_context)
-    //     }
-    // }
-    
+    // assert_eq!(Arc::strong_count(&zombie), 1);
+    if PRINT_WAITPID {
+        println!("waitpid recover {:?}", zombie.pid());
+    }
+    return zombie.pid().into_usize() as isize;
 }
 
 pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
+    stack_trace!();
     memory_trace!("sys_fork");
     if PRINT_SYSCALL {
         println!("call sys_fork hart: {}", cpu::hart_id());
@@ -92,6 +120,7 @@ pub fn sys_fork(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
 }
 
 pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
+    stack_trace!();
     let path = args[0] as *const u8;
     let args = args[1];
     if PRINT_SYSCALL {
@@ -140,6 +169,7 @@ pub fn sys_exec(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
 }
 
 pub fn sys_exit(trap_context: &mut TrapContext, args: [usize; 1]) -> ! {
+    stack_trace!();
     if PRINT_SYSCALL {
         println!(
             "call sys_exit {:?} hart: {}",
@@ -152,6 +182,7 @@ pub fn sys_exit(trap_context: &mut TrapContext, args: [usize; 1]) -> ! {
 }
 
 pub fn sys_yield(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
+    stack_trace!();
     if PRINT_SYSCALL {
         println!(
             "call sys_yield {:?} hart: {}",
@@ -164,6 +195,7 @@ pub fn sys_yield(trap_context: &mut TrapContext, _args: [usize; 0]) -> isize {
 }
 
 pub fn sys_kill(trap_context: &mut TrapContext, args: [usize; 2]) -> isize {
+    stack_trace!();
     if PRINT_SYSCALL {
         println!(
             "call sys_kill {:?} hart: {}",

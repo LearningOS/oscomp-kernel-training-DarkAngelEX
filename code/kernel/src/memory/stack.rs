@@ -5,11 +5,12 @@ use core::{alloc::Layout, ptr::NonNull};
 use crate::{
     config::{KERNEL_STACK_SIZE, PAGE_SIZE},
     memory::address::KernelAddr,
+    riscv,
     tools::error::HeapOutOfMemory,
 };
 
 use super::{
-    address::{KernelAddr4K, PageCount, PhyAddrRef},
+    address::{KernelAddr4K, PageCount},
     allocator::{global_heap_alloc, global_heap_dealloc},
 };
 
@@ -19,7 +20,12 @@ pub struct KernelStackTracker {
 
 impl Drop for KernelStackTracker {
     fn drop(&mut self) {
-        dealloc_kernel_stack(self.ptr)
+        let sp = riscv::current_sp();
+        debug_check!(
+            sp < self.addr_begin().into_usize() || sp > self.bottom().into_usize(),
+            "try free current stack!!!"
+        );
+        dealloc_kernel_stack(self.ptr);
     }
 }
 impl KernelStackTracker {

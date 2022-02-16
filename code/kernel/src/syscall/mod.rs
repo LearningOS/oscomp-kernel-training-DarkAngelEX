@@ -45,6 +45,7 @@ pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 
             $sys_fn(trap_context, send_parameter(args))
         };
     }
+    stack_trace!();
     memory_trace!("syscall entry");
     let ret = match syscall_id {
         SYSCALL_DUP => call!(),

@@ -50,6 +50,7 @@ pub fn syscall_handler(
     a7: usize,
 ) -> (isize, &mut TrapContext) {
     set_kernel_trap_entry();
+    stack_trace_begin!();
     memory_trace!("syscall_handler entry");
     let tcb_ptr = trap_context.tcb.get_ref() as *const _;
     debug_check_ne!(tcb_ptr, core::ptr::null());
@@ -81,6 +82,7 @@ pub fn syscall_handler(
 #[no_mangle]
 pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
     set_kernel_trap_entry();
+    stack_trace_begin!();
     let tcb_ptr = trap_context.tcb.get_ref() as *const _;
     debug_check_ne!(tcb_ptr, core::ptr::null());
     debug_check_eq!(tcb_ptr, get_current_task_ptr());
@@ -165,11 +167,10 @@ pub extern "C" fn trap_after_save_sx(
     memory_trace!("trap_after_save_sx return");
     if PRINT_FORK || PRINT_SPECIAL_RETURN {
         println!(
-            "!!! fork_old_return {:?} -> {} !!! hart = {} sepc: {:#x}",
+            "!!! fork_old_return {:?} -> {} !!! hart = {}",
             trap_context.get_tcb().pid(),
             pid as isize,
-            cpu::hart_id(),
-            trap_context.sepc().into_usize()
+            cpu::hart_id()
         );
     }
     // scheduler::app::suspend_current_and_run_next(trap_context); // let subpross run first
@@ -179,6 +180,7 @@ pub extern "C" fn trap_after_save_sx(
 
 #[no_mangle]
 pub fn trap_from_kernel() -> ! {
+    close_kernel_trap_entry();
     memory_trace_show!("trap_from_kernel entry");
     let sepc: usize;
     unsafe {
@@ -192,6 +194,11 @@ pub fn trap_from_kernel() -> ! {
         cpu::hart_id(),
         riscv::current_sp()
     );
+}
+#[no_mangle]
+pub fn trap_from_trap_from_kernel() -> ! {
+    println!("entry trap_from_trap_from_kernel, loop forever");
+    loop {}
 }
 
 #[inline(always)]
@@ -242,6 +249,11 @@ pub fn fork_return(trap_context: &mut TrapContext) -> ! {
 pub fn set_kernel_trap_entry() {
     unsafe {
         stvec::write(trap_from_kernel as usize, TrapMode::Direct);
+    }
+}
+pub fn close_kernel_trap_entry() {
+    unsafe {
+        stvec::write(trap_from_trap_from_kernel as usize, TrapMode::Direct);
     }
 }
 

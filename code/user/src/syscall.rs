@@ -28,6 +28,7 @@ const SYSCALL_CONDVAR_CREATE: usize = 1030;
 const SYSCALL_CONDVAR_SIGNAL: usize = 1031;
 const SYSCALL_CONDVAR_WAIT: usize = 1032;
 
+#[inline(never)]
 fn syscall<const N: usize>(id: usize, args: [usize; N]) -> isize {
     let ret: isize;
     unsafe {
