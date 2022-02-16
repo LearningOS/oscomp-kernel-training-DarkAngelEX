@@ -1,10 +1,8 @@
-use core::sync::atomic::Ordering;
-
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
     debug::{stack_trace::StackTrace, trace},
-    memory::{self},
+    memory::{self, stack::KernelStackTracker},
     riscv::{self, cpu, sfence},
     task::{self, TaskContext, TaskControlBlock},
 };
@@ -19,6 +17,7 @@ struct Processor {
     current: Option<Arc<TaskControlBlock>>,
     idle_cx: TaskContext,
     add_task_later: bool,
+    kernel_stack_save: Option<KernelStackTracker>, // delay free kernel stack
     // debug
     current_stack_trace: *mut StackTrace,
 }
@@ -38,6 +37,7 @@ pub fn init(cpu_count: usize) {
                 current: None,
                 idle_cx: TaskContext::any(),
                 add_task_later: false,
+                kernel_stack_save: None,
                 current_stack_trace: core::ptr::null_mut(),
             });
         }
@@ -80,6 +80,13 @@ fn set_current_stack_trace(ptr: *mut StackTrace) {
 }
 fn clear_current_stack_trace() {
     unsafe { get_processor(cpu::hart_id()).current_stack_trace = core::ptr::null_mut() }
+}
+
+pub fn free_kernel_stack_later(kernel_stack: KernelStackTracker) {
+    get_current_processor().kernel_stack_save = Some(kernel_stack);
+}
+pub fn get_current_kernel_stack_save() -> Option<&'static KernelStackTracker> {
+    get_current_processor().kernel_stack_save.as_ref()
 }
 
 pub fn add_task_later() {

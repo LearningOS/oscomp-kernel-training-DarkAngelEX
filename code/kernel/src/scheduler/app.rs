@@ -1,4 +1,4 @@
-use crate::{scheduler::add_task_later, task, trap::context::TrapContext};
+use crate::{scheduler::{add_task_later, self}, task, trap::context::TrapContext};
 
 use super::get_current_idle_cx_ptr;
 
@@ -16,7 +16,8 @@ pub fn exit_current_and_run_next(trap_context: &mut TrapContext, exit_code: i32)
     stack_trace!();
     memory_trace!("exit_current_and_run_next");
     unsafe {
-        trap_context.get_tcb().exit(exit_code);
+        let kernel_stack = trap_context.get_tcb().exit(exit_code);
+        scheduler::free_kernel_stack_later(kernel_stack);
         task::goto_task(get_current_idle_cx_ptr());
     };
 }

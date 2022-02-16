@@ -17,15 +17,16 @@ pub use switch::{goto_task, switch};
 
 use crate::{
     config::PAGE_SIZE,
-    debug::{stack_trace::StackTrace, PRINT_DROP_TCB, NeverFail},
+    debug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
     memory::{
+        self,
         address::{KernelAddr4K, UserAddr, UserAddr4K},
         allocator::{
             self,
             frame::{self, FrameAllocator},
         },
         stack::{self, KernelStackTracker},
-        StackID, USpaceCreateError, UserSpace, self,
+        StackID, USpaceCreateError, UserSpace,
     },
     message::{Message, MessageProcess, MessageReceive},
     riscv::{self, cpu, sfence},
@@ -94,7 +95,7 @@ pub struct AliveTaskControlBlock {
     task_status: TaskStatus,
     tid: Tid,
     thread_group: Arc<LockedThreadGroup>,
-    kernel_stack: KernelStackTracker,
+    kernel_stack: Option<KernelStackTracker>,
     stack_id: StackID,
     user_space: Arc<SpinLock<UserSpace>>, // share with thread group
     parent: Option<Weak<TaskControlBlock>>,
@@ -138,7 +139,7 @@ impl AliveTaskControlBlock {
             tid,
             stack_id,
             thread_group,
-            kernel_stack,
+            kernel_stack: Some(kernel_stack),
             user_space: Arc::new(SpinLock::new(user_space)),
             task_status: TaskStatus::RUNNING,
             parent: None,
@@ -184,7 +185,7 @@ impl AliveTaskControlBlock {
             tid,
             stack_id: self.stack_id,
             thread_group,
-            kernel_stack,
+            kernel_stack: Some(kernel_stack),
             user_space: Arc::new(SpinLock::new(user_space)),
             task_status: TaskStatus::RUNNING,
             parent: Some(Arc::downgrade(&scheduler::get_current_task())),
@@ -197,6 +198,9 @@ impl AliveTaskControlBlock {
         alive.trap_context = self.trap_context.fork_no_sx(new_kernel_sp, tcb);
         alive.task_context = self.task_context.fork(new_kernel_sp, &alive.trap_context);
         Ok(alive)
+    }
+    unsafe fn take_kernel_stack(&mut self) -> KernelStackTracker {
+        self.kernel_stack.take().unwrap()
     }
 }
 
@@ -244,7 +248,15 @@ impl TaskControlBlock {
         Ok(tcb)
     }
     pub fn run_in_this_stack(&self) -> bool {
-        let stack = unsafe { &(*self.alive.get()).as_ref().unwrap().as_ref().kernel_stack };
+        let stack = unsafe {
+            &(*self.alive.get())
+                .as_ref()
+                .unwrap()
+                .as_ref()
+                .kernel_stack
+                .as_ref()
+                .unwrap()
+        };
         let begin = stack.addr_begin().into_usize();
         let end = stack.bottom().into_usize();
         let sp = riscv::current_sp();
@@ -274,12 +286,14 @@ impl TaskControlBlock {
         (*self.alive.get()).as_mut().unwrap_unchecked()
     }
     /// unsafe!!! must run before send change parent.
-    unsafe fn become_zombie(&self) {
+    unsafe fn become_zombie(&self) -> KernelStackTracker {
         stack_trace!();
         debug_check!(self.run_in_this_stack());
+        let kernel_stack = self.alive_mut().take_kernel_stack();
         stack_trace!();
         *self.alive.get() = None;
         stack_trace!();
+        kernel_stack
     }
     pub fn task_context_ptr(&self) -> *mut TaskContext {
         &mut (*self.alive_mut()).task_context
@@ -314,10 +328,16 @@ impl TaskControlBlock {
         self.alive_mut().parent = weak;
     }
     pub fn kernel_bottom(&self) -> KernelAddr4K {
-        unsafe { self.alive_uncheck() }.kernel_stack.bottom()
+        unsafe { self.alive_uncheck() }
+            .kernel_stack
+            .as_ref()
+            .unwrap()
+            .bottom()
     }
     pub fn try_kernel_bottom(&self) -> Option<KernelAddr4K> {
-        unsafe { self.try_alive_uncheck() }.map(|x| x.kernel_stack.bottom())
+        let atcb = unsafe { self.try_alive_uncheck()? };
+        let stack = atcb.kernel_stack.as_ref()?;
+        Some(stack.bottom())
     }
 
     pub fn fork(
@@ -390,7 +410,7 @@ impl TaskControlBlock {
             *ptr = stack_id;
         };
         memory_trace!("TaskControlBlock::exec 1");
-        let kernel_sp = alive.kernel_stack.bottom();
+        let kernel_sp = alive.kernel_stack.as_ref().unwrap().bottom();
         alive.exec_init(kernel_sp, entry_point, user_sp, self, argc, argv);
 
         let ncx = &mut alive.task_context as *mut TaskContext;
@@ -401,7 +421,7 @@ impl TaskControlBlock {
         // println!("TCB exec end! goto task");
         unsafe { switch::goto_task(ncx) }
     }
-    pub fn exit(&self, exit_code: i32) {
+    pub fn exit(&self, exit_code: i32) -> KernelStackTracker {
         stack_trace!();
         memory_trace!("TaskControlBlock::exit entry");
         assert!(self.run_in_this_stack());
@@ -432,13 +452,14 @@ impl TaskControlBlock {
         let parent = self.alive().parent.as_ref().unwrap().upgrade().unwrap();
         // become_zombie must before send ChildBecomeZombie
         memory::set_satp_by_global();
-        unsafe { self.become_zombie() };
+        let kernel_stack = unsafe { self.become_zombie() };
         match parent.receive_message(Message::ChildBecomeZombie(self.pid())) {
             Ok(_) => (),
             Err(_) => initproc.receive_message_force(Message::ChildBecomeZombie(self.pid())),
         }
 
         memory_trace!("TaskControlBlock::exit return");
+        kernel_stack
     }
 }
 
