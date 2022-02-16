@@ -1,0 +1,7 @@
+dos2unix xxx.sh
+
+cargo install cargo-binutils
+rustup component add llvm-tools-preview
+
+settings.json:
+"rust-analyzer.server.path": "~/.rustup/toolchains/nightly-x86_64-unknown-linux-gnu/bin/rust-analyzer"
