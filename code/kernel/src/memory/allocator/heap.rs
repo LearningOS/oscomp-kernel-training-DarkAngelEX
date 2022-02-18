@@ -6,13 +6,14 @@ use core::{
 
 use crate::{
     config::{KERNEL_HEAP_SIZE, KERNEL_OFFSET_FROM_DIRECT_MAP},
-    xdebug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
+    sync::mutex::SpinNoIrqLock,
     tools::error::HeapOutOfMemory,
+    xdebug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
 };
-use buddy_system_allocator::LockedHeap;
+use buddy_system_allocator::Heap;
 
 struct GlobalHeap {
-    heap: LockedHeap,
+    heap: SpinNoIrqLock<Heap>,
 }
 
 unsafe impl GlobalAlloc for GlobalHeap {
@@ -27,7 +28,7 @@ unsafe impl GlobalAlloc for GlobalHeap {
 
 impl GlobalHeap {
     pub fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, ()> {
-        self.heap.lock().alloc(layout)
+        self.heap.lock(place!()).alloc(layout)
     }
     pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
         if HEAP_DEALLOC_OVERWRITE {
@@ -37,14 +38,14 @@ impl GlobalHeap {
         if CLOSE_HEAP_DEALLOC {
             return;
         }
-        self.heap.lock().dealloc(ptr, layout)
+        self.heap.lock(place!()).dealloc(ptr, layout)
     }
 }
 
 impl GlobalHeap {
     pub const fn empty() -> Self {
         Self {
-            heap: LockedHeap::empty(),
+            heap: SpinNoIrqLock::new(Heap::empty()),
         }
     }
 }
@@ -57,7 +58,7 @@ static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE];
 pub fn init_heap() {
     println!("[FTL OS]init_heap");
     unsafe {
-        HEAP_ALLOCATOR.heap.lock().init(
+        HEAP_ALLOCATOR.heap.lock(place!()).init(
             HEAP_SPACE.as_ptr() as usize - KERNEL_OFFSET_FROM_DIRECT_MAP,
             KERNEL_HEAP_SIZE,
         );

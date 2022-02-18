@@ -3,20 +3,17 @@ use core::arch::{asm, global_asm};
 /// ASCII: Goto Task
 #[allow(unused)]
 pub const ADD_TASK_MAGIC: usize = 0x476F746F_5461736B;
-
 use crate::{
-    xdebug::{PRINT_FORK, PRINT_SPECIAL_RETURN, PRINT_TRAP},
-    riscv::{
-        self, cpu,
-        register::{
-            scause::{self, Exception, Interrupt},
-            sie, stval,
-            stvec::{self, TrapMode},
-        },
-    },
+    hart::{self, cpu},
     scheduler::{self, get_current_task, get_current_task_ptr},
     syscall, timer,
     user::AutoSum,
+    xdebug::{PRINT_FORK, PRINT_SPECIAL_RETURN, PRINT_TRAP},
+};
+use crate::riscv::register::{
+    scause::{self, Exception, Interrupt},
+    sie, stval,
+    stvec::{self, TrapMode},
 };
 
 use self::context::TrapContext;
@@ -81,6 +78,17 @@ pub fn syscall_handler(
 /// return value is sscratch = ptr of TrapContext
 #[no_mangle]
 pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapContext {
+    fn app_fatal_error_print(trap_context: &mut TrapContext) {
+        println!(
+                "[kernel] {:?} in application {:?} kernel killed it. bad addr = {:#x}, bad instruction = {:?}, user_sp: {:#x} hart: {}",
+                scause::read().cause(),
+                get_current_task().pid(),
+                stval::read(),
+                trap_context.sepc(),
+                trap_context.x[2],
+                cpu::hart_id())
+    }
+
     set_kernel_trap_entry();
     stack_trace_begin!();
     let tcb_ptr = trap_context.tcb.get_ref() as *const _;
@@ -91,7 +99,6 @@ pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapConte
         trap_context.get_tcb().kernel_bottom()
     );
     let scause = scause::read();
-    let stval = stval::read();
     match scause.cause() {
         scause::Trap::Exception(e) => match e {
             Exception::UserEnvCall => {
@@ -103,17 +110,8 @@ pub extern "C" fn trap_handler(trap_context: &mut TrapContext) -> &mut TrapConte
             | Exception::LoadPageFault
             | Exception::InstructionFault
             | Exception::InstructionPageFault => {
-                let x = AutoSum::new();
-                println!(
-                "[kernel] {:?} in application {:?} kernel killed it. bad addr = {:#x}, bad instruction = {:?}, user_sp: {:#x} hart: {}",
-                scause.cause(),
-                get_current_task().pid(),
-                stval,
-                trap_context.sepc(),
-                trap_context.x[2],
-                cpu::hart_id()
-            );
-                panic!();
+                app_fatal_error_print(trap_context);
+                scheduler::app::exit_current_and_run_next(trap_context, -1);
             }
             Exception::InstructionMisaligned => todo!(),
             Exception::IllegalInstruction => todo!(),
@@ -192,7 +190,7 @@ pub fn trap_from_kernel() -> ! {
         stval::read(),
         sepc,
         cpu::hart_id(),
-        riscv::current_sp()
+        hart::current_sp()
     );
 }
 #[no_mangle]

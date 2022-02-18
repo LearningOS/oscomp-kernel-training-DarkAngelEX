@@ -1,9 +1,8 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use crate::{
-    config::CLOCK_FREQ,
-    riscv::{register::time, sbi},
-};
+use crate::{config::CLOCK_FREQ, hart::sbi};
+
+use crate::riscv::register::time;
 
 pub mod sleep;
 

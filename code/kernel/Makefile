@@ -56,7 +56,7 @@ kernel:
 ifeq ($(ARCH), riscv64)
 ifeq ($(BOARD), qemu)
 	@echo Platform: qemu
-	@cp src/riscv/boot/linker64.ld src/linker.ld
+	@cp src/hart/boot/linker64.ld src/linker.ld
 ifeq ($(MODE), release)
 	@cargo build --release
 else

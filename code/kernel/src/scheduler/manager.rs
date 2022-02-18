@@ -1,8 +1,8 @@
 use alloc::{collections::VecDeque, sync::Arc};
 
 use crate::{
-    loader, memory::allocator::frame, riscv::cpu, sync::mutex::SpinLock, task::TaskControlBlock,
-    xdebug::PRINT_SCHEDULER,
+    hart::cpu, loader, memory::allocator::frame, sync::mutex::SpinNoIrqLock,
+    task::TaskControlBlock, xdebug::PRINT_SCHEDULER,
 };
 
 type PTCB = Arc<TaskControlBlock>;
@@ -44,7 +44,7 @@ impl ReadyManager {
     }
 }
 
-static READY_MANAGER: SpinLock<ReadyManager> = SpinLock::new(ReadyManager::new());
+static READY_MANAGER: SpinNoIrqLock<ReadyManager> = SpinNoIrqLock::new(ReadyManager::new());
 static mut INITPROC: Option<PTCB> = None;
 
 pub fn init() {

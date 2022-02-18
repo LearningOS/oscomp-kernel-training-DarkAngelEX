@@ -4,9 +4,9 @@ use core::pin::Pin;
 use alloc::sync::Arc;
 
 use crate::memory::address::{KernelAddr4K, UserAddr, UserAddr4K};
-use crate::riscv::register::sstatus::{self, Sstatus};
 use crate::task::TaskControlBlock;
 use crate::user::UserAccessStatus;
+use crate::riscv::register::sstatus::{self, Sstatus};
 
 /// this trap context is in TCB so it can call drop.
 #[repr(C)]

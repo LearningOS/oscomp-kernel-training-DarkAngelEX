@@ -3,7 +3,7 @@ use alloc::sync::Arc;
 use crate::{
     loader::get_app_data_by_name,
     memory::allocator::frame,
-    riscv::cpu,
+    hart::cpu,
     scheduler::{self},
     syscall::SYSCALL_FORK,
     task::Pid,
@@ -37,7 +37,7 @@ pub fn sys_get_time(_trap_context: &mut TrapContext, _args: [usize; 0]) -> isize
 ///
 /// ret > 0  pid
 ///
-/// ret = 0  none
+/// ret = 0  have running subprocess
 ///
 /// ret = -1 no subprocess
 ///

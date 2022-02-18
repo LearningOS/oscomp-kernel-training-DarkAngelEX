@@ -1,7 +1,7 @@
 use crate::{
     xdebug::{stack_trace, trace},
     println,
-    riscv::{cpu, sbi::shutdown},
+    hart::{cpu, sbi::shutdown},
     scheduler,
 };
 use core::panic::PanicInfo;

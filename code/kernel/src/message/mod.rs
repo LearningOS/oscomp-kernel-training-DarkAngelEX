@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, collections::LinkedList, sync::Weak};
 
 use crate::{
-    sync::mutex::SpinLock,
+    sync::mutex::SpinNoIrqLock,
     task::{children::ChildrenSet, Pid, TaskControlBlock},
 };
 
@@ -37,7 +37,7 @@ impl MessageQueue {
 }
 
 pub struct MessageReceive {
-    queue: SpinLock<Option<Box<MessageQueue>>>,
+    queue: SpinNoIrqLock<Option<Box<MessageQueue>>>,
 }
 impl Drop for MessageReceive {
     fn drop(&mut self) {
@@ -57,7 +57,7 @@ impl Drop for MessageProcess {
 impl MessageReceive {
     pub fn new() -> Self {
         Self {
-            queue: SpinLock::new(Some(Box::new(MessageQueue::new()))),
+            queue: SpinNoIrqLock::new(Some(Box::new(MessageQueue::new()))),
         }
     }
     /// return Err if have close.

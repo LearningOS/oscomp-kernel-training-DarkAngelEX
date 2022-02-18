@@ -4,7 +4,9 @@ use core::{convert::TryFrom, ptr, str::Utf8Error};
 
 use alloc::vec::Vec;
 
-use crate::{riscv::register::sstatus, trap::context::TrapContext};
+use crate::trap::context::TrapContext;
+
+use crate::riscv::register::sstatus;
 
 use crate::memory::address::{OutOfUserRange, PageCount, UserAddr};
 
@@ -140,16 +142,19 @@ impl UserAccessStatus {
     }
 }
 
-pub struct AutoSum;
+pub struct AutoSum(bool);
 impl AutoSum {
     pub fn new() -> Self {
+        let f = sstatus::read().sum();
         unsafe { sstatus::set_sum() };
-        Self
+        Self(f)
     }
 }
 impl Drop for AutoSum {
     fn drop(&mut self) {
-        unsafe { sstatus::clear_sum() }
+        if !self.0 {
+            unsafe { sstatus::clear_sum() }
+        }
     }
 }
 pub struct TraceAutoSum(*mut UserAccessStatus, AutoSum);

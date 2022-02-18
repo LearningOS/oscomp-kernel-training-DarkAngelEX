@@ -4,8 +4,8 @@ use core::{alloc::Layout, ptr::NonNull};
 
 use crate::{
     config::{KERNEL_STACK_SIZE, PAGE_SIZE},
+    hart,
     memory::address::KernelAddr,
-    riscv,
     tools::error::HeapOutOfMemory,
 };
 
@@ -20,7 +20,7 @@ pub struct KernelStackTracker {
 
 impl Drop for KernelStackTracker {
     fn drop(&mut self) {
-        let sp = riscv::current_sp();
+        let sp = hart::current_sp();
         debug_check!(
             sp < self.addr_begin().into_usize() || sp > self.bottom().into_usize(),
             "try free current stack!!!"

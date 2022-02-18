@@ -3,10 +3,10 @@ use core::{fmt::Debug, ops::Deref};
 use alloc::vec::Vec;
 
 use crate::{
+    hart::{sfence, csr},
     impl_usize_from,
     memory::{address::VirAddr, page_table::PageTable},
-    riscv::sfence,
-    sync::mutex::SpinLock,
+    sync::mutex::SpinNoIrqLock,
     tools,
 };
 
@@ -156,7 +156,7 @@ impl AsidManager {
     }
 }
 
-static ASID_MANAGER: SpinLock<AsidManager> = SpinLock::new(AsidManager::new());
+static ASID_MANAGER: SpinNoIrqLock<AsidManager> = SpinNoIrqLock::new(AsidManager::new());
 
 pub fn alloc_asid() -> AsidInfoTracker {
     ASID_MANAGER.lock(place!()).alloc()
@@ -177,7 +177,6 @@ pub fn version_check_alloc(asid_info: AsidInfo) -> Result<(), AsidInfoTracker> {
 // #[allow(dead_code)]
 pub fn asid_test() {
     use crate::memory::{address::VirAddr4K, allocator::frame, page_table::PTEFlags};
-    use crate::riscv::register::csr;
 
     fn va_set(va: VirAddr, value: usize) {
         unsafe {

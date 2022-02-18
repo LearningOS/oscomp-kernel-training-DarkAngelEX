@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{config::KERNEL_STACK_SIZE, riscv, scheduler};
+use crate::{config::KERNEL_STACK_SIZE, hart, scheduler};
 
 pub const OPEN_MEMORY_TRACE: bool = false;
 pub const STACK_DETECTION: bool = true;
@@ -107,7 +107,7 @@ pub fn call_when_alloc() {
         "\x1b[32m!!!!! alloc\x1b[0m {:#016x} count: {} current sp: {:#016x}",
         TRACE_ADDR,
         cnt,
-        riscv::current_sp()
+        hart::current_sp()
     );
     let ptr = TRACE_ADDR as *const usize;
     PREV_VALUE.store(unsafe { ptr.read_volatile() }, Ordering::Release);
@@ -119,7 +119,7 @@ pub fn call_when_dealloc() {
 }
 
 pub fn print_sp() {
-    let sp = riscv::current_sp();
+    let sp = hart::current_sp();
     println!("current sp {:#016x}", sp);
 }
 
@@ -132,7 +132,7 @@ fn using_stack_size_impl() -> usize {
         Some(x) => x.into_usize(),
         None => return 0,
     };
-    let current = riscv::current_sp();
+    let current = hart::current_sp();
     // bottom - current
     bottom.saturating_sub(current)
 }

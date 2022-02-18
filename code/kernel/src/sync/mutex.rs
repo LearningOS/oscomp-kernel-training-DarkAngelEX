@@ -6,7 +6,7 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
-use crate::riscv::{cpu::hart_id, interrupt};
+use crate::hart::{cpu::hart_id, interrupt};
 
 pub type SpinLock<T> = Mutex<T, Spin>;
 pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
@@ -266,7 +266,7 @@ impl MutexSupport for Spin {
 pub struct SpinNoIrq;
 
 /// Contains RFLAGS before disable interrupt, will auto restore it when dropping
-pub struct FlagsGuard(usize);
+pub struct FlagsGuard(bool);
 
 impl Drop for FlagsGuard {
     fn drop(&mut self) {

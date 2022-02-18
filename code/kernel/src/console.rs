@@ -2,13 +2,13 @@
 
 const OUTPUT_LOCK: bool = true;
 
-use crate::{place, riscv::sbi};
+use crate::{place, hart::sbi};
 
 use core::fmt::{self, Write};
 
 struct Stdout;
 
-use crate::sync::mutex::SpinLock;
+use crate::sync::mutex::SpinNoIrqLock;
 
 #[inline(always)]
 pub fn putchar(c: char) {
@@ -38,7 +38,7 @@ impl Write for Stdout {
 }
 
 #[link_section = "data"]
-static WRITE_MUTEX: SpinLock<Stdout> = SpinLock::new(Stdout);
+static WRITE_MUTEX: SpinNoIrqLock<Stdout> = SpinNoIrqLock::new(Stdout);
 
 pub fn print(args: fmt::Arguments) {
     if OUTPUT_LOCK {

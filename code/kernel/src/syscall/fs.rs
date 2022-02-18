@@ -1,4 +1,4 @@
-use crate::{riscv::sbi, trap::context::TrapContext, user};
+use crate::{hart::sbi, trap::context::TrapContext, user};
 
 const FD_STDIN: usize = 0;
 const FD_STDOUT: usize = 1;

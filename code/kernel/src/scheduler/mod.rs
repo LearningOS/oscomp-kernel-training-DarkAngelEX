@@ -1,8 +1,8 @@
 use alloc::{sync::Arc, vec::Vec};
 
 use crate::{
+    hart::{self, cpu, sfence},
     memory::{self, stack::KernelStackTracker},
-    riscv::{self, cpu, sfence},
     task::{self, TaskContext, TaskControlBlock},
     timer::{self, TimeTicks},
     xdebug::{stack_trace::StackTrace, trace},

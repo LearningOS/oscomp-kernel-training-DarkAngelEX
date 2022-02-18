@@ -17,6 +17,7 @@ pub use switch::{goto_task, switch};
 
 use crate::{
     config::PAGE_SIZE,
+    hart::{self, cpu, sfence},
     memory::{
         self,
         address::{KernelAddr4K, UserAddr, UserAddr4K},
@@ -28,9 +29,8 @@ use crate::{
         StackID, USpaceCreateError, UserSpace,
     },
     message::{Message, MessageProcess, MessageReceive},
-    riscv::{self, cpu, sfence},
     scheduler,
-    sync::mutex::SpinLock,
+    sync::mutex::SpinNoIrqLock,
     tools::error::{FrameOutOfMemory, HeapOutOfMemory},
     trap::context::TrapContext,
     xdebug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
@@ -97,7 +97,7 @@ pub struct AliveTaskControlBlock {
     thread_group: Arc<LockedThreadGroup>,
     kernel_stack: Option<KernelStackTracker>,
     stack_id: StackID,
-    user_space: Arc<SpinLock<UserSpace>>, // share with thread group
+    user_space: Arc<SpinNoIrqLock<UserSpace>>, // share with thread group
     parent: Option<Weak<TaskControlBlock>>,
     children: ChildrenSet,
     msg_process: MessageProcess,
@@ -140,7 +140,7 @@ impl AliveTaskControlBlock {
             stack_id,
             thread_group,
             kernel_stack: Some(kernel_stack),
-            user_space: Arc::new(SpinLock::new(user_space)),
+            user_space: Arc::new(SpinNoIrqLock::new(user_space)),
             task_status: TaskStatus::RUNNING,
             parent: None,
             children: ChildrenSet::new(),
@@ -186,7 +186,7 @@ impl AliveTaskControlBlock {
             stack_id: self.stack_id,
             thread_group,
             kernel_stack: Some(kernel_stack),
-            user_space: Arc::new(SpinLock::new(user_space)),
+            user_space: Arc::new(SpinNoIrqLock::new(user_space)),
             task_status: TaskStatus::RUNNING,
             parent: Some(Arc::downgrade(&scheduler::get_current_task())),
             children: ChildrenSet::new(),
@@ -259,7 +259,7 @@ impl TaskControlBlock {
         };
         let begin = stack.addr_begin().into_usize();
         let end = stack.bottom().into_usize();
-        let sp = riscv::current_sp();
+        let sp = hart::current_sp();
         begin < sp && sp <= end
     }
     unsafe fn try_alive_uncheck(&self) -> Option<&AliveTaskControlBlock> {

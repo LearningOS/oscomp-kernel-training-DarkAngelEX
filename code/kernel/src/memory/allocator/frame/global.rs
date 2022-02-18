@@ -2,22 +2,20 @@
 //!
 use crate::{
     config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
+    memory::address::PhyAddrRef,
+    sync::mutex::SpinNoIrqLock,
+    tools::{allocator::Own, error::FrameOutOfMemory},
     xdebug::{
         trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
         CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
     },
-    tools::{allocator::Own, error::FrameOutOfMemory},
 };
 use alloc::vec::Vec;
 ///
 /// this module will alloc frame(4KB)
 use core::fmt::Debug;
 
-use crate::{
-    config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP},
-    memory::address::PhyAddrRef,
-    sync::mutex::SpinLock,
-};
+use crate::config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP};
 
 use crate::memory::address::{PhyAddr4K, PhyAddrRef4K, StepByOne};
 
@@ -208,7 +206,8 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
 
 type FrameAllocatorImpl = StackGlobalFrameAllocator;
 
-static FRAME_ALLOCATOR: SpinLock<FrameAllocatorImpl> = SpinLock::new(FrameAllocatorImpl::new());
+static FRAME_ALLOCATOR: SpinNoIrqLock<FrameAllocatorImpl> =
+    SpinNoIrqLock::new(FrameAllocatorImpl::new());
 
 pub fn init_frame_allocator() {
     extern "C" {

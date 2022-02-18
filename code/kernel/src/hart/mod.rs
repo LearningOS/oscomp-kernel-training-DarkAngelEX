@@ -1,20 +1,19 @@
 use core::{
     arch::{asm, global_asm},
-    sync::atomic::{self, AtomicBool, AtomicUsize, Ordering}, time,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
 use crate::{
     fdt::FdtHeader,
     loader,
     memory::{self, address::PhyAddr},
-    riscv::register::csr,
     scheduler, timer, trap,
     xdebug::CLOSE_TIME_INTERRUPT,
 };
 
 pub mod cpu;
+pub mod csr;
 pub mod interrupt;
-pub mod register;
 pub mod sbi;
 pub mod sfence;
 

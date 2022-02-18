@@ -1,8 +1,8 @@
 use core::cmp::Ordering;
 
-use alloc::{borrow::ToOwned, collections::BinaryHeap, sync::Arc, vec::Vec};
+use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
 
-use crate::{scheduler, sync::mutex::SpinLock, task::TaskControlBlock};
+use crate::{scheduler, sync::mutex::SpinNoIrqLock, task::TaskControlBlock};
 
 use super::{get_time_ticks, TimeTicks};
 
@@ -64,14 +64,18 @@ impl SleepQueue {
     }
 }
 
-static SLEEP_QUEUE: SpinLock<Option<SleepQueue>> = SpinLock::new(None);
+static SLEEP_QUEUE: SpinNoIrqLock<Option<SleepQueue>> = SpinNoIrqLock::new(None);
 
 pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock(place!()) = Some(SleepQueue::new());
 }
 
 pub fn timer_push_task(ticks: TimeTicks, task: Arc<TaskControlBlock>) {
-    SLEEP_QUEUE.lock(place!()).as_mut().unwrap().push(ticks, task);
+    SLEEP_QUEUE
+        .lock(place!())
+        .as_mut()
+        .unwrap()
+        .push(ticks, task);
 }
 
 pub fn check_timer() {

@@ -14,25 +14,28 @@
 #![feature(map_first_last)]
 #![feature(never_type)]
 #![feature(slice_pattern)]
+#![cfg_attr(feature = "inline-asm", feature(asm_const))]
 
 extern crate alloc;
 extern crate bitflags;
+extern crate riscv;
 // extern crate lazy_static;
 extern crate xmas_elf;
 
 use core::arch::global_asm;
 
 mod config;
+
 #[macro_use]
 mod console;
 #[macro_use]
 mod xdebug;
 mod fdt;
+mod hart;
 mod lang_items;
 mod loader;
 mod memory;
 mod message;
-mod riscv;
 mod scheduler;
 mod sync;
 mod syscall;
@@ -45,7 +48,7 @@ mod user;
 global_asm!(include_str!("link_app.S"));
 
 ///
-/// This function will be called by rust_main() in riscv/mod.rs
+/// This function will be called by rust_main() in hart/mod.rs
 ///
 /// It will run on each core.
 ///

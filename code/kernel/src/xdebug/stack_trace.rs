@@ -1,6 +1,6 @@
 use alloc::vec::Vec;
 
-use crate::riscv::cpu;
+use crate::hart::cpu;
 
 pub const STACK_TRACE: bool = true;
 

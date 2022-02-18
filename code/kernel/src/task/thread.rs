@@ -1,4 +1,4 @@
-use crate::sync::mutex::SpinLock;
+use crate::sync::mutex::SpinNoIrqLock;
 
 use super::{
     pid::Pid,
@@ -7,13 +7,13 @@ use super::{
 
 #[derive(Debug)]
 pub struct LockedThreadGroup {
-    tid_allocator: SpinLock<TidAllocator>,
+    tid_allocator: SpinNoIrqLock<TidAllocator>,
 }
 
 impl LockedThreadGroup {
     pub fn new(pid: Pid) -> Self {
         Self {
-            tid_allocator: SpinLock::new(TidAllocator::new(pid.into_usize())),
+            tid_allocator: SpinNoIrqLock::new(TidAllocator::new(pid.into_usize())),
         }
     }
     pub fn alloc(&self) -> Tid {

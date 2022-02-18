@@ -12,14 +12,13 @@ use crate::{
     config::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
-    xdebug::PRINT_MAP_ALL,
-    memory::asid,
-    riscv::{
-        self,
-        register::csr,
+    hart::{
+        self, csr,
         sfence::{self, sfence_vma_all_global},
     },
+    memory::asid,
     tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
+    xdebug::PRINT_MAP_ALL,
 };
 
 use super::{
@@ -151,7 +150,7 @@ impl Drop for PageTable {
         stack_trace!();
         memory_trace!("PageTable::drop begin");
         assert!(self.satp != 0);
-        let cur_satp = unsafe {csr::get_satp()};
+        let cur_satp = unsafe { csr::get_satp() };
         assert_ne!(self.satp, cur_satp);
         let allocator = &mut frame::defualt_allocator();
         stack_trace!();
