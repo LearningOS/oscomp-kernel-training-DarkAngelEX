@@ -32,6 +32,7 @@ pub struct PhyAddr(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhyAddrRef(usize);
 
+#[repr(C)]
 /// only valid in user space
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct UserAddr(usize);

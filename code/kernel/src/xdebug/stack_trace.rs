@@ -7,13 +7,13 @@ pub const STACK_TRACE: bool = true;
 #[macro_export]
 macro_rules! stack_trace_begin {
     () => {
-        unsafe { (&mut *crate::scheduler::get_current_stack_trace()).clear() }
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::scheduler::try_get_current_stack_trace(),
-            "",
-            file!(),
-            line!(),
-        );
+        // unsafe { (&mut *crate::scheduler::get_current_stack_trace()).clear() }
+        // let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
+        //     crate::scheduler::try_get_current_stack_trace(),
+        //     "",
+        //     file!(),
+        //     line!(),
+        // );
     };
     ($msg: expr) => {
         unsafe { (&mut *crate::scheduler::get_current_stack_trace()).clear() }
@@ -29,12 +29,12 @@ macro_rules! stack_trace_begin {
 #[macro_export]
 macro_rules! stack_trace {
     () => {
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::scheduler::try_get_current_stack_trace(),
-            "",
-            file!(),
-            line!(),
-        );
+        // let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
+        //     crate::scheduler::try_get_current_stack_trace(),
+        //     "",
+        //     file!(),
+        //     line!(),
+        // );
     };
     ($msg: expr) => {
         let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(

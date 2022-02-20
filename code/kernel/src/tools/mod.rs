@@ -48,3 +48,17 @@ impl<T: FnOnce()> FailRun<T> {
         self.drop_run = None;
     }
 }
+
+pub trait Wrapper<T> {
+    type Output;
+    fn wrapper(a: T) -> Self::Output;
+}
+
+#[derive(Clone)]
+pub struct ForwardWrapper;
+impl<T> Wrapper<T> for ForwardWrapper {
+    type Output = T;
+    fn wrapper(a: T) -> T {
+        a
+    }
+}

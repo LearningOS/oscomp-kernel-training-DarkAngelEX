@@ -1,11 +1,3 @@
-pub mod children;
-mod context;
-mod msg;
-mod pid;
-mod switch;
-mod thread;
-mod tid;
-
 use core::{cell::UnsafeCell, marker::PhantomPinned};
 
 use alloc::{
@@ -13,7 +5,6 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-pub use switch::{goto_task, switch};
 
 use crate::{
     config::PAGE_SIZE,
@@ -29,19 +20,12 @@ use crate::{
         StackID, USpaceCreateError, UserSpace,
     },
     message::{Message, MessageProcess, MessageReceive},
-    scheduler,
+    executor,
     sync::mutex::SpinNoIrqLock,
     tools::error::{FrameOutOfMemory, HeapOutOfMemory},
-    trap::context::TrapContext,
     xdebug::{stack_trace::StackTrace, NeverFail, PRINT_DROP_TCB},
 };
 
-use self::{children::ChildrenSet, thread::LockedThreadGroup};
-pub use self::{
-    context::TaskContext,
-    pid::{Pid, PidHandle},
-    tid::Tid,
-};
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub enum TaskStatus {
@@ -188,7 +172,7 @@ impl AliveTaskControlBlock {
             kernel_stack: Some(kernel_stack),
             user_space: Arc::new(SpinNoIrqLock::new(user_space)),
             task_status: TaskStatus::RUNNING,
-            parent: Some(Arc::downgrade(&scheduler::get_current_task())),
+            parent: Some(Arc::downgrade(&executor::get_current_task())),
             children: ChildrenSet::new(),
             msg_process: MessageProcess::new(),
             trap_context: unsafe { TrapContext::any() },
@@ -432,7 +416,7 @@ impl TaskControlBlock {
         for (_pid, ptr) in children.alive_iter() {
             change_parent.push(ptr.clone());
         }
-        let initproc = scheduler::get_initproc();
+        let initproc = executor::get_initproc();
 
         initproc.receive_message_force(Message::MoveChildren(Box::new(children)));
 
@@ -460,73 +444,5 @@ impl TaskControlBlock {
 
         memory_trace!("TaskControlBlock::exit return");
         kernel_stack
-    }
-}
-
-impl TaskControlBlock {
-    pub fn take_message(&self) {
-        self.alive_mut().msg_process.take_from(&self.msg_receive);
-    }
-    pub fn take_close_message(&self) {
-        self.alive_mut()
-            .msg_process
-            .take_and_close_from(&self.msg_receive);
-    }
-    pub fn handle_message(&self) {
-        stack_trace!();
-        let ref mut alive = self.alive_mut();
-        let ref mut msgs = alive.msg_process;
-        while let Some(msg) = msgs.pop() {
-            match msg {
-                Message::ChildBecomeZombie(pid) => {
-                    let ref mut children = alive.children;
-                    children.become_zombie(pid);
-                }
-                Message::MoveChildren(children) => {
-                    alive.children.append(*children);
-                }
-                Message::ChangeParent(new_parent) => {
-                    alive.parent = Some(new_parent);
-                }
-            }
-        }
-    }
-    pub fn receive_message(&self, msg: Message) -> Result<(), Message> {
-        self.msg_receive.receive(msg)
-    }
-    pub fn receive_message_force(&self, msg: Message) {
-        stack_trace!();
-        match self.msg_receive.receive(msg) {
-            Ok(_) => (),
-            Err(_) => panic!("receive_message_force"),
-        }
-    }
-}
-
-// status
-impl TaskControlBlock {
-    // only scheduler can run this.
-    pub unsafe fn become_running_by_scheduler(&self) {
-        debug_check!(self.alive_mut_uncheck().task_status != TaskStatus::RUNNING);
-        self.alive_mut_uncheck().task_status = TaskStatus::RUNNING;
-    }
-    pub fn become_block(&self) {
-        self.alive_mut().task_status = TaskStatus::INTERRUPTIBLE;
-    }
-}
-
-// for waitpid
-impl TaskControlBlock {
-    pub fn have_child_of(&self, pid: Pid) -> bool {
-        self.alive_mut().children.have_child_of(pid)
-    }
-    pub fn no_children(&self) -> bool {
-        self.alive_mut().children.no_children()
-    }
-    pub fn try_remove_zombie(&self, pid: Pid) -> Option<Arc<TaskControlBlock>> {
-        self.alive_mut().children.try_remove_zombie(pid)
-    }
-    pub fn try_remove_zombie_any(&self) -> Option<Arc<TaskControlBlock>> {
-        self.alive_mut().children.try_remove_zombie_any()
     }
 }

@@ -1,28 +1,48 @@
-use core::cmp::Ordering;
+use core::{
+    cmp::Ordering,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll, Waker},
+};
 
-use alloc::{collections::BinaryHeap, sync::Arc, vec::Vec};
+use alloc::{collections::BinaryHeap, sync::Arc};
 
-use crate::{scheduler, sync::mutex::SpinNoIrqLock, task::TaskControlBlock};
+use crate::sync::{even_bus::EventBus, mutex::SpinNoIrqLock};
 
 use super::{get_time_ticks, TimeTicks};
 
+struct SleepFuture {
+    expire_ticks: TimeTicks,
+    evenbus: Arc<EventBus>,
+}
+
+impl Future for SleepFuture {
+    type Output = Result<(), ()>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        todo!()
+    }
+}
+
 struct TimerCondVar {
     expire_ticks: TimeTicks,
-    task: Arc<TaskControlBlock>,
+    waker: Waker,
 }
 impl TimerCondVar {
-    pub fn new(expire_ticks: TimeTicks, task: Arc<TaskControlBlock>) -> Self {
-        Self { expire_ticks, task }
-    }
-    pub fn take_task(self) -> Arc<TaskControlBlock> {
-        self.task
+    pub fn new(expire_ticks: TimeTicks, waker: Waker) -> Self {
+        Self {
+            expire_ticks,
+            waker,
+        }
     }
 }
+
 impl PartialEq for TimerCondVar {
     fn eq(&self, other: &Self) -> bool {
         self.expire_ticks == other.expire_ticks
     }
 }
+
 impl Eq for TimerCondVar {}
 impl PartialOrd for TimerCondVar {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
@@ -44,23 +64,18 @@ impl SleepQueue {
             queue: BinaryHeap::new(),
         }
     }
-    pub fn push(&mut self, ticks: TimeTicks, task: Arc<TaskControlBlock>) {
-        self.queue.push(TimerCondVar::new(ticks, task))
+    pub fn push(&mut self, ticks: TimeTicks, waker: Waker) {
+        self.queue.push(TimerCondVar::new(ticks, waker))
     }
     pub fn check_timer(&mut self) {
         let current = get_time_ticks();
-        let mut ready = Vec::new();
         while let Some(v) = self.queue.peek() {
             if v.expire_ticks <= current {
-                ready.push(self.queue.pop().unwrap().take_task());
+                self.queue.pop().unwrap().waker.wake();
             } else {
                 break;
             }
         }
-        ready
-            .iter()
-            .for_each(|tcb| unsafe { tcb.become_running_by_scheduler() });
-        scheduler::add_task_group(ready.into_iter());
     }
 }
 
@@ -70,12 +85,12 @@ pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock(place!()) = Some(SleepQueue::new());
 }
 
-pub fn timer_push_task(ticks: TimeTicks, task: Arc<TaskControlBlock>) {
+pub fn timer_push_task(ticks: TimeTicks, waker: Waker) {
     SLEEP_QUEUE
         .lock(place!())
         .as_mut()
         .unwrap()
-        .push(ticks, task);
+        .push(ticks, waker);
 }
 
 pub fn check_timer() {

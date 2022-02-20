@@ -2,6 +2,8 @@ use core::marker::PhantomData;
 
 use alloc::vec::Vec;
 
+use crate::tools::{ForwardWrapper, Wrapper};
+
 use super::Own;
 
 pub trait FromUsize {
@@ -45,17 +47,18 @@ impl<T: FromUsize> FromUsizeIter<T> {
         ret
     }
 }
-pub type UsizeAllocator = FromUsizeAllocator<usize, usize>;
 
-#[derive(Debug, Clone)]
-pub struct FromUsizeAllocator<T: FromUsize, R: From<T>> {
+pub type UsizeAllocator = FromUsizeAllocator<usize, ForwardWrapper>;
+
+#[derive(Clone)]
+pub struct FromUsizeAllocator<T: FromUsize, R: Wrapper<T>> {
     iter: FromUsizeIter<T>,
     recycled: Vec<T>,
     using: usize,
     _marker: PhantomData<R>,
 }
 
-impl<T: FromUsize, R: From<T>> FromUsizeAllocator<T, R> {
+impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R> {
     pub const fn new(start: usize) -> Self {
         Self {
             iter: FromUsizeIter::new(start),
@@ -64,13 +67,13 @@ impl<T: FromUsize, R: From<T>> FromUsizeAllocator<T, R> {
             _marker: PhantomData,
         }
     }
-    pub fn alloc(&mut self) -> R {
+    pub fn alloc(&mut self) -> R::Output {
         self.using += 1;
         if let Some(value) = self.recycled.pop() {
-            R::from(value)
+            R::wrapper(value)
         } else {
             let value = self.iter.next();
-            R::from(value)
+            R::wrapper(value)
         }
     }
     pub unsafe fn dealloc(&mut self, value: T) {

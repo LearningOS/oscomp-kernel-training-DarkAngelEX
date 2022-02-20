@@ -17,6 +17,8 @@
 #![cfg_attr(feature = "inline-asm", feature(asm_const))]
 
 extern crate alloc;
+extern crate async_task;
+#[macro_use]
 extern crate bitflags;
 extern crate riscv;
 // extern crate lazy_static;
@@ -30,18 +32,19 @@ mod config;
 mod console;
 #[macro_use]
 mod xdebug;
+mod executor;
 mod fdt;
 mod hart;
 mod lang_items;
 mod loader;
 mod memory;
-mod message;
-mod scheduler;
+// mod message;
+mod process;
 mod sync;
 mod syscall;
-mod task;
+// mod task;
 mod timer;
-pub mod tools;
+mod tools;
 mod trap;
 mod user;
 
@@ -53,5 +56,7 @@ global_asm!(include_str!("link_app.S"));
 /// It will run on each core.
 ///
 pub fn kmain(hart_id: usize) -> ! {
-    scheduler::run_task(hart_id);
+    loop {
+        executor::run_until_idle();
+    }
 }

@@ -1,4 +1,7 @@
-use crate::{from_usize_impl, tools::allocator::from_usize_allocator::FromUsizeAllocator};
+use crate::{
+    from_usize_impl,
+    tools::{allocator::from_usize_allocator::FromUsizeAllocator, ForwardWrapper},
+};
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Tid(usize);
@@ -11,4 +14,4 @@ impl Tid {
     }
 }
 
-pub type TidAllocator = FromUsizeAllocator<Tid, Tid>;
+pub type TidAllocator = FromUsizeAllocator<Tid, ForwardWrapper>;

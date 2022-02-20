@@ -1,4 +1,4 @@
-use crate::trap::context::TrapContext;
+use crate::trap::context::UKContext;
 
 mod fs;
 mod process;
@@ -32,59 +32,54 @@ const SYSCALL_CONDVAR_CREATE: usize = 1030;
 const SYSCALL_CONDVAR_SIGNAL: usize = 1031;
 const SYSCALL_CONDVAR_WAIT: usize = 1032;
 
-#[inline(always)]
-pub fn syscall(trap_context: &mut TrapContext, syscall_id: usize, args: [usize; 3]) -> isize {
-    #[inline(always)]
-    fn send_parameter<const N: usize>(args: [usize; 3]) -> [usize; N] {
-        *args.split_array_ref().0
-    }
-    macro_rules! call {
-        () => {
-            todo!()
-        };
-        ($sys_fn: expr) => {
-            $sys_fn(trap_context, send_parameter(args))
-        };
-    }
-    stack_trace!();
-    memory_trace!("syscall entry");
-    let ret = match syscall_id {
-        SYSCALL_DUP => call!(),
-        SYSCALL_OPEN => call!(),
-        SYSCALL_CLOSE => call!(),
-        SYSCALL_PIPE => call!(),
-        SYSCALL_READ => call!(fs::sys_read),
-        SYSCALL_WRITE => call!(fs::sys_write),
-        SYSCALL_EXIT => call!(process::sys_exit),
-        SYSCALL_SLEEP => call!(sync::sys_sleep),
-        SYSCALL_YIELD => call!(process::sys_yield),
-        SYSCALL_KILL => call!(process::sys_kill),
-        SYSCALL_GET_TIME => call!(process::sys_get_time),
-        SYSCALL_GETPID => call!(process::sys_getpid),
-        SYSCALL_FORK => call!(process::sys_fork),
-        SYSCALL_EXEC => call!(process::sys_exec),
-        SYSCALL_WAITPID => call!(process::sys_waitpid),
-        SYSCALL_THREAD_CREATE => call!(),
-        SYSCALL_GETTID => call!(),
-        SYSCALL_WAITTID => call!(),
-        SYSCALL_MUTEX_CREATE => call!(),
-        SYSCALL_MUTEX_LOCK => call!(),
-        SYSCALL_MUTEX_UNLOCK => call!(),
-        SYSCALL_SEMAPHORE_CREATE => call!(),
-        SYSCALL_SEMAPHORE_UP => call!(),
-        SYSCALL_SEMAPHORE_DOWN => call!(),
-        SYSCALL_CONDVAR_CREATE => call!(),
-        SYSCALL_CONDVAR_SIGNAL => call!(),
-        SYSCALL_CONDVAR_WAIT => call!(),
-        _ => panic!("[kernel]unsupported syscall_id: {}", syscall_id),
-    };
-    memory_trace!("syscall return");
-    ret
+pub struct Syscall<'a> {
+    cx: &'a UKContext,
 }
 
-pub fn assert_fork(a0: usize) -> isize {
-    match a0 {
-        SYSCALL_FORK => 0,
-        _ => panic!(),
+impl<'a> Syscall<'a> {
+    #[inline(always)]
+    pub async fn syscall(&self) -> isize {
+        macro_rules! call {
+            () => {
+                todo!()
+            };
+            ($sys_fn: expr) => {
+                $sys_fn()
+            };
+        }
+        stack_trace!();
+        memory_trace!("syscall entry");
+        let ret = match self.cx.a7() {
+            SYSCALL_DUP => call!(),
+            SYSCALL_OPEN => call!(),
+            SYSCALL_CLOSE => call!(),
+            SYSCALL_PIPE => call!(),
+            SYSCALL_READ => call!(),
+            SYSCALL_WRITE => call!(),
+            SYSCALL_EXIT => call!(),
+            SYSCALL_SLEEP => call!(),
+            SYSCALL_YIELD => call!(),
+            SYSCALL_KILL => call!(),
+            SYSCALL_GET_TIME => call!(),
+            SYSCALL_GETPID => call!(),
+            SYSCALL_FORK => call!(),
+            SYSCALL_EXEC => call!(),
+            SYSCALL_WAITPID => call!(),
+            SYSCALL_THREAD_CREATE => call!(),
+            SYSCALL_GETTID => call!(),
+            SYSCALL_WAITTID => call!(),
+            SYSCALL_MUTEX_CREATE => call!(),
+            SYSCALL_MUTEX_LOCK => call!(),
+            SYSCALL_MUTEX_UNLOCK => call!(),
+            SYSCALL_SEMAPHORE_CREATE => call!(),
+            SYSCALL_SEMAPHORE_UP => call!(),
+            SYSCALL_SEMAPHORE_DOWN => call!(),
+            SYSCALL_CONDVAR_CREATE => call!(),
+            SYSCALL_CONDVAR_SIGNAL => call!(),
+            SYSCALL_CONDVAR_WAIT => call!(),
+            unknown => panic!("[kernel]unsupported syscall_id: {}", unknown),
+        };
+        memory_trace!("syscall return");
+        ret
     }
 }

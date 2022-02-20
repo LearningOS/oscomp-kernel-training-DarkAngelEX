@@ -1,6 +1,10 @@
 use crate::{
-    from_usize_impl, sync::mutex::SpinLock,
-    tools::allocator::{from_usize_allocator::FromUsizeAllocator, Own},
+    from_usize_impl,
+    sync::mutex::SpinLock,
+    tools::{
+        allocator::{from_usize_allocator::FromUsizeAllocator, Own},
+        Wrapper,
+    },
 };
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -14,7 +18,15 @@ impl Pid {
 
 from_usize_impl!(Pid);
 
-type PidAllocator = FromUsizeAllocator<Pid, PidHandle>;
+struct PidWrapper;
+impl Wrapper<Pid> for PidWrapper {
+    type Output = PidHandle;
+    fn wrapper(a: Pid) -> PidHandle {
+        PidHandle(a)
+    }
+}
+
+type PidAllocator = FromUsizeAllocator<Pid, PidWrapper>;
 
 #[derive(Debug)]
 pub struct PidHandle(Pid);
@@ -27,12 +39,6 @@ impl PidHandle {
     }
     pub fn get_usize(&self) -> usize {
         self.pid().into_usize()
-    }
-}
-
-impl From<Pid> for PidHandle {
-    fn from(pid: Pid) -> Self {
-        Self(pid)
     }
 }
 

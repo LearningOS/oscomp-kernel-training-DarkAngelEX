@@ -60,10 +60,11 @@ impl StackID {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct StackAllocator {
     allocator: UsizeAllocator,
 }
+
 impl Drop for StackAllocator {
     fn drop(&mut self) {
         let using = self.allocator.using();
@@ -176,11 +177,12 @@ impl UsingStack {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 struct StackSpaceManager {
     allocator: StackAllocator,
     using_stacks: BTreeMap<StackID, UsingStack>,
 }
+
 impl Drop for StackSpaceManager {
     fn drop(&mut self) {
         assert!(self.using_stacks.is_empty());
@@ -268,7 +270,6 @@ impl HeapManager {
 /// auto free root space.
 ///
 /// shared between threads, necessary synchronizations operations are required
-#[derive(Debug)]
 pub struct UserSpace {
     page_table: PageTable,
     text_area: Vec<UserArea>, // used in drop
@@ -359,7 +360,7 @@ impl UserSpace {
         Ok(info)
     }
     pub unsafe fn stack_dealloc(&mut self, stack_id: StackID, allocator: &mut impl FrameAllocator) {
-         memory_trace!("UserSpace::stack_dealloc");
+        memory_trace!("UserSpace::stack_dealloc");
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
         self.page_table

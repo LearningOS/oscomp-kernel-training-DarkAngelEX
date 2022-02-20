@@ -3,11 +3,11 @@ use alloc::{
     sync::Arc,
 };
 
-use super::{Pid, TaskControlBlock};
+use super::{Pid, Process};
 
 pub struct ChildrenSet {
-    alive: BTreeMap<Pid, Arc<TaskControlBlock>>,
-    zombie: BTreeMap<Pid, Arc<TaskControlBlock>>,
+    alive: BTreeMap<Pid, Arc<Process>>,
+    zombie: BTreeMap<Pid, Arc<Process>>,
     zombie_pending: BTreeSet<Pid>, // alive + zombie_pending => zombie
 }
 
@@ -42,14 +42,14 @@ impl ChildrenSet {
     }
 
     /// check zombies
-    pub fn push_child(&mut self, child: Arc<TaskControlBlock>) {
+    pub fn push_child(&mut self, child: Arc<Process>) {
         if self.zombie_pending.remove(&child.pid()) {
             self.push_zombie_child(child)
         } else {
             self.push_alive_child(child)
         }
     }
-    pub fn push_alive_child(&mut self, child: Arc<TaskControlBlock>) {
+    pub fn push_alive_child(&mut self, child: Arc<Process>) {
         let pid = child.pid();
         debug_check!(self.zombie_no_find(pid));
         debug_check!(self.zombie_pending_no_find(pid));
@@ -58,7 +58,7 @@ impl ChildrenSet {
             None => (),
         }
     }
-    pub fn push_zombie_child(&mut self, child: Arc<TaskControlBlock>) {
+    pub fn push_zombie_child(&mut self, child: Arc<Process>) {
         let pid = child.pid();
         debug_check!(self.alive_no_find(pid));
         debug_check!(self.zombie_pending_no_find(pid));
@@ -77,10 +77,10 @@ impl ChildrenSet {
             panic!()
         }
     }
-    pub fn try_remove_zombie(&mut self, pid: Pid) -> Option<Arc<TaskControlBlock>> {
+    pub fn try_remove_zombie(&mut self, pid: Pid) -> Option<Arc<Process>> {
         self.zombie.remove(&pid)
     }
-    pub fn try_remove_zombie_any(&mut self) -> Option<Arc<TaskControlBlock>> {
+    pub fn try_remove_zombie_any(&mut self) -> Option<Arc<Process>> {
         self.zombie.pop_first().map(|(_pid, ptr)| ptr)
     }
     pub fn append(&mut self, mut src: Self) {
@@ -93,7 +93,7 @@ impl ChildrenSet {
             self.become_zombie(pid);
         }
     }
-    pub fn alive_iter(&self) -> impl Iterator<Item = (&Pid, &Arc<TaskControlBlock>)> + '_ {
+    pub fn alive_iter(&self) -> impl Iterator<Item = (&Pid, &Arc<Process>)> + '_ {
         self.alive.iter()
     }
 }
