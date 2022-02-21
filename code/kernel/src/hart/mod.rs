@@ -4,12 +4,10 @@ use core::{
 };
 
 use crate::{
-    executor,
-    fdt::FdtHeader,
-    loader,
+    executor, loader,
     memory::{self, address::PhyAddr},
-    timer, trap,
-    xdebug::CLOSE_TIME_INTERRUPT, process,
+    process, timer, trap,
+    xdebug::CLOSE_TIME_INTERRUPT, fdt::FdtHeader,
 };
 
 pub mod cpu;
@@ -29,8 +27,20 @@ static DEVICE_TREE_PADDR: AtomicUsize = AtomicUsize::new(0);
 
 const BOOT_HART_ID: usize = 0;
 
+#[allow(dead_code)]
 pub fn device_tree_ptr() -> PhyAddr {
     DEVICE_TREE_PADDR.load(Ordering::Relaxed).into()
+}
+
+#[allow(dead_code)]
+fn show_device() {
+    println!("[FTL OS]show device");
+    let ptr = device_tree_ptr();
+    let ptr = ptr.into_usize() as *mut FdtHeader;
+    let x = unsafe { &*ptr };
+    println!("fdt ptr: {:#x}", ptr as usize);
+    println!("{:?}", x);
+    panic!();
 }
 
 #[no_mangle]
@@ -146,16 +156,6 @@ fn show_seg() {
     xprlntln(sbss, "sbss");
     xprlntln(ebss, "ebss");
     xprlntln(end, "end");
-}
-
-fn show_device() {
-    println!("[FTL OS]show device");
-    let ptr = device_tree_ptr();
-    let ptr = ptr.into_usize() as *mut FdtHeader;
-    let x = unsafe { &*ptr };
-    println!("fdt ptr: {:#x}", ptr as usize);
-    println!("{:?}", x);
-    panic!();
 }
 
 pub fn current_sp() -> usize {

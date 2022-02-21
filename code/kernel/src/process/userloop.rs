@@ -1,15 +1,18 @@
 use alloc::sync::Arc;
 use riscv::register::scause;
 
-use crate::executor;
+use crate::{executor, syscall::Syscall};
 
 use super::thread::Thread;
 
-pub async fn userloop(thread: Arc<Thread>) {
+async fn userloop(thread: Arc<Thread>) {
     loop {
         let context = thread.as_ref().get_context();
+        thread.process.using_space(); // !!!
+                                      // println!("enter user {:?}", thread.process.pid());
         context.run_user();
-        let mut exit = false;
+        // println!("return from user");
+        let mut do_exit = false;
         let mut do_yield = false;
         match scause::read().cause() {
             scause::Trap::Exception(e) => match e {
@@ -20,7 +23,18 @@ pub async fn userloop(thread: Arc<Thread>) {
                 scause::Exception::LoadFault => todo!(),
                 scause::Exception::StoreMisaligned => todo!(),
                 scause::Exception::StoreFault => todo!(),
-                scause::Exception::UserEnvCall => todo!(),
+                scause::Exception::UserEnvCall => {
+                    // println!("enter syscall");
+                    Syscall::new(
+                        context,
+                        thread.as_ref(),
+                        thread.process.as_ref(),
+                        &mut do_exit,
+                        &mut do_yield,
+                    )
+                    .syscall()
+                    .await;
+                }
                 scause::Exception::VirtualSupervisorEnvCall => todo!(),
                 scause::Exception::InstructionPageFault => todo!(),
                 scause::Exception::LoadPageFault => todo!(),
@@ -37,12 +51,20 @@ pub async fn userloop(thread: Arc<Thread>) {
                 scause::Interrupt::SupervisorSoft => todo!(),
                 scause::Interrupt::UserTimer => todo!(),
                 scause::Interrupt::VirtualSupervisorTimer => todo!(),
-                scause::Interrupt::SupervisorTimer => todo!(),
+                scause::Interrupt::SupervisorTimer => {
+                    todo!();
+                }
                 scause::Interrupt::UserExternal => todo!(),
                 scause::Interrupt::VirtualSupervisorExternal => todo!(),
                 scause::Interrupt::SupervisorExternal => todo!(),
                 scause::Interrupt::Unknown => todo!(),
             },
+        }
+        if do_exit {
+            todo!()
+        }
+        if do_yield {
+            todo!()
         }
     }
 }

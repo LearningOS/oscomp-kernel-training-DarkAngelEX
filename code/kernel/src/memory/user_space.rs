@@ -213,6 +213,15 @@ impl StackSpaceManager {
             .remove(&stack_id)
             .unwrap_or_else(|| panic!("pop_stack_by_id: no find {:?}", stack_id))
     }
+    pub fn pop_any_except(&mut self, stack_id: StackID) -> Option<UsingStack> {
+        let (id, stack) = self.using_stacks.pop_first()?;
+        if id != stack_id {
+            return Some(stack);
+        }
+        let ret = self.using_stacks.pop_first().map(|(_id, stack)| stack);
+        self.using_stacks.insert(id, stack);
+        ret
+    }
     // pub fn iter(&mut self) -> impl Iterator<Item = (&StackID, &UsingStack)> {
     //     self.using_stacks.iter()
     // }
@@ -310,8 +319,11 @@ impl Drop for UserSpace {
         }
         // free heap
         self.heap_resize(PageCount::from_usize(0), allocator);
-        // check stack empty
-        assert_eq!(self.stacks.using_size(), 0);
+        // free user stack
+        unsafe {
+            self.clear_user_stack_all(allocator);
+            // assert_eq!(self.stacks.using_size(), 0);
+        }
         memory_trace!("UserSpace::drop end");
     }
 }
@@ -365,6 +377,17 @@ impl UserSpace {
         self.stacks.dealloc(stack_id);
         self.page_table
             .unmap_user_range(&user_area.valid_area(), allocator);
+    }
+    pub unsafe fn stack_dealloc_all_except(
+        &mut self,
+        stack_id: StackID,
+        allocator: &mut impl FrameAllocator,
+    ) {
+        memory_trace!("UserSpace::stack_dealloc_all_except");
+        while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
+            self.page_table
+                .unmap_user_range(&user_area.valid_area(), allocator);
+        }
     }
     pub fn heap_resize(&mut self, page_count: PageCount, allocator: &mut impl FrameAllocator) {
         memory_trace!("UserSpace::heap_resize begin");
@@ -429,7 +452,7 @@ impl UserSpace {
         let entry_point = elf.header.pt2.entry_point() as usize;
         Ok((space, stack_id, user_sp, entry_point.into()))
     }
-    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, USpaceCreateError> {
+    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOutOfMemory> {
         stack_trace!();
         memory_trace!("UserSpace::fork");
         let page_table = self.page_table.fork(allocator)?;
@@ -438,12 +461,13 @@ impl UserSpace {
         let heap = self.heap.clone();
         // let oom_fn = USpaceCreateError::from;
         // let stack_fn = USpaceCreateError::from;
-        Ok(Self {
+        let ret = Self {
             page_table,
             text_area,
             stacks,
             heap,
-        })
+        };
+        Ok(ret)
     }
     pub unsafe fn clear_user_stack_all(&mut self, allocator: &mut impl FrameAllocator) {
         while let Some(stack_id) = self.stacks.get_any_id() {

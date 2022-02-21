@@ -1,4 +1,10 @@
-use crate::trap::context::UKContext;
+use core::fmt;
+
+use crate::{
+    process::{thread::Thread, Process},
+    trap::context::UKContext,
+    xdebug::PRINT_SYSCALL,
+};
 
 mod fs;
 mod process;
@@ -33,53 +39,202 @@ const SYSCALL_CONDVAR_SIGNAL: usize = 1031;
 const SYSCALL_CONDVAR_WAIT: usize = 1032;
 
 pub struct Syscall<'a> {
-    cx: &'a UKContext,
+    cx: &'a mut UKContext,
+    thread: &'a Thread,
+    process: &'a Process,
+    do_exit: &'a mut bool,
+    do_yield: &'a mut bool,
 }
 
 impl<'a> Syscall<'a> {
-    #[inline(always)]
-    pub async fn syscall(&self) -> isize {
-        macro_rules! call {
-            () => {
-                todo!()
-            };
-            ($sys_fn: expr) => {
-                $sys_fn()
-            };
+    pub fn new(
+        cx: &'a mut UKContext,
+        thread: &'a Thread,
+        process: &'a Process,
+        do_exit: &'a mut bool,
+        do_yield: &'a mut bool,
+    ) -> Self {
+        Self {
+            cx,
+            thread,
+            process,
+            do_exit,
+            do_yield,
         }
+    }
+    #[inline(always)]
+    pub async fn syscall(&mut self) {
         stack_trace!();
         memory_trace!("syscall entry");
-        let ret = match self.cx.a7() {
-            SYSCALL_DUP => call!(),
-            SYSCALL_OPEN => call!(),
-            SYSCALL_CLOSE => call!(),
-            SYSCALL_PIPE => call!(),
-            SYSCALL_READ => call!(),
-            SYSCALL_WRITE => call!(),
-            SYSCALL_EXIT => call!(),
-            SYSCALL_SLEEP => call!(),
-            SYSCALL_YIELD => call!(),
-            SYSCALL_KILL => call!(),
-            SYSCALL_GET_TIME => call!(),
-            SYSCALL_GETPID => call!(),
-            SYSCALL_FORK => call!(),
-            SYSCALL_EXEC => call!(),
-            SYSCALL_WAITPID => call!(),
-            SYSCALL_THREAD_CREATE => call!(),
-            SYSCALL_GETTID => call!(),
-            SYSCALL_WAITTID => call!(),
-            SYSCALL_MUTEX_CREATE => call!(),
-            SYSCALL_MUTEX_LOCK => call!(),
-            SYSCALL_MUTEX_UNLOCK => call!(),
-            SYSCALL_SEMAPHORE_CREATE => call!(),
-            SYSCALL_SEMAPHORE_UP => call!(),
-            SYSCALL_SEMAPHORE_DOWN => call!(),
-            SYSCALL_CONDVAR_CREATE => call!(),
-            SYSCALL_CONDVAR_SIGNAL => call!(),
-            SYSCALL_CONDVAR_WAIT => call!(),
+        self.cx.into_next_instruction();
+        let result: SysResult = match self.cx.a7() {
+            SYSCALL_DUP => todo!(),
+            SYSCALL_OPEN => todo!(),
+            SYSCALL_CLOSE => todo!(),
+            SYSCALL_PIPE => todo!(),
+            SYSCALL_READ => todo!(),
+            SYSCALL_WRITE => self.sys_write(),
+            SYSCALL_EXIT => todo!(),
+            SYSCALL_SLEEP => todo!(),
+            SYSCALL_YIELD => todo!(),
+            SYSCALL_KILL => todo!(),
+            SYSCALL_GET_TIME => todo!(),
+            SYSCALL_GETPID => todo!(),
+            SYSCALL_FORK => self.sys_fork(),
+            SYSCALL_EXEC => self.sys_exec(),
+            SYSCALL_WAITPID => self.sys_waitpid().await,
+            SYSCALL_THREAD_CREATE => todo!(),
+            SYSCALL_GETTID => todo!(),
+            SYSCALL_WAITTID => todo!(),
+            SYSCALL_MUTEX_CREATE => todo!(),
+            SYSCALL_MUTEX_LOCK => todo!(),
+            SYSCALL_MUTEX_UNLOCK => todo!(),
+            SYSCALL_SEMAPHORE_CREATE => todo!(),
+            SYSCALL_SEMAPHORE_UP => todo!(),
+            SYSCALL_SEMAPHORE_DOWN => todo!(),
+            SYSCALL_CONDVAR_CREATE => todo!(),
+            SYSCALL_CONDVAR_SIGNAL => todo!(),
+            SYSCALL_CONDVAR_WAIT => todo!(),
             unknown => panic!("[kernel]unsupported syscall_id: {}", unknown),
         };
+        let a0 = match result {
+            Ok(a) => a,
+            Err(e) => -(e as isize) as usize,
+        };
         memory_trace!("syscall return");
-        ret
+        if PRINT_SYSCALL {
+            println!("syscall return with {}", a0);
+        }
+        self.cx.set_user_a0(a0);
+    }
+}
+
+pub type SysResult = Result<usize, SysError>;
+
+#[allow(dead_code)]
+#[repr(isize)]
+#[derive(Debug)]
+pub enum SysError {
+    EUNDEF = 0,
+    EPERM = 1,
+    ENOENT = 2,
+    ESRCH = 3,
+    EINTR = 4,
+    EIO = 5,
+    ENXIO = 6,
+    E2BIG = 7,
+    ENOEXEC = 8,
+    EBADF = 9,
+    ECHILD = 10,
+    EAGAIN = 11,
+    ENOMEM = 12,
+    EACCES = 13,
+    EFAULT = 14,
+    ENOTBLK = 15,
+    EBUSY = 16,
+    EEXIST = 17,
+    EXDEV = 18,
+    ENODEV = 19,
+    ENOTDIR = 20,
+    EISDIR = 21,
+    EINVAL = 22,
+    ENFILE = 23,
+    EMFILE = 24,
+    ENOTTY = 25,
+    ETXTBSY = 26,
+    EFBIG = 27,
+    ENOSPC = 28,
+    ESPIPE = 29,
+    EROFS = 30,
+    EMLINK = 31,
+    EPIPE = 32,
+    EDOM = 33,
+    ERANGE = 34,
+    EDEADLK = 35,
+    ENAMETOOLONG = 36,
+    ENOLCK = 37,
+    ENOSYS = 38,
+    ENOTEMPTY = 39,
+    ELOOP = 40,
+    EIDRM = 43,
+    ENOTSOCK = 80,
+    ENOPROTOOPT = 92,
+    EPFNOSUPPORT = 96,
+    EAFNOSUPPORT = 97,
+    ENOBUFS = 105,
+    EISCONN = 106,
+    ENOTCONN = 107,
+    ETIMEDOUT = 110,
+    ECONNREFUSED = 111,
+}
+
+#[allow(non_snake_case)]
+impl fmt::Display for SysError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        use self::SysError::*;
+        write!(
+            f,
+            "{}",
+            match self {
+                EPERM => "Operation not permitted",
+                ENOENT => "No such file or directory",
+                ESRCH => "No such process",
+                EINTR => "Interrupted system call",
+                EIO => "I/O error",
+                ENXIO => "No such device or address",
+                E2BIG => "Argument list too long",
+                ENOEXEC => "Exec format error",
+                EBADF => "Bad file number",
+                ECHILD => "No child processes",
+                EAGAIN => "Try again",
+                ENOMEM => "Out of memory",
+                EACCES => "Permission denied",
+                EFAULT => "Bad address",
+                ENOTBLK => "Block device required",
+                EBUSY => "Device or resource busy",
+                EEXIST => "File exists",
+                EXDEV => "Cross-device link",
+                ENODEV => "No such device",
+                ENOTDIR => "Not a directory",
+                EISDIR => "Is a directory",
+                EINVAL => "Invalid argument",
+                ENFILE => "File table overflow",
+                EMFILE => "Too many open files",
+                ENOTTY => "Not a typewriter",
+                ETXTBSY => "Text file busy",
+                EFBIG => "File too large",
+                ENOSPC => "No space left on device",
+                ESPIPE => "Illegal seek",
+                EROFS => "Read-only file system",
+                EMLINK => "Too many links",
+                EPIPE => "Broken pipe",
+                EDOM => "Math argument out of domain of func",
+                ERANGE => "Math result not representable",
+                EDEADLK => "Resource deadlock would occur",
+                ENAMETOOLONG => "File name too long",
+                ENOLCK => "No record locks available",
+                ENOSYS => "Function not implemented",
+                ENOTEMPTY => "Directory not empty",
+                ELOOP => "Too many symbolic links encountered",
+                ENOTSOCK => "Socket operation on non-socket",
+                ENOPROTOOPT => "Protocol not available",
+                EPFNOSUPPORT => "Protocol family not supported",
+                EAFNOSUPPORT => "Address family not supported by protocol",
+                ENOBUFS => "No buffer space available",
+                EISCONN => "Transport endpoint is already connected",
+                ENOTCONN => "Transport endpoint is not connected",
+                ECONNREFUSED => "Connection refused",
+                _ => "Unknown error",
+            },
+        )
+    }
+}
+
+// zero-size SysError
+pub struct UniqueSysError<const X: isize>;
+
+impl<const X: isize> From<UniqueSysError<X>> for SysError {
+    fn from(_: UniqueSysError<X>) -> Self {
+        unsafe { core::mem::transmute(X) }
     }
 }

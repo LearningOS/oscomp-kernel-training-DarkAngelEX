@@ -8,7 +8,9 @@ use crate::{
     config::{
         DIRECT_MAP_OFFSET, DIRECT_MAP_SIZE, PAGE_SIZE, PAGE_SIZE_BITS, USER_END, USER_HEAP_BEGIN,
     },
-    impl_usize_from, tools,
+    impl_usize_from,
+    syscall::{SysError, UniqueSysError},
+    tools,
 };
 
 use super::page_table::PageTableEntry;
@@ -53,14 +55,22 @@ pub struct PhyAddrRef4K(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct UserAddr4K(usize);
 
-pub type KernelAddr = VirAddr;
-pub type KernelAddr4K = VirAddr4K;
-
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PageCount(usize);
 
 #[derive(Debug)]
 pub struct OutOfUserRange;
+
+impl From<OutOfUserRange> for SysError {
+    fn from(_e: OutOfUserRange) -> Self {
+        SysError::EFAULT
+    }
+}
+impl From<OutOfUserRange> for UniqueSysError<{ SysError::EFAULT as isize }> {
+    fn from(_: OutOfUserRange) -> Self {
+        Self
+    }
+}
 
 /// Debugging
 
@@ -214,10 +224,11 @@ impl From<UserAddr> for VirAddr {
         Self(ua.into())
     }
 }
-impl TryFrom<*const u8> for UserAddr {
+
+impl<T> TryFrom<*const T> for UserAddr {
     type Error = OutOfUserRange;
 
-    fn try_from(value: *const u8) -> Result<Self, Self::Error> {
+    fn try_from(value: *const T) -> Result<Self, Self::Error> {
         let r = Self(value as usize);
         match r.valid() {
             Ok(_) => Ok(r),
@@ -225,10 +236,10 @@ impl TryFrom<*const u8> for UserAddr {
         }
     }
 }
-impl TryFrom<*mut u8> for UserAddr {
+impl<T> TryFrom<*mut T> for UserAddr {
     type Error = OutOfUserRange;
 
-    fn try_from(value: *mut u8) -> Result<Self, Self::Error> {
+    fn try_from(value: *mut T) -> Result<Self, Self::Error> {
         let r = Self(value as usize);
         match r.valid() {
             Ok(_) => Ok(r),
@@ -269,7 +280,6 @@ macro_rules! add_sub_impl {
         }
     };
 }
-
 
 add_sub_impl!(VirAddr);
 add_sub_impl!(PhyAddr);

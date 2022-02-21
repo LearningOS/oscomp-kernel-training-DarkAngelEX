@@ -1,33 +1,25 @@
 // #![allow(dead_code)]
 use core::{
     fmt::Debug,
-    slice::SlicePattern,
     sync::atomic::{self, Ordering},
 };
 
 use alloc::vec::Vec;
 use bitflags::bitflags;
 
+use super::{
+    address::{PageCount, PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
+    allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
+    asid::{self, Asid, AsidInfoTracker},
+    user_space::UserArea,
+};
 use crate::{
     config::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
-    hart::{
-        self, csr,
-        sfence::{self, sfence_vma_all_global},
-    },
-    memory::asid,
+    hart::{csr, sfence},
     tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
     xdebug::PRINT_MAP_ALL,
-};
-
-use super::{
-    address::{
-        PageCount, PhyAddr, PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K,
-    },
-    allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
-    asid::{Asid, AsidInfoTracker},
-    user_space::UserArea,
 };
 
 static mut KERNEL_GLOBAL: Option<PageTable> = None;
@@ -157,7 +149,7 @@ impl Drop for PageTable {
         self.free_user_directory_all(allocator);
         stack_trace!();
         unsafe { allocator.dealloc(self.root_pa().into_ref()) };
-        self.satp = 0;
+        self.satp = 0; // just for panic.
         memory_trace!("PageTable::drop end");
     }
 }

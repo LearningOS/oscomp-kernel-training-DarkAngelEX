@@ -1,11 +1,8 @@
 use core::mem::MaybeUninit;
-use core::pin::Pin;
 
-use alloc::sync::Arc;
-
-use crate::memory::address::{KernelAddr4K, UserAddr, UserAddr4K};
-use crate::riscv::register::sstatus::{self, Sstatus};
-use crate::user::UserAccessStatus;
+use crate::memory::address::{UserAddr, UserAddr4K};
+use crate::memory::user_ptr::{Policy, UserPtr};
+use crate::riscv::register::sstatus::Sstatus;
 
 use super::run_user;
 
@@ -18,6 +15,44 @@ pub struct UKContext {
     pub kernel_ra: usize,       // 46
     pub kernel_sp: usize,       // 47
     pub kernel_tp: usize,       // 48
+}
+
+pub trait UsizeForward {
+    fn usize_forward(a: usize) -> Self;
+}
+macro_rules! usize_forward_impl {
+    ($type: ident, $var: ident, $body: expr) => {
+        impl UsizeForward for $type {
+            fn usize_forward($var: usize) -> $type {
+                $body
+            }
+        }
+    };
+}
+
+usize_forward_impl!(usize, a, a);
+usize_forward_impl!(isize, a, a as isize);
+usize_forward_impl!(u32, a, a as u32);
+usize_forward_impl!(i32, a, a as i32);
+usize_forward_impl!(u16, a, a as u16);
+usize_forward_impl!(i16, a, a as i16);
+usize_forward_impl!(u8, a, a as u8);
+usize_forward_impl!(i8, a, a as i8);
+impl<T> UsizeForward for *const T {
+    fn usize_forward(a: usize) -> *const T {
+        a as *const T
+    }
+}
+impl<T> UsizeForward for *mut T {
+    fn usize_forward(a: usize) -> *mut T {
+        a as *mut T
+    }
+}
+
+impl<T, P: Policy> UsizeForward for UserPtr<T, P> {
+    fn usize_forward(a: usize) -> Self {
+        Self::from_usize(a)
+    }
 }
 
 impl UKContext {
@@ -38,10 +73,26 @@ impl UKContext {
         self.user_rx[10] = argc;
         self.user_rx[11] = argv;
     }
-    pub fn syscall_parameter(&self) -> &[usize; 7] {
-        let rx = &self.user_rx;
-        rx.split_array_ref::<17>().0.rsplit_array_ref().1
+    pub fn parameter1<T: UsizeForward>(&self) -> T {
+        T::usize_forward(self.user_rx[10])
     }
+    pub fn parameter2<A: UsizeForward, B: UsizeForward>(&self) -> (A, B) {
+        (
+            A::usize_forward(self.user_rx[10]),
+            B::usize_forward(self.user_rx[11]),
+        )
+    }
+    pub fn parameter3<A: UsizeForward, B: UsizeForward, C: UsizeForward>(&self) -> (A, B, C) {
+        (
+            A::usize_forward(self.user_rx[10]),
+            B::usize_forward(self.user_rx[11]),
+            C::usize_forward(self.user_rx[12]),
+        )
+    }
+    // pub fn syscall_parameter<const N: usize>(&self) -> &[usize; N] {
+    //     let rx = &self.user_rx;
+    //     rx.rsplit_array_ref::<22>().1.split_array_ref().0
+    // }
     /// sepc += 4
     pub fn into_next_instruction(&mut self) {
         self.user_sepc.add_assign(4);

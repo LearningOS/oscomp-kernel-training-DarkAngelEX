@@ -7,7 +7,7 @@ KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 
-SMP := 4
+SMP := 1
 MEMORY_SIZE := 128M
 
 # BOARD

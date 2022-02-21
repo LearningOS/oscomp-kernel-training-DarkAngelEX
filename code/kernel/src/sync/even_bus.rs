@@ -48,7 +48,11 @@ pub struct EventBus {
 
 impl Drop for EventBus {
     fn drop(&mut self) {
-        debug_check!(!self.should_suspend(), "impossible status in event_bus drop!");
+        debug_check!(
+            !self.should_suspend(),
+            "impossible status in event_bus drop!"
+        );
+        assert!(self.wakers.is_empty());
     }
 }
 
@@ -60,7 +64,9 @@ impl EventBus {
         assert!(!self.closed, "event_bus double closed");
         assert!(!self.should_suspend(), "impossible status in close!");
         self.closed = true;
-        self.wakers.clear();
+        while let Some((_e, waker)) = self.wakers.pop() {
+            waker.wake();
+        }
     }
     pub fn set(&mut self, set: Event) -> Result<(), EvenBusClose> {
         self.clear_then_set(Event::empty(), set)
@@ -101,8 +107,12 @@ impl EventBus {
         if self.closed {
             return Err(EvenBusClose);
         }
-        self.suspend_event.insert(event);
-        self.wakers.push((event, waker));
+        if self.event.intersects(event) {
+            waker.wake();
+        } else {
+            self.suspend_event.insert(event);
+            self.wakers.push((event, waker));
+        }
         Ok(())
     }
 }

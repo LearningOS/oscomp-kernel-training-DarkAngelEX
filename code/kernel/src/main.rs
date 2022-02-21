@@ -14,7 +14,7 @@
 #![feature(map_first_last)]
 #![feature(never_type)]
 #![feature(slice_pattern)]
-#![cfg_attr(feature = "inline-asm", feature(asm_const))]
+#![feature(map_try_insert)]
 
 extern crate alloc;
 extern crate async_task;
@@ -35,6 +35,7 @@ mod xdebug;
 mod executor;
 mod fdt;
 mod hart;
+mod local;
 mod lang_items;
 mod loader;
 mod memory;

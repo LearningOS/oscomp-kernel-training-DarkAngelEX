@@ -1,11 +1,19 @@
 use core::fmt::Debug;
 
+use crate::syscall::SysError;
+
 pub trait Error: Debug {}
 
 pub trait OutOfMemory: Error {}
 
 #[derive(Debug)]
 pub struct FrameOutOfMemory;
+
+impl From<FrameOutOfMemory> for SysError {
+    fn from(_e: FrameOutOfMemory) -> Self {
+        Self::ENOMEM
+    }
+}
 
 impl Error for FrameOutOfMemory {}
 impl OutOfMemory for FrameOutOfMemory {}
