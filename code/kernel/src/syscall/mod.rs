@@ -42,28 +42,21 @@ pub struct Syscall<'a> {
     cx: &'a mut UKContext,
     thread: &'a Thread,
     process: &'a Process,
-    do_exit: &'a mut bool,
-    do_yield: &'a mut bool,
+    do_exit: bool,
 }
 
 impl<'a> Syscall<'a> {
-    pub fn new(
-        cx: &'a mut UKContext,
-        thread: &'a Thread,
-        process: &'a Process,
-        do_exit: &'a mut bool,
-        do_yield: &'a mut bool,
-    ) -> Self {
+    pub fn new(cx: &'a mut UKContext, thread: &'a Thread, process: &'a Process) -> Self {
         Self {
             cx,
             thread,
             process,
-            do_exit,
-            do_yield,
+            do_exit: false,
         }
     }
+    /// return do_exit
     #[inline(always)]
-    pub async fn syscall(&mut self) {
+    pub async fn syscall(&mut self) -> bool {
         stack_trace!();
         memory_trace!("syscall entry");
         self.cx.into_next_instruction();
@@ -72,14 +65,14 @@ impl<'a> Syscall<'a> {
             SYSCALL_OPEN => todo!(),
             SYSCALL_CLOSE => todo!(),
             SYSCALL_PIPE => todo!(),
-            SYSCALL_READ => todo!(),
-            SYSCALL_WRITE => self.sys_write(),
-            SYSCALL_EXIT => todo!(),
+            SYSCALL_READ => self.sys_read().await,
+            SYSCALL_WRITE => self.sys_write().await,
+            SYSCALL_EXIT => self.sys_exit(),
             SYSCALL_SLEEP => todo!(),
             SYSCALL_YIELD => todo!(),
             SYSCALL_KILL => todo!(),
             SYSCALL_GET_TIME => todo!(),
-            SYSCALL_GETPID => todo!(),
+            SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_FORK => self.sys_fork(),
             SYSCALL_EXEC => self.sys_exec(),
             SYSCALL_WAITPID => self.sys_waitpid().await,
@@ -99,13 +92,15 @@ impl<'a> Syscall<'a> {
         };
         let a0 = match result {
             Ok(a) => a,
-            Err(e) => -(e as isize) as usize,
+            // Err(e) => -(e as isize) as usize,
+            Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
         if PRINT_SYSCALL {
             println!("syscall return with {}", a0);
         }
         self.cx.set_user_a0(a0);
+        self.do_exit
     }
 }
 

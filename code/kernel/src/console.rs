@@ -2,11 +2,15 @@
 
 const OUTPUT_LOCK: bool = true;
 
-use crate::{place, hart::sbi};
+use crate::{
+    hart::sbi,
+    place,
+    sync::mutex::{MutexGuard, SpinNoIrq},
+};
 
 use core::fmt::{self, Write};
 
-struct Stdout;
+pub struct Stdout;
 
 use crate::sync::mutex::SpinNoIrqLock;
 
@@ -48,6 +52,10 @@ pub fn print(args: fmt::Arguments) {
     }
 }
 
+pub fn print_unlock(args: fmt::Arguments) {
+    Stdout.write_fmt(args).unwrap()
+}
+
 #[macro_export]
 macro_rules! print {
     ($fmt: literal $(, $($arg: tt)+)?) => {
@@ -60,4 +68,15 @@ macro_rules! println {
     ($fmt: literal $(, $($arg: tt)+)?) => {
         $crate::console::print(format_args!(concat!($fmt, "\n") $(, $($arg)+)?));
     }
+}
+
+#[macro_export]
+macro_rules! print_unlock {
+    ($fmt: literal $(, $($arg: tt)+)?) => {
+        $crate::console::print_unlock(format_args!($fmt $(, $($arg)+)?));
+    }
+}
+
+pub fn stdout_try_lock() -> Option<MutexGuard<'static, Stdout, SpinNoIrq>> {
+    WRITE_MUTEX.try_lock()
 }

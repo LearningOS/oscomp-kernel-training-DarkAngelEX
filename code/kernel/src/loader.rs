@@ -1,5 +1,4 @@
 use alloc::vec::Vec;
-use lazy_static::*;
 
 pub fn get_num_app() -> usize {
     extern "C" {

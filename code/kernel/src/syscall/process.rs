@@ -5,8 +5,8 @@ use alloc::string::String;
 use crate::{
     hart::sfence,
     loader,
-    memory::{allocator::frame, user_ptr::UserOutPtr, UserSpace},
-    process::{userloop, Pid},
+    memory::{self, allocator::frame, user_ptr::UserOutPtr, UserSpace},
+    process::{self, userloop, Pid},
     sync::even_bus::{self, Event},
     tools::allocator::from_usize_allocator::FromUsize,
     user,
@@ -47,12 +47,12 @@ impl<'a> Syscall<'a> {
         let alive = match lock.as_mut() {
             Some(a) => a,
             None => {
-                *self.do_exit = true;
+                self.do_exit = true;
                 return Err(SysError::ESRCH);
             }
         };
         let allocator = &mut frame::defualt_allocator();
-        // TODO kill other thread and await
+        // TODO: kill other thread and await
         if alive.threads.len() > 1 {
             todo!();
         }
@@ -98,7 +98,7 @@ impl<'a> Syscall<'a> {
             let p = match xlock.as_mut() {
                 Some(p) => p,
                 None => {
-                    *self.do_exit = true;
+                    self.do_exit = true;
                     return Err(SysError::ESRCH);
                 }
             };
@@ -126,14 +126,40 @@ impl<'a> Syscall<'a> {
             if let Err(_e) =
                 even_bus::wait_for_event(event_bus.clone(), Event::CHILD_PROCESS_QUIT).await
             {
-                *self.do_exit = true;
+                self.do_exit = true;
                 return Err(SysError::ESRCH);
             }
             if let Err(_e) = event_bus.lock(place!()).clear(Event::CHILD_PROCESS_QUIT) {
-                *self.do_exit = true;
+                self.do_exit = true;
                 return Err(SysError::ESRCH);
             }
             // check then
         }
+    }
+    pub fn sys_getpid(&mut self) -> SysResult {
+        if PRINT_SYSCALL {
+            println!("sys_getpid");
+        }
+        Ok(self.process.pid().into_usize())
+    }
+    pub fn sys_exit(&mut self) -> SysResult {
+        if PRINT_SYSCALL {
+            println!("sys_exit");
+        }
+        self.do_exit = true;
+        let exit_code: i32 = self.cx.parameter1();
+        self.process.event_bus.lock(place!()).close();
+        let mut lock = self.process.alive.lock(place!());
+        let alive = match lock.as_mut() {
+            Some(a) => a,
+            None => return Err(SysError::ESRCH),
+        };
+        self.process.exit_code.store(exit_code, Ordering::Relaxed);
+        // TODO: waiting other thread exit
+
+        memory::set_satp_by_global();
+        alive.clear_all(self.process.pid());
+        *lock = None;
+        Ok(0)
     }
 }

@@ -21,10 +21,9 @@ extern crate async_task;
 #[macro_use]
 extern crate bitflags;
 extern crate riscv;
-// extern crate lazy_static;
+#[macro_use]
+extern crate lazy_static;
 extern crate xmas_elf;
-
-use core::arch::global_asm;
 
 mod config;
 
@@ -35,9 +34,9 @@ mod xdebug;
 mod executor;
 mod fdt;
 mod hart;
-mod local;
 mod lang_items;
 mod loader;
+mod local;
 mod memory;
 // mod message;
 mod process;
@@ -49,14 +48,14 @@ mod tools;
 mod trap;
 mod user;
 
-global_asm!(include_str!("link_app.S"));
+core::arch::global_asm!(include_str!("link_app.S"));
 
 ///
 /// This function will be called by rust_main() in hart/mod.rs
 ///
 /// It will run on each core.
 ///
-pub fn kmain(hart_id: usize) -> ! {
+pub fn kmain(_hart_id: usize) -> ! {
     loop {
         executor::run_until_idle();
     }

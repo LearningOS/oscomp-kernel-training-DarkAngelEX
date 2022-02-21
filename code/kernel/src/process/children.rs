@@ -11,6 +11,15 @@ pub struct ChildrenSet {
     zombie_pending: BTreeSet<Pid>, // alive + zombie_pending => zombie
 }
 
+impl Drop for ChildrenSet {
+    fn drop(&mut self) {
+        // all thread must have send to initproc
+        assert!(self.alive.is_empty());
+        assert!(self.zombie.is_empty());
+        assert!(self.zombie_pending.is_empty());
+    }
+}
+
 impl Default for ChildrenSet {
     fn default() -> Self {
         Self::new()
@@ -77,11 +86,19 @@ impl ChildrenSet {
             panic!()
         }
     }
+    pub fn have_zombies(&self) -> bool {
+        !self.zombie.is_empty()
+    }
     pub fn try_remove_zombie(&mut self, pid: Pid) -> Option<Arc<Process>> {
         self.zombie.remove(&pid)
     }
     pub fn try_remove_zombie_any(&mut self) -> Option<Arc<Process>> {
         self.zombie.pop_first().map(|(_pid, ptr)| ptr)
+    }
+    pub fn take(&mut self) -> Self {
+        let mut ret = Self::new();
+        core::mem::swap(self, &mut ret);
+        ret
     }
     pub fn append(&mut self, mut src: Self) {
         self.alive.append(&mut src.alive);

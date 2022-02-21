@@ -25,15 +25,9 @@ async fn userloop(thread: Arc<Thread>) {
                 scause::Exception::StoreFault => todo!(),
                 scause::Exception::UserEnvCall => {
                     // println!("enter syscall");
-                    Syscall::new(
-                        context,
-                        thread.as_ref(),
-                        thread.process.as_ref(),
-                        &mut do_exit,
-                        &mut do_yield,
-                    )
-                    .syscall()
-                    .await;
+                    do_exit = Syscall::new(context, thread.as_ref(), thread.process.as_ref())
+                        .syscall()
+                        .await;
                 }
                 scause::Exception::VirtualSupervisorEnvCall => todo!(),
                 scause::Exception::InstructionPageFault => todo!(),
@@ -61,7 +55,7 @@ async fn userloop(thread: Arc<Thread>) {
             },
         }
         if do_exit {
-            todo!()
+            break;
         }
         if do_yield {
             todo!()

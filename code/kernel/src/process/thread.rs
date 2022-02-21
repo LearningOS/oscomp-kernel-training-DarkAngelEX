@@ -1,6 +1,9 @@
 use core::{
     cell::UnsafeCell,
+    future::Future,
+    pin::Pin,
     sync::atomic::{AtomicI32, AtomicUsize},
+    task::{Context, Poll},
 };
 
 use alloc::{
@@ -135,5 +138,27 @@ impl Thread {
             .alive_then(|a| a.threads.push(&thread))
             .unwrap();
         Ok(thread)
+    }
+}
+
+pub fn yield_now() -> impl Future<Output = ()> {
+    YieldFuture { flag: false }
+}
+
+struct YieldFuture {
+    flag: bool,
+}
+
+impl Future for YieldFuture {
+    type Output = ();
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        if self.flag {
+            Poll::Ready(())
+        } else {
+            self.flag = true;
+            cx.waker().clone().wake();
+            Poll::Pending
+        }
     }
 }

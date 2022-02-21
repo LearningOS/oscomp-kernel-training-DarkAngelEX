@@ -8,9 +8,12 @@ use crate::{
     loader,
     memory::{
         allocator::frame::{self, FrameAllocator},
-        UserSpace,
+        StackID, UserSpace,
     },
-    sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    sync::{
+        even_bus::{self, Event, EventBus},
+        mutex::SpinNoIrqLock as Mutex,
+    },
     tools::error::FrameOutOfMemory,
     xdebug::NeverFail,
 };
@@ -23,6 +26,7 @@ use self::{
 
 pub mod children;
 pub mod pid;
+pub mod proc_table;
 pub mod thread;
 pub mod tid;
 pub mod userloop;
@@ -31,9 +35,17 @@ pub use {pid::Pid, tid::Tid};
 pub struct Process {
     pid: PidHandle,
     pub pgid: AtomicUsize,
+    /// if need to lock bus and alive at the same time,
+    /// must lock alive first, then lock bus.
     pub event_bus: Arc<Mutex<EventBus>>,
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
+}
+
+impl Drop for Process {
+    fn drop(&mut self) {
+        proc_table::clear_proc(self.pid());
+    }
 }
 
 pub struct AliveProcess {
@@ -92,7 +104,45 @@ impl Process {
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();
+        proc_table::insert_proc(&new_process);
         Ok(new_process)
+    }
+}
+
+impl AliveProcess {
+    // return parent
+    pub fn clear_all(&mut self, pid: Pid) {
+        let (bus, have_zombies) = {
+            let this_parent = self.parent.take().and_then(|p| p.upgrade());
+            let mut this_alive = this_parent
+                .as_ref()
+                .map(|p| (&p.event_bus, p.alive.lock(place!())));
+            let initproc;
+            let mut initproc_alive;
+            let (bus, alive) = match &mut this_alive {
+                Some((bus, ref mut p)) if p.is_some() => {
+                    let p = p.as_mut().unwrap();
+                    p.children.become_zombie(pid);
+                    (*bus, p)
+                }
+                _ => {
+                    initproc = proc_table::get_initproc();
+                    initproc_alive = initproc.alive.lock(place!());
+                    let p = initproc_alive.as_mut().unwrap();
+                    p.children.become_zombie(pid);
+                    (&initproc.event_bus, p)
+                }
+            };
+            alive.children.append(self.children.take());
+            (bus.clone(), alive.children.have_zombies())
+        };
+        if have_zombies {
+            // ignore error.
+            let _ = bus.lock(place!()).set(Event::CHILD_PROCESS_QUIT);
+        }
+    }
+    pub fn dealloc_thread(&mut self, tid: Tid, stack_id: StackID) {
+        todo!()
     }
 }
 

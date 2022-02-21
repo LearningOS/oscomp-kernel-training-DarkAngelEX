@@ -60,8 +60,11 @@ impl EventBus {
     pub fn new() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self::default()))
     }
+    pub fn is_closed(&self) -> bool {
+        self.closed
+    }
     pub fn close(&mut self) {
-        assert!(!self.closed, "event_bus double closed");
+        // assert!(!self.closed, "event_bus double closed");
         assert!(!self.should_suspend(), "impossible status in close!");
         self.closed = true;
         while let Some((_e, waker)) = self.wakers.pop() {

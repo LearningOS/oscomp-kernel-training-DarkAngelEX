@@ -14,11 +14,18 @@ pub struct UserData<T: 'static> {
     data: *const [T],
 }
 
+unsafe impl<T: 'static> Send for UserData<T> {}
+unsafe impl<T: 'static> Sync for UserData<T> {}
+
 pub struct UserDataGuard<'a, T: 'static> {
     data: &'static [T],
     _auto_sum: AutoSum,
     _mark: PhantomData<&'a ()>,
 }
+
+unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
+unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
+
 impl<'a, T> Deref for UserDataGuard<'a, T> {
     type Target = [T];
 
@@ -31,6 +38,10 @@ pub struct UserDataGuardMut<'a, T> {
     _auto_sum: AutoSum,
     _mark: PhantomData<&'a ()>,
 }
+
+unsafe impl<T: 'static> Send for UserDataGuardMut<'_, T> {}
+unsafe impl<T: 'static> Sync for UserDataGuardMut<'_, T> {}
+
 impl<'a, T> Deref for UserDataGuardMut<'a, T> {
     type Target = [T];
 
@@ -63,6 +74,10 @@ impl<T: Clone + 'static> UserData<T> {
 pub struct UserDataMut<T> {
     data: *mut [T],
 }
+
+unsafe impl<T: 'static> Send for UserDataMut<T> {}
+unsafe impl<T: 'static> Sync for UserDataMut<T> {}
+
 
 impl<T> UserDataMut<T> {
     pub fn new(data: *mut [T]) -> Self {

@@ -39,6 +39,9 @@ impl<T, P: Policy> UserPtr<T, P> {
             _mark: PhantomData,
         }
     }
+    pub fn raw_ptr(&self) -> *const T {
+        self.ptr
+    }
     pub fn as_ptr(&self) -> Option<*const T> {
         if self.ptr == core::ptr::null_mut() || self.ptr as usize > USER_END {
             return None;
@@ -52,6 +55,9 @@ impl<T, P: Read> UserPtr<T, P> {
     }
 }
 impl<T, P: Write> UserPtr<T, P> {
+    pub fn raw_ptr_mut(&self) -> *mut T {
+        self.ptr
+    }
     pub fn nonnull_mut(&self) -> Option<*mut T> {
         (self.ptr != core::ptr::null_mut()).then_some(self.ptr)
     }
