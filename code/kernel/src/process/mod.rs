@@ -44,11 +44,6 @@ pub struct Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
-        let mut lock = self.alive.lock(place!());
-        if let Some(alive) = &mut *lock {
-            println!("[kernel]proc:{:?} abort", self.pid());
-            alive.clear_all(self.pid());
-        }
         proc_table::clear_proc(self.pid());
     }
 }

@@ -38,7 +38,6 @@ async fn userloop(thread: Arc<Thread>) {
                 Exception::InstructionPageFault
                 | Exception::LoadPageFault
                 | Exception::StorePageFault => {
-                    println!("page fault");
                     do_exit = true;
                 }
                 Exception::InstructionMisaligned => todo!(),
@@ -72,6 +71,11 @@ async fn userloop(thread: Arc<Thread>) {
             },
         }
         if do_exit {
+            let mut lock = thread.process.alive.lock(place!());
+            if let Some(alive) = &mut *lock {
+                println!("[kernel]proc:{:?} abort", thread.process.pid());
+                alive.clear_all(thread.process.pid());
+            }
             break;
         }
         if do_yield {
