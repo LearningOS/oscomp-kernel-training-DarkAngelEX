@@ -18,7 +18,7 @@ use crate::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
     hart::{csr, sfence},
-    tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
+    tools::error::FrameOutOfMemory,
     xdebug::PRINT_MAP_ALL,
 };
 
@@ -142,7 +142,7 @@ impl Drop for PageTable {
         memory_trace!("PageTable::drop begin");
         assert!(self.satp != 0);
         let cur_satp = unsafe { csr::get_satp() };
-        assert_ne!(self.satp, cur_satp);
+        assert_ne!(self.satp, cur_satp,);
         let allocator = &mut frame::defualt_allocator();
         self.free_user_directory_all(allocator);
         unsafe { allocator.dealloc(self.root_pa().into_ref()) };
@@ -208,9 +208,9 @@ impl PageTable {
     pub unsafe fn set_satp_register_uncheck(&self) {
         csr::set_satp(self.satp)
     }
-    pub fn using(&mut self) {
+    pub unsafe fn using(&mut self) {
         self.version_check();
-        unsafe { self.set_satp_register_uncheck() }
+        self.set_satp_register_uncheck();
     }
     pub fn version_check(&mut self) {
         match self.asid_tracker.version_check() {
@@ -1201,5 +1201,5 @@ pub fn set_satp_by_global() {
                 .satp(),
         );
     }
-    sfence::sfence_vma_all_global();
+    // sfence::sfence_vma_all_global();
 }

@@ -207,16 +207,18 @@ pub fn asid_test() {
     space_2.map_par(va4k, pa2, flags, allocator).unwrap();
     let old_satp = unsafe { csr::get_satp() };
 
-    space_1.using();
-    va_set(va, 1);
-    space_2.using();
-    va_set(va, 2);
-    space_1.using();
-    assert_eq!(va_get(va), 1);
-    space_2.using();
-    assert_eq!(va_get(va), 2);
+    unsafe {
+        space_1.using();
+        va_set(va, 1);
+        space_2.using();
+        va_set(va, 2);
+        space_1.using();
+        assert_eq!(va_get(va), 1);
+        space_2.using();
+        assert_eq!(va_get(va), 2);
 
-    unsafe { csr::set_satp(old_satp) };
-    space_1.unmap_par(va4k, pa1);
-    space_2.unmap_par(va4k, pa2);
+        csr::set_satp(old_satp);
+        space_1.unmap_par(va4k, pa1);
+        space_2.unmap_par(va4k, pa2);
+    }
 }

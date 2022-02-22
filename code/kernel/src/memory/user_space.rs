@@ -1,8 +1,11 @@
+use core::marker::PhantomData;
+
 use alloc::{collections::BTreeMap, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
     memory::{
+        self,
         allocator::frame::{self, iter::SliceFrameDataIter},
         page_table::PTEFlags,
     },
@@ -340,8 +343,13 @@ impl UserSpace {
     pub fn satp(&self) -> usize {
         self.page_table.satp()
     }
-    pub fn using(&mut self) {
+    pub unsafe fn using(&mut self) {
         self.page_table.using();
+    }
+    #[must_use]
+    pub fn using_guard(&mut self) -> SpaceGuard {
+        unsafe { self.using() };
+        SpaceGuard
     }
     pub fn map_user_range(
         &mut self,
@@ -474,6 +482,28 @@ impl UserSpace {
     }
     pub fn using_size(&self) -> usize {
         self.stacks.using_size()
+    }
+}
+
+pub struct SpaceGuard;
+
+impl !Send for SpaceGuard {}
+impl !Sync for SpaceGuard {}
+
+#[derive(Copy, Clone)]
+pub struct SpaceMark<'a> {
+    _mark: PhantomData<&'a ()>,
+}
+
+impl SpaceGuard {
+    pub fn access<'a>(&'a self) -> SpaceMark<'a> {
+        SpaceMark { _mark: PhantomData }
+    }
+}
+
+impl Drop for SpaceGuard {
+    fn drop(&mut self) {
+        memory::set_satp_by_global()
     }
 }
 

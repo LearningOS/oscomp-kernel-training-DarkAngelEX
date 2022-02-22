@@ -7,14 +7,9 @@ use core::{
 use alloc::{string::String, sync::Arc};
 
 use crate::{
-    hart::sfence,
     loader, local,
     memory::{self, allocator::frame, user_ptr::UserOutPtr, UserSpace},
-    process::{
-        self,
-        thread::{self, Thread},
-        userloop, Pid,
-    },
+    process::{thread, userloop, Pid},
     sync::{
         even_bus::{self, Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
@@ -55,8 +50,17 @@ impl Syscall<'_> {
         }
         let (path, argv, envp): (*const u8, *const *const u8, *const *const u8) =
             self.cx.parameter3();
-        let path = String::from_utf8(user::translated_user_array_zero_end(path)?.into_vec())
-            .map_err(|_| SysError::EFAULT)?;
+        let guard = match self.process.using_space() {
+            Ok(a) => a,
+            Err(()) => {
+                self.do_exit = true;
+                return Err(SysError::ESRCH);
+            }
+        };
+        let path = String::from_utf8(
+            user::translated_user_array_zero_end(path, guard.access())?.into_vec(guard.access()),
+        )
+        .map_err(|_| SysError::EFAULT)?;
         // let argv = user::translated_user_2d_array_zero_end(argv)?;
         // let envp = user::translated_user_2d_array_zero_end(envp)?;
 
@@ -74,11 +78,12 @@ impl Syscall<'_> {
             todo!();
         }
         let elf_data = loader::get_app_data_by_name(path.as_str()).ok_or(SysError::ENFILE)?;
-        let (mut user_space, stack_id, user_sp, entry_point) =
+        drop(guard);
+        let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, allocator).map_err(|_| SysError::ENOEXEC)?;
         let check = NeverFail::new();
         // reset stack_id
-        user_space.using();
+        // user_space.using();
         // sfence::fence_i();
         local::all_hart_fence_i();
         alive.exec_path = path;
@@ -128,13 +133,17 @@ impl Syscall<'_> {
             };
             if let Some(process) = process {
                 if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
-                    p.user_space.using();
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
-                    let access = user::translated_user_writable_slice(exit_code_ptr as *mut u8, 4)?;
+                    let guard = p.user_space.using_guard();
+                    let access = user::translated_user_writable_slice(
+                        exit_code_ptr as *mut u8,
+                        4,
+                        guard.access(),
+                    )?;
                     let exit_code_slice =
                         core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
                     access
-                        .access_mut()
+                        .access_mut(guard.access())
                         .copy_from_slice(unsafe { &*exit_code_slice });
                 }
                 if PRINT_SYSCALL_PROCESS {
@@ -145,7 +154,7 @@ impl Syscall<'_> {
                     );
                 }
                 return Ok(process.pid().into_usize());
-            } else if p.children.no_children() {
+            } else if p.children.is_empty() {
                 return Err(SysError::ECHILD);
             }
             drop(xlock);

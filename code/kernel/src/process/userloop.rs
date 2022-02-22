@@ -11,21 +11,27 @@ async fn userloop(thread: Arc<Thread>) {
 
         local::handle_current_local();
         let context = thread.as_ref().get_context();
-        thread.process.using_space(); // !!!
 
-        // println!("enter user {:?}", thread.process.pid());
-        context.run_user();
-        // println!("return from user");
+        {
+            // println!("enter user {:?}", thread.process.pid());
+            let _guard = thread.process.using_space();
+            context.run_user();
+            // println!("return from user");
+        }
         let mut do_exit = false;
         let mut do_yield = false;
         match scause::read().cause() {
             scause::Trap::Exception(e) => match e {
                 Exception::UserEnvCall => {
                     // println!("enter syscall");
-                    do_exit =
-                        Syscall::new(context, &thread, thread.process.as_ref(), stack_trace.as_mut())
-                            .syscall()
-                            .await;
+                    do_exit = Syscall::new(
+                        context,
+                        &thread,
+                        thread.process.as_ref(),
+                        stack_trace.as_mut(),
+                    )
+                    .syscall()
+                    .await;
                 }
                 Exception::InstructionPageFault
                 | Exception::LoadPageFault

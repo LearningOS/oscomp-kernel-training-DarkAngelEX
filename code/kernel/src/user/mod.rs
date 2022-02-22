@@ -5,6 +5,7 @@ use core::{convert::TryFrom, ptr};
 use alloc::vec::Vec;
 
 use crate::local;
+use crate::memory::SpaceMark;
 use crate::riscv::register::sstatus;
 
 use crate::memory::address::{OutOfUserRange, PageCount, UserAddr};
@@ -19,12 +20,12 @@ unsafe impl<T: 'static> Sync for UserData<T> {}
 
 pub struct UserDataGuard<'a, T: 'static> {
     data: &'static [T],
+    mark: SpaceMark<'a>,
     _auto_sum: AutoSum,
-    _mark: PhantomData<&'a ()>,
 }
 
-unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
-unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
+// unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
+// unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
 
 impl<'a, T> Deref for UserDataGuard<'a, T> {
     type Target = [T];
@@ -35,12 +36,12 @@ impl<'a, T> Deref for UserDataGuard<'a, T> {
 }
 pub struct UserDataGuardMut<'a, T> {
     data: *mut [T],
+    mark: SpaceMark<'a>,
     _auto_sum: AutoSum,
-    _mark: PhantomData<&'a ()>,
 }
 
-unsafe impl<T: 'static> Send for UserDataGuardMut<'_, T> {}
-unsafe impl<T: 'static> Sync for UserDataGuardMut<'_, T> {}
+// unsafe impl<T: 'static> Send for UserDataGuardMut<'_, T> {}
+// unsafe impl<T: 'static> Sync for UserDataGuardMut<'_, T> {}
 
 impl<'a, T> Deref for UserDataGuardMut<'a, T> {
     type Target = [T];
@@ -58,19 +59,20 @@ impl<T: 'static> UserData<T> {
     pub fn new(data: *const [T]) -> Self {
         Self { data }
     }
-    pub fn access(&self) -> UserDataGuard<'_, T> {
+    pub fn access<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
+            mark,
             _auto_sum: AutoSum::new(),
-            _mark: PhantomData,
         }
     }
 }
 impl<T: Clone + 'static> UserData<T> {
-    pub fn into_vec(&self) -> Vec<T> {
-        self.access().to_vec()
+    pub fn into_vec(&self, mark: SpaceMark<'_>) -> Vec<T> {
+        self.access(mark).to_vec()
     }
 }
+
 pub struct UserDataMut<T> {
     data: *mut [T],
 }
@@ -78,29 +80,28 @@ pub struct UserDataMut<T> {
 unsafe impl<T: 'static> Send for UserDataMut<T> {}
 unsafe impl<T: 'static> Sync for UserDataMut<T> {}
 
-
 impl<T> UserDataMut<T> {
     pub fn new(data: *mut [T]) -> Self {
         Self { data }
     }
-    pub fn access(&self) -> UserDataGuard<'_, T> {
+    pub fn access<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
+            mark,
             _auto_sum: AutoSum::new(),
-            _mark: PhantomData,
         }
     }
-    pub fn access_mut(&self) -> UserDataGuardMut<T> {
+    pub fn access_mut<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuardMut<'b, T> {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
+            mark,
             _auto_sum: AutoSum::new(),
-            _mark: PhantomData,
         }
     }
 }
 impl<T: Clone + 'static> UserDataMut<T> {
-    pub fn into_vec(&self) -> Vec<T> {
-        self.access().to_vec()
+    pub fn into_vec<'b>(&self, mark: SpaceMark<'b>) -> Vec<T> {
+        self.access(mark).to_vec()
     }
 }
 
@@ -268,6 +269,7 @@ impl From<UserAccessError> for UserAccessU8Error {
 
 pub fn translated_user_u8(
     ptr: *const u8,
+    _mark: SpaceMark<'_>,
 ) -> Result<u8, UniqueSysError<{ SysError::EFAULT as isize }>> {
     let uptr = UserAddr::try_from(ptr)?;
     let user_access_status = &mut local::current_local().user_access_status;
@@ -278,6 +280,7 @@ pub fn translated_user_u8(
 
 pub fn translated_user_array_zero_end<T>(
     ptr: *const T,
+    mark: SpaceMark<'_>,
 ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>>
 where
     T: UserType,
@@ -318,14 +321,15 @@ where
 
 pub fn translated_user_2d_array_zero_end<T>(
     ptr: *const *const T,
+    mark: SpaceMark<'_>,
 ) -> Result<Vec<UserData<T>>, UniqueSysError<{ SysError::EFAULT as isize }>>
 where
     T: UserType,
 {
-    let arr_1d = translated_user_array_zero_end(ptr)?;
+    let arr_1d = translated_user_array_zero_end(ptr, mark)?;
     let mut ret = Vec::new();
-    for &arr_2d in &*arr_1d.access() {
-        ret.push(translated_user_array_zero_end(arr_2d)?);
+    for &arr_2d in &*arr_1d.access(mark) {
+        ret.push(translated_user_array_zero_end(arr_2d, mark)?);
     }
     Ok(ret)
 }
@@ -333,6 +337,7 @@ where
 pub fn translated_user_readonly_slice<T>(
     ptr: *const T,
     len: usize,
+    mark: SpaceMark<'_>,
 ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
     let ubegin = UserAddr::try_from(ptr)?;
     let uend = UserAddr::try_from((ptr as usize + len) as *const u8)?;
@@ -355,6 +360,7 @@ pub fn translated_user_readonly_slice<T>(
 pub fn translated_user_writable_slice<T>(
     ptr: *mut T,
     len: usize,
+    mark: SpaceMark<'_>,
 ) -> Result<UserDataMut<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
     let ubegin = UserAddr::try_from(ptr)?;
     let uend = UserAddr::try_from((ptr as usize + len) as *mut u8)?;

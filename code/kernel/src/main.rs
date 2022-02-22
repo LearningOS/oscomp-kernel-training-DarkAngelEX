@@ -16,6 +16,9 @@
 #![feature(slice_pattern)]
 #![feature(map_try_insert)]
 #![feature(unboxed_closures)]
+#![feature(negative_impls)]
+
+// #![allow(dead_code)]
 
 use riscv::register::sstatus;
 

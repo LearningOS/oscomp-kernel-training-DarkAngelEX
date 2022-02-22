@@ -123,7 +123,7 @@ impl StackGlobalFrameAllocator {
             return Err(FrameOutOfMemory);
         }
         let nt = n.min(n0);
-        for (i, pa) in range.iter_mut().take(nt).enumerate() {
+        for (_i, pa) in range.iter_mut().take(nt).enumerate() {
             *pa = f_tran(self.current.add_one_page());
         }
         self.current = self.current.add_one_page();

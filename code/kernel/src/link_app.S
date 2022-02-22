@@ -3,7 +3,7 @@
     .section .data
     .global _num_app
 _num_app:
-    .quad 15
+    .quad 16
     .quad app_0_start
     .quad app_1_start
     .quad app_2_start
@@ -19,7 +19,8 @@ _num_app:
     .quad app_12_start
     .quad app_13_start
     .quad app_14_start
-    .quad app_14_end
+    .quad app_15_start
+    .quad app_15_end
 
     .global _app_names
 _app_names:
@@ -38,6 +39,7 @@ _app_names:
     .string "user_shell"
     .string "usertests"
     .string "yield"
+    .string "zombie"
 
     .section .data
     .global app_0_start
@@ -158,3 +160,11 @@ app_13_end:
 app_14_start:
     .incbin "../user/target/riscv64gc-unknown-none-elf/release/yield"
 app_14_end:
+
+    .section .data
+    .global app_15_start
+    .global app_15_end
+    .align 3
+app_15_start:
+    .incbin "../user/target/riscv64gc-unknown-none-elf/release/zombie"
+app_15_end:

@@ -46,7 +46,7 @@ impl ChildrenSet {
     pub fn have_child_of(&mut self, pid: Pid) -> bool {
         !self.alive_no_find(pid) || !self.zombie_no_find(pid) || !self.zombie_pending_no_find(pid)
     }
-    pub fn no_children(&mut self) -> bool {
+    pub fn is_empty(&mut self) -> bool {
         self.alive.is_empty() && self.zombie.is_empty() && self.zombie_pending.is_empty()
     }
 
@@ -83,7 +83,7 @@ impl ChildrenSet {
         }
         debug_check!(self.zombie_no_find(pid));
         if !self.zombie_pending.insert(pid) {
-            panic!()
+            panic!("double insert zombie")
         }
     }
     pub fn have_zombies(&self) -> bool {
@@ -96,9 +96,7 @@ impl ChildrenSet {
         self.zombie.pop_first().map(|(_pid, ptr)| ptr)
     }
     pub fn take(&mut self) -> Self {
-        let mut ret = Self::new();
-        core::mem::swap(self, &mut ret);
-        ret
+        core::mem::take(self)
     }
     pub fn append(&mut self, mut src: Self) {
         self.alive.append(&mut src.alive);
@@ -112,5 +110,22 @@ impl ChildrenSet {
     }
     pub fn alive_iter(&self) -> impl Iterator<Item = (&Pid, &Arc<Process>)> + '_ {
         self.alive.iter()
+    }
+    pub fn show(&self) {
+        print!("child-alive:  [");
+        for (pid, _p) in &self.alive {
+            print!("{:?},", pid);
+        }
+        print!("]\n");
+        print!("child-zombie: [");
+        for (pid, _p) in &self.zombie {
+            print!("{:?},", pid);
+        }
+        print!("]\n");
+        print!("child-pending:[");
+        for pid in &self.zombie_pending {
+            print!("{:?},", pid);
+        }
+        print!("]\n");
     }
 }
