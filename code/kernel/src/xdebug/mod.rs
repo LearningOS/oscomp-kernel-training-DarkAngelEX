@@ -8,6 +8,7 @@ pub const PRINT_TRAP: bool = false;
 pub const PRINT_SCHEDULER: bool = false;
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = false;
+pub const PRINT_SYSCALL_ALL: bool = false;
 // fork return and exec return
 pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie
@@ -19,7 +20,7 @@ pub const CLOSE_HEAP_DEALLOC: bool = false;
 pub const FRAME_DEALLOC_OVERWRITE: bool = true;
 pub const HEAP_DEALLOC_OVERWRITE: bool = true;
 
-pub const CLOSE_TIME_INTERRUPT: bool = true;
+pub const CLOSE_TIME_INTERRUPT: bool = false;
 
 #[macro_use]
 pub mod trace;

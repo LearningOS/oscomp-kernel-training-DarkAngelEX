@@ -71,3 +71,8 @@ pub fn set_time_ticks(ticks: TimeTicks) {
 pub fn set_next_trigger() {
     set_time_ticks(get_time_ticks() + TimeTicks::from(CLOCK_FREQ / TIME_INTERRUPT_PER_SEC));
 }
+
+pub fn tick() {
+    sleep::check_timer();
+    set_next_trigger();
+}

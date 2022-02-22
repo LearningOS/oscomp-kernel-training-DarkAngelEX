@@ -41,7 +41,7 @@ impl From<EvenBusClose> for () {
 #[derive(Default)]
 pub struct EventBus {
     closed: bool,
-    event: Event,
+    pub event: Event,
     suspend_event: Event,
     wakers: Vec<(Event, Waker)>,
 }

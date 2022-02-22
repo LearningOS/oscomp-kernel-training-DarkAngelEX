@@ -20,7 +20,7 @@ use crate::{
     trap::context::UKContext,
 };
 
-use super::{children::ChildrenSet, pid::pid_alloc, AliveProcess, Process, Tid};
+use super::{children::ChildrenSet, pid::pid_alloc, proc_table, AliveProcess, Process, Tid};
 
 pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
@@ -73,7 +73,7 @@ pub struct ThreadInner {
 }
 
 impl Thread {
-    pub fn new(elf_data: &[u8], allocator: &mut impl FrameAllocator) -> Arc<Self> {
+    pub fn new_initproc(elf_data: &[u8], allocator: &mut impl FrameAllocator) -> Arc<Self> {
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, allocator).unwrap();
         let pid = pid_alloc();
@@ -113,6 +113,8 @@ impl Thread {
         process
             .alive_then(|alive| alive.threads.push(&ptr))
             .unwrap();
+        proc_table::insert_proc(&process);
+        unsafe { proc_table::set_initproc(process) };
         ptr
     }
     pub fn inner(&self) -> &mut ThreadInner {

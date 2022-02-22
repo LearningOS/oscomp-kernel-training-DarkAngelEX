@@ -11,19 +11,6 @@ use crate::sync::{even_bus::EventBus, mutex::SpinNoIrqLock};
 
 use super::{get_time_ticks, TimeTicks};
 
-struct SleepFuture {
-    expire_ticks: TimeTicks,
-    evenbus: Arc<EventBus>,
-}
-
-impl Future for SleepFuture {
-    type Output = Result<(), ()>;
-
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        todo!()
-    }
-}
-
 struct TimerCondVar {
     expire_ticks: TimeTicks,
     waker: Waker,

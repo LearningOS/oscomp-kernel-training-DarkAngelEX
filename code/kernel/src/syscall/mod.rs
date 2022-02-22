@@ -1,14 +1,16 @@
-use core::fmt;
+use core::{fmt, pin::Pin};
+
+use alloc::sync::Arc;
 
 use crate::{
     process::{thread::Thread, Process},
     trap::context::UKContext,
-    xdebug::PRINT_SYSCALL,
+    xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
 };
 
 mod fs;
 mod process;
-mod sync;
+mod time;
 
 const SYSCALL_DUP: usize = 24;
 const SYSCALL_OPEN: usize = 56;
@@ -41,23 +43,32 @@ const SYSCALL_CONDVAR_WAIT: usize = 1032;
 pub struct Syscall<'a> {
     cx: &'a mut UKContext,
     thread: &'a Thread,
+    thread_arc: &'a Arc<Thread>,
     process: &'a Process,
     do_exit: bool,
+    stack_trace: Pin<&'a mut StackTrace>,
 }
 
 impl<'a> Syscall<'a> {
-    pub fn new(cx: &'a mut UKContext, thread: &'a Thread, process: &'a Process) -> Self {
+    pub fn new(
+        cx: &'a mut UKContext,
+        thread_arc: &'a Arc<Thread>,
+        process: &'a Process,
+        stack_trace: Pin<&'a mut StackTrace>,
+    ) -> Self {
         Self {
             cx,
-            thread,
+            thread: thread_arc.as_ref(),
+            thread_arc,
             process,
             do_exit: false,
+            stack_trace,
         }
     }
     /// return do_exit
     #[inline(always)]
     pub async fn syscall(&mut self) -> bool {
-        stack_trace!();
+        stack_trace!(self.stack_trace.ptr_usize());
         memory_trace!("syscall entry");
         self.cx.into_next_instruction();
         let result: SysResult = match self.cx.a7() {
@@ -68,10 +79,10 @@ impl<'a> Syscall<'a> {
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
             SYSCALL_EXIT => self.sys_exit(),
-            SYSCALL_SLEEP => todo!(),
-            SYSCALL_YIELD => todo!(),
+            SYSCALL_SLEEP => self.sys_sleep().await,
+            SYSCALL_YIELD => self.sys_yield().await,
             SYSCALL_KILL => todo!(),
-            SYSCALL_GET_TIME => todo!(),
+            SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_FORK => self.sys_fork(),
             SYSCALL_EXEC => self.sys_exec(),
@@ -96,7 +107,7 @@ impl<'a> Syscall<'a> {
             Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
-        if PRINT_SYSCALL {
+        if PRINT_SYSCALL_ALL {
             println!("syscall return with {}", a0);
         }
         self.cx.set_user_a0(a0);

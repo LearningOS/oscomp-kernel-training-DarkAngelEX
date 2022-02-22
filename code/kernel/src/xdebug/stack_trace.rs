@@ -1,3 +1,5 @@
+use core::pin::Pin;
+
 use alloc::vec::Vec;
 
 use crate::hart::cpu;
@@ -5,63 +7,21 @@ use crate::hart::cpu;
 pub const STACK_TRACE: bool = true;
 
 #[macro_export]
-macro_rules! stack_trace_begin {
-    () => {
-        // unsafe { (&mut *crate::scheduler::get_current_stack_trace()).clear() }
-        // let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-        //     crate::scheduler::try_get_current_stack_trace(),
-        //     "",
-        //     file!(),
-        //     line!(),
-        // );
-    };
-    ($msg: expr) => {
-        unsafe { (&mut *crate::scheduler::get_current_stack_trace()).clear() }
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::scheduler::try_get_current_stack_trace(),
-            $msg,
-            file!(),
-            line!(),
-        );
-    };
-}
-
-#[macro_export]
 macro_rules! stack_trace {
-    () => {
-        // let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-        //     crate::scheduler::try_get_current_stack_trace(),
-        //     "",
-        //     file!(),
-        //     line!(),
-        // );
-    };
-    ($msg: expr) => {
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::scheduler::try_get_current_stack_trace(),
-            $msg,
-            file!(),
-            line!(),
-        );
+    ($stack_trace: expr) => {
+        let _stack_trace =
+            crate::xdebug::stack_trace::StackTracker::new($stack_trace, "", file!(), line!());
     };
 }
 
 pub struct StackTracker {
-    trace: *mut StackTrace,
+    trace_ptr: usize,
 }
 
 impl StackTracker {
-    pub fn new(
-        trace: Option<*mut StackTrace>,
-        msg: &'static str,
-        file: &'static str,
-        line: u32,
-    ) -> Option<Self> {
+    pub fn new(trace_ptr: usize, msg: &'static str, file: &'static str, line: u32) -> Option<Self> {
         if STACK_TRACE {
-            trace.map(|trace| {
-                unsafe { (*trace).push(StackInfo::new(msg, file, line)) }
-                Self { trace }
-            })
+            Some(Self { trace_ptr })
         } else {
             None
         }
@@ -70,7 +30,7 @@ impl StackTracker {
 
 impl Drop for StackTracker {
     fn drop(&mut self) {
-        unsafe { (*self.trace).pop() }
+        unsafe { (*(self.trace_ptr as *mut StackTrace)).pop() }
     }
 }
 
@@ -86,7 +46,14 @@ impl StackInfo {
         Self { msg, file, line }
     }
     pub fn show(&self, i: usize) {
-        println!("{} {} {}:{} hart {}", i, self.msg, self.file, self.line, cpu::hart_id());
+        println!(
+            "{} {} {}:{} hart {}",
+            i,
+            self.msg,
+            self.file,
+            self.line,
+            cpu::hart_id()
+        );
     }
 }
 
@@ -111,5 +78,8 @@ impl StackTrace {
         for (i, info) in self.stack.iter().rev().enumerate() {
             info.show(i)
         }
+    }
+    pub fn ptr_usize(self: &mut Pin<&mut Self>) -> usize {
+        &mut **self as *mut _ as usize
     }
 }

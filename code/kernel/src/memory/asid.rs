@@ -3,8 +3,8 @@ use core::{fmt::Debug, ops::Deref};
 use alloc::vec::Vec;
 
 use crate::{
-    hart::{csr, sfence},
-    impl_usize_from,
+    hart::csr,
+    impl_usize_from, local,
     memory::{address::VirAddr, page_table::PageTable},
     sync::mutex::SpinNoIrqLock,
     tools,
@@ -149,8 +149,8 @@ impl AsidManager {
         if asid_info.version() == self.version {
             #[allow(unreachable_code)]
             if TLB_SHOT_DOWM_IPML {
-                todo!("TLB shot down"); // need TLB_SHOT_DOWN other hart.
-                sfence::sfence_vma_asid(asid_info.asid().into_usize());
+                // todo!("TLB shot down"); // need TLB_SHOT_DOWN other hart.
+                local::all_hart_sfence_vma_asid(asid_info.asid());
                 self.recycled.push(asid_info.asid())
             } else {
                 // leak this ASID

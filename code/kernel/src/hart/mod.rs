@@ -4,10 +4,12 @@ use core::{
 };
 
 use crate::{
-    executor, loader,
+    executor,
+    fdt::FdtHeader,
+    loader,
     memory::{self, address::PhyAddr},
     process, timer, trap,
-    xdebug::CLOSE_TIME_INTERRUPT, fdt::FdtHeader,
+    xdebug::CLOSE_TIME_INTERRUPT, local,
 };
 
 pub mod cpu;
@@ -66,6 +68,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     }
 
     unsafe { cpu::increase_cpu() };
+    local::set_stack();
     if hartid != BOOT_HART_ID {
         while !AP_CAN_INIT.load(Ordering::Acquire) {}
         println!("[FTL OS]hart {} started", hartid);
@@ -74,6 +77,10 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     // init all module there
     println!("[FTL OS]start initialization from hart {}", hartid);
     show_seg();
+    for _i in 0..100000 {
+        // waitting cpu::increase
+        AP_CAN_INIT.load(Ordering::Acquire);
+    }
     println!("[FTL OS]CPU count: {}", cpu::count());
     println!(
         "[FTL OS]device tree physical address: {:#x}",

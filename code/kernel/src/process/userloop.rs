@@ -1,64 +1,70 @@
-use alloc::sync::Arc;
-use riscv::register::scause;
+use alloc::{boxed::Box, sync::Arc};
+use riscv::register::scause::{self, Exception, Interrupt};
 
-use crate::{executor, syscall::Syscall};
+use crate::{executor, local, syscall::Syscall, timer, xdebug::stack_trace::StackTrace};
 
-use super::thread::Thread;
+use super::thread::{self, Thread};
 
 async fn userloop(thread: Arc<Thread>) {
     loop {
+        let mut stack_trace = Box::pin(StackTrace::new());
+
+        local::handle_current_local();
         let context = thread.as_ref().get_context();
         thread.process.using_space(); // !!!
-                                      // println!("enter user {:?}", thread.process.pid());
+
+        // println!("enter user {:?}", thread.process.pid());
         context.run_user();
         // println!("return from user");
         let mut do_exit = false;
         let mut do_yield = false;
         match scause::read().cause() {
             scause::Trap::Exception(e) => match e {
-                scause::Exception::InstructionMisaligned => todo!(),
-                scause::Exception::InstructionFault => todo!(),
-                scause::Exception::IllegalInstruction => todo!(),
-                scause::Exception::Breakpoint => todo!(),
-                scause::Exception::LoadFault => todo!(),
-                scause::Exception::StoreMisaligned => todo!(),
-                scause::Exception::StoreFault => todo!(),
-                scause::Exception::UserEnvCall => {
+                Exception::UserEnvCall => {
                     // println!("enter syscall");
-                    do_exit = Syscall::new(context, thread.as_ref(), thread.process.as_ref())
-                        .syscall()
-                        .await;
+                    do_exit =
+                        Syscall::new(context, &thread, thread.process.as_ref(), stack_trace.as_mut())
+                            .syscall()
+                            .await;
                 }
-                scause::Exception::VirtualSupervisorEnvCall => todo!(),
-                scause::Exception::InstructionPageFault => todo!(),
-                scause::Exception::LoadPageFault => todo!(),
-                scause::Exception::StorePageFault => todo!(),
-                scause::Exception::InstructionGuestPageFault => todo!(),
-                scause::Exception::LoadGuestPageFault => todo!(),
-                scause::Exception::VirtualInstruction => todo!(),
-                scause::Exception::StoreGuestPageFault => todo!(),
-                scause::Exception::Unknown => todo!(),
+                Exception::InstructionPageFault
+                | Exception::LoadPageFault
+                | Exception::StorePageFault => todo!(),
+                Exception::InstructionMisaligned => todo!(),
+                Exception::InstructionFault => todo!(),
+                Exception::IllegalInstruction => todo!(),
+                Exception::Breakpoint => todo!(),
+                Exception::LoadFault => todo!(),
+                Exception::StoreMisaligned => todo!(),
+                Exception::StoreFault => todo!(),
+                Exception::VirtualSupervisorEnvCall => todo!(),
+                Exception::InstructionGuestPageFault => todo!(),
+                Exception::LoadGuestPageFault => todo!(),
+                Exception::VirtualInstruction => todo!(),
+                Exception::StoreGuestPageFault => todo!(),
+                Exception::Unknown => todo!(),
             },
             scause::Trap::Interrupt(i) => match i {
-                scause::Interrupt::UserSoft => todo!(),
-                scause::Interrupt::VirtualSupervisorSoft => todo!(),
-                scause::Interrupt::SupervisorSoft => todo!(),
-                scause::Interrupt::UserTimer => todo!(),
-                scause::Interrupt::VirtualSupervisorTimer => todo!(),
-                scause::Interrupt::SupervisorTimer => {
-                    todo!();
+                Interrupt::UserSoft => todo!(),
+                Interrupt::VirtualSupervisorSoft => todo!(),
+                Interrupt::SupervisorSoft => todo!(),
+                Interrupt::UserTimer => todo!(),
+                Interrupt::VirtualSupervisorTimer => todo!(),
+                Interrupt::SupervisorTimer => {
+                    // do_yield = true;
+                    timer::tick();
                 }
-                scause::Interrupt::UserExternal => todo!(),
-                scause::Interrupt::VirtualSupervisorExternal => todo!(),
-                scause::Interrupt::SupervisorExternal => todo!(),
-                scause::Interrupt::Unknown => todo!(),
+                Interrupt::UserExternal => todo!(),
+                Interrupt::VirtualSupervisorExternal => todo!(),
+                Interrupt::SupervisorExternal => todo!(),
+                Interrupt::Unknown => todo!(),
             },
         }
         if do_exit {
             break;
         }
         if do_yield {
-            todo!()
+            thread::yield_now().await;
         }
     }
 }

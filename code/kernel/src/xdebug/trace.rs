@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{config::KERNEL_STACK_SIZE, hart};
+use crate::{config::KERNEL_STACK_SIZE, hart, local};
 
 pub const OPEN_MEMORY_TRACE: bool = false;
 pub const STACK_DETECTION: bool = true;
@@ -124,18 +124,7 @@ pub fn print_sp() {
 }
 
 fn using_stack_size_impl() -> usize {
-    return 0;
-    // let tcb_ptr = match executor::try_get_current_task_ptr() {
-    //     Some(p) => p,
-    //     None => return 0,
-    // };
-    // let bottom = match unsafe { &*tcb_ptr }.try_kernel_bottom() {
-    //     Some(x) => x.into_usize(),
-    //     None => return 0,
-    // };
-    // let current = hart::current_sp();
-    // // bottom - current
-    // bottom.saturating_sub(current)
+    local::stack_size()
 }
 fn using_stack_size_print_impl(current: usize) {
     let mask = 1 << 10;

@@ -150,7 +150,7 @@ pub fn init() {
     println!("load initporc");
     let allocator = &mut frame::defualt_allocator();
     let elf_data = loader::get_app_data_by_name("initproc").unwrap();
-    let thread = Thread::new(elf_data, allocator);
+    let thread = Thread::new_initproc(elf_data, allocator);
     userloop::spawn(thread);
     println!("spawn initporc");
 }

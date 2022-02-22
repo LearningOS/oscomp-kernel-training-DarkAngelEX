@@ -15,6 +15,9 @@
 #![feature(never_type)]
 #![feature(slice_pattern)]
 #![feature(map_try_insert)]
+#![feature(unboxed_closures)]
+
+use riscv::register::sstatus;
 
 extern crate alloc;
 extern crate async_task;
@@ -58,5 +61,11 @@ core::arch::global_asm!(include_str!("link_app.S"));
 pub fn kmain(_hart_id: usize) -> ! {
     loop {
         executor::run_until_idle();
+        // println!("sie {}", sstatus::read().sie());
+        unsafe {
+            sstatus::set_sie();
+            riscv::asm::wfi();
+            sstatus::clear_sie();
+        }
     }
 }

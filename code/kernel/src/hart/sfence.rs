@@ -1,19 +1,23 @@
 #![allow(dead_code)]
 use core::{arch::asm, mem::MaybeUninit};
 
+#[inline(always)]
 pub fn fence_i() {
     unsafe { asm!("fence.i") };
 }
 ///
 /// sfence_vma have two parameter, rs1 is address, rs2 is asid.
 ///
+#[inline(always)]
 pub fn sfence_vma_all_global() {
     unsafe {
         asm!("sfence.vma x0, x0");
     }
 }
+
+#[inline(always)]
 #[allow(unused_assignments)]
-pub fn sfence_vma_all_no_global() {
+pub fn sfence_vma_asid_zero() {
     unsafe {
         // alloc a register, assume rs2 != x0
         let mut x: usize = MaybeUninit::uninit().assume_init();
@@ -24,6 +28,8 @@ pub fn sfence_vma_all_no_global() {
         );
     }
 }
+
+#[inline(always)]
 pub fn sfence_vma_asid(asid: usize) {
     unsafe {
         asm!("sfence.vma x0, {}", in(reg)asid);
@@ -32,6 +38,7 @@ pub fn sfence_vma_asid(asid: usize) {
 ///
 /// no fflush global TLB.
 ///
+#[inline(always)]
 pub fn sfence_vma_va_global(va: usize) {
     unsafe {
         asm!(
@@ -42,12 +49,14 @@ pub fn sfence_vma_va_global(va: usize) {
 ///
 /// fflush all TLB in this va but not global TLB
 ///
+#[inline(always)]
 pub fn sfence_vma_va(va: usize) {
     sfence_vma_va_asid(va, 0);
 }
 ///
 /// no fflush global TLB.
 ///
+#[inline(always)]
 #[allow(unused_assignments)]
 pub fn sfence_vma_va_asid(va: usize, asid: usize) {
     unsafe {
