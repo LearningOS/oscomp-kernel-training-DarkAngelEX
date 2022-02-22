@@ -8,7 +8,7 @@ use crate::{
     loader,
     memory::{
         allocator::frame::{self, FrameAllocator},
-        StackID, UserSpace, SpaceGuard,
+        SpaceGuard, StackID, UserSpace,
     },
     sync::{
         even_bus::{Event, EventBus},
@@ -44,6 +44,11 @@ pub struct Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
+        let mut lock = self.alive.lock(place!());
+        if let Some(alive) = &mut *lock {
+            println!("[kernel]proc:{:?} abort", self.pid());
+            alive.clear_all(self.pid());
+        }
         proc_table::clear_proc(self.pid());
     }
 }
@@ -114,10 +119,10 @@ impl AliveProcess {
     // return parent
     pub fn clear_all(&mut self, pid: Pid) {
         let this_parent = self.parent.take().and_then(|p| p.upgrade());
-        let mut this_alive = this_parent
+        let mut this_parent_alive = this_parent
             .as_ref()
             .map(|p| (&p.event_bus, p.alive.lock(place!())));
-        let bus = match &mut this_alive {
+        let bus = match &mut this_parent_alive {
             Some((bus, ref mut p)) if p.is_some() => {
                 // println!("origin's zombie, move:");
                 // self.children.show();
@@ -134,7 +139,7 @@ impl AliveProcess {
                 initproc.event_bus.clone()
             }
         };
-        drop(this_alive);
+        drop(this_parent_alive);
         let _ = bus.as_ref().lock(place!()).set(Event::CHILD_PROCESS_QUIT);
         if !self.children.is_empty() {
             let initproc = proc_table::get_initproc();

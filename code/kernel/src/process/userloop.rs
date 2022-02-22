@@ -11,10 +11,12 @@ async fn userloop(thread: Arc<Thread>) {
 
         local::handle_current_local();
         let context = thread.as_ref().get_context();
-
         {
             // println!("enter user {:?}", thread.process.pid());
-            let _guard = thread.process.using_space();
+            let _guard = match thread.process.using_space() {
+                Ok(s) => s,
+                Err(_) => break,
+            };
             context.run_user();
             // println!("return from user");
         }
@@ -35,7 +37,10 @@ async fn userloop(thread: Arc<Thread>) {
                 }
                 Exception::InstructionPageFault
                 | Exception::LoadPageFault
-                | Exception::StorePageFault => todo!(),
+                | Exception::StorePageFault => {
+                    println!("page fault");
+                    do_exit = true;
+                }
                 Exception::InstructionMisaligned => todo!(),
                 Exception::InstructionFault => todo!(),
                 Exception::IllegalInstruction => todo!(),
