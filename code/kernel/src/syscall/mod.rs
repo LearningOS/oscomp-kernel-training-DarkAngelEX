@@ -3,6 +3,7 @@ use core::{fmt, pin::Pin};
 use alloc::sync::Arc;
 
 use crate::{
+    memory::SpaceGuard,
     process::{thread::Thread, Process},
     trap::context::UKContext,
     xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
@@ -112,6 +113,17 @@ impl<'a> Syscall<'a> {
         }
         self.cx.set_user_a0(a0);
         self.do_exit
+    }
+    // if return Err will set do_exit = true
+    #[inline(always)]
+    pub fn using_space_then<T>(
+        &mut self,
+        f: impl FnOnce(SpaceGuard) -> T,
+    ) -> Result<T, UniqueSysError<{ SysError::ESRCH as isize }>> {
+        self.process.using_space_then(f).map_err(|()| {
+            self.do_exit = true;
+            UniqueSysError
+        })
     }
 }
 

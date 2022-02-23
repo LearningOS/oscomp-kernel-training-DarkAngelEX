@@ -15,58 +15,64 @@ async fn userloop(thread: Arc<Thread>) {
         let mut do_exit = false;
         let mut do_yield = false;
 
-        match thread.process.using_space_then(|_| context.run_user()) {
+        match thread.process.using_space_then(|_g| context.run_user()) {
             Ok(()) => (),
             Err(()) => do_exit = true,
         }
-
-        match scause::read().cause() {
-            scause::Trap::Exception(e) => match e {
-                Exception::UserEnvCall => {
-                    // println!("enter syscall");
-                    do_exit = Syscall::new(
-                        context,
-                        &thread,
-                        thread.process.as_ref(),
-                        stack_trace.as_mut(),
-                    )
-                    .syscall()
-                    .await;
-                }
-                Exception::InstructionPageFault
-                | Exception::LoadPageFault
-                | Exception::StorePageFault => {
-                    do_exit = true;
-                }
-                Exception::InstructionMisaligned => todo!(),
-                Exception::InstructionFault => todo!(),
-                Exception::IllegalInstruction => todo!(),
-                Exception::Breakpoint => todo!(),
-                Exception::LoadFault => todo!(),
-                Exception::StoreMisaligned => todo!(),
-                Exception::StoreFault => todo!(),
-                Exception::VirtualSupervisorEnvCall => todo!(),
-                Exception::InstructionGuestPageFault => todo!(),
-                Exception::LoadGuestPageFault => todo!(),
-                Exception::VirtualInstruction => todo!(),
-                Exception::StoreGuestPageFault => todo!(),
-                Exception::Unknown => todo!(),
-            },
-            scause::Trap::Interrupt(i) => match i {
-                Interrupt::UserSoft => todo!(),
-                Interrupt::VirtualSupervisorSoft => todo!(),
-                Interrupt::SupervisorSoft => todo!(),
-                Interrupt::UserTimer => todo!(),
-                Interrupt::VirtualSupervisorTimer => todo!(),
-                Interrupt::SupervisorTimer => {
-                    // do_yield = true;
-                    timer::tick();
-                }
-                Interrupt::UserExternal => todo!(),
-                Interrupt::VirtualSupervisorExternal => todo!(),
-                Interrupt::SupervisorExternal => todo!(),
-                Interrupt::Unknown => todo!(),
-            },
+        if !do_exit {
+            match scause::read().cause() {
+                scause::Trap::Exception(e) => match e {
+                    Exception::UserEnvCall => {
+                        // println!("enter syscall");
+                        do_exit = Syscall::new(
+                            context,
+                            &thread,
+                            thread.process.as_ref(),
+                            stack_trace.as_mut(),
+                        )
+                        .syscall()
+                        .await;
+                    }
+                    Exception::InstructionPageFault
+                    | Exception::LoadPageFault
+                    | Exception::StorePageFault => {
+                        println!(
+                            "[kernel]{:?} {:?} page fault",
+                            thread.process.pid(),
+                            thread.tid
+                        );
+                        do_exit = true;
+                    }
+                    Exception::InstructionMisaligned => todo!(),
+                    Exception::InstructionFault => todo!(),
+                    Exception::IllegalInstruction => todo!(),
+                    Exception::Breakpoint => todo!(),
+                    Exception::LoadFault => todo!(),
+                    Exception::StoreMisaligned => todo!(),
+                    Exception::StoreFault => todo!(),
+                    Exception::VirtualSupervisorEnvCall => todo!(),
+                    Exception::InstructionGuestPageFault => todo!(),
+                    Exception::LoadGuestPageFault => todo!(),
+                    Exception::VirtualInstruction => todo!(),
+                    Exception::StoreGuestPageFault => todo!(),
+                    Exception::Unknown => todo!(),
+                },
+                scause::Trap::Interrupt(i) => match i {
+                    Interrupt::UserSoft => todo!(),
+                    Interrupt::VirtualSupervisorSoft => todo!(),
+                    Interrupt::SupervisorSoft => todo!(),
+                    Interrupt::UserTimer => todo!(),
+                    Interrupt::VirtualSupervisorTimer => todo!(),
+                    Interrupt::SupervisorTimer => {
+                        // do_yield = true;
+                        timer::tick();
+                    }
+                    Interrupt::UserExternal => todo!(),
+                    Interrupt::VirtualSupervisorExternal => todo!(),
+                    Interrupt::SupervisorExternal => todo!(),
+                    Interrupt::Unknown => todo!(),
+                },
+            }
         }
         if do_exit {
             let mut lock = thread.process.alive.lock(place!());

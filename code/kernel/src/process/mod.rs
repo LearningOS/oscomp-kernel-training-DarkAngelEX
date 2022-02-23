@@ -62,20 +62,16 @@ impl Process {
         self.pid.pid()
     }
     // return Err if zombies
+    #[inline(always)]
     pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, ()> {
         match self.alive.lock(place!()).as_mut() {
             Some(alive) => Ok(f(alive)),
             None => Err(()),
         }
     }
-    pub fn using_space_then<T>(
-        &self,
-        f: impl FnOnce(&SpaceGuard) -> T,
-    ) -> Result<T, ()> {
-        self.alive_then(|a| {
-            let g = a.user_space.using_guard();
-            f(&g)
-        })
+    #[inline(always)]
+    pub fn using_space_then<T>(&self, f: impl FnOnce(SpaceGuard) -> T) -> Result<T, ()> {
+        self.alive_then(|a| f(a.user_space.using_guard()))
     }
 
     // fork and release all thread except tid
