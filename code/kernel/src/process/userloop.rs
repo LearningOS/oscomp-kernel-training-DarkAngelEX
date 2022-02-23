@@ -11,17 +11,15 @@ async fn userloop(thread: Arc<Thread>) {
 
         local::handle_current_local();
         let context = thread.as_ref().get_context();
-        {
-            // println!("enter user {:?}", thread.process.pid());
-            let _guard = match thread.process.using_space() {
-                Ok(s) => s,
-                Err(_) => break,
-            };
-            context.run_user();
-            // println!("return from user");
-        }
+
         let mut do_exit = false;
         let mut do_yield = false;
+
+        match thread.process.using_space_then(|_| context.run_user()) {
+            Ok(()) => (),
+            Err(()) => do_exit = true,
+        }
+
         match scause::read().cause() {
             scause::Trap::Exception(e) => match e {
                 Exception::UserEnvCall => {
@@ -73,6 +71,7 @@ async fn userloop(thread: Arc<Thread>) {
         if do_exit {
             let mut lock = thread.process.alive.lock(place!());
             if let Some(alive) = &mut *lock {
+                // TODO: just last thread exit do this.
                 println!("[kernel]proc:{:?} abort", thread.process.pid());
                 alive.clear_all(thread.process.pid());
             }

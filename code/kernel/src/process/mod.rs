@@ -68,9 +68,14 @@ impl Process {
             None => Err(()),
         }
     }
-    #[must_use]
-    pub fn using_space(&self) -> Result<SpaceGuard, ()> {
-        self.alive_then(|a| a.user_space.using_guard())
+    pub fn using_space_then<T>(
+        &self,
+        f: impl FnOnce(&SpaceGuard) -> T,
+    ) -> Result<T, ()> {
+        self.alive_then(|a| {
+            let g = a.user_space.using_guard();
+            f(&g)
+        })
     }
 
     // fork and release all thread except tid

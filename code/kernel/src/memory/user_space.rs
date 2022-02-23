@@ -347,9 +347,9 @@ impl UserSpace {
         self.page_table.using();
     }
     #[must_use]
-    pub fn using_guard(&mut self) -> SpaceGuard {
+    pub fn using_guard<'a>(&'a mut self) -> SpaceGuard<'a> {
         unsafe { self.using() };
-        SpaceGuard
+        SpaceGuard(PhantomData)
     }
     pub fn map_user_range(
         &mut self,
@@ -485,23 +485,23 @@ impl UserSpace {
     }
 }
 
-pub struct SpaceGuard;
+pub struct SpaceGuard<'a>(pub PhantomData<&'a ()>);
 
-impl !Send for SpaceGuard {}
-impl !Sync for SpaceGuard {}
+impl !Send for SpaceGuard<'_> {}
+impl !Sync for SpaceGuard<'_> {}
 
 #[derive(Copy, Clone)]
 pub struct SpaceMark<'a> {
     _mark: PhantomData<&'a ()>,
 }
 
-impl SpaceGuard {
+impl SpaceGuard<'_> {
     pub fn access<'a>(&'a self) -> SpaceMark<'a> {
         SpaceMark { _mark: PhantomData }
     }
 }
 
-impl Drop for SpaceGuard {
+impl Drop for SpaceGuard<'_> {
     fn drop(&mut self) {
         memory::set_satp_by_global()
     }

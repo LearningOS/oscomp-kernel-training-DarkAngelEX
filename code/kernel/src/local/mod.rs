@@ -39,6 +39,7 @@ impl Local {
     }
     fn handle(&mut self) {
         debug_check!(self.queue.is_empty());
+        // use swap instead of take bucause it can keep reverse space.
         core::mem::swap(&mut self.queue, &mut *self.pending.lock(place!()));
         while let Some(f) = self.queue.pop() {
             f()

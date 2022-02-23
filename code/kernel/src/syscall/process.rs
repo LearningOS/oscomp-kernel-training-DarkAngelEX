@@ -50,17 +50,6 @@ impl Syscall<'_> {
         }
         let (path, argv, envp): (*const u8, *const *const u8, *const *const u8) =
             self.cx.parameter3();
-        let guard = match self.process.using_space() {
-            Ok(a) => a,
-            Err(()) => {
-                self.do_exit = true;
-                return Err(SysError::ESRCH);
-            }
-        };
-        let path = String::from_utf8(
-            user::translated_user_array_zero_end(path, guard.access())?.into_vec(guard.access()),
-        )
-        .map_err(|_| SysError::EFAULT)?;
         // let argv = user::translated_user_2d_array_zero_end(argv)?;
         // let envp = user::translated_user_2d_array_zero_end(envp)?;
 
@@ -72,6 +61,12 @@ impl Syscall<'_> {
                 return Err(SysError::ESRCH);
             }
         };
+        let guard = alive.user_space.using_guard();
+        let path = String::from_utf8(
+            user::translated_user_array_zero_end(path, guard.access())?.into_vec(guard.access()),
+        )
+        .map_err(|_| SysError::EFAULT)?;
+
         let allocator = &mut frame::defualt_allocator();
         // TODO: kill other thread and await
         if alive.threads.len() > 1 {

@@ -20,7 +20,7 @@ unsafe impl<T: 'static> Sync for UserData<T> {}
 
 pub struct UserDataGuard<'a, T: 'static> {
     data: &'static [T],
-    mark: SpaceMark<'a>,
+    _mark: SpaceMark<'a>,
     _auto_sum: AutoSum,
 }
 
@@ -36,7 +36,7 @@ impl<'a, T> Deref for UserDataGuard<'a, T> {
 }
 pub struct UserDataGuardMut<'a, T> {
     data: *mut [T],
-    mark: SpaceMark<'a>,
+    _mark: SpaceMark<'a>,
     _auto_sum: AutoSum,
 }
 
@@ -62,7 +62,7 @@ impl<T: 'static> UserData<T> {
     pub fn access<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
-            mark,
+            _mark: mark,
             _auto_sum: AutoSum::new(),
         }
     }
@@ -87,14 +87,14 @@ impl<T> UserDataMut<T> {
     pub fn access<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
-            mark,
+            _mark: mark,
             _auto_sum: AutoSum::new(),
         }
     }
     pub fn access_mut<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuardMut<'b, T> {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
-            mark,
+            _mark: mark,
             _auto_sum: AutoSum::new(),
         }
     }
