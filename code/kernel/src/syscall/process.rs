@@ -111,48 +111,50 @@ impl Syscall<'_> {
             p => WaitFor::PGid(p as usize),
         };
         loop {
-            // zomebies process.
-            let mut xlock = self.process.alive.lock(place!());
-            let p = match xlock.as_mut() {
-                Some(p) => p,
-                None => {
-                    self.do_exit = true;
-                    return Err(SysError::ESRCH);
+            // this brace is for xlock which drop before .await but stupid rust can't see it.
+            {
+                let mut xlock = self.process.alive.lock(place!());
+                let p = match xlock.as_mut() {
+                    Some(p) => p,
+                    None => {
+                        self.do_exit = true;
+                        return Err(SysError::ESRCH);
+                    }
+                };
+                let process = match target {
+                    WaitFor::AnyChild => p.children.try_remove_zombie_any(),
+                    WaitFor::Pid(pid) => p.children.try_remove_zombie(pid),
+                    WaitFor::PGid(_) => unimplemented!(),
+                    WaitFor::AnyChildInGroup => unimplemented!(),
+                };
+                if let Some(process) = process {
+                    if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
+                        let exit_code = process.exit_code.load(Ordering::Relaxed);
+                        let guard = p.user_space.using_guard();
+                        let access = user::translated_user_writable_slice(
+                            exit_code_ptr as *mut u8,
+                            4,
+                            guard.access(),
+                        )?;
+                        let exit_code_slice =
+                            core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
+                        access
+                            .access_mut(guard.access())
+                            .copy_from_slice(unsafe { &*exit_code_slice });
+                    }
+                    if PRINT_SYSCALL_PROCESS {
+                        println!(
+                            "sys_waitpid success {:?} <- {:?}",
+                            self.process.pid(),
+                            process.pid()
+                        );
+                    }
+                    return Ok(process.pid().into_usize());
+                } else if p.children.is_empty() {
+                    return Err(SysError::ECHILD);
                 }
-            };
-            let process = match target {
-                WaitFor::AnyChild => p.children.try_remove_zombie_any(),
-                WaitFor::Pid(pid) => p.children.try_remove_zombie(pid),
-                WaitFor::PGid(_) => unimplemented!(),
-                WaitFor::AnyChildInGroup => unimplemented!(),
-            };
-            if let Some(process) = process {
-                if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
-                    let exit_code = process.exit_code.load(Ordering::Relaxed);
-                    let guard = p.user_space.using_guard();
-                    let access = user::translated_user_writable_slice(
-                        exit_code_ptr as *mut u8,
-                        4,
-                        guard.access(),
-                    )?;
-                    let exit_code_slice =
-                        core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
-                    access
-                        .access_mut(guard.access())
-                        .copy_from_slice(unsafe { &*exit_code_slice });
-                }
-                if PRINT_SYSCALL_PROCESS {
-                    println!(
-                        "sys_waitpid success {:?} <- {:?}",
-                        self.process.pid(),
-                        process.pid()
-                    );
-                }
-                return Ok(process.pid().into_usize());
-            } else if p.children.is_empty() {
-                return Err(SysError::ECHILD);
+                drop(xlock);
             }
-            drop(xlock);
             let event_bus = &self.process.event_bus;
             if let Err(_e) =
                 even_bus::wait_for_event(event_bus.clone(), Event::CHILD_PROCESS_QUIT).await

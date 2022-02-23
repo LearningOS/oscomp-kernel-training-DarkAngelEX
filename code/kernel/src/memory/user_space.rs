@@ -348,8 +348,10 @@ impl UserSpace {
     }
     #[must_use]
     pub fn using_guard<'a>(&'a mut self) -> SpaceGuard<'a> {
-        unsafe { self.using() };
-        SpaceGuard(PhantomData)
+        unsafe {
+            self.using();
+            SpaceGuard::new()
+        }
     }
     pub fn map_user_range(
         &mut self,
@@ -485,8 +487,14 @@ impl UserSpace {
     }
 }
 
-pub struct SpaceGuard<'a>(pub PhantomData<&'a ()>);
+pub struct SpaceGuard<'a>(PhantomData<&'a ()>);
+impl<'a> SpaceGuard<'a> {
+    unsafe fn new() -> Self {
+        Self(PhantomData)
+    }
+}
 
+/// forbid SpaceGuard across await.
 impl !Send for SpaceGuard<'_> {}
 impl !Sync for SpaceGuard<'_> {}
 

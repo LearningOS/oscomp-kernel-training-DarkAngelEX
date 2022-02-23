@@ -24,6 +24,8 @@ pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
     mutex: &'a Mutex<T, S>,
     support_guard: S::GuardData,
 }
+impl<'a, T: ?Sized, S: MutexSupport> !Sync for MutexGuard<'a, T, S> {}
+impl<'a, T: ?Sized, S: MutexSupport> !Send for MutexGuard<'a, T, S> {}
 
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for Mutex<T, S> {}
 

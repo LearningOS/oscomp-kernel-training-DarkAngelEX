@@ -47,19 +47,20 @@ impl<'a> Syscall<'a> {
             (fd, vaild_data, len)
         };
         if fd == FD_STDOUT {
-            let _lock = loop {
-                if let Some(lock) = console::stdout_try_lock() {
-                    break lock;
-                } else {
-                    thread::yield_now().await;
+            loop {
+                {
+                    if let Some(lock) = console::stdout_try_lock() {
+                        self.using_space_then(|guard| -> SysResult {
+                            let a = vaild_data.access(guard.access());
+                            let str = core::str::from_utf8(&*a).map_err(|_| SysError::EFAULT)?;
+                            print_unlock!("{}", str);
+                            Ok(len)
+                        })??;
+                        return Ok(len);
+                    }
                 }
-            };
-            self.using_space_then(|guard| -> SysResult {
-                let a = vaild_data.access(guard.access());
-                let str = core::str::from_utf8(&*a).map_err(|_| SysError::EFAULT)?;
-                print_unlock!("{}", str);
-                Ok(len)
-            })??;
+                thread::yield_now().await;
+            }
         } else {
             unimplemented!()
         }
