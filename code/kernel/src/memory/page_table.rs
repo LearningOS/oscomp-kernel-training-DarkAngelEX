@@ -1,7 +1,7 @@
 // #![allow(dead_code)]
 use core::{
     fmt::Debug,
-    sync::atomic::{self, Ordering},
+    sync::atomic::{self, AtomicUsize, Ordering},
 };
 
 use alloc::vec::Vec;
@@ -10,7 +10,7 @@ use bitflags::bitflags;
 use super::{
     address::{PageCount, PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
     allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
-    asid::{self, Asid, AsidInfoTracker},
+    asid::{self, version_check_alloc, AsidInfoTracker},
     user_space::UserArea,
 };
 use crate::{
@@ -131,22 +131,21 @@ impl Debug for PageTableEntry {
     }
 }
 
-#[derive(Debug)]
 pub struct PageTable {
     asid_tracker: AsidInfoTracker,
-    satp: usize, // [63:60 MODE, 8 is SV39][59:44 ASID][43:0 PPN]
+    satp: AtomicUsize, // [63:60 MODE, 8 is SV39][59:44 ASID][43:0 PPN]
 }
 
 impl Drop for PageTable {
     fn drop(&mut self) {
         memory_trace!("PageTable::drop begin");
-        assert!(self.satp != 0);
+        assert!(self.satp() != 0);
         let cur_satp = unsafe { csr::get_satp() };
-        assert_ne!(self.satp, cur_satp,);
+        assert_ne!(self.satp(), cur_satp);
         let allocator = &mut frame::defualt_allocator();
         self.free_user_directory_all(allocator);
         unsafe { allocator.dealloc(self.root_pa().into_ref()) };
-        self.satp = 0; // just for panic.
+        *self.satp.get_mut() = 0; // just for panic.
         memory_trace!("PageTable::drop end");
     }
 }
@@ -161,7 +160,7 @@ impl PageTable {
         let asid = asid_tracker.asid().into_usize();
         Ok(PageTable {
             asid_tracker,
-            satp: 8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn(),
+            satp: AtomicUsize::new(8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn()),
         })
     }
     pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
@@ -179,47 +178,28 @@ impl PageTable {
         let asid = asid_tracker.asid().into_usize();
         Ok(PageTable {
             asid_tracker,
-            satp: 8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn(),
+            satp: AtomicUsize::new(8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn()),
         })
     }
-    pub fn drop_by(mut self, allocator: &mut impl FrameAllocator) {
-        assert!(self.satp != 0);
-        self.free_user_directory_all(allocator);
-        unsafe { allocator.dealloc(self.root_pa().into_ref()) };
-        self.satp = 0;
-        // skip satp check
-        core::mem::forget(self);
-    }
     pub fn satp(&self) -> usize {
-        self.satp
+        self.satp.load(Ordering::Relaxed)
     }
-    pub fn update_asid(&mut self, asid_tracker: AsidInfoTracker) {
-        let asid = asid_tracker.asid().into_usize();
-        self.asid_tracker = asid_tracker;
-        self.satp = (self.satp & !(0xffff << 44)) | (asid & 0xffff) << 44
-    }
-    unsafe fn set_asid_in_satp(&mut self, asid: Asid) {
-        self.satp = (self.satp & !(0xffff << 44)) | (asid.into_usize() & 0xffff) << 44
-    }
-    /// need sync with said_tracker
-    pub unsafe fn set_satp(&mut self, satp: usize) {
-        self.satp = satp
+    /// used in AsidManager when update version.
+    pub fn change_satp_asid(satp: usize, asid: usize) -> usize {
+        (satp & !(0xffff << 44)) | (asid & 0xffff) << 44
     }
     pub unsafe fn set_satp_register_uncheck(&self) {
-        csr::set_satp(self.satp)
+        csr::set_satp(self.satp())
     }
-    pub unsafe fn using(&mut self) {
+    pub unsafe fn using(&self) {
         self.version_check();
         self.set_satp_register_uncheck();
     }
-    pub fn version_check(&mut self) {
-        match self.asid_tracker.version_check() {
-            Ok(_) => (),
-            Err(asid) => unsafe { self.set_asid_in_satp(asid) },
-        }
+    fn version_check(&self) {
+        version_check_alloc(&self.asid_tracker, &self.satp);
     }
     pub fn root_pa(&self) -> PhyAddr4K {
-        PhyAddr4K::from_satp(self.satp)
+        PhyAddr4K::from_satp(self.satp())
     }
     fn find_pte_create(
         &mut self,

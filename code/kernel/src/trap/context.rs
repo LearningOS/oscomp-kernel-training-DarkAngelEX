@@ -1,5 +1,6 @@
 use core::mem::MaybeUninit;
 
+use crate::memory::SpaceMark;
 use crate::memory::address::{UserAddr, UserAddr4K};
 use crate::memory::user_ptr::{Policy, UserPtr};
 use crate::riscv::register::sstatus::Sstatus;
@@ -119,7 +120,7 @@ impl UKContext {
         new.user_sstatus = self.user_sstatus;
         new
     }
-    pub fn run_user(&mut self) {
+    pub fn run_user(&mut self, _mark: SpaceMark) {
         run_user(self)
     }
 }

@@ -14,11 +14,10 @@ async fn userloop(thread: Arc<Thread>) {
 
         let mut do_exit = false;
         let mut do_yield = false;
-
-        match thread.process.using_space_then(|_g| context.run_user()) {
-            Ok(()) => (),
+        match thread.process.using_space() {
+            Ok(guard) => context.run_user(guard.access()),
             Err(()) => do_exit = true,
-        }
+        };
         if !do_exit {
             match scause::read().cause() {
                 scause::Trap::Exception(e) => match e {

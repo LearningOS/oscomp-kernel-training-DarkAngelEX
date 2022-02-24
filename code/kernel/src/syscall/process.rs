@@ -53,14 +53,11 @@ impl Syscall<'_> {
         // let argv = user::translated_user_2d_array_zero_end(argv)?;
         // let envp = user::translated_user_2d_array_zero_end(envp)?;
 
-        let mut lock = self.process.alive.lock(place!());
-        let alive = match lock.as_mut() {
-            Some(a) => a,
-            None => {
-                self.do_exit = true;
-                return Err(SysError::ESRCH);
-            }
-        };
+        let mut alive = self.alive_lock()?;
+        // TODO: kill other thread and await
+        if alive.threads.len() > 1 {
+            todo!();
+        }
         let guard = alive.user_space.using_guard();
         let path = String::from_utf8(
             user::translated_user_array_zero_end(path, guard.access())?.into_vec(guard.access()),
@@ -68,10 +65,6 @@ impl Syscall<'_> {
         .map_err(|_| SysError::EFAULT)?;
 
         let allocator = &mut frame::defualt_allocator();
-        // TODO: kill other thread and await
-        if alive.threads.len() > 1 {
-            todo!();
-        }
         let elf_data = loader::get_app_data_by_name(path.as_str()).ok_or(SysError::ENFILE)?;
         drop(guard);
         let (user_space, stack_id, user_sp, entry_point) =
@@ -83,6 +76,7 @@ impl Syscall<'_> {
         local::all_hart_fence_i();
         alive.exec_path = path;
         alive.user_space = user_space;
+        drop(alive);
         self.thread.inner().stack_id = stack_id;
         let (argc, argv) = (0, 0);
         let sstatus = self.thread.get_context().user_sstatus;
@@ -113,24 +107,18 @@ impl Syscall<'_> {
         loop {
             // this brace is for xlock which drop before .await but stupid rust can't see it.
             {
-                let mut xlock = self.process.alive.lock(place!());
-                let p = match xlock.as_mut() {
-                    Some(p) => p,
-                    None => {
-                        self.do_exit = true;
-                        return Err(SysError::ESRCH);
-                    }
-                };
+                let this_pid = self.process.pid();
+                let mut alive = self.alive_lock()?;
                 let process = match target {
-                    WaitFor::AnyChild => p.children.try_remove_zombie_any(),
-                    WaitFor::Pid(pid) => p.children.try_remove_zombie(pid),
+                    WaitFor::AnyChild => alive.children.try_remove_zombie_any(),
+                    WaitFor::Pid(pid) => alive.children.try_remove_zombie(pid),
                     WaitFor::PGid(_) => unimplemented!(),
                     WaitFor::AnyChildInGroup => unimplemented!(),
                 };
                 if let Some(process) = process {
                     if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                         let exit_code = process.exit_code.load(Ordering::Relaxed);
-                        let guard = p.user_space.using_guard();
+                        let guard = alive.user_space.using_guard();
                         let access = user::translated_user_writable_slice(
                             exit_code_ptr as *mut u8,
                             4,
@@ -143,17 +131,13 @@ impl Syscall<'_> {
                             .copy_from_slice(unsafe { &*exit_code_slice });
                     }
                     if PRINT_SYSCALL_PROCESS {
-                        println!(
-                            "sys_waitpid success {:?} <- {:?}",
-                            self.process.pid(),
-                            process.pid()
-                        );
+                        println!("sys_waitpid success {:?} <- {:?}", this_pid, process.pid());
                     }
                     return Ok(process.pid().into_usize());
-                } else if p.children.is_empty() {
+                } else if alive.children.is_empty() {
                     return Err(SysError::ECHILD);
                 }
-                drop(xlock);
+                drop(alive);
             }
             let event_bus = &self.process.event_bus;
             if let Err(_e) =

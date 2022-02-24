@@ -21,17 +21,15 @@ impl<'a> Syscall<'a> {
         }
         let (fd, vaild_data, len) = {
             let (fd, buf, len): (usize, *mut u8, usize) = self.cx.parameter3();
-            let vaild_data = self.using_space_then(|guard| {
-                user::translated_user_writable_slice(buf, len, guard.access())
-            })??;
+            let guard = self.using_space()?;
+            let vaild_data = user::translated_user_writable_slice(buf, len, guard.access())?;
             (fd, vaild_data, len)
         };
         if fd == FD_STDIN {
-            self.using_space_then(|guard| {
-                for ch in vaild_data.access_mut(guard.access()).iter_mut() {
-                    *ch = console::getchar() as u8;
-                }
-            })?;
+            let guard = self.using_space()?;
+            for ch in vaild_data.access_mut(guard.access()).iter_mut() {
+                *ch = console::getchar() as u8;
+            }
         }
         Ok(len)
     }
@@ -41,21 +39,18 @@ impl<'a> Syscall<'a> {
         }
         let (fd, vaild_data, len) = {
             let (fd, buf, len): (usize, *const u8, usize) = self.cx.parameter3();
-            let vaild_data = self.using_space_then(|guard| {
-                user::translated_user_readonly_slice(buf, len, guard.access())
-            })??;
+            let guard = self.using_space()?;
+            let vaild_data = user::translated_user_readonly_slice(buf, len, guard.access())?;
             (fd, vaild_data, len)
         };
         if fd == FD_STDOUT {
             loop {
                 {
                     if let Some(lock) = console::stdout_try_lock() {
-                        self.using_space_then(|guard| -> SysResult {
-                            let a = vaild_data.access(guard.access());
-                            let str = core::str::from_utf8(&*a).map_err(|_| SysError::EFAULT)?;
-                            print_unlock!("{}", str);
-                            Ok(len)
-                        })??;
+                        let guard = self.using_space()?;
+                        let a = vaild_data.access(guard.access());
+                        let str = core::str::from_utf8(&*a).map_err(|_| SysError::EFAULT)?;
+                        print_unlock!("{}", str);
                         return Ok(len);
                     }
                 }

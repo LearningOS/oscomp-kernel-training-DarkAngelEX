@@ -1,6 +1,6 @@
-use core::marker::PhantomData;
+use core::{cell::UnsafeCell, marker::PhantomData};
 
-use alloc::{collections::BTreeMap, vec::Vec};
+use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
@@ -283,12 +283,15 @@ impl HeapManager {
 ///
 /// shared between threads, necessary synchronizations operations are required
 pub struct UserSpace {
-    page_table: PageTable,
-    text_area: Vec<UserArea>, // used in drop
+    page_table: Arc<UnsafeCell<PageTable>>, // access PageTable must through UserSpace
+    text_area: Vec<UserArea>,               // used in drop
     stacks: StackSpaceManager,
     heap: HeapManager,
     // mmap_size: usize,
 }
+
+unsafe impl Send for UserSpace {}
+unsafe impl Sync for UserSpace {}
 
 #[derive(Debug)]
 pub enum USpaceCreateError {
@@ -317,7 +320,7 @@ impl Drop for UserSpace {
         // free text
         let allocator = &mut frame::defualt_allocator();
         while let Some(area) = self.text_area.pop() {
-            self.page_table.unmap_user_range(&area, allocator);
+            self.page_table_mut().unmap_user_range(&area, allocator);
         }
         // free heap
         self.heap_resize(PageCount::from_usize(0), allocator);
@@ -334,24 +337,25 @@ impl UserSpace {
     /// need alloc 4KB to root entry.
     pub fn from_global() -> Result<Self, FrameOutOfMemory> {
         Ok(Self {
-            page_table: PageTable::from_global(asid::alloc_asid())?,
+            page_table: Arc::new(UnsafeCell::new(PageTable::from_global(asid::alloc_asid())?)),
             text_area: Vec::new(),
             stacks: StackSpaceManager::new(),
             heap: HeapManager::new(),
         })
     }
-    pub fn satp(&self) -> usize {
-        self.page_table.satp()
+    fn page_table(&self) -> &PageTable {
+        unsafe { &*self.page_table.get() }
     }
-    pub unsafe fn using(&mut self) {
-        self.page_table.using();
+    fn page_table_mut(&mut self) -> &mut PageTable {
+        unsafe { &mut *self.page_table.get() }
+    }
+    pub unsafe fn using(&self) {
+        self.page_table().using();
     }
     #[must_use]
-    pub fn using_guard<'a>(&'a mut self) -> SpaceGuard<'a> {
-        unsafe {
-            self.using();
-            SpaceGuard::new()
-        }
+    pub fn using_guard(&self) -> SpaceGuard {
+        unsafe { self.using() };
+        SpaceGuard::new(self.page_table.clone())
     }
     pub fn map_user_range(
         &mut self,
@@ -360,7 +364,7 @@ impl UserSpace {
         allocator: &mut impl FrameAllocator,
     ) -> Result<(), FrameOutOfMemory> {
         memory_trace!("UserSpace::map_user_range");
-        self.page_table
+        self.page_table_mut()
             .map_user_range(&map_area, data_iter, allocator)?;
         self.text_area.push(map_area);
         Ok(())
@@ -374,7 +378,7 @@ impl UserSpace {
         let stack = self.stacks.alloc().map_err(UserStackCreateError::from)?;
         let user_area = stack.user_area();
         let info = stack.info();
-        self.page_table
+        unsafe { &mut *self.page_table.get() }
             .map_user_range(&user_area, &mut NullFrameDataIter, allocator)
             .map_err(UserStackCreateError::from)?;
         stack.consume();
@@ -384,7 +388,7 @@ impl UserSpace {
         memory_trace!("UserSpace::stack_dealloc");
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
-        self.page_table
+        self.page_table_mut()
             .unmap_user_range(&user_area.valid_area(), allocator);
     }
     pub unsafe fn stack_dealloc_all_except(
@@ -394,7 +398,7 @@ impl UserSpace {
     ) {
         memory_trace!("UserSpace::stack_dealloc_all_except");
         while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
-            self.page_table
+            self.page_table_mut()
                 .unmap_user_range(&user_area.valid_area(), allocator);
         }
     }
@@ -404,7 +408,9 @@ impl UserSpace {
             self.heap.set_size_bigger(page_count);
         } else {
             let free_area = &self.heap.set_size_smaller(page_count);
-            let free_count = self.page_table.unmap_user_range_lazy(free_area, allocator);
+            let free_count = self
+                .page_table_mut()
+                .unmap_user_range_lazy(free_area, allocator);
             self.heap.add_free_count(free_count);
         }
         memory_trace!("UserSpace::heap_resize end");
@@ -463,14 +469,14 @@ impl UserSpace {
     }
     pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOutOfMemory> {
         memory_trace!("UserSpace::fork");
-        let page_table = self.page_table.fork(allocator)?;
+        let page_table = self.page_table_mut().fork(allocator)?;
         let text_area = self.text_area.clone();
         let stacks = self.stacks.clone();
         let heap = self.heap.clone();
         // let oom_fn = USpaceCreateError::from;
         // let stack_fn = USpaceCreateError::from;
         let ret = Self {
-            page_table,
+            page_table: Arc::new(UnsafeCell::new(page_table)),
             text_area,
             stacks,
             heap,
@@ -487,29 +493,29 @@ impl UserSpace {
     }
 }
 
-pub struct SpaceGuard<'a>(PhantomData<&'a ()>);
-impl<'a> SpaceGuard<'a> {
-    unsafe fn new() -> Self {
-        Self(PhantomData)
+pub struct SpaceGuard(Arc<UnsafeCell<PageTable>>);
+impl SpaceGuard {
+    fn new(pt: Arc<UnsafeCell<PageTable>>) -> Self {
+        Self(pt)
     }
 }
 
 /// forbid SpaceGuard across await.
-impl !Send for SpaceGuard<'_> {}
-impl !Sync for SpaceGuard<'_> {}
+impl !Send for SpaceGuard {}
+impl !Sync for SpaceGuard {}
 
 #[derive(Copy, Clone)]
 pub struct SpaceMark<'a> {
     _mark: PhantomData<&'a ()>,
 }
 
-impl SpaceGuard<'_> {
+impl SpaceGuard {
     pub fn access<'a>(&'a self) -> SpaceMark<'a> {
         SpaceMark { _mark: PhantomData }
     }
 }
 
-impl Drop for SpaceGuard<'_> {
+impl Drop for SpaceGuard {
     fn drop(&mut self) {
         memory::set_satp_by_global()
     }

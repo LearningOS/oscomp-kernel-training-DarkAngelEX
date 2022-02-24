@@ -1,4 +1,8 @@
-use core::{fmt::Debug, ops::Deref};
+use core::{
+    fmt::Debug,
+    ops::Deref,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use alloc::vec::Vec;
 
@@ -27,40 +31,45 @@ pub struct AsidVersion(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct AsidInfo(usize);
 
-#[derive(Debug)]
+pub struct AtomicAsidInfo(AtomicUsize);
+
 pub struct AsidInfoTracker {
-    asid_info: AsidInfo,
+    asid_info: AtomicAsidInfo,
 }
 impl Drop for AsidInfoTracker {
     fn drop(&mut self) {
-        unsafe { dealloc_asid(self.asid_info) }
+        unsafe { dealloc_asid(self.asid_info.get()) }
     }
 }
+
+impl AtomicAsidInfo {
+    pub fn new(ai: AsidInfo) -> Self {
+        Self(AtomicUsize::new(ai.into_usize()))
+    }
+    pub fn get(&self) -> AsidInfo {
+        AsidInfo(self.0.load(Ordering::Relaxed))
+    }
+    fn set(&self, new: AsidInfo, _asid_manager: &mut AsidManager) {
+        self.0.store(new.into_usize(), Ordering::Relaxed);
+    }
+}
+
 impl AsidInfoTracker {
     fn alloc() -> Self {
         alloc_asid()
     }
     fn build(version: AsidVersion, asid: Asid) -> Self {
         Self {
-            asid_info: AsidInfo(version.into_usize() | asid.into_usize()),
+            asid_info: AtomicAsidInfo::new(AsidInfo(version.into_usize() | asid.into_usize())),
         }
     }
-    pub fn version_check(&mut self) -> Result<(), Asid> {
-        match version_check_alloc(self.asid_info) {
-            Ok(_null) => Ok(()),
-            Err(new) => {
-                self.asid_info = new.asid_info;
-                core::mem::forget(new);
-                Err(self.asid())
-            }
-        }
+    pub fn consume(self) -> AsidInfo {
+        let asid = self.asid_info.get();
+        core::mem::forget(self);
+        asid
     }
-}
-impl Deref for AsidInfoTracker {
-    type Target = AsidInfo;
-
-    fn deref(&self) -> &Self::Target {
-        &self.asid_info
+    pub fn asid(&self) -> Asid {
+        self.asid_info.get().asid()
     }
 }
 
@@ -122,11 +131,19 @@ impl AsidManager {
             recycled: Vec::new(),
         }
     }
-    pub fn version_check(&self, asid_info: AsidInfo) -> bool {
-        asid_info.version() == self.version
-    }
-    pub fn version_check_alloc(&mut self, asid_info: AsidInfo) -> Result<(), AsidInfoTracker> {
-        tools::bool_result(asid_info.version() == self.version).map_err(|_| self.alloc())
+    // this function is running in lock.
+    pub fn version_check_alloc(&mut self, asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
+        let ai = asid_info.asid_info.get();
+        if ai.version() == self.version {
+            return;
+        }
+        debug_check!(ai.version() < self.version);
+        let new_asid_info = self.alloc().consume();
+        let new_asid = new_asid_info.asid();
+        asid_info.asid_info.set(new_asid_info, self);
+        let old_satp = satp.load(Ordering::Relaxed);
+        let new_satp = PageTable::change_satp_asid(old_satp, new_asid.into_usize());
+        satp.store(new_satp, Ordering::Relaxed);
     }
     pub fn alloc(&mut self) -> AsidInfoTracker {
         if let Some(asid) = self.recycled.pop() {
@@ -169,12 +186,10 @@ pub unsafe fn dealloc_asid(asid_info: AsidInfo) {
     ASID_MANAGER.lock(place!()).dealloc(asid_info)
 }
 
-pub fn version_check(asid_info: AsidInfo) -> bool {
-    ASID_MANAGER.lock(place!()).version_check(asid_info)
-}
-
-pub fn version_check_alloc(asid_info: AsidInfo) -> Result<(), AsidInfoTracker> {
-    ASID_MANAGER.lock(place!()).version_check_alloc(asid_info)
+pub fn version_check_alloc(asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
+    ASID_MANAGER
+        .lock(place!())
+        .version_check_alloc(asid_info, satp)
 }
 
 // #[allow(dead_code)]

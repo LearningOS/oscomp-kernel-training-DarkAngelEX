@@ -1,10 +1,15 @@
-use core::{fmt, pin::Pin};
+use core::{
+    fmt,
+    ops::{Deref, DerefMut},
+    pin::Pin,
+};
 
 use alloc::sync::Arc;
 
 use crate::{
     memory::SpaceGuard,
-    process::{thread::Thread, Process},
+    process::{thread::Thread, AliveProcess, Process},
+    sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
     xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
 };
@@ -116,14 +121,42 @@ impl<'a> Syscall<'a> {
     }
     // if return Err will set do_exit = true
     #[inline(always)]
-    pub fn using_space_then<T>(
+    pub fn using_space(
         &mut self,
-        f: impl FnOnce(SpaceGuard) -> T,
-    ) -> Result<T, UniqueSysError<{ SysError::ESRCH as isize }>> {
-        self.process.using_space_then(f).map_err(|()| {
+    ) -> Result<SpaceGuard, UniqueSysError<{ SysError::ESRCH as isize }>> {
+        self.process.using_space().map_err(|()| {
             self.do_exit = true;
             UniqueSysError
         })
+    }
+    pub fn alive_lock(
+        &mut self,
+    ) -> Result<AliveGurad<'_>, UniqueSysError<{ SysError::ESRCH as isize }>> {
+        let lock = self.process.alive.lock(place!());
+        if lock.is_none() {
+            self.do_exit = true;
+            return Err(UniqueSysError);
+        }
+
+        return Ok(AliveGurad(lock));
+    }
+}
+
+pub struct AliveGurad<'a>(MutexGuard<'a, Option<AliveProcess>, SpinNoIrq>);
+impl Deref for AliveGurad<'_> {
+    type Target = AliveProcess;
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref().unwrap_unchecked() }
+    }
+}
+impl DerefMut for AliveGurad<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut().unwrap_unchecked() }
+    }
+}
+impl AliveGurad<'_> {
+    pub unsafe fn die(mut self) {
+        *&mut *self.0 = None;
     }
 }
 

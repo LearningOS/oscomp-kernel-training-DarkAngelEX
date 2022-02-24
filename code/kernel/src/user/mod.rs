@@ -1,4 +1,3 @@
-use core::marker::PhantomData;
 use core::ops::{Deref, DerefMut};
 use core::{convert::TryFrom, ptr};
 

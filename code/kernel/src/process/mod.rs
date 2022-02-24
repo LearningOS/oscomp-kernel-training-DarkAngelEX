@@ -70,8 +70,8 @@ impl Process {
         }
     }
     #[inline(always)]
-    pub fn using_space_then<T>(&self, f: impl FnOnce(SpaceGuard) -> T) -> Result<T, ()> {
-        self.alive_then(|a| f(a.user_space.using_guard()))
+    pub fn using_space(&self) -> Result<SpaceGuard, ()> {
+        self.alive_then(|a| a.user_space.using_guard())
     }
 
     // fork and release all thread except tid
