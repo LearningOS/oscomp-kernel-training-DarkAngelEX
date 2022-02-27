@@ -73,6 +73,10 @@ impl Process {
     pub fn using_space(&self) -> Result<SpaceGuard, ()> {
         self.alive_then(|a| a.user_space.using_guard())
     }
+    #[inline(always)]
+    pub fn using_space_check(&self) -> Result<SpaceGuard, ()> {
+        self.alive_then(|a| a.user_space.using_guard())
+    }
 
     // fork and release all thread except tid
     pub fn fork(

@@ -21,7 +21,7 @@ use super::{
         iter::{FrameDataIter, NullFrameDataIter},
         FrameAllocator,
     },
-    asid, PageTable,
+    asid, PageTable, PageTableClosed,
 };
 
 /// all map to frame.
@@ -329,6 +329,7 @@ impl Drop for UserSpace {
             self.clear_user_stack_all(allocator);
             // assert_eq!(self.stacks.using_size(), 0);
         }
+        self.page_table_mut().free_user_directory_all(allocator);
         memory_trace!("UserSpace::drop end");
     }
 }
@@ -352,7 +353,7 @@ impl UserSpace {
     pub unsafe fn using(&self) {
         self.page_table().using();
     }
-    #[must_use]
+    /// if self comes from AliveProcess, you can use this because page table closed only when AliveProcess drop.
     pub fn using_guard(&self) -> SpaceGuard {
         unsafe { self.using() };
         SpaceGuard::new(self.page_table.clone())
@@ -494,11 +495,6 @@ impl UserSpace {
 }
 
 pub struct SpaceGuard(Arc<UnsafeCell<PageTable>>);
-impl SpaceGuard {
-    fn new(pt: Arc<UnsafeCell<PageTable>>) -> Self {
-        Self(pt)
-    }
-}
 
 /// forbid SpaceGuard across await.
 impl !Send for SpaceGuard {}
@@ -510,6 +506,9 @@ pub struct SpaceMark<'a> {
 }
 
 impl SpaceGuard {
+    fn new(pt: Arc<UnsafeCell<PageTable>>) -> Self {
+        Self(pt)
+    }
     pub fn access<'a>(&'a self) -> SpaceMark<'a> {
         SpaceMark { _mark: PhantomData }
     }
