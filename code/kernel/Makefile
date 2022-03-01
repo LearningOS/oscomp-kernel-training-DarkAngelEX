@@ -6,6 +6,10 @@ MODE := debug
 KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
+# FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
+FS_IMG := ../user/target/$(TARGET)/release/fs.img
+SDCARD := /dev/sdb
+APPS := ../user/src/bin/*
 
 SMP := 4
 MEMORY_SIZE := 128M
@@ -49,8 +53,20 @@ env:
 	rustup component add rust-src
 	rustup component add llvm-tools-preview
 
+sdcard: fs-img
+	@echo "Are you sure write to $(SDCARD) ? [y/N] " && read ans && [ $${ans:-N} = y ]
+	@sudo dd if=/dev/zero of=$(SDCARD) bs=1048576 count=32
+	@sudo dd if=$(FS_IMG) of=$(SDCARD)
+
 $(KERNEL_BIN): kernel
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
+
+fs-img: $(APPS)
+	@cd ../user && make build
+	@rm -f $(FS_IMG)
+	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+
+$(APPS):
 
 kernel:
 ifeq ($(ARCH), riscv64)
@@ -89,7 +105,9 @@ ifeq ($(BOARD),qemu)
 		-smp $(SMP) \
 		-bios $(BOOTLOADER) \
 		-m $(MEMORY_SIZE) \
-		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA)
+		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
+		-drive file=$(FS_IMG),if=none,format=raw,id=x0 \
+        -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 else
 	(which $(K210-BURNER)) || (cd .. && git clone https://github.com/sipeed/kflash.py.git && mv kflash.py tools)
 	@cp $(BOOTLOADER) $(BOOTLOADER).copy

@@ -21,9 +21,9 @@ pub fn main() -> i32 {
         assert!(pid > 0);
     }
     let mut exit_code: i32 = 0;
-    for i in 0..MAX_CHILD {
+    for _ in 0..MAX_CHILD {
         if wait(&mut exit_code) <= 0 {
-            panic!("wait stopped early: {}", i);
+            panic!("wait stopped early");
         }
     }
     if wait(&mut exit_code) > 0 {
