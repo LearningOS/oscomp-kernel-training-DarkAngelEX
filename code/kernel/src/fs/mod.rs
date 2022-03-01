@@ -1,14 +1,26 @@
 mod inode;
 mod stdio;
 
-pub trait File: Send + Sync {
-    fn readable(&self) -> bool;
-    fn writable(&self) -> bool;
-    fn read(&self, buf: UserData<u8>) -> usize;
-    fn write(&self, buf: UserData<u8>) -> usize;
-}
+use core::{future::Future, pin::Pin};
 
+use alloc::{boxed::Box, sync::Arc};
 pub use inode::{list_apps, open_file, OSInode, OpenFlags};
 pub use stdio::{Stdin, Stdout};
 
-use crate::user::UserData;
+use crate::{
+    process::Process,
+    syscall::SysError,
+    user::{UserData, UserDataMut},
+};
+
+pub type AsyncFileOutput = Pin<Box<dyn Future<Output = Result<usize, SysError>> + Send + 'static>>;
+pub trait File: Send + Sync + 'static {
+    fn readable(&self) -> bool;
+    fn writable(&self) -> bool;
+    fn read(self: Arc<Self>, proc: Arc<Process>, buf: UserDataMut<u8>) -> AsyncFileOutput;
+    fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput;
+}
+
+pub fn init() {
+    todo!()
+}

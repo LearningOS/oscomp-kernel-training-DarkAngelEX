@@ -1,7 +1,6 @@
 use crate::{
-    hart::{cpu, sbi::shutdown},
-    println, executor,
-    xdebug::{stack_trace, trace},
+    hart::{cpu, sbi},
+    xdebug::trace,
 };
 use core::panic::PanicInfo;
 
@@ -34,5 +33,5 @@ fn panic(info: &PanicInfo) -> ! {
     // }
     println!("loop forever!!");
     // loop {}
-    shutdown()
+    sbi::shutdown()
 }

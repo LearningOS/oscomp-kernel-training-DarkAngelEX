@@ -7,11 +7,16 @@ use alloc::sync::Arc;
 use alloc::vec::Vec;
 
 use crate::memory;
+use crate::memory::allocator::frame::global::FrameTracker;
+use crate::process::Process;
 use crate::riscv::register::sstatus;
 
 use crate::memory::{address::OutOfUserRange, PageTable};
 use crate::syscall::{SysError, UniqueSysError};
 
+use self::iter::{UserData4KIter, UserDataMut4KIter};
+
+pub mod iter;
 pub mod tools;
 
 pub struct SpaceGuard(Arc<UnsafeCell<PageTable>>);
@@ -53,6 +58,9 @@ pub struct UserDataGuard<'a, T: 'static> {
     _auto_sum: AutoSum,
 }
 
+impl<'a, T> !Send for UserDataGuard<'a, T> {}
+impl<'a, T> !Sync for UserDataGuard<'a, T> {}
+
 // unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
 // unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
 
@@ -88,6 +96,9 @@ impl<T: 'static> UserData<T> {
     pub fn new(data: *const [T]) -> Self {
         Self { data }
     }
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
     pub fn access<'b>(&self, mark: &'b SpaceGuard) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
@@ -96,6 +107,13 @@ impl<T: 'static> UserData<T> {
         }
     }
 }
+
+impl UserData<u8> {
+    pub fn readonly_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
+        UserData4KIter::new(self, proc, buffer)
+    }
+}
+
 impl<T: Clone + 'static> UserData<T> {
     pub fn into_vec(&self, mark: &SpaceGuard) -> Vec<T> {
         self.access(mark).to_vec()
@@ -113,23 +131,39 @@ impl<T> UserDataMut<T> {
     pub fn new(data: *mut [T]) -> Self {
         Self { data }
     }
-    pub fn access<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuard<'b, T> {
+    pub fn len(&self) -> usize {
+        self.data.len()
+    }
+    pub fn access<'b>(&self, mark: &'b SpaceGuard) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
-            _mark: mark,
+            _mark: mark.access(),
             _auto_sum: AutoSum::new(),
         }
     }
-    pub fn access_mut<'b>(&self, mark: SpaceMark<'b>) -> UserDataGuardMut<'b, T> {
+    pub fn access_mut<'b>(&self, mark: &'b SpaceGuard) -> UserDataGuardMut<'b, T> {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
-            _mark: mark,
+            _mark: mark.access(),
             _auto_sum: AutoSum::new(),
         }
     }
+    fn as_const(&self) -> &UserData<T> {
+        unsafe { core::mem::transmute(self) }
+    }
 }
+
+impl UserDataMut<u8> {
+    pub fn readonly_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
+        UserData4KIter::new(self.as_const(), proc, buffer)
+    }
+    pub fn writonly_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserDataMut4KIter {
+        UserDataMut4KIter::new(self, proc, buffer)
+    }
+}
+
 impl<T: Clone + 'static> UserDataMut<T> {
-    pub fn into_vec<'b>(&self, mark: SpaceMark<'b>) -> Vec<T> {
+    pub fn into_vec(&self, mark: &SpaceGuard) -> Vec<T> {
         self.access(mark).to_vec()
     }
 }

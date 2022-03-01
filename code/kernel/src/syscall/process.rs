@@ -16,7 +16,6 @@ use crate::{
     },
     timer::{self, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
-    user,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
@@ -59,12 +58,8 @@ impl Syscall<'_> {
             todo!();
         }
         let guard = alive.user_space.using_guard();
-        let path = String::from_utf8(
-            guard
-                .translated_user_array_zero_end(path)?
-                .into_vec(&guard),
-        )
-        .map_err(|_| SysError::EFAULT)?;
+        let path = String::from_utf8(guard.translated_user_array_zero_end(path)?.into_vec(&guard))
+            .map_err(|_| SysError::EFAULT)?;
 
         let allocator = &mut frame::defualt_allocator();
         let elf_data = loader::get_app_data_by_name(path.as_str()).ok_or(SysError::ENFILE)?;
@@ -126,7 +121,7 @@ impl Syscall<'_> {
                         let exit_code_slice =
                             core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
                         access
-                            .access_mut(guard.access())
+                            .access_mut(&guard)
                             .copy_from_slice(unsafe { &*exit_code_slice });
                     }
                     if PRINT_SYSCALL_PROCESS {

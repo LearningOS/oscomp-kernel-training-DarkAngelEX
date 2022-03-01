@@ -17,6 +17,7 @@
 #![feature(map_try_insert)]
 #![feature(unboxed_closures)]
 #![feature(negative_impls)]
+#![feature(slice_ptr_len)]
 
 // #![allow(dead_code)]
 
@@ -47,7 +48,7 @@ mod xdebug;
 mod drivers;
 mod executor;
 mod fdt;
-// mod fs;
+mod fs;
 mod hart;
 mod lang_items;
 mod loader;

@@ -1,11 +1,20 @@
-use super::File;
-use crate::mm::UserBuffer;
-use crate::sbi::console_getchar;
-use crate::task::suspend_current_and_run_next;
+use core::future::Future;
+use core::pin::Pin;
+
+use alloc::boxed::Box;
+use alloc::sync::Arc;
+
+use super::{AsyncFileOutput, File};
+use crate::hart::sbi::console_getchar;
+use crate::process::{thread, Process};
+use crate::sync::sleep_mutex::SleepMutex;
+use crate::user::{UserData, UserDataMut};
 
 pub struct Stdin;
 
 pub struct Stdout;
+
+static STDOUT_MUTEX: SleepMutex<()> = SleepMutex::new(());
 
 impl File for Stdin {
     fn readable(&self) -> bool {
@@ -14,26 +23,28 @@ impl File for Stdin {
     fn writable(&self) -> bool {
         false
     }
-    fn read(&self, mut user_buf: UserBuffer) -> usize {
-        assert_eq!(user_buf.len(), 1);
+    fn read(self: Arc<Self>, proc: Arc<Process>, buf: UserDataMut<u8>) -> AsyncFileOutput {
+        assert_eq!(buf.len(), 1);
         // busy loop
-        let mut c: usize;
-        loop {
-            c = console_getchar();
-            if c == 0 {
-                suspend_current_and_run_next();
-                continue;
-            } else {
-                break;
+        Box::pin(async move {
+            let mut c: usize;
+            loop {
+                c = console_getchar();
+                if c == 0 {
+                    // suspend_current_and_run_next();
+                    thread::yield_now().await;
+                    continue;
+                } else {
+                    break;
+                }
             }
-        }
-        let ch = c as u8;
-        unsafe {
-            user_buf.buffers[0].as_mut_ptr().write_volatile(ch);
-        }
-        1
+            let ch = c as u8;
+            let guard = proc.using_space().unwrap();
+            buf.access_mut(&guard)[0] = ch;
+            Ok(1)
+        })
     }
-    fn write(&self, _user_buf: UserBuffer) -> usize {
+    fn write(self: Arc<Self>, _proc: Arc<Process>, _buf: UserData<u8>) -> AsyncFileOutput {
         panic!("Cannot write to stdin!");
     }
 }
@@ -45,13 +56,17 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read(&self, _user_buf: UserBuffer) -> usize {
+    fn read(self: Arc<Self>, _proc: Arc<Process>, _buf: UserDataMut<u8>) -> AsyncFileOutput {
         panic!("Cannot read from stdout!");
     }
-    fn write(&self, user_buf: UserBuffer) -> usize {
-        for buffer in user_buf.buffers.iter() {
-            print!("{}", core::str::from_utf8(*buffer).unwrap());
-        }
-        user_buf.len()
+    fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput {
+        Box::pin(async move {
+            let _lock = STDOUT_MUTEX.lock().await;
+            let guard = proc.using_space().unwrap();
+            let str = buf.access(&guard);
+            print!("{}", core::str::from_utf8(&*str).unwrap());
+            let len = buf.len();
+            Ok(len)
+        })
     }
 }

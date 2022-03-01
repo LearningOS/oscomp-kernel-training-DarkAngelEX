@@ -1,9 +1,7 @@
 use crate::{
     console,
-    memory::user_ptr::{UserInPtr, UserOutPtr},
     process::thread,
     syscall::SysError,
-    user,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
@@ -27,7 +25,7 @@ impl<'a> Syscall<'a> {
         };
         if fd == FD_STDIN {
             let guard = self.using_space()?;
-            for ch in vaild_data.access_mut(guard.access()).iter_mut() {
+            for ch in vaild_data.access_mut(&guard).iter_mut() {
                 *ch = console::getchar() as u8;
             }
         }
@@ -46,7 +44,7 @@ impl<'a> Syscall<'a> {
         if fd == FD_STDOUT {
             loop {
                 {
-                    if let Some(lock) = console::stdout_try_lock() {
+                    if let Some(_lock) = console::stdout_try_lock() {
                         let guard = self.using_space()?;
                         let a = vaild_data.access(&guard);
                         let str = core::str::from_utf8(&*a).map_err(|_| SysError::EFAULT)?;

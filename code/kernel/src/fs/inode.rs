@@ -1,7 +1,14 @@
-use super::File;
-use crate::{drivers::BLOCK_DEVICE, sync::mutex::SpinNoIrqLock, user::UserData};
-use alloc::sync::Arc;
+use super::{AsyncFileOutput, File};
+use crate::{
+    drivers::BLOCK_DEVICE,
+    memory::allocator::frame,
+    process::Process,
+    sync::mutex::SpinNoIrqLock,
+    syscall::SysError,
+    user::{UserData, UserDataMut},
+};
 use alloc::vec::Vec;
+use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
 use lazy_static::*;
@@ -26,7 +33,7 @@ impl OSInode {
         }
     }
     pub fn read_all(&self) -> Vec<u8> {
-        let mut inner = self.inner.exclusive_access();
+        let mut inner = self.inner.lock(place!());
         let mut buffer = [0u8; 512];
         let mut v: Vec<u8> = Vec::new();
         loop {
@@ -110,28 +117,36 @@ impl File for OSInode {
     fn writable(&self) -> bool {
         self.writable
     }
-    fn read(&self, mut buf: UserData<u8>) -> usize {
-        let mut inner = self.inner.exclusive_access();
+    fn read(self: Arc<Self>, proc: Arc<Process>, buf: UserDataMut<u8>) -> AsyncFileOutput {
+        let mut inner = self.inner.lock(place!());
         let mut total_read_size = 0usize;
-        for slice in buf.buffers.iter_mut() {
-            let read_size = inner.inode.read_at(inner.offset, *slice);
+        let buffer = match frame::global::alloc() {
+            Ok(f) => f,
+            Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
+        };
+        for slice in buf.writonly_iter(proc, buffer) {
+            let read_size = inner.inode.read_at(inner.offset, slice);
             if read_size == 0 {
                 break;
             }
             inner.offset += read_size;
             total_read_size += read_size;
         }
-        total_read_size
+        Box::pin(async move { Ok(total_read_size) })
     }
-    fn write(&self, buf: UserData<u8>) -> usize {
-        let mut inner = self.inner.exclusive_access();
+    fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput {
+        let mut inner = self.inner.lock(place!());
         let mut total_write_size = 0usize;
-        for slice in buf.buffers.iter() {
-            let write_size = inner.inode.write_at(inner.offset, *slice);
+        let buffer = match frame::global::alloc() {
+            Ok(f) => f,
+            Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
+        };
+        for slice in buf.readonly_iter(proc, buffer) {
+            let write_size = inner.inode.write_at(inner.offset, slice);
             assert_eq!(write_size, slice.len());
             inner.offset += write_size;
             total_write_size += write_size;
         }
-        total_write_size
+        Box::pin(async move { Ok(total_write_size) })
     }
 }
