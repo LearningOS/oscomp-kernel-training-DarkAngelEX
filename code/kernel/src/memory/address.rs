@@ -20,17 +20,20 @@ use super::page_table::PageTableEntry;
 // const PPN_WIDTH_SV39: usize = PA_WIDTH_SV39 - PAGE_SIZE_BITS;
 // const VPN_WIDTH_SV39: usize = VA_WIDTH_SV39 - PAGE_SIZE_BITS;
 
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirAddr(usize);
 
 ///
 /// PhyAddr can't deref, need to into PhyAddrRef
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhyAddr(usize);
 
 /// direct mapping to physical address
 ///
 /// same as PhyAddr + PHYSICAL_MEMORY_OFFSET
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhyAddrRef(usize);
 
@@ -40,21 +43,26 @@ pub struct PhyAddrRef(usize);
 pub struct UserAddr(usize);
 
 /// assert self & 0xfff = 0
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct VirAddr4K(usize);
 
 /// assert self & 0xfff = 0
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhyAddr4K(usize);
 
 /// assert self & 0xfff = 0
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PhyAddrRef4K(usize);
 
 /// assert self & 0xfff = 0
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct UserAddr4K(usize);
 
+#[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct PageCount(usize);
 
@@ -338,6 +346,14 @@ impl VirAddr4K {
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
+    }
+}
+impl PhyAddr {
+    pub const fn from_usize(n: usize) -> Self {
+        Self(n)
+    }
+    pub fn into_ref(&self) -> PhyAddrRef {
+        PhyAddrRef::from(*self)
     }
 }
 impl PhyAddr4K {

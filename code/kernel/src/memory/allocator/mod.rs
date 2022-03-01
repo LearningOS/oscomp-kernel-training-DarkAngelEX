@@ -30,6 +30,6 @@ pub fn heap_space_enough() -> Result<(), HeapOutOfMemory> {
 }
 
 pub fn init() {
-    frame::init_frame_allocator();
+    frame::global::init_frame_allocator();
     heap::init_heap();
 }

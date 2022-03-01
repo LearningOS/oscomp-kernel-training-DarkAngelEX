@@ -30,7 +30,7 @@ pub mod stack_trace;
 #[macro_export]
 macro_rules! place {
     () => {
-        concat!(file!(), ":", line!())
+        concat!(file!(), ":", line!(), ":", column!())
     };
 }
 

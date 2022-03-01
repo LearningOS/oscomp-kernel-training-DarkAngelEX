@@ -60,7 +60,9 @@ impl Syscall<'_> {
         }
         let guard = alive.user_space.using_guard();
         let path = String::from_utf8(
-            user::translated_user_array_zero_end(path, guard.access())?.into_vec(guard.access()),
+            guard
+                .translated_user_array_zero_end(path)?
+                .into_vec(&guard),
         )
         .map_err(|_| SysError::EFAULT)?;
 
@@ -119,11 +121,8 @@ impl Syscall<'_> {
                     if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                         let exit_code = process.exit_code.load(Ordering::Relaxed);
                         let guard = alive.user_space.using_guard();
-                        let access = user::translated_user_writable_slice(
-                            exit_code_ptr as *mut u8,
-                            4,
-                            guard.access(),
-                        )?;
+                        let access =
+                            guard.translated_user_writable_slice(exit_code_ptr as *mut u8, 4)?;
                         let exit_code_slice =
                             core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
                         access

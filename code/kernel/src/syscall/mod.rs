@@ -7,11 +7,10 @@ use core::{
 use alloc::sync::Arc;
 
 use crate::{
-    memory::SpaceGuard,
     process::{thread::Thread, AliveProcess, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
-    xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
+    xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL}, user::SpaceGuard,
 };
 
 mod fs;

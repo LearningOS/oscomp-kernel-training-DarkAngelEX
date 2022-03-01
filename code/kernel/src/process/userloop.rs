@@ -15,7 +15,7 @@ async fn userloop(thread: Arc<Thread>) {
         let mut do_exit = false;
         let mut do_yield = false;
         match thread.process.using_space() {
-            Ok(guard) => context.run_user(guard.access()),
+            Ok(guard) => context.run_user(&guard),
             Err(()) => do_exit = true,
         };
         if !do_exit {

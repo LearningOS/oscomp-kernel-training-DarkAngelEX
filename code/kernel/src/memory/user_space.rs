@@ -1,11 +1,10 @@
-use core::{cell::UnsafeCell, marker::PhantomData};
+use core::{cell::UnsafeCell};
 
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
     memory::{
-        self,
         allocator::frame::{self, iter::SliceFrameDataIter},
         page_table::PTEFlags,
     },
@@ -13,6 +12,7 @@ use crate::{
         allocator::from_usize_allocator::{FromUsize, UsizeAllocator},
         error::{FrameOutOfMemory, TooManyUserStack},
     },
+    user::{SpaceGuard},
 };
 
 use super::{
@@ -21,7 +21,7 @@ use super::{
         iter::{FrameDataIter, NullFrameDataIter},
         FrameAllocator,
     },
-    asid, PageTable, PageTableClosed,
+    asid, PageTable
 };
 
 /// all map to frame.
@@ -356,7 +356,8 @@ impl UserSpace {
     /// if self comes from AliveProcess, you can use this because page table closed only when AliveProcess drop.
     pub fn using_guard(&self) -> SpaceGuard {
         unsafe { self.using() };
-        SpaceGuard::new(self.page_table.clone())
+        let a = self.page_table.clone();
+        SpaceGuard::new(a)
     }
     pub fn map_user_range(
         &mut self,
@@ -491,32 +492,6 @@ impl UserSpace {
     }
     pub fn using_size(&self) -> usize {
         self.stacks.using_size()
-    }
-}
-
-pub struct SpaceGuard(Arc<UnsafeCell<PageTable>>);
-
-/// forbid SpaceGuard across await.
-impl !Send for SpaceGuard {}
-impl !Sync for SpaceGuard {}
-
-#[derive(Copy, Clone)]
-pub struct SpaceMark<'a> {
-    _mark: PhantomData<&'a ()>,
-}
-
-impl SpaceGuard {
-    fn new(pt: Arc<UnsafeCell<PageTable>>) -> Self {
-        Self(pt)
-    }
-    pub fn access<'a>(&'a self) -> SpaceMark<'a> {
-        SpaceMark { _mark: PhantomData }
-    }
-}
-
-impl Drop for SpaceGuard {
-    fn drop(&mut self) {
-        memory::set_satp_by_global()
     }
 }
 

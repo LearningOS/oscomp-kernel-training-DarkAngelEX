@@ -8,14 +8,14 @@ use crate::{
     loader,
     memory::{
         allocator::frame::{self, FrameAllocator},
-        SpaceGuard, StackID, UserSpace,
+        StackID, UserSpace,
     },
     sync::{
         even_bus::{Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
     },
     tools::error::FrameOutOfMemory,
-    xdebug::NeverFail,
+    xdebug::NeverFail, user::SpaceGuard,
 };
 
 use self::{

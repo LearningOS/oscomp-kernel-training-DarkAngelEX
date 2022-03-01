@@ -154,7 +154,7 @@ impl Drop for PageTable {
 impl PageTable {
     /// asid set to zero must be success.
     pub fn new_empty(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
-        let phy_ptr = frame::alloc_dpa()?.consume();
+        let phy_ptr = frame::global::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
         arr.iter_mut()
             .for_each(|pte| *pte = PageTableEntry::empty());
@@ -166,7 +166,7 @@ impl PageTable {
     }
     pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
         memory_trace!("PageTable::from_global");
-        let phy_ptr = frame::alloc_dpa()?.consume();
+        let phy_ptr = frame::global::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
         let src = unsafe { KERNEL_GLOBAL.as_ref().unwrap() }
             .root_pa()

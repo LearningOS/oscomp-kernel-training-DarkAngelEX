@@ -210,8 +210,8 @@ pub fn asid_test() {
     let mut space_2 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let va4k: VirAddr4K = unsafe { VirAddr4K::from_usize(0x1000) };
     let va: VirAddr = va4k.into();
-    let pax1 = frame::alloc().unwrap();
-    let pax2 = frame::alloc().unwrap();
+    let pax1 = frame::global::alloc().unwrap();
+    let pax2 = frame::global::alloc().unwrap();
     let pa1 = pax1.data();
     let pa2 = pax2.data();
     let flags = PTEFlags::R | PTEFlags::W;

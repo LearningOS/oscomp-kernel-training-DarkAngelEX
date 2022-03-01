@@ -29,26 +29,33 @@ extern crate bitflags;
 extern crate riscv;
 #[macro_use]
 extern crate lazy_static;
+extern crate easy_fs;
 extern crate xmas_elf;
 
-mod config;
+#[cfg(feature = "board_k210")]
+#[path = "boards/k210.rs"]
+mod board;
+#[cfg(not(any(feature = "board_k210")))]
+#[path = "boards/qemu.rs"]
+mod board;
 
+mod config;
 #[macro_use]
 mod console;
 #[macro_use]
 mod xdebug;
+mod drivers;
 mod executor;
 mod fdt;
+// mod fs;
 mod hart;
 mod lang_items;
 mod loader;
 mod local;
 mod memory;
-// mod message;
 mod process;
 mod sync;
 mod syscall;
-// mod task;
 mod timer;
 mod tools;
 mod trap;

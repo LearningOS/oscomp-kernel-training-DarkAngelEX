@@ -22,7 +22,7 @@ impl<'a> Syscall<'a> {
         let (fd, vaild_data, len) = {
             let (fd, buf, len): (usize, *mut u8, usize) = self.cx.parameter3();
             let guard = self.using_space()?;
-            let vaild_data = user::translated_user_writable_slice(buf, len, guard.access())?;
+            let vaild_data = guard.translated_user_writable_slice(buf, len)?;
             (fd, vaild_data, len)
         };
         if fd == FD_STDIN {
@@ -40,7 +40,7 @@ impl<'a> Syscall<'a> {
         let (fd, vaild_data, len) = {
             let (fd, buf, len): (usize, *const u8, usize) = self.cx.parameter3();
             let guard = self.using_space()?;
-            let vaild_data = user::translated_user_readonly_slice(buf, len, guard.access())?;
+            let vaild_data = guard.translated_user_readonly_slice(buf, len)?;
             (fd, vaild_data, len)
         };
         if fd == FD_STDOUT {
@@ -48,7 +48,7 @@ impl<'a> Syscall<'a> {
                 {
                     if let Some(lock) = console::stdout_try_lock() {
                         let guard = self.using_space()?;
-                        let a = vaild_data.access(guard.access());
+                        let a = vaild_data.access(&guard);
                         let str = core::str::from_utf8(&*a).map_err(|_| SysError::EFAULT)?;
                         print_unlock!("{}", str);
                         return Ok(len);

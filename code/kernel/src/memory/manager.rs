@@ -14,7 +14,7 @@ impl<const N: usize> FrameTracker<N> {
         if N != 1 {
             todo!("frame_track N = {N} is implement")
         }
-        let ptr = frame::alloc()?.consume();
+        let ptr = frame::global::alloc()?.consume();
         Ok(Self { ptr })
     }
     pub fn ptr(&self) -> PhyAddrRef4K {
@@ -27,6 +27,6 @@ impl<const N: usize> Drop for FrameTracker<N> {
         if N != 1 {
             todo!("frame_track N = {N} is implement")
         }
-        unsafe { frame::dealloc(self.ptr) }
+        unsafe { frame::global::dealloc(self.ptr) }
     }
 }

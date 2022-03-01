@@ -2,7 +2,7 @@
 //!
 use crate::{
     config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
-    memory::address::PhyAddrRef,
+    memory::address::{PageCount, PhyAddrRef},
     sync::mutex::SpinNoIrqLock,
     tools::{allocator::Own, error::FrameOutOfMemory},
     xdebug::{
@@ -77,12 +77,18 @@ trait GlobalFrameAllocator {
     fn size(&self) -> usize;
     fn alloc(&mut self) -> Result<PhyAddrRef4K, FrameOutOfMemory>;
     fn dealloc(&mut self, data: PhyAddrRef4K);
-    fn alloc_range(&mut self, range: &mut [PhyAddrRef4K]) -> Result<(), FrameOutOfMemory>;
-    fn dealloc_range(&mut self, range: &[PhyAddrRef4K]);
-    fn alloc_dpa(&mut self) -> Result<PhyAddr4K, FrameOutOfMemory>;
-    fn dealloc_dpa(&mut self, data: PhyAddr4K);
-    fn alloc_range_dpa(&mut self, range: &mut [PhyAddr4K]) -> Result<(), FrameOutOfMemory>;
-    fn dealloc_range_dpa(&mut self, range: &[PhyAddr4K]);
+    fn alloc_successive(&mut self, n: PageCount) -> Result<PhyAddrRef4K, FrameOutOfMemory>;
+    fn alloc_iter<'a>(
+        &mut self,
+        range: impl Iterator<Item = &'a mut PhyAddrRef4K> + ExactSizeIterator,
+    ) -> Result<(), FrameOutOfMemory>;
+    fn dealloc_iter<'a>(&mut self, range: impl Iterator<Item = &'a PhyAddrRef4K>);
+    fn alloc_dpa(&mut self) -> Result<PhyAddr4K, FrameOutOfMemory> {
+        self.alloc().map(|p| p.into())
+    }
+    fn dealloc_dpa(&mut self, data: PhyAddr4K) {
+        self.dealloc(data.into_ref())
+    }
 }
 
 struct StackGlobalFrameAllocator {
@@ -112,29 +118,6 @@ impl StackGlobalFrameAllocator {
             usize::from(end)
         );
     }
-    fn alloc_range_impl<T>(
-        &mut self,
-        range: &mut [T],
-        f_tran: impl Fn(PhyAddrRef4K) -> T,
-    ) -> Result<(), FrameOutOfMemory> {
-        let n = range.len();
-        let n0 = (usize::from(self.end) - usize::from(self.current)) / PAGE_SIZE;
-        if n0 + self.recycled.len() < n {
-            return Err(FrameOutOfMemory);
-        }
-        let nt = n.min(n0);
-        for (_i, pa) in range.iter_mut().take(nt).enumerate() {
-            *pa = f_tran(self.current.add_one_page());
-        }
-        self.current = self.current.add_one_page();
-        if n == nt {
-            return Ok(());
-        }
-        for i in 0..n - nt {
-            range[nt + i] = f_tran(self.recycled.pop().unwrap());
-        }
-        Ok(())
-    }
 }
 impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     fn size(&self) -> usize {
@@ -143,6 +126,9 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     fn alloc(&mut self) -> Result<PhyAddrRef4K, FrameOutOfMemory> {
         fn pa_check(pa: PhyAddrRef4K) {
             assert!(pa.into_usize() > DIRECT_MAP_BEGIN && pa.into_usize() < DIRECT_MAP_END);
+            if OPEN_MEMORY_TRACE && pa == PhyAddrRef::from(TRACE_ADDR).floor() {
+                trace::call_when_alloc();
+            }
         }
         if let Some(pa) = self.recycled.pop() {
             pa_check(pa);
@@ -153,15 +139,8 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
             let ret = self.current;
             pa_check(ret);
             self.current.step();
-            if OPEN_MEMORY_TRACE && ret == PhyAddrRef::from(TRACE_ADDR).floor() {
-                trace::call_when_alloc();
-            }
             Ok(ret)
         }
-    }
-
-    fn alloc_range(&mut self, range: &mut [PhyAddrRef4K]) -> Result<(), FrameOutOfMemory> {
-        self.alloc_range_impl(range, |a| a)
     }
 
     fn dealloc(&mut self, data: PhyAddrRef4K) {
@@ -183,24 +162,47 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         self.recycled.push(data);
     }
 
-    fn dealloc_range(&mut self, range: &[PhyAddrRef4K]) {
-        range.iter().for_each(|&a| self.recycled.push(a));
+    fn alloc_successive(&mut self, n: PageCount) -> Result<PhyAddrRef4K, FrameOutOfMemory> {
+        match n.into_usize() {
+            0 => panic!(),
+            1 => return self.alloc(),
+            _ => (),
+        }
+        let ret = self.current;
+        let nxt = self.current.add_page(n);
+        if nxt > self.end {
+            return Err(FrameOutOfMemory);
+        }
+        self.current = nxt;
+        Ok(ret)
     }
 
-    fn alloc_dpa(&mut self) -> Result<PhyAddr4K, FrameOutOfMemory> {
-        self.alloc().map(|a| a.into())
+    fn alloc_iter<'a>(
+        &mut self,
+        mut range: impl Iterator<Item = &'a mut PhyAddrRef4K> + ExactSizeIterator,
+    ) -> Result<(), FrameOutOfMemory> {
+        let n = range.len();
+        let n0 = (usize::from(self.end) - usize::from(self.current)) / PAGE_SIZE;
+        if n0 + self.recycled.len() < n {
+            return Err(FrameOutOfMemory);
+        }
+        while let Some(pa) = self.recycled.pop() {
+            if let Some(target) = range.next() {
+                *target = pa;
+            } else {
+                return Ok(());
+            }
+        }
+        while let Some(target) = range.next() {
+            *target = self.current;
+            self.current.add_page_assign(PageCount::from_usize(1));
+        }
+        assert!(self.current <= self.end);
+        Ok(())
     }
 
-    fn alloc_range_dpa(&mut self, range: &mut [PhyAddr4K]) -> Result<(), FrameOutOfMemory> {
-        self.alloc_range_impl(range, |a| a.into())
-    }
-
-    fn dealloc_dpa(&mut self, data: PhyAddr4K) {
-        self.dealloc(data.into())
-    }
-
-    fn dealloc_range_dpa(&mut self, range: &[PhyAddr4K]) {
-        range.iter().for_each(|&a| self.recycled.push(a.into()));
+    fn dealloc_iter<'a>(&mut self, range: impl Iterator<Item = &'a PhyAddrRef4K>) {
+        range.for_each(|&a| self.recycled.push(a));
     }
 }
 
@@ -230,16 +232,18 @@ pub fn alloc() -> Result<FrameTracker, FrameOutOfMemory> {
         .map(|a| unsafe { FrameTracker::new(a) })
 }
 
-pub fn alloc_range_to(range: &mut [PhyAddrRef4K]) -> Result<(), FrameOutOfMemory> {
-    FRAME_ALLOCATOR.lock(place!()).alloc_range(range)
+pub fn alloc_successive(n: PageCount) -> Result<PhyAddrRef4K, FrameOutOfMemory> {
+    FRAME_ALLOCATOR.lock(place!()).alloc_successive(n)
+}
+
+pub fn alloc_iter<'a>(
+    range: impl Iterator<Item = &'a mut PhyAddrRef4K> + ExactSizeIterator,
+) -> Result<(), FrameOutOfMemory> {
+    FRAME_ALLOCATOR.lock(place!()).alloc_iter(range)
 }
 
 pub unsafe fn dealloc(par: PhyAddrRef4K) {
     FRAME_ALLOCATOR.lock(place!()).dealloc(par);
-}
-
-pub unsafe fn dealloc_range_from(range: &mut [PhyAddrRef4K]) {
-    FRAME_ALLOCATOR.lock(place!()).dealloc_range(range);
 }
 
 pub fn alloc_dpa() -> Result<FrameTrackerDpa, FrameOutOfMemory> {
@@ -249,14 +253,6 @@ pub fn alloc_dpa() -> Result<FrameTrackerDpa, FrameOutOfMemory> {
         .map(|a| unsafe { FrameTrackerDpa::new(a) })
 }
 
-pub fn alloc_range_dpa_to(range: &mut [PhyAddr4K]) -> Result<(), FrameOutOfMemory> {
-    FRAME_ALLOCATOR.lock(place!()).alloc_range_dpa(range)
-}
-
 pub unsafe fn dealloc_dpa(pa: PhyAddr4K) {
     FRAME_ALLOCATOR.lock(place!()).dealloc_dpa(pa);
-}
-
-pub unsafe fn dealloc_range_dpa_from(range: &mut [PhyAddr4K]) {
-    FRAME_ALLOCATOR.lock(place!()).dealloc_range_dpa(range);
 }

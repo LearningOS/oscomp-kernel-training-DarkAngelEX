@@ -1,11 +1,11 @@
 //! frame allocator which can be used in stack.
 
-mod global;
+pub mod global;
 pub mod iter;
 
-pub use global::*;
-
 use crate::{memory::address::PhyAddrRef4K, tools::{allocator::TrackerAllocator, error::FrameOutOfMemory}};
+
+use self::global::FrameTracker;
 
 pub trait FrameAllocator = TrackerAllocator<PhyAddrRef4K, FrameTracker>;
 
@@ -17,11 +17,11 @@ struct GlobalRefFrameAllocator;
 
 impl TrackerAllocator<PhyAddrRef4K, FrameTracker> for GlobalRefFrameAllocator {
     fn alloc(&mut self) -> Result<FrameTracker, FrameOutOfMemory> {
-        alloc()
+        global::alloc()
     }
 
     unsafe fn dealloc(&mut self, value: PhyAddrRef4K) {
-        dealloc(value)
+        global::dealloc(value)
     }
 }
 
