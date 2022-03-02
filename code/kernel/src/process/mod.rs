@@ -15,16 +15,19 @@ use crate::{
         mutex::SpinNoIrqLock as Mutex,
     },
     tools::error::FrameOutOfMemory,
-    xdebug::NeverFail, user::SpaceGuard,
+    user::SpaceGuard,
+    xdebug::NeverFail,
 };
 
 use self::{
     children::ChildrenSet,
+    fd::FdTable,
     pid::{pid_alloc, PidHandle},
     thread::{Thread, ThreadGroup},
 };
 
 pub mod children;
+pub mod fd;
 pub mod pid;
 pub mod proc_table;
 pub mod thread;
@@ -55,6 +58,7 @@ pub struct AliveProcess {
     pub parent: Option<Weak<Process>>, // assume upgrade success.
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
+    pub fd_table: FdTable,
 }
 
 impl Process {
@@ -100,6 +104,7 @@ impl Process {
             parent: Some(Arc::downgrade(self)),
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(),
+            fd_table: FdTable::new(),
         };
         let new_process = Arc::new(Process {
             pid: new_pid,

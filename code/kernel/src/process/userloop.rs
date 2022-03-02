@@ -23,14 +23,10 @@ async fn userloop(thread: Arc<Thread>) {
                 scause::Trap::Exception(e) => match e {
                     Exception::UserEnvCall => {
                         // println!("enter syscall");
-                        do_exit = Syscall::new(
-                            context,
-                            &thread,
-                            thread.process.as_ref(),
-                            stack_trace.as_mut(),
-                        )
-                        .syscall()
-                        .await;
+                        do_exit =
+                            Syscall::new(context, &thread, &thread.process, stack_trace.as_mut())
+                                .syscall()
+                                .await;
                     }
                     Exception::InstructionPageFault
                     | Exception::LoadPageFault

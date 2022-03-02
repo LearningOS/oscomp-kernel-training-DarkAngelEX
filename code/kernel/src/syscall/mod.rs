@@ -50,6 +50,7 @@ pub struct Syscall<'a> {
     thread: &'a Thread,
     thread_arc: &'a Arc<Thread>,
     process: &'a Process,
+    process_arc: &'a Arc<Process>,
     do_exit: bool,
     stack_trace: Pin<&'a mut StackTrace>,
 }
@@ -58,14 +59,15 @@ impl<'a> Syscall<'a> {
     pub fn new(
         cx: &'a mut UKContext,
         thread_arc: &'a Arc<Thread>,
-        process: &'a Process,
+        process_arc: &'a Arc<Process>,
         stack_trace: Pin<&'a mut StackTrace>,
     ) -> Self {
         Self {
             cx,
             thread: thread_arc.as_ref(),
             thread_arc,
-            process,
+            process: process_arc.as_ref(),
+            process_arc,
             do_exit: false,
             stack_trace,
         }

@@ -20,7 +20,7 @@ use crate::{
     trap::context::UKContext,
 };
 
-use super::{children::ChildrenSet, pid::pid_alloc, proc_table, AliveProcess, Process, Tid};
+use super::{children::ChildrenSet, pid::pid_alloc, proc_table, AliveProcess, Process, Tid, fd::FdTable};
 
 pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
@@ -90,6 +90,7 @@ impl Thread {
                 parent: None,
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(),
+                fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(0),
         });

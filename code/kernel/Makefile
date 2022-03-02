@@ -11,7 +11,7 @@ FS_IMG := ../user/target/$(TARGET)/release/fs.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
-SMP := 4
+SMP := 2
 MEMORY_SIZE := 128M
 
 # BOARD

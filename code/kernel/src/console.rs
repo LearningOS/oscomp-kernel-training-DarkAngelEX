@@ -10,7 +10,7 @@ use crate::{
 
 use core::fmt::{self, Write};
 
-pub struct Stdout;
+struct Stdout;
 
 use crate::sync::mutex::SpinNoIrqLock;
 
@@ -75,8 +75,4 @@ macro_rules! print_unlock {
     ($fmt: literal $(, $($arg: tt)+)?) => {
         $crate::console::print_unlock(format_args!($fmt $(, $($arg)+)?));
     }
-}
-
-pub fn stdout_try_lock() -> Option<MutexGuard<'static, Stdout, SpinNoIrq>> {
-    WRITE_MUTEX.try_lock()
 }
