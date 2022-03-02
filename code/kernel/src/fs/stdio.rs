@@ -1,13 +1,10 @@
-use core::future::Future;
-use core::pin::Pin;
-
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 
 use super::{AsyncFileOutput, File};
 use crate::hart::sbi::console_getchar;
 use crate::process::{thread, Process};
-use crate::sync::sleep_mutex::{SleepMutex, check_cnt};
+use crate::sync::sleep_mutex::SleepMutex;
 use crate::user::{UserData, UserDataMut};
 
 pub struct Stdin;
@@ -62,12 +59,10 @@ impl File for Stdout {
     fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput {
         Box::pin(async move {
             let _lock = STDOUT_MUTEX.lock().await;
-            check_cnt(_lock.cnt);
             let guard = proc.using_space().unwrap();
             let str = buf.access(&guard);
             print!("{}", core::str::from_utf8(&*str).unwrap());
             let len = buf.len();
-            drop(_lock);
             Ok(len)
         })
     }
