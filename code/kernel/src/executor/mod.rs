@@ -1,9 +1,9 @@
-use core::{cell::UnsafeCell, future::Future};
+use core::{cell::RefCell, future::Future};
 
-use alloc::{collections::VecDeque, rc::Rc, sync::Arc};
+use alloc::collections::VecDeque;
 use async_task::{Runnable, Task};
 
-use crate::sync::mutex::{SpinLock, SpinNoIrqLock};
+use crate::sync::mutex::SpinNoIrqLock;
 
 pub struct TaskQueue {
     queue: SpinNoIrqLock<Option<VecDeque<Runnable>>>,
@@ -44,13 +44,14 @@ where
     async_task::spawn(future, |runnable| TASK_QUEUE.push(runnable))
 }
 
+/// loop forever until future return Poll::Ready
 pub fn block_on<F>(future: F) -> F::Output
 where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
     let mut ans = None;
-    let queue = UnsafeCell::new(None);
+    let queue = RefCell::new(None);
     let (r, _t) = unsafe {
         async_task::spawn_unchecked(
             async {
@@ -58,12 +59,12 @@ where
                 ans = Some(x);
             },
             |r| {
-                assert!((*queue.get()).replace(r).is_none());
+                queue.borrow_mut().replace(r).is_some().then(|| panic!());
             },
         )
     };
     r.schedule();
-    while let Some(r) = unsafe { (*queue.get()).take() } {
+    while let Some(r) = queue.borrow_mut().take() {
         r.run();
     }
     ans.unwrap()

@@ -11,7 +11,6 @@ use alloc::vec::Vec;
 use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
 use easy_fs::{EasyFileSystem, Inode};
-use lazy_static::*;
 
 pub struct OSInode {
     readable: bool,
@@ -32,7 +31,7 @@ impl OSInode {
             inner: SpinNoIrqLock::new(OSInodeInner { offset: 0, inode }),
         }
     }
-    pub fn read_all(&self) -> Vec<u8> {
+    pub async fn read_all(&self) -> Vec<u8> {
         let mut inner = self.inner.lock(place!());
         let mut buffer = [0u8; 512];
         let mut v: Vec<u8> = Vec::new();
@@ -48,16 +47,21 @@ impl OSInode {
     }
 }
 
-lazy_static! {
-    pub static ref ROOT_INODE: Arc<Inode> = {
-        let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-        Arc::new(EasyFileSystem::root_inode(&efs))
-    };
+static mut ROOT_INODE: Option<Arc<Inode>> = None;
+
+pub fn init() {
+    unsafe { assert!(ROOT_INODE.is_none()) };
+    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
+    unsafe { ROOT_INODE = Some(Arc::new(EasyFileSystem::root_inode(&efs))) };
+}
+
+fn root_inode() -> &'static Arc<Inode> {
+    unsafe { ROOT_INODE.as_ref().unwrap() }
 }
 
 pub fn list_apps() {
     println!("/**** APPS ****");
-    for app in ROOT_INODE.ls() {
+    for app in root_inode().ls() {
         println!("{}", app);
     }
     println!("**************/");
@@ -89,19 +93,20 @@ impl OpenFlags {
 
 pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
     let (readable, writable) = flags.read_write();
+    let root_inode = root_inode();
     if flags.contains(OpenFlags::CREATE) {
-        if let Some(inode) = ROOT_INODE.find(name) {
+        if let Some(inode) = root_inode.find(name) {
             // clear size
             inode.clear();
             Some(Arc::new(OSInode::new(readable, writable, inode)))
         } else {
             // create file
-            ROOT_INODE
+            root_inode
                 .create(name)
                 .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
         }
     } else {
-        ROOT_INODE.find(name).map(|inode| {
+        root_inode.find(name).map(|inode| {
             if flags.contains(OpenFlags::TRUNC) {
                 inode.clear();
             }

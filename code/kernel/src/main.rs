@@ -53,7 +53,7 @@ mod fdt;
 mod fs;
 mod hart;
 mod lang_items;
-mod loader;
+// mod loader;
 mod local;
 mod memory;
 mod process;

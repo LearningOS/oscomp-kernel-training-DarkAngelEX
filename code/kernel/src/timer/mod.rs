@@ -1,6 +1,7 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use crate::{config::CLOCK_FREQ, hart::sbi};
+use crate::board::CLOCK_FREQ;
+use crate::hart::sbi;
 
 use crate::riscv::register::time;
 

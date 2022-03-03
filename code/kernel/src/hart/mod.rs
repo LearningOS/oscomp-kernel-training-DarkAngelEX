@@ -6,10 +6,10 @@ use core::{
 use crate::{
     executor,
     fdt::FdtHeader,
-    loader,
+    fs, local,
     memory::{self, address::PhyAddr},
     process, timer, trap,
-    xdebug::CLOSE_TIME_INTERRUPT, local,
+    xdebug::CLOSE_TIME_INTERRUPT,
 };
 
 pub mod cpu;
@@ -93,13 +93,14 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     timer::init();
     executor::init();
     trap::init();
+    fs::init();
     process::init();
     if !CLOSE_TIME_INTERRUPT {
         trap::enable_timer_interrupt();
         timer::set_next_trigger();
     }
     println!("[FTL OS]hello! from hart {}", hartid);
-    loader::list_apps();
+    fs::list_apps();
 
     sfence::fence_i();
     println!("init complete! weakup the other cores.");

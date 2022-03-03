@@ -68,7 +68,7 @@ impl<'a> Syscall<'a> {
         };
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::from_bits(flags).unwrap())
             .ok_or(SysError::ENFILE)?;
-        let fd = self.process.alive_then(|a| a.fd_table.insert(inode))?;
+        let fd = self.alive_then(|a| a.fd_table.insert(inode))?;
         Ok(fd.into_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {

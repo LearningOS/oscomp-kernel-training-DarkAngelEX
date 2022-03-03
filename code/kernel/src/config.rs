@@ -1,5 +1,4 @@
 #![allow(dead_code)]
-pub const CLOCK_FREQ: usize = 12500000;
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE * 1; // 4096 * 2

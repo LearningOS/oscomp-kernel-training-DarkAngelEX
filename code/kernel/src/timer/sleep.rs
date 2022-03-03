@@ -1,13 +1,8 @@
-use core::{
-    cmp::Ordering,
-    future::Future,
-    pin::Pin,
-    task::{Context, Poll, Waker},
-};
+use core::{cmp::Ordering, task::Waker};
 
-use alloc::{collections::BinaryHeap, sync::Arc};
+use alloc::collections::BinaryHeap;
 
-use crate::sync::{even_bus::EventBus, mutex::SpinNoIrqLock};
+use crate::sync::mutex::SpinNoIrqLock;
 
 use super::{get_time_ticks, TimeTicks};
 

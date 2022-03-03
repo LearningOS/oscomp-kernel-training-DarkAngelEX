@@ -7,7 +7,7 @@ use core::{
 use alloc::{string::String, sync::Arc};
 
 use crate::{
-    loader, local,
+    fs, local,
     memory::{self, allocator::frame, user_ptr::UserOutPtr, UserSpace},
     process::{thread, userloop, Pid},
     sync::{
@@ -43,34 +43,35 @@ impl Syscall<'_> {
         }
         Ok(pid.into_usize())
     }
-    pub fn sys_exec(&mut self) -> SysResult {
+    pub async fn sys_exec(&mut self) -> SysResult {
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exec {:?}", self.process.pid());
         }
-        let (path, argv, envp): (*const u8, *const *const u8, *const *const u8) =
-            self.cx.parameter3();
-        // let argv = user::translated_user_2d_array_zero_end(argv)?;
-        // let envp = user::translated_user_2d_array_zero_end(envp)?;
-
-        let mut alive = self.alive_lock()?;
-        // TODO: kill other thread and await
-        if alive.threads.len() > 1 {
-            todo!();
-        }
-        let guard = alive.user_space.using_guard();
-        let path = String::from_utf8(guard.translated_user_array_zero_end(path)?.into_vec(&guard))
-            .map_err(|_| SysError::EFAULT)?;
-
+        let (path, _argv, _envp) = {
+            let (path, _argv, _envp): (*const u8, *const *const u8, *const *const u8) =
+                self.cx.parameter3();
+            let guard = self.using_space()?;
+            let path =
+                String::from_utf8(guard.translated_user_array_zero_end(path)?.into_vec(&guard))?;
+            // let argv = user::translated_user_2d_array_zero_end(argv)?;
+            // let envp = user::translated_user_2d_array_zero_end(envp)?;
+            (path, (), ())
+        };
+        let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
+        let elf_data = inode.read_all().await;
         let allocator = &mut frame::defualt_allocator();
-        let elf_data = loader::get_app_data_by_name(path.as_str()).ok_or(SysError::ENFILE)?;
-        drop(guard);
         let (user_space, stack_id, user_sp, entry_point) =
-            UserSpace::from_elf(elf_data, allocator).map_err(|_| SysError::ENOEXEC)?;
+            UserSpace::from_elf(elf_data.as_slice(), allocator).map_err(|_| SysError::ENOEXEC)?;
         let check = NeverFail::new();
         // reset stack_id
         // user_space.using();
         // sfence::fence_i();
         local::all_hart_fence_i();
+        let mut alive = self.alive_lock()?;
+        // TODO: kill other thread and await
+        if alive.threads.len() > 1 {
+            todo!();
+        }
         alive.exec_path = path;
         alive.user_space = user_space;
         drop(alive);

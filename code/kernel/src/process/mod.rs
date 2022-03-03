@@ -5,7 +5,7 @@ use alloc::{
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 use crate::{
-    loader,
+    executor, fs,
     memory::{
         allocator::frame::{self, FrameAllocator},
         UserSpace,
@@ -178,8 +178,9 @@ impl AliveProcess {
 pub fn init() {
     println!("load initporc");
     let allocator = &mut frame::defualt_allocator();
-    let elf_data = loader::get_app_data_by_name("initproc").unwrap();
-    let thread = Thread::new_initproc(elf_data, allocator);
+    let inode = fs::open_file("initproc", fs::OpenFlags::RDONLY).unwrap();
+    let elf_data = executor::block_on(async move { inode.read_all().await });
+    let thread = Thread::new_initproc(elf_data.as_slice(), allocator);
     userloop::spawn(thread);
     println!("spawn initporc");
 }

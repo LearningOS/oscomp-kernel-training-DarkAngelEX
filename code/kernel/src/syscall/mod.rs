@@ -93,7 +93,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_FORK => self.sys_fork(),
-            SYSCALL_EXEC => self.sys_exec(),
+            SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_WAITPID => self.sys_waitpid().await,
             SYSCALL_THREAD_CREATE => todo!(),
             SYSCALL_GETTID => todo!(),
@@ -131,6 +131,15 @@ impl<'a> Syscall<'a> {
             e.into()
         })
     }
+    pub fn alive_then<T>(
+        &mut self,
+        f: impl FnOnce(&mut AliveProcess) -> T,
+    ) -> Result<T, UniqueSysError<{ SysError::ESRCH as isize }>> {
+        self.process.alive_then(f).map_err(|e| {
+            self.do_exit = true;
+            e.into()
+        })
+    }
     pub fn alive_lock(
         &mut self,
     ) -> Result<AliveGurad<'_>, UniqueSysError<{ SysError::ESRCH as isize }>> {
@@ -139,7 +148,6 @@ impl<'a> Syscall<'a> {
             self.do_exit = true;
             return Err(UniqueSysError);
         }
-
         return Ok(AliveGurad(lock));
     }
 }
@@ -154,11 +162,6 @@ impl Deref for AliveGurad<'_> {
 impl DerefMut for AliveGurad<'_> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut().unwrap_unchecked() }
-    }
-}
-impl AliveGurad<'_> {
-    pub unsafe fn die(mut self) {
-        *&mut *self.0 = None;
     }
 }
 

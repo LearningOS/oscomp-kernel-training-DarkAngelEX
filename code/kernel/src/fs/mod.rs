@@ -22,5 +22,5 @@ pub trait File: Send + Sync + 'static {
 }
 
 pub fn init() {
-    todo!()
+    inode::init();
 }
