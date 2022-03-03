@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 
 use super::{
-    address::{PageCount, PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
+    address::{PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
     allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
     asid::{self, version_check_alloc, AsidInfoTracker},
     user_space::UserArea,
@@ -18,7 +18,7 @@ use crate::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
     hart::{csr, sfence},
-    tools::{self, error::FrameOutOfMemory},
+    tools::error::FrameOutOfMemory,
 };
 
 mod map_impl;

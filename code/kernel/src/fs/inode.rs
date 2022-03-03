@@ -10,6 +10,7 @@ use crate::{
 use alloc::vec::Vec;
 use alloc::{boxed::Box, sync::Arc};
 use bitflags::*;
+use core::lazy::OnceCell;
 use easy_fs::{EasyFileSystem, Inode};
 
 pub struct OSInode {
@@ -47,16 +48,19 @@ impl OSInode {
     }
 }
 
-static mut ROOT_INODE: Option<Arc<Inode>> = None;
+static mut ROOT_INODE: OnceCell<Arc<Inode>> = OnceCell::new();
 
 pub fn init() {
-    unsafe { assert!(ROOT_INODE.is_none()) };
     let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
-    unsafe { ROOT_INODE = Some(Arc::new(EasyFileSystem::root_inode(&efs))) };
+    unsafe {
+        ROOT_INODE
+            .set(Arc::new(EasyFileSystem::root_inode(&efs)))
+            .unwrap_or_else(|_e| panic!("fs double init"))
+    };
 }
 
 fn root_inode() -> &'static Arc<Inode> {
-    unsafe { ROOT_INODE.as_ref().unwrap() }
+    unsafe { ROOT_INODE.get().unwrap() }
 }
 
 pub fn list_apps() {
@@ -129,7 +133,7 @@ impl File for OSInode {
             Ok(f) => f,
             Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
         };
-        for slice in buf.writonly_iter(proc, buffer) {
+        for slice in buf.write_only_iter(proc, buffer) {
             let read_size = inner.inode.read_at(inner.offset, slice);
             if read_size == 0 {
                 break;
@@ -146,7 +150,7 @@ impl File for OSInode {
             Ok(f) => f,
             Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
         };
-        for slice in buf.readonly_iter(proc, buffer) {
+        for slice in buf.read_only_iter(proc, buffer) {
             let write_size = inner.inode.write_at(inner.offset, slice);
             assert_eq!(write_size, slice.len());
             inner.offset += write_size;

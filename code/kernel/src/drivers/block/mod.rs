@@ -15,6 +15,7 @@ lazy_static! {
 
 #[allow(unused)]
 pub fn block_device_test() {
+    let x = core::lazy::Lazy::<usize>::new(||3);
     let block_device = BLOCK_DEVICE.clone();
     let mut write_buffer = [0u8; 512];
     let mut read_buffer = [0u8; 512];

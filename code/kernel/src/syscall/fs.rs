@@ -24,9 +24,7 @@ impl<'a> Syscall<'a> {
             (fd, write_only_buffer)
         };
         let file = self
-            .process
-            .alive_then(|a| a.fd_table.get(Fd::new(fd)).map(|p| p.clone()))
-            .map_err(|_e| SysError::ESRCH)?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).map(|p| p.clone()))?
             .ok_or(SysError::EBADF)?;
         if !file.readable() {
             return Err(SysError::EPERM);
@@ -45,8 +43,7 @@ impl<'a> Syscall<'a> {
             (fd, read_only_buffer)
         };
         let file = self
-            .process
-            .alive_then(|a| a.fd_table.get(Fd::new(fd)).map(|p| p.clone()))?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).map(|p| p.clone()))?
             .ok_or(SysError::EBADF)?;
         if !file.writable() {
             return Err(SysError::EPERM);
@@ -68,7 +65,7 @@ impl<'a> Syscall<'a> {
         };
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::from_bits(flags).unwrap())
             .ok_or(SysError::ENFILE)?;
-        let fd = self.alive_then(|a| a.fd_table.insert(inode))?;
+        let fd = self.alive_then(move |a| a.fd_table.insert(inode))?;
         Ok(fd.into_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {
@@ -78,10 +75,9 @@ impl<'a> Syscall<'a> {
         let fd = self.cx.parameter1();
         let fd = Fd::new(fd);
         let file = self
-            .process
-            .alive_then(|a| a.fd_table.remove(fd))?
+            .alive_then(move |a| a.fd_table.remove(fd))?
             .ok_or(SysError::EBADF)?;
-        drop(file);
+        drop(file); // just for clarity
         Ok(0)
     }
 }

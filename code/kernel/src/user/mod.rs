@@ -64,15 +64,15 @@ impl<'a, T> !Sync for UserDataGuard<'a, T> {}
 // unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
 // unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
 
-impl<'a, T> Deref for UserDataGuard<'a, T> {
+impl<'a, T: 'static> Deref for UserDataGuard<'a, T> {
     type Target = [T];
 
     fn deref(&self) -> &'a Self::Target {
         self.data
     }
 }
-pub struct UserDataGuardMut<'a, T> {
-    data: *mut [T],
+pub struct UserDataGuardMut<'a, T: 'static> {
+    data: &'static mut [T],
     _mark: SpaceMark<'a>,
     _auto_sum: AutoSum,
 }
@@ -80,16 +80,16 @@ pub struct UserDataGuardMut<'a, T> {
 // unsafe impl<T: 'static> Send for UserDataGuardMut<'_, T> {}
 // unsafe impl<T: 'static> Sync for UserDataGuardMut<'_, T> {}
 
-impl<'a, T> Deref for UserDataGuardMut<'a, T> {
+impl<'a, T: 'static> Deref for UserDataGuardMut<'a, T> {
     type Target = [T];
 
-    fn deref(&self) -> &'a Self::Target {
-        unsafe { &*self.data }
+    fn deref(&self) -> &Self::Target {
+        self.data
     }
 }
-impl<'a, T> DerefMut for UserDataGuardMut<'a, T> {
-    fn deref_mut(&mut self) -> &'a mut Self::Target {
-        unsafe { &mut *self.data }
+impl<'a, T: 'static> DerefMut for UserDataGuardMut<'a, T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.data
     }
 }
 impl<T: 'static> UserData<T> {
@@ -109,18 +109,22 @@ impl<T: 'static> UserData<T> {
 }
 
 impl UserData<u8> {
-    pub fn readonly_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
+    /// return an read only iterator containing a 4KB buffer.
+    ///
+    /// before each access, it will copy 4KB from user range to buffer.
+    pub fn read_only_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
         UserData4KIter::new(self, proc, buffer)
     }
 }
 
 impl<T: Clone + 'static> UserData<T> {
+    /// after into_vec the data will no longer need space_guard.
     pub fn into_vec(&self, mark: &SpaceGuard) -> Vec<T> {
         self.access(mark).to_vec()
     }
 }
 
-pub struct UserDataMut<T> {
+pub struct UserDataMut<T: 'static> {
     data: *mut [T],
 }
 
@@ -148,21 +152,28 @@ impl<T> UserDataMut<T> {
             _auto_sum: AutoSum::new(),
         }
     }
-    fn as_const(&self) -> &UserData<T> {
+    pub fn as_const(&self) -> &UserData<T> {
         unsafe { core::mem::transmute(self) }
     }
 }
 
 impl UserDataMut<u8> {
-    pub fn readonly_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
+    /// return an read only iterator containing a 4KB buffer.
+    ///
+    /// before each access, it will copy 4KB from user range to buffer.
+    pub fn read_only_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
         UserData4KIter::new(self.as_const(), proc, buffer)
     }
-    pub fn writonly_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserDataMut4KIter {
+    /// return an write only iterator containing a 4KB buffer.
+    ///
+    /// before each access, it will copy 4KB from buffer to user range except for the first time.
+    pub fn write_only_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserDataMut4KIter {
         UserDataMut4KIter::new(self, proc, buffer)
     }
 }
 
 impl<T: Clone + 'static> UserDataMut<T> {
+    /// after into_vec the data will no longer need space_guard.
     pub fn into_vec(&self, mark: &SpaceGuard) -> Vec<T> {
         self.access(mark).to_vec()
     }

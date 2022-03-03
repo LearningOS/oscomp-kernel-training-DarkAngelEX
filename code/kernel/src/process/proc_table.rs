@@ -1,3 +1,5 @@
+use core::lazy::OnceCell;
+
 use alloc::{
     collections::BTreeMap,
     sync::{Arc, Weak},
@@ -8,7 +10,7 @@ use crate::sync::mutex::SpinNoIrqLock as Mutex;
 use super::{Pid, Process};
 
 static PROC_MAP: Mutex<BTreeMap<Pid, Weak<Process>>> = Mutex::new(BTreeMap::new());
-static mut INITPROC: Option<Arc<Process>> = None;
+static mut INITPROC: OnceCell<Arc<Process>> = OnceCell::new();
 
 pub fn map(pid: Pid) -> Option<Arc<Process>> {
     PROC_MAP.lock(place!()).get_mut(&pid)?.upgrade()
@@ -29,11 +31,11 @@ pub fn clear_proc(pid: Pid) {
 }
 
 pub unsafe fn set_initproc(p: Arc<Process>) {
-    if INITPROC.replace(p).is_some() {
-        panic!("double set_initproc");
-    }
+    INITPROC
+        .set(p)
+        .unwrap_or_else(|_e| panic!("initproc double set"))
 }
 
 pub fn get_initproc() -> Arc<Process> {
-    unsafe { INITPROC.as_ref().unwrap().clone() }
+    unsafe { INITPROC.get().unwrap().clone() }
 }

@@ -135,13 +135,10 @@ impl Syscall<'_> {
                 drop(alive);
             }
             let event_bus = &self.process.event_bus;
-            if let Err(_e) =
-                even_bus::wait_for_event(event_bus.clone(), Event::CHILD_PROCESS_QUIT).await
+            if let Err(_e) = even_bus::wait_for_event(event_bus.clone(), Event::CHILD_PROCESS_QUIT)
+                .await
+                .and_then(|_x| event_bus.lock(place!()).clear(Event::CHILD_PROCESS_QUIT))
             {
-                self.do_exit = true;
-                return Err(SysError::ESRCH);
-            }
-            if let Err(_e) = event_bus.lock(place!()).clear(Event::CHILD_PROCESS_QUIT) {
                 self.do_exit = true;
                 return Err(SysError::ESRCH);
             }
@@ -179,14 +176,15 @@ impl Syscall<'_> {
         thread::yield_now().await;
         Ok(0)
     }
-    pub fn sys_sleep(&mut self) -> impl Future<Output = SysResult> {
+    pub async fn sys_sleep(&mut self) -> SysResult {
         let millisecond: usize = self.cx.parameter1();
         let time_now = timer::get_time_ticks();
         let deadline = time_now + TimeTicks::from_millisecond(millisecond);
-        SleepFuture {
+        let future = SleepFuture {
             deadline,
             event_bus: self.process.event_bus.clone(),
-        }
+        };
+        future.await
     }
 }
 

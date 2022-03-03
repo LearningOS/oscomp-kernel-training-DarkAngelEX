@@ -20,6 +20,7 @@
 #![feature(slice_ptr_len)]
 #![feature(nonzero_ops)]
 #![feature(generic_arg_infer)]
+#![feature(once_cell)]
 
 // #![allow(dead_code)]
 
