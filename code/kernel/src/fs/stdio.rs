@@ -61,7 +61,7 @@ impl File for Stdout {
             let _lock = STDOUT_MUTEX.lock().await;
             let guard = proc.using_space().unwrap();
             let str = buf.access(&guard);
-            print!("{}", core::str::from_utf8(&*str).unwrap());
+            print_unlock!("{}", core::str::from_utf8(&*str).unwrap());
             let len = buf.len();
             Ok(len)
         })

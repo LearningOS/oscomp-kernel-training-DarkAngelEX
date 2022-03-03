@@ -18,6 +18,7 @@
 #![feature(unboxed_closures)]
 #![feature(negative_impls)]
 #![feature(slice_ptr_len)]
+#![feature(nonzero_ops)]
 
 // #![allow(dead_code)]
 
