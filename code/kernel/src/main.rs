@@ -19,6 +19,7 @@
 #![feature(negative_impls)]
 #![feature(slice_ptr_len)]
 #![feature(nonzero_ops)]
+#![feature(generic_arg_infer)]
 
 // #![allow(dead_code)]
 

@@ -39,7 +39,7 @@ impl VirtIOBlock {
     pub fn new() -> Self {
         unsafe {
             Self(SpinNoIrqLock::new(
-                VirtIOBlk::new(&mut *(VIRTIO0 as *mut VirtIOHeader)).unwrap(),
+                VirtIOBlk::new(&mut *((VIRTIO0 + DIRECT_MAP_OFFSET) as *mut VirtIOHeader)).unwrap(),
             ))
         }
     }

@@ -3,7 +3,7 @@ use riscv::register::scause::{self, Exception, Interrupt};
 
 use crate::{executor, local, syscall::Syscall, timer, xdebug::stack_trace::StackTrace};
 
-use super::thread::{self, Thread};
+use super::thread::Thread;
 
 async fn userloop(thread: Arc<Thread>) {
     loop {
@@ -13,10 +13,10 @@ async fn userloop(thread: Arc<Thread>) {
         let context = thread.as_ref().get_context();
 
         let mut do_exit = false;
-        let mut do_yield = false;
+        // let mut do_yield = false;
         match thread.process.using_space() {
             Ok(guard) => context.run_user(&guard),
-            Err(()) => do_exit = true,
+            Err(_e) => do_exit = true,
         };
         if !do_exit {
             match scause::read().cause() {
@@ -78,9 +78,9 @@ async fn userloop(thread: Arc<Thread>) {
             }
             break;
         }
-        if do_yield {
-            thread::yield_now().await;
-        }
+        // if do_yield {
+        //     thread::yield_now().await;
+        // }
     }
 }
 

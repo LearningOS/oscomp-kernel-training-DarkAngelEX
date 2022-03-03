@@ -4,13 +4,14 @@ use core::{
     pin::Pin,
 };
 
-use alloc::sync::Arc;
+use alloc::{string::FromUtf8Error, sync::Arc};
 
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
-    xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL}, user::SpaceGuard,
+    user::SpaceGuard,
+    xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
 };
 
 mod fs;
@@ -80,8 +81,8 @@ impl<'a> Syscall<'a> {
         self.cx.into_next_instruction();
         let result: SysResult = match self.cx.a7() {
             SYSCALL_DUP => todo!(),
-            SYSCALL_OPEN => todo!(),
-            SYSCALL_CLOSE => todo!(),
+            SYSCALL_OPEN => self.sys_open().await,
+            SYSCALL_CLOSE => self.sys_close(),
             SYSCALL_PIPE => todo!(),
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
@@ -125,9 +126,9 @@ impl<'a> Syscall<'a> {
     pub fn using_space(
         &mut self,
     ) -> Result<SpaceGuard, UniqueSysError<{ SysError::ESRCH as isize }>> {
-        self.process.using_space().map_err(|()| {
+        self.process.using_space().map_err(|e| {
             self.do_exit = true;
-            UniqueSysError
+            e.into()
         })
     }
     pub fn alive_lock(
@@ -288,5 +289,11 @@ pub struct UniqueSysError<const X: isize>;
 impl<const X: isize> From<UniqueSysError<X>> for SysError {
     fn from(_: UniqueSysError<X>) -> Self {
         unsafe { core::mem::transmute(X) }
+    }
+}
+
+impl From<FromUtf8Error> for SysError {
+    fn from(_: FromUtf8Error) -> Self {
+        SysError::EFAULT
     }
 }

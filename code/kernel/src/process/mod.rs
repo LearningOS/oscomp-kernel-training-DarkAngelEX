@@ -8,12 +8,13 @@ use crate::{
     loader,
     memory::{
         allocator::frame::{self, FrameAllocator},
-        StackID, UserSpace,
+        UserSpace,
     },
     sync::{
         even_bus::{Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
     },
+    syscall::{SysError, UniqueSysError},
     tools::error::FrameOutOfMemory,
     user::SpaceGuard,
     xdebug::NeverFail,
@@ -61,24 +62,36 @@ pub struct AliveProcess {
     pub fd_table: FdTable,
 }
 
+#[derive(Debug)]
+pub struct DeadProcess;
+
+impl From<DeadProcess> for UniqueSysError<{ SysError::ESRCH as isize }> {
+    fn from(_e: DeadProcess) -> Self {
+        UniqueSysError
+    }
+}
+
+impl From<DeadProcess> for SysError {
+    fn from(e: DeadProcess) -> Self {
+        let err: UniqueSysError<_> = e.into();
+        err.into()
+    }
+}
+
 impl Process {
     pub fn pid(&self) -> Pid {
         self.pid.pid()
     }
     // return Err if zombies
     #[inline(always)]
-    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, ()> {
+    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, DeadProcess> {
         match self.alive.lock(place!()).as_mut() {
             Some(alive) => Ok(f(alive)),
-            None => Err(()),
+            None => Err(DeadProcess),
         }
     }
     #[inline(always)]
-    pub fn using_space(&self) -> Result<SpaceGuard, ()> {
-        self.alive_then(|a| a.user_space.using_guard())
-    }
-    #[inline(always)]
-    pub fn using_space_check(&self) -> Result<SpaceGuard, ()> {
+    pub fn using_space(&self) -> Result<SpaceGuard, DeadProcess> {
         self.alive_then(|a| a.user_space.using_guard())
     }
 
@@ -159,9 +172,6 @@ impl AliveProcess {
                     .set(Event::CHILD_PROCESS_QUIT);
             }
         }
-    }
-    pub fn dealloc_thread(&mut self, tid: Tid, stack_id: StackID) {
-        todo!()
     }
 }
 

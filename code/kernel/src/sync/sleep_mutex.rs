@@ -2,7 +2,6 @@ use alloc::collections::LinkedList;
 
 use core::{
     cell::UnsafeCell,
-    convert::TryFrom,
     future::Future,
     num::NonZeroUsize,
     ops::{Deref, DerefMut},
