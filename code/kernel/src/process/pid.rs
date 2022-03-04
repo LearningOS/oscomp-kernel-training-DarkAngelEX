@@ -3,6 +3,7 @@ use crate::{
     sync::mutex::SpinLock,
     tools::{
         allocator::{from_usize_allocator::FromUsizeAllocator, Own},
+        container::never_clone_linked_list::NeverCloneLinkedList,
         Wrapper,
     },
 };
@@ -26,7 +27,7 @@ impl Wrapper<Pid> for PidWrapper {
     }
 }
 
-type PidAllocator = FromUsizeAllocator<Pid, PidWrapper>;
+type PidAllocator = FromUsizeAllocator<Pid, PidWrapper, NeverCloneLinkedList<usize>>;
 
 #[derive(Debug)]
 pub struct PidHandle(Pid);

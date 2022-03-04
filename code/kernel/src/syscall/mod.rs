@@ -121,7 +121,9 @@ impl<'a> Syscall<'a> {
         self.cx.set_user_a0(a0);
         self.do_exit
     }
-    // if return Err will set do_exit = true
+    /// if return Err will set do_exit = true
+    ///
+    /// deprecate function likes using_space_then because it probably lock process for a long time.
     #[inline(always)]
     pub fn using_space(
         &mut self,
@@ -131,6 +133,7 @@ impl<'a> Syscall<'a> {
             e.into()
         })
     }
+    /// if return Err will set do_exit = true
     pub fn alive_then<T>(
         &mut self,
         f: impl FnOnce(&mut AliveProcess) -> T,
@@ -140,6 +143,7 @@ impl<'a> Syscall<'a> {
             e.into()
         })
     }
+    /// if return Err will set do_exit = true
     pub fn alive_lock(
         &mut self,
     ) -> Result<AliveGurad<'_>, UniqueSysError<{ SysError::ESRCH as isize }>> {

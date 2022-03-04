@@ -7,7 +7,8 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
-use alloc::{sync::Arc, vec::Vec};
+use crate::tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack};
+use alloc::sync::Arc;
 
 bitflags! {
     #[derive(Default)]
@@ -43,7 +44,7 @@ pub struct EventBus {
     closed: bool,
     pub event: Event,
     suspend_event: Event,
-    wakers: Vec<(Event, Waker)>,
+    wakers: NeverCloneLinkedList<(Event, Waker)>,
 }
 
 impl Drop for EventBus {

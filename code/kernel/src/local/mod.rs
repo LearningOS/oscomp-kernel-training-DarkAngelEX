@@ -8,7 +8,7 @@ use crate::{
     user::UserAccessStatus,
 };
 
-macro_rules! array_repeat64 {
+macro_rules! array_repeat {
     ($a: expr) => {
         [
             $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a,
@@ -16,7 +16,7 @@ macro_rules! array_repeat64 {
     };
 }
 
-static mut HART_LOCAL: [Local; 16] = array_repeat64!(Local::new());
+static mut HART_LOCAL: [Local; 16] = array_repeat!(Local::new());
 
 pub struct Local {
     pub kstack_bottom: usize,

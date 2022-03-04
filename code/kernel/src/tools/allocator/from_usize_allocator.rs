@@ -1,18 +1,24 @@
 use core::marker::PhantomData;
 
-use alloc::vec::Vec;
-
-use crate::tools::{ForwardWrapper, Wrapper};
-
-use super::Own;
+use crate::tools::{
+    container::{
+        fast_clone_linked_list::FastCloneLinkedList, never_clone_linked_list::NeverCloneLinkedList,
+        Stack,
+    },
+    ForwardWrapper, Wrapper,
+};
 
 pub trait FromUsize {
     fn from_usize(num: usize) -> Self;
+    fn into_usize(&self) -> usize;
 }
 
 impl FromUsize for usize {
     fn from_usize(num: usize) -> Self {
         num
+    }
+    fn into_usize(&self) -> usize {
+        *self
     }
 }
 
@@ -22,6 +28,9 @@ macro_rules! from_usize_impl {
         impl crate::tools::allocator::from_usize_allocator::FromUsize for $ty_name {
             fn from_usize(num: usize) -> Self {
                 Self(num)
+            }
+            fn into_usize(&self) -> usize {
+                self.0
             }
         }
     };
@@ -48,29 +57,42 @@ impl<T: FromUsize> FromUsizeIter<T> {
     }
 }
 
-pub type UsizeAllocator = FromUsizeAllocator<usize, ForwardWrapper>;
+pub type NeverCloneUsizeAllocator =
+    FromUsizeAllocator<usize, ForwardWrapper, NeverCloneLinkedList<usize>>;
+pub type FastCloneUsizeAllocator =
+    FromUsizeAllocator<usize, ForwardWrapper, FastCloneLinkedList<usize>>;
 
 #[derive(Clone)]
-pub struct FromUsizeAllocator<T: FromUsize, R: Wrapper<T>> {
+pub struct FromUsizeAllocator<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> {
     iter: FromUsizeIter<T>,
-    recycled: Vec<T>,
+    recycled: S,
     using: usize,
     _marker: PhantomData<R>,
 }
 
-impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R> {
-    pub const fn new(start: usize) -> Self {
-        Self {
-            iter: FromUsizeIter::new(start),
-            recycled: Vec::new(),
-            using: 0,
-            _marker: PhantomData,
+macro_rules! from_usize_allocator_const_new_impl {
+    ($contain: ident) => {
+        impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R, $contain<usize>> {
+            pub const fn new(start: usize) -> Self {
+                Self {
+                    iter: FromUsizeIter::new(start),
+                    recycled: $contain::new(),
+                    using: 0,
+                    _marker: PhantomData,
+                }
+            }
         }
-    }
+    };
+}
+
+from_usize_allocator_const_new_impl!(NeverCloneLinkedList);
+from_usize_allocator_const_new_impl!(FastCloneLinkedList);
+
+impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> FromUsizeAllocator<T, R, S> {
     pub fn alloc(&mut self) -> R::Output {
         self.using += 1;
         if let Some(value) = self.recycled.pop() {
-            R::wrapper(value)
+            R::wrapper(T::from_usize(value))
         } else {
             let value = self.iter.next();
             R::wrapper(value)
@@ -78,7 +100,7 @@ impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R> {
     }
     pub unsafe fn dealloc(&mut self, value: T) {
         self.using -= 1;
-        self.recycled.push(value);
+        self.recycled.push(value.into_usize());
     }
     pub const fn using(&self) -> usize {
         self.using

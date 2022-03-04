@@ -4,14 +4,12 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::vec::Vec;
-
 use crate::{
     hart::csr,
     impl_usize_from, local,
     memory::{address::VirAddr, page_table::PageTable},
     sync::mutex::SpinNoIrqLock,
-    tools,
+    tools::{container::{never_clone_linked_list::NeverCloneLinkedList, Stack}},
 };
 
 const ASID_BIT: usize = 16;
@@ -120,7 +118,7 @@ impl AsidVersion {
 struct AsidManager {
     version: AsidVersion,
     current: Asid,
-    recycled: Vec<Asid>,
+    recycled: NeverCloneLinkedList<Asid>,
 }
 
 impl AsidManager {
@@ -128,7 +126,7 @@ impl AsidManager {
         Self {
             version: AsidVersion(0),
             current: Asid(1),
-            recycled: Vec::new(),
+            recycled: NeverCloneLinkedList::new(),
         }
     }
     // this function is running in lock.

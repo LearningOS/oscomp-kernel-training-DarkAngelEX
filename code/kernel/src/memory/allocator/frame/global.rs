@@ -4,13 +4,16 @@ use crate::{
     config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
     memory::address::{PageCount, PhyAddrRef},
     sync::mutex::SpinNoIrqLock,
-    tools::{allocator::Own, error::FrameOutOfMemory},
+    tools::{
+        allocator::Own,
+        container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
+        error::FrameOutOfMemory,
+    },
     xdebug::{
         trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
         CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
     },
 };
-use alloc::vec::Vec;
 ///
 /// this module will alloc frame(4KB)
 use core::fmt::Debug;
@@ -95,7 +98,7 @@ struct StackGlobalFrameAllocator {
     begin: PhyAddrRef4K, // used in recycle check.
     current: PhyAddrRef4K,
     end: PhyAddrRef4K,
-    recycled: Vec<PhyAddrRef4K>,
+    recycled: NeverCloneLinkedList<PhyAddrRef4K>,
 }
 
 impl StackGlobalFrameAllocator {
@@ -104,7 +107,7 @@ impl StackGlobalFrameAllocator {
             begin: unsafe { PhyAddrRef4K::from_usize(0) },
             current: unsafe { PhyAddrRef4K::from_usize(0) },
             end: unsafe { PhyAddrRef4K::from_usize(0) },
-            recycled: Vec::new(),
+            recycled: NeverCloneLinkedList::new(),
         }
     }
     pub fn init(&mut self, begin: PhyAddrRef4K, end: PhyAddrRef4K) {

@@ -1,18 +1,19 @@
-use core::{cell::UnsafeCell};
+use core::cell::UnsafeCell;
 
 use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
+    from_usize_impl,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
         page_table::PTEFlags,
     },
     tools::{
-        allocator::from_usize_allocator::{FromUsize, UsizeAllocator},
+        allocator::from_usize_allocator::FastCloneUsizeAllocator,
         error::{FrameOutOfMemory, TooManyUserStack},
     },
-    user::{SpaceGuard},
+    user::SpaceGuard,
 };
 
 use super::{
@@ -21,7 +22,7 @@ use super::{
         iter::{FrameDataIter, NullFrameDataIter},
         FrameAllocator,
     },
-    asid, PageTable
+    asid, PageTable,
 };
 
 /// all map to frame.
@@ -52,11 +53,8 @@ impl UserArea {
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct StackID(usize);
-impl FromUsize for StackID {
-    fn from_usize(v: usize) -> Self {
-        Self(v)
-    }
-}
+from_usize_impl!(StackID);
+
 impl StackID {
     pub fn id(&self) -> usize {
         self.0
@@ -65,7 +63,7 @@ impl StackID {
 
 #[derive(Clone)]
 struct StackAllocator {
-    allocator: UsizeAllocator,
+    allocator: FastCloneUsizeAllocator,
 }
 
 impl Drop for StackAllocator {
@@ -78,7 +76,7 @@ impl Drop for StackAllocator {
 impl StackAllocator {
     pub const fn new() -> Self {
         Self {
-            allocator: UsizeAllocator::new(0),
+            allocator: FastCloneUsizeAllocator::new(0),
         }
     }
     pub fn stack_max() -> usize {

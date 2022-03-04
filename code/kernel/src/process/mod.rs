@@ -117,7 +117,7 @@ impl Process {
             parent: Some(Arc::downgrade(self)),
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(),
-            fd_table: FdTable::new(),
+            fd_table: alive.fd_table.clone(),
         };
         let new_process = Arc::new(Process {
             pid: new_pid,

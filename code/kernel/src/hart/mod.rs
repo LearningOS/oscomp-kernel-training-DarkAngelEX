@@ -9,7 +9,7 @@ use crate::{
     fs, local,
     memory::{self, address::PhyAddr},
     process, timer, trap,
-    xdebug::CLOSE_TIME_INTERRUPT,
+    xdebug::CLOSE_TIME_INTERRUPT, tools::container,
 };
 
 pub mod cpu;
@@ -90,6 +90,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     // show_device();
 
     memory::init();
+    container::test();
     timer::init();
     executor::init();
     trap::init();

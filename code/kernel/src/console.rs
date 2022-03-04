@@ -1,12 +1,8 @@
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
 const OUTPUT_LOCK: bool = true;
 
-use crate::{
-    hart::sbi,
-    place,
-    sync::mutex::{MutexGuard, SpinNoIrq},
-};
+use crate::{hart::sbi, place};
 
 use core::fmt::{self, Write};
 

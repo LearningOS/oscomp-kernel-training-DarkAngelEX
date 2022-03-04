@@ -1,35 +1,30 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 
 use crate::{
+    from_usize_impl,
     fs::{File, Stdin, Stdout},
     tools::{
-        allocator::from_usize_allocator::{FromUsize, FromUsizeAllocator},
-        ForwardWrapper,
+        allocator::from_usize_allocator::FromUsizeAllocator,
+        container::fast_clone_linked_list::FastCloneLinkedList, ForwardWrapper,
     },
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Fd(usize);
+from_usize_impl!(Fd);
 
-impl FromUsize for Fd {
-    fn from_usize(num: usize) -> Self {
-        Fd(num)
-    }
-}
 impl Fd {
     pub fn new(x: usize) -> Self {
         Self(x)
-    }
-    pub fn into_usize(&self) -> usize {
-        self.0
     }
     pub fn assert_eq(&self, x: usize) {
         assert_eq!(self.0, x)
     }
 }
 
-pub type FdAllocator = FromUsizeAllocator<Fd, ForwardWrapper>;
+pub type FdAllocator = FromUsizeAllocator<Fd, ForwardWrapper, FastCloneLinkedList<usize>>;
 
+#[derive(Clone)]
 pub struct FdTable {
     map: BTreeMap<Fd, Arc<dyn File>>,
     fd_allocator: FdAllocator,
