@@ -32,7 +32,8 @@ const SYSCALL_CONDVAR_WAIT: usize = 1032;
 fn syscall<const N: usize>(id: usize, args: [usize; N]) -> isize {
     let ret: isize;
     unsafe {
-        let x = core::mem::MaybeUninit::uninit().assume_init();
+        // let x = core::mem::MaybeUninit::uninit().assume_init();
+        let x = 0;
         let a = match *args.as_slice() {
             [] => (x, x, x),
             [a0] => (a0, x, x),

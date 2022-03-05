@@ -11,17 +11,6 @@ use crate::{
 use super::{SpaceGuard, UserAccessTrace, UserData, UserDataMut, UserType};
 
 impl SpaceGuard {
-    pub fn translated_user_u8(
-        &self,
-        ptr: *const u8,
-    ) -> Result<u8, UniqueSysError<{ SysError::EFAULT as isize }>> {
-        let uptr = UserAddr::try_from(ptr)?;
-        let user_access_status = &mut local::current_local().user_access_status;
-        let value = *uptr.get_mut();
-        user_access_status.access_check()?;
-        Ok(value)
-    }
-
     pub fn translated_user_array_zero_end<T>(
         &self,
         ptr: *const T,
@@ -29,13 +18,16 @@ impl SpaceGuard {
     where
         T: UserType,
     {
+        if ptr as usize % core::mem::size_of::<T>() != 0 {
+            return Err(UniqueSysError);
+        }
         let mut uptr = UserAddr::try_from(ptr)?;
         let user_access_status = &mut local::current_local().user_access_status;
         let _trace = UserAccessTrace::new(user_access_status);
         let mut len = 0;
         let mut get_ch = || {
             let ch: T = unsafe { *uptr.as_ptr() }; // if access fault, return 0.
-            uptr.add_assign(1);
+            uptr.add_assign(core::mem::size_of::<T>());
             (ch, uptr)
         };
         let (ch, _next_ptr) = get_ch();
@@ -83,6 +75,9 @@ impl SpaceGuard {
         ptr: *const T,
         len: usize,
     ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
+        if ptr as usize % core::mem::size_of::<T>() != 0 {
+            return Err(UniqueSysError);
+        }
         let ubegin = UserAddr::try_from(ptr)?;
         let uend = UserAddr::try_from(unsafe { ptr.offset(len as isize) as *mut u8 })?;
         let user_access_status = &mut local::current_local().user_access_status;
@@ -106,6 +101,9 @@ impl SpaceGuard {
         ptr: *mut T,
         len: usize,
     ) -> Result<UserDataMut<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
+        if ptr as usize % core::mem::size_of::<T>() != 0 {
+            return Err(UniqueSysError);
+        }
         let ubegin = UserAddr::try_from(ptr)?;
         let uend = UserAddr::try_from(unsafe { ptr.offset(len as isize) as *mut u8 })?;
         let user_access_status = &mut local::current_local().user_access_status;

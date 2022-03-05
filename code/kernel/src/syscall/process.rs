@@ -4,11 +4,12 @@ use core::{
     task::{Context, Poll},
 };
 
-use alloc::{string::String, sync::Arc};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
+    config::{PAGE_SIZE, USER_STACK_RESERVE},
     fs, local,
-    memory::{self, allocator::frame, user_ptr::UserOutPtr, UserSpace},
+    memory::{self, address::PageCount, allocator::frame, user_ptr::UserOutPtr, UserSpace},
     process::{thread, userloop, Pid},
     sync::{
         even_bus::{self, Event, EventBus},
@@ -47,21 +48,34 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exec {:?}", self.process.pid());
         }
-        let (path, _argv, _envp) = {
-            let (path, _argv, _envp): (*const u8, *const *const u8, *const *const u8) =
+        let (path, args, _envp) = {
+            let (path, args, _envp): (*const u8, *const *const u8, *const *const u8) =
                 self.cx.parameter3();
             let guard = self.using_space()?;
             let path =
                 String::from_utf8(guard.translated_user_array_zero_end(path)?.into_vec(&guard))?;
-            // let argv = user::translated_user_2d_array_zero_end(argv)?;
+            let args: Vec<String> = guard
+                .translated_user_2d_array_zero_end(args)?
+                .into_iter()
+                .map(|a| unsafe { String::from_utf8_unchecked(a.into_vec(&guard)) })
+                .collect();
+            // println!("args ptr: {:#x}", args as usize);
+            // let args = Vec::new();
             // let envp = user::translated_user_2d_array_zero_end(envp)?;
-            (path, (), ())
+            (path, args, ())
         };
+        let args_size = args.iter().fold(0, |n, s| n + s.len() + 1)
+            + (args.len() + 1) * core::mem::size_of::<usize>();
+        let stack_reverse =
+            PageCount::from_usize((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
+        println!("stack_reverse: {:?}", stack_reverse);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
         let elf_data = inode.read_all().await;
         let allocator = &mut frame::defualt_allocator();
         let (user_space, stack_id, user_sp, entry_point) =
-            UserSpace::from_elf(elf_data.as_slice(), allocator).map_err(|_| SysError::ENOEXEC)?;
+            UserSpace::from_elf(elf_data.as_slice(), stack_reverse, allocator)
+                .map_err(|_e| SysError::ENOEXEC)?;
+        let (user_sp, argc, argv) = user_space.push_args(args, user_sp.into());
         let check = NeverFail::new();
         // reset stack_id
         // user_space.using();
@@ -76,7 +90,6 @@ impl Syscall<'_> {
         alive.user_space = user_space;
         drop(alive);
         self.thread.inner().stack_id = stack_id;
-        let (argc, argv) = (0, 0);
         let sstatus = self.thread.get_context().user_sstatus;
         self.thread
             .get_context()

@@ -14,13 +14,15 @@ use alloc::{
 use riscv::register::sstatus;
 
 use crate::{
-    memory::{allocator::frame::FrameAllocator, StackID, UserSpace},
+    memory::{address::PageCount, allocator::frame::FrameAllocator, StackID, UserSpace},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     tools::{allocator::from_usize_allocator::FromUsize, error::FrameOutOfMemory},
     trap::context::UKContext,
 };
 
-use super::{children::ChildrenSet, pid::pid_alloc, proc_table, AliveProcess, Process, Tid, fd::FdTable};
+use super::{
+    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, AliveProcess, Process, Tid,
+};
 
 pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
@@ -75,7 +77,7 @@ pub struct ThreadInner {
 impl Thread {
     pub fn new_initproc(elf_data: &[u8], allocator: &mut impl FrameAllocator) -> Arc<Self> {
         let (user_space, stack_id, user_sp, entry_point) =
-            UserSpace::from_elf(elf_data, allocator).unwrap();
+            UserSpace::from_elf(elf_data, PageCount::from_usize(1), allocator).unwrap();
         let pid = pid_alloc();
         let tid = Tid::from_usize(pid.get_usize());
         let pgid = AtomicUsize::new(pid.get_usize());
@@ -104,7 +106,7 @@ impl Thread {
         };
         let (argc, argv) = (0, 0);
         thread.inner.get_mut().uk_context.exec_init(
-            user_sp,
+            user_sp.into(),
             entry_point,
             sstatus::read(),
             argc,

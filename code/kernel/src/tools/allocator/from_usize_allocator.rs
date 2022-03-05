@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use crate::tools::{
     container::{
         fast_clone_linked_list::FastCloneLinkedList, never_clone_linked_list::NeverCloneLinkedList,
-        Stack,
+        Stack, pop_smallest_set::PopSmallestSet,
     },
     ForwardWrapper, Wrapper,
 };
@@ -87,6 +87,7 @@ macro_rules! from_usize_allocator_const_new_impl {
 
 from_usize_allocator_const_new_impl!(NeverCloneLinkedList);
 from_usize_allocator_const_new_impl!(FastCloneLinkedList);
+from_usize_allocator_const_new_impl!(PopSmallestSet);
 
 impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> FromUsizeAllocator<T, R, S> {
     pub fn alloc(&mut self) -> R::Output {
@@ -98,6 +99,7 @@ impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> FromUsizeAllocator<T, R, S> {
             R::wrapper(value)
         }
     }
+    /// It must be ensured that the value is released only once.
     pub unsafe fn dealloc(&mut self, value: T) {
         self.using -= 1;
         self.recycled.push(value.into_usize());

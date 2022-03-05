@@ -1,6 +1,6 @@
-use core::cell::UnsafeCell;
+use core::{cell::UnsafeCell, convert::TryFrom, mem::MaybeUninit};
 
-use alloc::{collections::BTreeMap, sync::Arc, vec::Vec};
+use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
@@ -13,7 +13,7 @@ use crate::{
         allocator::from_usize_allocator::FastCloneUsizeAllocator,
         error::{FrameOutOfMemory, TooManyUserStack},
     },
-    user::SpaceGuard,
+    user::{AutoSum, SpaceGuard, UserData},
 };
 
 use super::{
@@ -82,7 +82,7 @@ impl StackAllocator {
     pub fn stack_max() -> usize {
         USER_MAX_THREADS
     }
-    pub fn alloc(&mut self) -> Result<UsingStack, TooManyUserStack> {
+    pub fn alloc(&mut self, stack_reverse: PageCount) -> Result<UsingStack, TooManyUserStack> {
         if self.allocator.using() >= Self::stack_max() {
             return Err(TooManyUserStack);
         }
@@ -93,7 +93,7 @@ impl StackAllocator {
             stack_id: StackID(num),
             stack_begin: UserAddr4K::from_usize_check(base + num * size),
             stack_end: UserAddr4K::from_usize_check(base + (num + 1) * size),
-            alloc_num: PageCount::from_usize(USER_STACK_RESERVE / PAGE_SIZE),
+            alloc_num: stack_reverse,
         })
     }
     pub unsafe fn dealloc(&mut self, stack_id: usize) {
@@ -199,8 +199,11 @@ impl StackSpaceManager {
     pub fn using_size(&self) -> usize {
         self.using_stacks.len()
     }
-    pub fn alloc(&mut self) -> Result<UsingStackTracker, TooManyUserStack> {
-        let using_stack = self.allocator.alloc()?;
+    pub fn alloc(
+        &mut self,
+        stack_reverse: PageCount,
+    ) -> Result<UsingStackTracker, TooManyUserStack> {
+        let using_stack = self.allocator.alloc(stack_reverse)?;
         self.using_stacks
             .insert(using_stack.stack_id(), using_stack)
             .map(|s| panic!("stack double alloc! {:?}", s));
@@ -372,10 +375,14 @@ impl UserSpace {
     /// (stack, user_sp)
     pub fn stack_alloc(
         &mut self,
+        stack_reverse: PageCount,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(StackID, UserAddr4K), UserStackCreateError> {
         memory_trace!("UserSpace::stack_alloc");
-        let stack = self.stacks.alloc().map_err(UserStackCreateError::from)?;
+        let stack = self
+            .stacks
+            .alloc(stack_reverse)
+            .map_err(UserStackCreateError::from)?;
         let user_area = stack.user_area();
         let info = stack.info();
         unsafe { &mut *self.page_table.get() }
@@ -420,6 +427,7 @@ impl UserSpace {
     /// return err if out of memory
     pub fn from_elf(
         elf_data: &[u8],
+        stack_reverse: PageCount,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(Self, StackID, UserAddr4K, UserAddr), USpaceCreateError> {
         memory_trace!("UserSpace::from_elf 0");
@@ -459,7 +467,7 @@ impl UserSpace {
         }
         memory_trace!("UserSpace::from_elf 1");
         // map user stack
-        let (stack_id, user_sp) = space.stack_alloc(allocator)?;
+        let (stack_id, user_sp) = space.stack_alloc(stack_reverse, allocator)?;
         memory_trace!("UserSpace::from_elf 2");
         // set heap
         space.heap_resize(PageCount::from_usize(1), allocator);
@@ -490,6 +498,33 @@ impl UserSpace {
     }
     pub fn using_size(&self) -> usize {
         self.stacks.using_size()
+    }
+    /// return (user_sp, argc, argv)
+    pub fn push_args(&self, args: Vec<String>, sp: UserAddr) -> (UserAddr, usize, usize) {
+        fn get_slice<T>(sp: usize, len: usize) -> &'static mut [T] {
+            unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sp as *mut T, len) }
+        }
+        fn set_zero<T>(sp: usize) {
+            unsafe { *(sp as *mut T) = MaybeUninit::zeroed().assume_init() };
+        }
+        let _space_guard = self.using_guard();
+        let _auto_sum = AutoSum::new();
+        let mut sp = sp.into_usize();
+        sp -= core::mem::size_of::<usize>();
+        set_zero::<usize>(sp);
+        sp -= args.len() * core::mem::size_of::<usize>();
+        let args_base = get_slice(sp, args.len());
+        for (i, s) in args.iter().enumerate() {
+            let len = s.len();
+            sp -= 1;
+            set_zero::<u8>(sp);
+            sp -= len;
+            args_base[i] = sp;
+            get_slice(sp, len).copy_from_slice(s.as_bytes());
+        }
+        sp -= sp % core::mem::size_of::<usize>();
+        let sp = unsafe { UserAddr::from_usize(sp) };
+        (sp, args_base.len(), args_base.as_ptr() as usize)
     }
 }
 

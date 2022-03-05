@@ -23,6 +23,7 @@ impl Fd {
 }
 
 pub type FdAllocator = FromUsizeAllocator<Fd, ForwardWrapper, FastCloneLinkedList<usize>>;
+// pub type FdAllocator = FromUsizeAllocator<Fd, ForwardWrapper, PopSmallestSet<usize>>;
 
 #[derive(Clone)]
 pub struct FdTable {
@@ -53,7 +54,11 @@ impl FdTable {
         self.map.get(&fd)
     }
     pub fn remove(&mut self, fd: Fd) -> Option<Arc<dyn File>> {
-        self.map.remove(&fd)
+        let file = self.map.remove(&fd);
+        if file.is_some() {
+            unsafe { self.fd_allocator.dealloc(fd) };
+        }
+        file
     }
     pub fn dup(&mut self, fd: Fd) -> Option<Fd> {
         let file = self.get(fd)?.clone();
