@@ -1,5 +1,6 @@
 pub mod never_clone_linked_list;
 pub mod fast_clone_linked_list;
+pub mod sync_unsafe_cell;
 
 pub trait Stack<T> {
     fn push(&mut self, data: T);

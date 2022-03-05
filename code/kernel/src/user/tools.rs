@@ -84,7 +84,7 @@ impl SpaceGuard {
         len: usize,
     ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
         let ubegin = UserAddr::try_from(ptr)?;
-        let uend = UserAddr::try_from((ptr as usize + len) as *const u8)?;
+        let uend = UserAddr::try_from(unsafe { ptr.offset(len as isize) as *mut u8 })?;
         let user_access_status = &mut local::current_local().user_access_status;
         let trace = UserAccessTrace::new(user_access_status);
         let mut cur = ubegin.floor();
@@ -107,7 +107,7 @@ impl SpaceGuard {
         len: usize,
     ) -> Result<UserDataMut<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
         let ubegin = UserAddr::try_from(ptr)?;
-        let uend = UserAddr::try_from((ptr as usize + len) as *mut u8)?;
+        let uend = UserAddr::try_from(unsafe { ptr.offset(len as isize) as *mut u8 })?;
         let user_access_status = &mut local::current_local().user_access_status;
         let trace = UserAccessTrace::new(user_access_status);
         let mut cur = ubegin.floor();

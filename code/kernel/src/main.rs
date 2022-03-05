@@ -21,6 +21,7 @@
 #![feature(nonzero_ops)]
 #![feature(generic_arg_infer)]
 #![feature(once_cell)]
+#![feature(get_mut_unchecked)]
 
 // #![allow(dead_code)]
 

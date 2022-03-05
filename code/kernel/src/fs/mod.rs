@@ -1,5 +1,6 @@
 mod inode;
 mod stdio;
+pub mod pipe;
 
 use core::{future::Future, pin::Pin};
 

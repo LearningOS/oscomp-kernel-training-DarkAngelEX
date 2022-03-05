@@ -160,7 +160,7 @@ impl Future for YieldFuture {
             Poll::Ready(())
         } else {
             self.flag = true;
-            cx.waker().clone().wake();
+            cx.waker().wake_by_ref();
             Poll::Pending
         }
     }

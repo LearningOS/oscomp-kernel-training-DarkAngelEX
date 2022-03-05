@@ -55,4 +55,9 @@ impl FdTable {
     pub fn remove(&mut self, fd: Fd) -> Option<Arc<dyn File>> {
         self.map.remove(&fd)
     }
+    pub fn dup(&mut self, fd: Fd) -> Option<Fd> {
+        let file = self.get(fd)?.clone();
+        let new_fd = self.insert(file.clone());
+        Some(new_fd)
+    }
 }

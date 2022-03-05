@@ -80,10 +80,10 @@ impl<'a> Syscall<'a> {
         memory_trace!("syscall entry");
         self.cx.into_next_instruction();
         let result: SysResult = match self.cx.a7() {
-            SYSCALL_DUP => todo!(),
+            SYSCALL_DUP => self.sys_dup(),
             SYSCALL_OPEN => self.sys_open().await,
             SYSCALL_CLOSE => self.sys_close(),
-            SYSCALL_PIPE => todo!(),
+            SYSCALL_PIPE => self.sys_pipe(),
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
             SYSCALL_EXIT => self.sys_exit(),
@@ -134,6 +134,7 @@ impl<'a> Syscall<'a> {
         })
     }
     /// if return Err will set do_exit = true
+    #[inline(always)]
     pub fn alive_then<T>(
         &mut self,
         f: impl FnOnce(&mut AliveProcess) -> T,
@@ -144,6 +145,7 @@ impl<'a> Syscall<'a> {
         })
     }
     /// if return Err will set do_exit = true
+    #[inline(always)]
     pub fn alive_lock(
         &mut self,
     ) -> Result<AliveGurad<'_>, UniqueSysError<{ SysError::ESRCH as isize }>> {

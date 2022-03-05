@@ -49,7 +49,7 @@ impl<T: Copy> Stack<T> for FastCloneLinkedList<T> {
         let this = self.node.take()?;
         self.size -= 1;
         self.node = this.next.clone();
-        Some(this.data.clone())
+        Some(this.data)
     }
 }
 

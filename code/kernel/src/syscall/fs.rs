@@ -1,7 +1,7 @@
 use alloc::string::String;
 
 use crate::{
-    fs,
+    fs::{self, pipe},
     process::fd::Fd,
     syscall::SysError,
     tools::allocator::from_usize_allocator::FromUsize,
@@ -13,6 +13,14 @@ use super::{SysResult, Syscall};
 const PRINT_SYSCALL_FS: bool = false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl<'a> Syscall<'a> {
+    pub fn sys_dup(&mut self) -> SysResult {
+        let fd: usize = self.cx.parameter1();
+        let fd = Fd::from_usize(fd);
+        let new = self
+            .alive_then(move |a| a.fd_table.dup(fd))?
+            .ok_or_else(|| SysError::ENFILE)?;
+        Ok(new.into_usize())
+    }
     pub async fn sys_read(&mut self) -> SysResult {
         if PRINT_SYSCALL_FS {
             println!("sys_read");
@@ -79,6 +87,21 @@ impl<'a> Syscall<'a> {
             .alive_then(move |a| a.fd_table.remove(fd))?
             .ok_or(SysError::EBADF)?;
         drop(file); // just for clarity
+        Ok(0)
+    }
+    pub fn sys_pipe(&mut self) -> SysResult {
+        let pipe: *mut usize = self.cx.parameter1();
+        let space_guard = self.using_space()?;
+        let write_to = space_guard.translated_user_writable_slice(pipe, 2)?;
+        let (reader, writer) = pipe::make_pipe()?;
+        let (rfd, wfd) = self.alive_then(move |a| {
+            let rfd = a.fd_table.insert(reader).into_usize();
+            let wfd = a.fd_table.insert(writer).into_usize();
+            (rfd, wfd)
+        })?;
+        write_to
+            .access_mut(&space_guard)
+            .copy_from_slice(&[rfd, wfd]);
         Ok(0)
     }
 }

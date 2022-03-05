@@ -19,6 +19,15 @@ async fn userloop(thread: Arc<Thread>) {
             Err(_e) => do_exit = true,
         };
         if !do_exit {
+            let mut user_fatal_error = || {
+                println!(
+                    "[kernel]{:?} {:?} exception: {:?}",
+                    thread.process.pid(),
+                    thread.tid,
+                    scause::read().cause()
+                );
+                do_exit = true;
+            };
             match scause::read().cause() {
                 scause::Trap::Exception(e) => match e {
                     Exception::UserEnvCall => {
@@ -30,17 +39,10 @@ async fn userloop(thread: Arc<Thread>) {
                     }
                     Exception::InstructionPageFault
                     | Exception::LoadPageFault
-                    | Exception::StorePageFault => {
-                        println!(
-                            "[kernel]{:?} {:?} page fault",
-                            thread.process.pid(),
-                            thread.tid
-                        );
-                        do_exit = true;
-                    }
+                    | Exception::StorePageFault => user_fatal_error(),
                     Exception::InstructionMisaligned => todo!(),
-                    Exception::InstructionFault => todo!(),
-                    Exception::IllegalInstruction => todo!(),
+                    Exception::InstructionFault => user_fatal_error(),
+                    Exception::IllegalInstruction => user_fatal_error(),
                     Exception::Breakpoint => todo!(),
                     Exception::LoadFault => todo!(),
                     Exception::StoreMisaligned => todo!(),

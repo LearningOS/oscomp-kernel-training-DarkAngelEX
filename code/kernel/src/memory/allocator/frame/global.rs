@@ -245,6 +245,12 @@ pub fn alloc_iter<'a>(
     FRAME_ALLOCATOR.lock(place!()).alloc_iter(range)
 }
 
+pub fn alloc_n<const N: usize>() -> Result<[FrameTracker; N], FrameOutOfMemory> {
+    let mut t = [unsafe { PhyAddrRef4K::from_usize(0) }; N];
+    alloc_iter(t.iter_mut())?;
+    Ok(t.map(|a| unsafe { FrameTracker::new(a) }))
+}
+
 pub unsafe fn dealloc(par: PhyAddrRef4K) {
     FRAME_ALLOCATOR.lock(place!()).dealloc(par);
 }

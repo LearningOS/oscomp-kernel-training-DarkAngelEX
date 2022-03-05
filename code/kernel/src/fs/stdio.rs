@@ -21,24 +21,24 @@ impl File for Stdin {
         false
     }
     fn read(self: Arc<Self>, proc: Arc<Process>, buf: UserDataMut<u8>) -> AsyncFileOutput {
-        assert_eq!(buf.len(), 1);
-        // busy loop
         Box::pin(async move {
-            let mut c: usize;
-            loop {
-                c = console_getchar();
-                if c == 0 {
-                    // suspend_current_and_run_next();
-                    thread::yield_now().await;
-                    continue;
-                } else {
+            let len = buf.len();
+            for i in 0..len {
+                let mut c: usize;
+                loop {
+                    c = console_getchar();
+                    if c == 0 {
+                        // suspend_current_and_run_next();
+                        thread::yield_now().await;
+                        continue;
+                    }
                     break;
                 }
+                let ch = c as u8;
+                let guard = proc.using_space().unwrap();
+                buf.access_mut(&guard)[i] = ch;
             }
-            let ch = c as u8;
-            let guard = proc.using_space().unwrap();
-            buf.access_mut(&guard)[0] = ch;
-            Ok(1)
+            Ok(len)
         })
     }
     fn write(self: Arc<Self>, _proc: Arc<Process>, _buf: UserData<u8>) -> AsyncFileOutput {
