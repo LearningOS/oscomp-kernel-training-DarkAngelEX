@@ -1,8 +1,11 @@
 //! Implementation of global allocator
 //!
+//! this module will alloc frame(4KB)
 use crate::{
-    config::{DIRECT_MAP_BEGIN, DIRECT_MAP_END, PAGE_SIZE},
-    memory::address::{PageCount, PhyAddrRef},
+    config::{
+        DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
+    },
+    memory::address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
     sync::mutex::SpinNoIrqLock,
     tools::{
         allocator::Own,
@@ -14,13 +17,7 @@ use crate::{
         CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
     },
 };
-///
-/// this module will alloc frame(4KB)
 use core::fmt::Debug;
-
-use crate::config::{INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP};
-
-use crate::memory::address::{PhyAddr4K, PhyAddrRef4K, StepByOne};
 
 #[derive(Debug)]
 pub struct FrameTracker {

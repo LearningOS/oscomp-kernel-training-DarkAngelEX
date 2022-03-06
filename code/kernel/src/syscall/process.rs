@@ -165,7 +165,7 @@ impl Syscall<'_> {
     pub fn sys_exit(&mut self) -> SysResult {
         stack_trace!(self.stack_trace.ptr_usize());
         if PRINT_SYSCALL_PROCESS {
-            println!("sys_exit");
+            println!("sys_exit {:?}", self.process.pid());
         }
         self.do_exit = true;
         let exit_code: i32 = self.cx.parameter1();

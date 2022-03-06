@@ -1,11 +1,12 @@
-use alloc::boxed::Box;
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
 
 use super::{AsyncFileOutput, File};
-use crate::hart::sbi::console_getchar;
-use crate::process::{thread, Process};
-use crate::sync::sleep_mutex::SleepMutex;
-use crate::user::{UserData, UserDataMut};
+use crate::{
+    console,
+    process::{thread, Process},
+    sync::sleep_mutex::SleepMutex,
+    user::{UserData, UserDataMut},
+};
 
 pub struct Stdin;
 
@@ -26,7 +27,7 @@ impl File for Stdin {
             for i in 0..len {
                 let mut c: usize;
                 loop {
-                    c = console_getchar();
+                    c = console::getchar() as usize;
                     if c == 0 {
                         // suspend_current_and_run_next();
                         thread::yield_now().await;
@@ -58,11 +59,15 @@ impl File for Stdout {
     }
     fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput {
         Box::pin(async move {
-            let _lock = STDOUT_MUTEX.lock().await;
+            // print!("!");
+            let lock = STDOUT_MUTEX.lock().await;
+            // print!("<");
             let guard = proc.using_space().unwrap();
             let str = buf.access(&guard);
-            print_unlock!("{}", core::str::from_utf8(&*str).unwrap());
+            print_unlock!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
             let len = buf.len();
+            drop(lock);
+            // print!(">");
             Ok(len)
         })
     }

@@ -1,6 +1,5 @@
 use core::{
     fmt::Debug,
-    ops::Deref,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -9,7 +8,7 @@ use crate::{
     impl_usize_from, local,
     memory::{address::VirAddr, page_table::PageTable},
     sync::mutex::SpinNoIrqLock,
-    tools::{container::{never_clone_linked_list::NeverCloneLinkedList, Stack}},
+    tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
 };
 
 const ASID_BIT: usize = 16;
@@ -17,7 +16,7 @@ const MAX_ASID: usize = 1usize << ASID_BIT;
 const ASID_MASK: usize = MAX_ASID - 1;
 const ASID_VERSION_MASK: usize = !ASID_MASK;
 
-const TLB_SHOT_DOWM_IPML: bool = false;
+const TLB_SHOT_DOWM_IPML: bool = true;
 
 /// raw asid, assume self & ASID_MASK == self
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
@@ -110,6 +109,10 @@ impl AsidInfo {
 }
 
 impl AsidVersion {
+    /// unique method to get unsafe AsidVersion
+    pub const fn first_asid_version() -> Self {
+        Self(0)
+    }
     pub fn increase(&mut self) {
         self.0 += MAX_ASID;
     }
@@ -124,7 +127,7 @@ struct AsidManager {
 impl AsidManager {
     pub const fn new() -> Self {
         Self {
-            version: AsidVersion(0),
+            version: AsidVersion::first_asid_version(),
             current: Asid(1),
             recycled: NeverCloneLinkedList::new(),
         }
@@ -132,6 +135,7 @@ impl AsidManager {
     // this function is running in lock.
     pub fn version_check_alloc(&mut self, asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
         let ai = asid_info.asid_info.get();
+        local::asid_version_update(self.version);
         if ai.version() == self.version {
             return;
         }
@@ -162,9 +166,7 @@ impl AsidManager {
     }
     pub unsafe fn dealloc(&mut self, asid_info: AsidInfo) {
         if asid_info.version() == self.version {
-            #[allow(unreachable_code)]
             if TLB_SHOT_DOWM_IPML {
-                // todo!("TLB shot down"); // need TLB_SHOT_DOWN other hart.
                 local::all_hart_sfence_vma_asid(asid_info.asid());
                 self.recycled.push(asid_info.asid())
             } else {
@@ -190,7 +192,6 @@ pub fn version_check_alloc(asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
         .version_check_alloc(asid_info, satp)
 }
 
-// #[allow(dead_code)]
 pub fn asid_test() {
     use crate::memory::{address::VirAddr4K, allocator::frame, page_table::PTEFlags};
 

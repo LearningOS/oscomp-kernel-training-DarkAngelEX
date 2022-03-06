@@ -29,12 +29,10 @@ static DEVICE_TREE_PADDR: AtomicUsize = AtomicUsize::new(0);
 
 const BOOT_HART_ID: usize = 0;
 
-#[allow(dead_code)]
 pub fn device_tree_ptr() -> PhyAddr {
     DEVICE_TREE_PADDR.load(Ordering::Relaxed).into()
 }
 
-#[allow(dead_code)]
 fn show_device() {
     println!("[FTL OS]show device");
     let ptr = device_tree_ptr();

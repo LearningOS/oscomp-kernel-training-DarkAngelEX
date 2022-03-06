@@ -3,14 +3,17 @@
 pub mod global;
 pub mod iter;
 
-use crate::{memory::address::PhyAddrRef4K, tools::{allocator::TrackerAllocator, error::FrameOutOfMemory}};
+use crate::{
+    memory::address::PhyAddrRef4K,
+    tools::{allocator::TrackerAllocator, error::FrameOutOfMemory},
+};
 
 use self::global::FrameTracker;
 
 pub trait FrameAllocator = TrackerAllocator<PhyAddrRef4K, FrameTracker>;
 
 pub fn defualt_allocator() -> impl FrameAllocator {
-    GlobalRefFrameAllocator
+    GlobalRefFrameAllocator::new()
 }
 
 struct GlobalRefFrameAllocator;

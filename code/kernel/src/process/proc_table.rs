@@ -12,11 +12,7 @@ use super::{Pid, Process};
 static PROC_MAP: Mutex<BTreeMap<Pid, Weak<Process>>> = Mutex::new(BTreeMap::new());
 static mut INITPROC: OnceCell<Arc<Process>> = OnceCell::new();
 
-pub fn map(pid: Pid) -> Option<Arc<Process>> {
-    PROC_MAP.lock(place!()).get_mut(&pid)?.upgrade()
-}
-
-pub fn get_proc(pid: Pid) -> Option<Arc<Process>> {
+pub fn find_proc(pid: Pid) -> Option<Arc<Process>> {
     PROC_MAP.lock(place!()).get_mut(&pid)?.upgrade()
 }
 

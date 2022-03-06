@@ -1,3 +1,5 @@
+use core::fmt::Debug;
+
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
@@ -111,21 +113,32 @@ impl ChildrenSet {
     pub fn alive_iter(&self) -> impl Iterator<Item = (&Pid, &Arc<Process>)> + '_ {
         self.alive.iter()
     }
-    pub fn show(&self) {
-        print!("child-alive:  [");
+}
+
+impl Debug for ChildrenSet {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        macro_rules! f_write {
+            ($fmt:expr) => {
+                f.write_str($fmt)
+            };
+            ($fmt:expr, $($args:tt)*) => {
+                f.write_fmt(format_args!($fmt, $($args)*))
+            };
+        }
+        f_write!("child-alive:  [")?;
         for (pid, _p) in &self.alive {
-            print!("{:?},", pid);
+            f_write!("{:?},", pid)?;
         }
-        print!("]\n");
-        print!("child-zombie: [");
+        f_write!("]\n")?;
+        f_write!("child-zombie: [")?;
         for (pid, _p) in &self.zombie {
-            print!("{:?},", pid);
+            f_write!("{:?},", pid)?;
         }
-        print!("]\n");
-        print!("child-pending:[");
+        f_write!("]\n")?;
+        f_write!("child-pending:[")?;
         for pid in &self.zombie_pending {
-            print!("{:?},", pid);
+            f_write!("{:?},", pid)?;
         }
-        print!("]\n");
+        f_write!("]\n")
     }
 }

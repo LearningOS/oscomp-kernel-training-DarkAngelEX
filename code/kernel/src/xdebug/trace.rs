@@ -1,10 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{
-    config::KERNEL_STACK_SIZE,
-    hart::{self, cpu},
-    local,
-};
+use crate::{config::KERNEL_STACK_SIZE, hart, local};
 
 pub const OPEN_MEMORY_TRACE: bool = false;
 pub const STACK_DETECTION: bool = true;

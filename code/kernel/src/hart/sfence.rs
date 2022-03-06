@@ -16,20 +16,6 @@ pub fn sfence_vma_all_global() {
 }
 
 #[inline(always)]
-#[allow(unused_assignments)]
-pub fn sfence_vma_asid_zero() {
-    unsafe {
-        // alloc a register, assume rs2 != x0
-        let mut x: usize = MaybeUninit::uninit().assume_init();
-        asm!(
-        "add {0}, x0, x0",
-        "sfence.vma x0, {0}",
-        inout(reg) x
-        );
-    }
-}
-
-#[inline(always)]
 pub fn sfence_vma_asid(asid: usize) {
     unsafe {
         asm!("sfence.vma x0, {}", in(reg)asid);

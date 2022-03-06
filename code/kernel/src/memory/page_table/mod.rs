@@ -1,4 +1,3 @@
-// #![allow(dead_code)]
 use core::{
     fmt::Debug,
     sync::atomic::{self, AtomicUsize, Ordering},
@@ -10,7 +9,7 @@ use bitflags::bitflags;
 use super::{
     address::{PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
     allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
-    asid::{self, version_check_alloc, AsidInfoTracker},
+    asid::{self, AsidInfoTracker},
     user_space::UserArea,
 };
 use crate::{
@@ -197,7 +196,7 @@ impl PageTable {
         self.set_satp_register_uncheck();
     }
     fn version_check(&self) {
-        version_check_alloc(&self.asid_tracker, &self.satp);
+        asid::version_check_alloc(&self.asid_tracker, &self.satp);
     }
     fn root_pa(&self) -> PhyAddr4K {
         PhyAddr4K::from_satp(self.satp())
@@ -300,7 +299,6 @@ impl PageTable {
 /// set asid to 0.
 /// if return None, means no enough memory.
 fn new_kernel_page_table() -> Result<PageTable, FrameOutOfMemory> {
-    #[allow(dead_code)]
     extern "C" {
         // kernel segment ALIGN 4K
         fn stext();
@@ -310,12 +308,12 @@ fn new_kernel_page_table() -> Result<PageTable, FrameOutOfMemory> {
         fn erodata();
         // writable data segment ALIGN 4K
         fn sdata();
-        fn edata();
-        // stack ALIGN 4K
-        fn sstack();
-        fn estack();
-        // bss ALIGN 4K
-        fn sbss();
+        // fn edata();
+        // // stack ALIGN 4K
+        // fn sstack();
+        // fn estack();
+        // // bss ALIGN 4K
+        // fn sbss();
         fn ebss();
         // end ALIGN 4K
         fn end();

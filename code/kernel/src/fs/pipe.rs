@@ -1,8 +1,8 @@
 use core::{
-    cell::UnsafeCell,
     future::Future,
     pin::Pin,
-    task::{Context, Poll, Waker}, sync::atomic::{self, Ordering},
+    sync::atomic::{self, Ordering},
+    task::{Context, Poll, Waker},
 };
 
 use alloc::{
@@ -15,7 +15,7 @@ use crate::{
     memory::allocator::frame::{self, global::FrameTracker},
     process::Process,
     sync::{mutex::SpinNoIrqLock, sleep_mutex::SleepMutex},
-    syscall::{SysError, SysResult},
+    syscall::SysResult,
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOutOfMemory},
     user::{UserData, UserDataMut},
 };

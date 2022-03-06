@@ -15,7 +15,7 @@ struct SleepMutexSupport {
     locked: bool,
     queue: LinkedList<(NonZeroUsize, Waker)>, // just for const new.
     slot: Option<NonZeroUsize>,
-    cnt: NonZeroUsize,
+    id_alloc: NonZeroUsize,
 }
 
 pub struct SleepMutex<T> {
@@ -40,12 +40,14 @@ impl<T> SleepMutex<T> {
                 locked: false,
                 queue: LinkedList::new(),
                 slot: None,
-                cnt: unsafe { NonZeroUsize::new_unchecked(1) },
+                id_alloc: unsafe { NonZeroUsize::new_unchecked(1) },
             }),
             data: UnsafeCell::new(user_data),
         }
     }
     /// 当线程阻塞于此函数时不会再响应任何的信号。
+    ///
+    /// 睡眠锁保证严格按提交顺序解锁。
     ///
     /// TODO: 如果增加响应逻辑则需要清除队列数据并更新slot，避免进入死锁。
     ///
@@ -68,12 +70,11 @@ impl<'a, T> DerefMut for SleepMutexGuard<'a, T> {
 impl<'a, T> Drop for SleepMutexGuard<'a, T> {
     fn drop(&mut self) {
         let mut mutex = self.mutex.inner.lock(place!());
-        assert_eq!(mutex.locked, true);
+        assert!(mutex.locked && mutex.slot.is_none());
         mutex.locked = false;
         if let Some((cnt, w)) = mutex.queue.pop_front() {
-            // assert mutex.slot is None.
-            mutex.slot.replace(cnt).is_some().then(|| unreachable!());
-            drop(mutex); // just for efficiency
+            mutex.slot.replace(cnt);
+            // drop(mutex); // just for efficiency
             w.wake();
         }
     }
@@ -81,7 +82,7 @@ impl<'a, T> Drop for SleepMutexGuard<'a, T> {
 
 struct SleepMutexFuture<'a, T> {
     mutex: &'a SleepMutex<T>,
-    id: Option<NonZeroUsize>,
+    id: Option<NonZeroUsize>, // Using Option can delay allocation of id to polling, reduce one mutex operation.
 }
 
 impl<'a, T> SleepMutexFuture<'a, T> {
@@ -95,23 +96,29 @@ impl<'a, T> Future for SleepMutexFuture<'a, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut mutex = self.mutex.inner.lock(place!());
-        let id = if let Some(id) = self.id {
+        let mut need_push_queue = false;
+        let id = *self.id.get_or_insert_with(|| {
+            need_push_queue = true;
+            let id = mutex.id_alloc;
+            mutex.id_alloc = id.checked_add(1).unwrap(); // overflow a century later
             id
-        } else {
-            let id = mutex.cnt;
-            mutex.cnt = mutex.cnt.checked_add(1).unwrap(); // overflow a century later
-            self.id = Some(id);
-            id
-        };
-        if mutex.locked {
-            debug_check_eq!(mutex.slot, None);
-            mutex.queue.push_back((id, cx.waker().clone()));
-            return Poll::Pending;
-        }
-        match mutex.slot {
-            Some(slot_id) if slot_id != id => {
+        });
+        let locked = mutex.locked;
+        let slot = mutex.slot;
+        let mut push_queue = || {
+            if need_push_queue {
                 mutex.queue.push_back((id, cx.waker().clone()));
-                return Poll::Pending;
+            }
+            Poll::Pending
+        };
+        if locked {
+            debug_check_eq!(slot, None);
+            return push_queue();
+        }
+        // now mutex.locked is false.
+        match slot {
+            Some(slot_id) if slot_id != id => {
+                return push_queue();
             }
             _ => {
                 mutex.slot = None;

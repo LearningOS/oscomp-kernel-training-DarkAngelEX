@@ -40,10 +40,9 @@ pub fn get_return_from_user() -> usize {
 
 #[no_mangle]
 pub fn trap_from_kernel() {
-    // unsafe { close_kernel_trap_entry() };
+    unsafe { close_kernel_trap_entry() };
     memory_trace_show!("trap_from_kernel entry");
     // println!("trap_from_kernel {:?} sepc = {:#x}", scause::read().cause(), get_sepc());
-
     match scause::read().cause() {
         scause::Trap::Exception(e) => match e {
             scause::Exception::InstructionMisaligned => todo!(),
@@ -77,6 +76,9 @@ pub fn trap_from_kernel() {
             scause::Interrupt::Unknown => fatal_error(),
         },
     }
+    unsafe { set_kernel_trap_entry() };
+    return;
+
     fn get_sepc() -> usize {
         let sepc;
         unsafe {

@@ -1,9 +1,13 @@
 use core::mem::MaybeUninit;
 
-use crate::memory::address::{UserAddr, UserAddr4K};
-use crate::memory::user_ptr::{Policy, UserPtr};
 use crate::riscv::register::sstatus::Sstatus;
-use crate::user::SpaceGuard;
+use crate::{
+    memory::{
+        address::UserAddr,
+        user_ptr::{Policy, UserPtr},
+    },
+    user::SpaceGuard,
+};
 
 use super::run_user;
 

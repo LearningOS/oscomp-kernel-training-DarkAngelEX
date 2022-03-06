@@ -117,7 +117,7 @@ __return_from_user:
 
 // using current stack
 __kernel_trap_entry:
-    addi sp, sp, -16*8
+    addi sp, sp, -17*8
     sd  ra,  1*8(sp)
     sd  t0,  2*8(sp)
     sd  t1,  3*8(sp)
@@ -151,5 +151,5 @@ __kernel_trap_entry:
     ld  a5, 14*8(sp)
     ld  a6, 15*8(sp)
     ld  a7, 16*8(sp)
-    addi sp, sp, 16*8
+    addi sp, sp, 17*8
     sret

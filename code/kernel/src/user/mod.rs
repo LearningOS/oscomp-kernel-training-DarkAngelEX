@@ -1,18 +1,18 @@
-use core::cell::UnsafeCell;
-use core::marker::PhantomData;
-use core::ops::{Deref, DerefMut};
-use core::ptr;
+use core::{
+    cell::UnsafeCell,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    ptr,
+};
 
-use alloc::sync::Arc;
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
 
-use crate::memory;
-use crate::memory::allocator::frame::global::FrameTracker;
-use crate::process::Process;
 use crate::riscv::register::sstatus;
-
-use crate::memory::{address::OutOfUserRange, PageTable};
-use crate::syscall::{SysError, UniqueSysError};
+use crate::{
+    memory::{self, address::OutOfUserRange, allocator::frame::global::FrameTracker, PageTable},
+    process::Process,
+    syscall::{SysError, UniqueSysError},
+};
 
 use self::iter::{UserData4KIter, UserDataMut4KIter};
 

@@ -1,9 +1,9 @@
-use core::{cell::UnsafeCell, convert::TryFrom, mem::MaybeUninit};
+use core::{cell::UnsafeCell, mem::MaybeUninit};
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 
 use crate::{
-    config::{PAGE_SIZE, USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_RESERVE, USER_STACK_SIZE},
+    config::{USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_SIZE},
     from_usize_impl,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
@@ -13,7 +13,7 @@ use crate::{
         allocator::from_usize_allocator::FastCloneUsizeAllocator,
         error::{FrameOutOfMemory, TooManyUserStack},
     },
-    user::{AutoSum, SpaceGuard, UserData},
+    user::{AutoSum, SpaceGuard},
 };
 
 use super::{

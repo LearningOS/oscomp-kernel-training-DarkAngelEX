@@ -19,7 +19,7 @@ pub struct StackTracker {
 }
 
 impl StackTracker {
-    pub fn new(trace_ptr: usize, msg: &'static str, file: &'static str, line: u32) -> Option<Self> {
+    pub fn new(trace_ptr: usize, _msg: &'static str, _file: &'static str, _line: u32) -> Option<Self> {
         if STACK_TRACE {
             Some(Self { trace_ptr })
         } else {

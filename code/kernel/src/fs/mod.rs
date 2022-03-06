@@ -1,12 +1,14 @@
 mod inode;
-mod stdio;
 pub mod pipe;
+mod stdio;
 
 use core::{future::Future, pin::Pin};
 
+pub use self::{
+    inode::{list_apps, open_file, OSInode, OpenFlags},
+    stdio::{Stdin, Stdout},
+};
 use alloc::{boxed::Box, sync::Arc};
-pub use inode::{list_apps, open_file, OSInode, OpenFlags};
-pub use stdio::{Stdin, Stdout};
 
 use crate::{
     process::Process,

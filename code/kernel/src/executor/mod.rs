@@ -2,6 +2,7 @@ use core::{cell::RefCell, future::Future};
 
 use alloc::collections::VecDeque;
 use async_task::{Runnable, Task};
+use riscv::register::sstatus;
 
 use crate::sync::mutex::SpinNoIrqLock;
 
@@ -74,5 +75,10 @@ pub fn run_until_idle() {
     while let Some(task) = TASK_QUEUE.fetch() {
         // println!("fetch task success");
         task.run();
+        unsafe {
+            assert!(!sstatus::read().sie());
+            sstatus::set_sie();
+            sstatus::clear_sie();
+        }
     }
 }

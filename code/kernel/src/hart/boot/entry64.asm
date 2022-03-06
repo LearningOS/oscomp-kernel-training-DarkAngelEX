@@ -10,6 +10,7 @@ _start:
     add     t0, a0, 1
     slli    t0, t0, 15 # 32KB
     lui     sp, %hi(bootstack)
+    addi    sp, sp, %lo(bootstack)
     add     sp, sp, t0
 
     # 2. enable paging

@@ -7,9 +7,7 @@ use crate::{
     syscall::SysError,
     user::{UserData, UserDataMut},
 };
-use alloc::vec::Vec;
-use alloc::{boxed::Box, sync::Arc};
-use bitflags::*;
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::lazy::OnceCell;
 use easy_fs::{EasyFileSystem, Inode};
 

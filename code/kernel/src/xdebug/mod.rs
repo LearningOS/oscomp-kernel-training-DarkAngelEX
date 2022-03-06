@@ -77,7 +77,6 @@ macro_rules! deubg_print_place {
 /// NeverFail will panic unless run assume_success.
 ///
 /// it's only used as a marker.
-#[allow(dead_code)]
 pub struct NeverFail;
 impl Drop for NeverFail {
     fn drop(&mut self) {
@@ -85,7 +84,6 @@ impl Drop for NeverFail {
     }
 }
 
-#[allow(dead_code)]
 impl NeverFail {
     pub fn new() -> Self {
         NeverFail
