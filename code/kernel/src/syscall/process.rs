@@ -68,7 +68,6 @@ impl Syscall<'_> {
             + (args.len() + 1) * core::mem::size_of::<usize>();
         let stack_reverse =
             PageCount::from_usize((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
-        println!("stack_reverse: {:?}", stack_reverse);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
         let elf_data = inode.read_all().await;
         let allocator = &mut frame::defualt_allocator();
@@ -94,7 +93,6 @@ impl Syscall<'_> {
         self.thread
             .get_context()
             .exec_init(user_sp, entry_point, sstatus, argc, argv);
-
         check.assume_success();
         Ok(argc)
     }

@@ -55,7 +55,7 @@ pub fn trap_from_kernel() {
             scause::Exception::StoreFault => todo!(),
             scause::Exception::UserEnvCall => todo!(),
             scause::Exception::VirtualSupervisorEnvCall => todo!(),
-            scause::Exception::InstructionPageFault => todo!(),
+            scause::Exception::InstructionPageFault => fatal_error(),
             scause::Exception::LoadPageFault => fatal_error(),
             scause::Exception::StorePageFault => fatal_error(),
             scause::Exception::InstructionGuestPageFault => todo!(),

@@ -2,7 +2,7 @@ use core::{
     cell::UnsafeCell,
     future::Future,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll, Waker}, sync::atomic::{self, Ordering},
 };
 
 use alloc::{
@@ -64,6 +64,7 @@ impl Pipe {
         let read_at = self.read_at;
         let len = buffer.len().min(max);
         assert!(len != 0);
+        atomic::fence(Ordering::Acquire);
         let mut cur = 0;
         while cur < len {
             let ran = self.get_range(read_at + cur, len - cur);
@@ -72,6 +73,7 @@ impl Pipe {
             cur += n;
         }
         assert!(cur == len);
+        atomic::fence(Ordering::Release);
         self.read_at = (read_at + len) % RING_SIZE;
         len
     }
@@ -81,6 +83,7 @@ impl Pipe {
         let write_at = self.write_at;
         let len = buffer.len().min(max);
         assert!(len != 0);
+        atomic::fence(Ordering::Acquire);
         let mut cur = 0;
         while cur < len {
             let ran = self.get_range(write_at + cur, len - cur);
@@ -89,6 +92,7 @@ impl Pipe {
             cur += n;
         }
         assert!(cur == len);
+        atomic::fence(Ordering::Release);
         self.write_at = (write_at + len) % RING_SIZE;
         len
     }

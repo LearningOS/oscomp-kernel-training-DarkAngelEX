@@ -1,6 +1,10 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{config::KERNEL_STACK_SIZE, hart, local};
+use crate::{
+    config::KERNEL_STACK_SIZE,
+    hart::{self, cpu},
+    local,
+};
 
 pub const OPEN_MEMORY_TRACE: bool = false;
 pub const STACK_DETECTION: bool = true;
@@ -139,6 +143,8 @@ fn using_stack_size_print_impl(current: usize) {
     } else {
         print!("null");
     }
+    // print!(" sp: {:#x}", hart::current_sp());
+    // print!(" hart: {}", cpu::hart_id());
     if current >= KERNEL_STACK_SIZE {
         print!(" \x1b[31m!!!stack over flow!!!\x1b[0m");
     }

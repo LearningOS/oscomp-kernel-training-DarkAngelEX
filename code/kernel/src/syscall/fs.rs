@@ -10,7 +10,7 @@ use crate::{
 
 use super::{SysResult, Syscall};
 
-const PRINT_SYSCALL_FS: bool = false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
+const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl<'a> Syscall<'a> {
     pub fn sys_dup(&mut self) -> SysResult {
