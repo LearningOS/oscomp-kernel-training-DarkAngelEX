@@ -66,8 +66,6 @@ mod tools;
 mod trap;
 mod user;
 
-core::arch::global_asm!(include_str!("link_app.S"));
-
 ///
 /// This function will be called by rust_main() in hart/mod.rs
 ///

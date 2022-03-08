@@ -7,9 +7,9 @@ use core::{
 
 use alloc::{sync::Arc, vec::Vec};
 
-use crate::riscv::register::sstatus;
+use crate::{hart::csr, riscv::register::sstatus};
 use crate::{
-    memory::{self, address::OutOfUserRange, allocator::frame::global::FrameTracker, PageTable},
+    memory::{address::OutOfUserRange, allocator::frame::global::FrameTracker, PageTable},
     process::Process,
     syscall::{SysError, UniqueSysError},
 };
@@ -19,24 +19,25 @@ use self::iter::{UserData4KIter, UserDataMut4KIter};
 pub mod iter;
 pub mod tools;
 
-pub struct SpaceGuard(Arc<UnsafeCell<PageTable>>);
+pub struct SpaceVaildMark(usize, Arc<UnsafeCell<PageTable>>);
 
 /// forbid SpaceGuard across await.
-impl !Send for SpaceGuard {}
-impl !Sync for SpaceGuard {}
+impl !Send for SpaceVaildMark {}
+impl !Sync for SpaceVaildMark {}
 
-impl SpaceGuard {
+impl SpaceVaildMark {
     pub fn new(pt: Arc<UnsafeCell<PageTable>>) -> Self {
-        Self(pt)
+        let old_satp = unsafe { csr::get_satp() };
+        Self(old_satp, pt)
     }
     pub fn access<'a>(&'a self) -> SpaceMark<'a> {
         SpaceMark { _mark: PhantomData }
     }
 }
 
-impl Drop for SpaceGuard {
+impl Drop for SpaceVaildMark {
     fn drop(&mut self) {
-        memory::set_satp_by_global()
+        unsafe { csr::set_satp(self.0) };
     }
 }
 
@@ -99,7 +100,7 @@ impl<T: 'static> UserData<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    pub fn access<'b>(&self, mark: &'b SpaceGuard) -> UserDataGuard<'b, T> {
+    pub fn access<'b>(&self, mark: &'b SpaceVaildMark) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
             _mark: mark.access(),
@@ -119,7 +120,7 @@ impl UserData<u8> {
 
 impl<T: Clone + 'static> UserData<T> {
     /// after into_vec the data will no longer need space_guard.
-    pub fn into_vec(&self, mark: &SpaceGuard) -> Vec<T> {
+    pub fn into_vec(&self, mark: &SpaceVaildMark) -> Vec<T> {
         self.access(mark).to_vec()
     }
 }
@@ -138,14 +139,14 @@ impl<T> UserDataMut<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    pub fn access<'b>(&self, mark: &'b SpaceGuard) -> UserDataGuard<'b, T> {
+    pub fn access<'b>(&self, mark: &'b SpaceVaildMark) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
             _mark: mark.access(),
             _auto_sum: AutoSum::new(),
         }
     }
-    pub fn access_mut<'b>(&self, mark: &'b SpaceGuard) -> UserDataGuardMut<'b, T> {
+    pub fn access_mut<'b>(&self, mark: &'b SpaceVaildMark) -> UserDataGuardMut<'b, T> {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
             _mark: mark.access(),
@@ -174,7 +175,7 @@ impl UserDataMut<u8> {
 
 impl<T: Clone + 'static> UserDataMut<T> {
     /// after into_vec the data will no longer need space_guard.
-    pub fn into_vec(&self, mark: &SpaceGuard) -> Vec<T> {
+    pub fn into_vec(&self, mark: &SpaceVaildMark) -> Vec<T> {
         self.access(mark).to_vec()
     }
 }

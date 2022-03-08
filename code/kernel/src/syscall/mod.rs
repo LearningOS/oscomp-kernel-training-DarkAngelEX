@@ -10,7 +10,7 @@ use crate::{
     process::{thread::Thread, AliveProcess, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
-    user::SpaceGuard,
+    user::SpaceVaildMark,
     xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
 };
 
@@ -89,7 +89,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_EXIT => self.sys_exit(),
             SYSCALL_SLEEP => self.sys_sleep().await,
             SYSCALL_YIELD => self.sys_yield().await,
-            SYSCALL_KILL => todo!(),
+            SYSCALL_KILL => self.sys_kill(),
             SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_FORK => self.sys_fork(),
@@ -127,7 +127,7 @@ impl<'a> Syscall<'a> {
     #[inline(always)]
     pub fn using_space(
         &mut self,
-    ) -> Result<SpaceGuard, UniqueSysError<{ SysError::ESRCH as isize }>> {
+    ) -> Result<SpaceVaildMark, UniqueSysError<{ SysError::ESRCH as isize }>> {
         self.process.using_space().map_err(|e| {
             self.do_exit = true;
             e.into()
@@ -292,12 +292,18 @@ impl fmt::Display for SysError {
     }
 }
 
-// zero-size SysError
+// zero-size SysError!
 pub struct UniqueSysError<const X: isize>;
 
 impl<const X: isize> From<UniqueSysError<X>> for SysError {
     fn from(_: UniqueSysError<X>) -> Self {
         unsafe { core::mem::transmute(X) }
+    }
+}
+
+impl From<FromUtf8Error> for UniqueSysError<{ SysError::EFAULT as isize }> {
+    fn from(_: FromUtf8Error) -> Self {
+        UniqueSysError
     }
 }
 

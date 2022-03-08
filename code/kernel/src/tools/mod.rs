@@ -64,3 +64,8 @@ impl<T> Wrapper<T> for ForwardWrapper {
         a
     }
 }
+
+pub fn size_to_mkb(size: usize) -> (usize, usize, usize) {
+    let mask = 1 << 10;
+    (size >> 20, (size >> 10) % mask, size % mask)
+}

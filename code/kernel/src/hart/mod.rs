@@ -8,8 +8,10 @@ use crate::{
     fdt::FdtHeader,
     fs, local,
     memory::{self, address::PhyAddr},
-    process, timer, trap,
-    xdebug::CLOSE_TIME_INTERRUPT, tools::container,
+    process, timer,
+    tools::{container, self},
+    trap,
+    xdebug::CLOSE_TIME_INTERRUPT,
 };
 
 pub mod cpu;
@@ -163,6 +165,9 @@ fn show_seg() {
     xprlntln(sbss, "sbss");
     xprlntln(ebss, "ebss");
     xprlntln(end, "end");
+    let kernel_size = end as usize - start as usize;
+    let (m, k, b) = tools::size_to_mkb(kernel_size);
+    println!("kernel static size: {}MB {}KB {}Bytes", m, k, b);
 }
 
 pub fn current_sp() -> usize {

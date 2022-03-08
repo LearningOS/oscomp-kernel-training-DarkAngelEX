@@ -1,12 +1,13 @@
 use core::mem::MaybeUninit;
 
 use crate::riscv::register::sstatus::Sstatus;
+use crate::tools::allocator::from_usize_allocator::FromUsize;
 use crate::{
     memory::{
         address::UserAddr,
         user_ptr::{Policy, UserPtr},
     },
-    user::SpaceGuard,
+    user::SpaceVaildMark,
 };
 
 use super::run_user;
@@ -35,7 +36,7 @@ macro_rules! usize_forward_impl {
     };
 }
 
-usize_forward_impl!(usize, a, a);
+// usize_forward_impl!(usize, a, a);
 usize_forward_impl!(isize, a, a as isize);
 usize_forward_impl!(u32, a, a as u32);
 usize_forward_impl!(i32, a, a as i32);
@@ -57,6 +58,11 @@ impl<T> UsizeForward for *mut T {
 impl<T, P: Policy> UsizeForward for UserPtr<T, P> {
     fn usize_forward(a: usize) -> Self {
         Self::from_usize(a)
+    }
+}
+impl<T: FromUsize> UsizeForward for T {
+    fn usize_forward(a: usize) -> Self {
+        T::from_usize(a)
     }
 }
 
@@ -124,7 +130,7 @@ impl UKContext {
         new.user_sstatus = self.user_sstatus;
         new
     }
-    pub fn run_user(&mut self, _mark: &SpaceGuard) {
+    pub fn run_user(&mut self, _mark: &SpaceVaildMark) {
         run_user(self)
     }
 }

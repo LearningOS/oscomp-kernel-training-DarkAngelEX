@@ -1,9 +1,10 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 use crate::{
     config::PAGE_SIZE,
     hart::{self, cpu, sfence},
     memory::asid::{Asid, AsidVersion},
+    process::thread::Thread,
     sync::mutex::SpinNoIrqLock as Mutex,
     user::UserAccessStatus,
 };
@@ -21,6 +22,7 @@ static mut HART_LOCAL: [Local; 16] = array_repeat!(Local::new());
 pub struct Local {
     pub kstack_bottom: usize,
     pub user_access_status: UserAccessStatus,
+    pub thread: Option<Arc<Thread>>,
     asid_version: AsidVersion,
     queue: Vec<Box<dyn FnOnce()>>,
     pending: Mutex<Vec<Box<dyn FnOnce()>>>,
@@ -31,6 +33,7 @@ impl Local {
         Self {
             kstack_bottom: 0,
             user_access_status: UserAccessStatus::Forbid,
+            thread: None,
             asid_version: AsidVersion::first_asid_version(),
             queue: Vec::new(),
             pending: Mutex::new(Vec::new()),

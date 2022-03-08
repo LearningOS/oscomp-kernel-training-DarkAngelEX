@@ -16,7 +16,7 @@ use crate::{
     },
     syscall::{SysError, UniqueSysError},
     tools::error::FrameOutOfMemory,
-    user::SpaceGuard,
+    user::SpaceVaildMark,
     xdebug::NeverFail,
 };
 
@@ -34,6 +34,7 @@ pub mod proc_table;
 pub mod thread;
 pub mod tid;
 pub mod userloop;
+pub mod signal;
 pub use {pid::Pid, tid::Tid};
 
 pub struct Process {
@@ -91,7 +92,7 @@ impl Process {
         }
     }
     #[inline(always)]
-    pub fn using_space(&self) -> Result<SpaceGuard, DeadProcess> {
+    pub fn using_space(&self) -> Result<SpaceVaildMark, DeadProcess> {
         self.alive_then(|a| a.user_space.using_guard())
     }
 

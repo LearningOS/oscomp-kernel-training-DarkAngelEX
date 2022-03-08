@@ -13,7 +13,7 @@ use crate::{
         allocator::from_usize_allocator::FastCloneUsizeAllocator,
         error::{FrameOutOfMemory, TooManyUserStack},
     },
-    user::{AutoSum, SpaceGuard},
+    user::{AutoSum, SpaceVaildMark},
 };
 
 use super::{
@@ -355,10 +355,10 @@ impl UserSpace {
         self.page_table().using();
     }
     /// if self comes from AliveProcess, you can use this because page table closed only when AliveProcess drop.
-    pub fn using_guard(&self) -> SpaceGuard {
+    pub fn using_guard(&self) -> SpaceVaildMark {
         unsafe { self.using() };
         let a = self.page_table.clone();
-        SpaceGuard::new(a)
+        SpaceVaildMark::new(a)
     }
     pub fn map_user_range(
         &mut self,

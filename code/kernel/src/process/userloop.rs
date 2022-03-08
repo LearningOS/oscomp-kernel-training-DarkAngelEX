@@ -1,7 +1,20 @@
+use core::{
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll},
+};
+
 use alloc::{boxed::Box, sync::Arc};
 use riscv::register::scause::{self, Exception, Interrupt};
 
-use crate::{executor, local, syscall::Syscall, timer, xdebug::stack_trace::StackTrace};
+use crate::{
+    executor, local,
+    memory::{self, PageTable},
+    syscall::Syscall,
+    timer,
+    tools::container::sync_unsafe_cell::SyncUnsafeCell,
+    xdebug::stack_trace::StackTrace,
+};
 
 use super::thread::Thread;
 
@@ -91,4 +104,30 @@ pub fn spawn(thread: Arc<Thread>) {
     let (runnable, task) = executor::spawn(future);
     runnable.schedule();
     task.detach();
+}
+
+struct OutermostFuture<F: Future + Send + 'static> {
+    thread: Arc<Thread>,
+    thread_take: Option<Arc<Thread>>,
+    page_table: Arc<SyncUnsafeCell<PageTable>>,
+    future: Pin<Box<F>>,
+}
+
+impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
+    type Output = F::Output;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let local = local::current_local();
+        assert!(local.thread.is_none());
+        local.thread = Some(self.thread_take.take().unwrap());
+        unsafe { self.page_table.get().using() };
+
+        let ret = self.future.as_mut().poll(cx);
+
+        memory::set_satp_by_global();
+        self.thread_take = local.thread.take();
+        assert!(self.thread_take.is_some());
+        assert_eq!(self.thread_take.as_ref().unwrap().tid, self.thread.tid);
+        ret
+    }
 }

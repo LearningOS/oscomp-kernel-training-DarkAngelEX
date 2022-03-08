@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::hart::cpu;
 
-pub const STACK_TRACE: bool = true;
+pub const STACK_TRACE: bool = false;
 
 #[macro_export]
 macro_rules! stack_trace {

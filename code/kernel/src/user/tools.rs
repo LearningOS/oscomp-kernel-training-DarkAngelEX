@@ -8,9 +8,9 @@ use crate::{
     syscall::{SysError, UniqueSysError},
 };
 
-use super::{SpaceGuard, UserAccessTrace, UserData, UserDataMut, UserType};
+use super::{SpaceVaildMark, UserAccessTrace, UserData, UserDataMut, UserType};
 
-impl SpaceGuard {
+impl SpaceVaildMark {
     pub fn translated_user_array_zero_end<T>(
         &self,
         ptr: *const T,

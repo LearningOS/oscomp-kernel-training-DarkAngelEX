@@ -132,6 +132,7 @@ impl Debug for PageTableEntry {
 }
 
 pub struct PageTable {
+    // modity asid_tracker and satp only in version_check
     asid_tracker: AsidInfoTracker,
     satp: AtomicUsize, // [63:60 MODE, 8 is SV39][59:44 ASID][43:0 PPN]
 }

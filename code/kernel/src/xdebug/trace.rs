@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicUsize, Ordering};
 
-use crate::{config::KERNEL_STACK_SIZE, hart, local};
+use crate::{config::KERNEL_STACK_SIZE, hart, local, tools};
 
 pub const OPEN_MEMORY_TRACE: bool = false;
 pub const STACK_DETECTION: bool = true;
@@ -126,9 +126,9 @@ pub fn print_sp() {
 fn using_stack_size_impl() -> usize {
     local::stack_size()
 }
+
 fn using_stack_size_print_impl(current: usize) {
-    let mask = 1 << 10;
-    let (m, k, b) = (current >> 20, (current >> 10) % mask, current % mask);
+    let (m, k, b) = tools::size_to_mkb(current);
     print!("stack size: ");
     if m > 0 {
         print!("{m}M {k}K {b}Bytes");

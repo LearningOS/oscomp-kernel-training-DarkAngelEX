@@ -10,7 +10,7 @@ use crate::{
     config::{PAGE_SIZE, USER_STACK_RESERVE},
     fs, local,
     memory::{self, address::PageCount, allocator::frame, user_ptr::UserOutPtr, UserSpace},
-    process::{thread, userloop, Pid},
+    process::{thread, userloop, Pid, proc_table},
     sync::{
         even_bus::{self, Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
@@ -196,6 +196,31 @@ impl Syscall<'_> {
             event_bus: self.process.event_bus.clone(),
         };
         future.await
+    }
+    pub fn sys_kill(&mut self) -> SysResult {
+        let (pid, signal): (isize, u32) = self.cx.parameter2();
+        enum Target {
+            Pid(Pid),     // > 0
+            AllInGroup,   // == 0
+            All,          // == -1 all have authority except initproc
+            Group(usize), // < -1
+        }
+        let target = match pid {
+            0 => Target::AllInGroup,
+            -1 => Target::All,
+            p if p > 0 => Target::Pid(Pid::from_usize(p as usize)),
+            g => Target::Group(-g as usize),
+        };
+        match target {
+            Target::Pid(pid) => {
+                let proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
+                
+                todo!();
+            },
+            Target::AllInGroup => todo!(),
+            Target::All => todo!(),
+            Target::Group(_) => todo!(),
+        }
     }
 }
 
