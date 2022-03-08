@@ -124,14 +124,14 @@ impl File for OSInode {
     fn writable(&self) -> bool {
         self.writable
     }
-    fn read(self: Arc<Self>, proc: Arc<Process>, buf: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, buf: UserDataMut<u8>) -> AsyncFileOutput {
         let mut inner = self.inner.lock(place!());
         let mut total_read_size = 0usize;
         let buffer = match frame::global::alloc() {
             Ok(f) => f,
             Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
         };
-        for slice in buf.write_only_iter(proc, buffer) {
+        for slice in buf.write_only_iter(buffer) {
             let read_size = inner.inode.read_at(inner.offset, slice);
             if read_size == 0 {
                 break;
@@ -141,14 +141,14 @@ impl File for OSInode {
         }
         Box::pin(async move { Ok(total_read_size) })
     }
-    fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, buf: UserData<u8>) -> AsyncFileOutput {
         let mut inner = self.inner.lock(place!());
         let mut total_write_size = 0usize;
         let buffer = match frame::global::alloc() {
             Ok(f) => f,
             Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
         };
-        for slice in buf.read_only_iter(proc, buffer) {
+        for slice in buf.read_only_iter(buffer) {
             let write_size = inner.inode.write_at(inner.offset, slice);
             assert_eq!(write_size, slice.len());
             inner.offset += write_size;

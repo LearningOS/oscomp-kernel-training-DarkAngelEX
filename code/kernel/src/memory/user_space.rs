@@ -1,19 +1,20 @@
-use core::{cell::UnsafeCell, mem::MaybeUninit};
+use core::mem::MaybeUninit;
 
 use alloc::{collections::BTreeMap, string::String, sync::Arc, vec::Vec};
 
 use crate::{
     config::{USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_SIZE},
-    from_usize_impl,
+    from_usize_impl, local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
         page_table::PTEFlags,
     },
     tools::{
         allocator::from_usize_allocator::FastCloneUsizeAllocator,
+        container::sync_unsafe_cell::SyncUnsafeCell,
         error::{FrameOutOfMemory, TooManyUserStack},
     },
-    user::{AutoSum, SpaceVaildMark},
+    user::AutoSum,
 };
 
 use super::{
@@ -284,8 +285,8 @@ impl HeapManager {
 ///
 /// shared between threads, necessary synchronizations operations are required
 pub struct UserSpace {
-    page_table: Arc<UnsafeCell<PageTable>>, // access PageTable must through UserSpace
-    text_area: Vec<UserArea>,               // used in drop
+    page_table: Arc<SyncUnsafeCell<PageTable>>, // access PageTable must through UserSpace
+    text_area: Vec<UserArea>,                   // used in drop
     stacks: StackSpaceManager,
     heap: HeapManager,
     // mmap_size: usize,
@@ -339,7 +340,9 @@ impl UserSpace {
     /// need alloc 4KB to root entry.
     pub fn from_global() -> Result<Self, FrameOutOfMemory> {
         Ok(Self {
-            page_table: Arc::new(UnsafeCell::new(PageTable::from_global(asid::alloc_asid())?)),
+            page_table: Arc::new(SyncUnsafeCell::new(PageTable::from_global(
+                asid::alloc_asid(),
+            )?)),
             text_area: Vec::new(),
             stacks: StackSpaceManager::new(),
             heap: HeapManager::new(),
@@ -348,17 +351,20 @@ impl UserSpace {
     fn page_table(&self) -> &PageTable {
         unsafe { &*self.page_table.get() }
     }
+    pub fn page_table_arc(&self) -> Arc<SyncUnsafeCell<PageTable>> {
+        self.page_table.clone()
+    }
     fn page_table_mut(&mut self) -> &mut PageTable {
         unsafe { &mut *self.page_table.get() }
     }
     pub unsafe fn using(&self) {
+        let page_table = &mut local::current_local().page_table;
+        assert!(page_table.is_some());
+        *page_table = Some(self.page_table.clone());
         self.page_table().using();
     }
-    /// if self comes from AliveProcess, you can use this because page table closed only when AliveProcess drop.
-    pub fn using_guard(&self) -> SpaceVaildMark {
-        unsafe { self.using() };
-        let a = self.page_table.clone();
-        SpaceVaildMark::new(a)
+    pub fn in_using(&self) -> bool {
+        self.page_table().in_using()
     }
     pub fn map_user_range(
         &mut self,
@@ -484,7 +490,7 @@ impl UserSpace {
         // let oom_fn = USpaceCreateError::from;
         // let stack_fn = USpaceCreateError::from;
         let ret = Self {
-            page_table: Arc::new(UnsafeCell::new(page_table)),
+            page_table: Arc::new(SyncUnsafeCell::new(page_table)),
             text_area,
             stacks,
             heap,
@@ -507,7 +513,7 @@ impl UserSpace {
         fn set_zero<T>(sp: usize) {
             unsafe { *(sp as *mut T) = MaybeUninit::zeroed().assume_init() };
         }
-        let _space_guard = self.using_guard();
+        assert!(self.in_using());
         let _auto_sum = AutoSum::new();
         let mut sp = sp.into_usize();
         sp -= core::mem::size_of::<usize>();

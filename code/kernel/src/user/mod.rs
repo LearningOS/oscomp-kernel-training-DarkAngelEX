@@ -1,50 +1,19 @@
-use core::{
-    cell::UnsafeCell,
-    marker::PhantomData,
-    ops::{Deref, DerefMut},
-    ptr,
-};
+use core::ops::{Deref, DerefMut};
+use core::{marker::PhantomData, ptr};
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::vec::Vec;
 
-use crate::{hart::csr, riscv::register::sstatus};
+use crate::local;
+use crate::riscv::register::sstatus;
 use crate::{
-    memory::{address::OutOfUserRange, allocator::frame::global::FrameTracker, PageTable},
-    process::Process,
+    memory::{address::OutOfUserRange, allocator::frame::global::FrameTracker},
     syscall::{SysError, UniqueSysError},
 };
 
 use self::iter::{UserData4KIter, UserDataMut4KIter};
 
+pub mod check;
 pub mod iter;
-pub mod tools;
-
-pub struct SpaceVaildMark(usize, Arc<UnsafeCell<PageTable>>);
-
-/// forbid SpaceGuard across await.
-impl !Send for SpaceVaildMark {}
-impl !Sync for SpaceVaildMark {}
-
-impl SpaceVaildMark {
-    pub fn new(pt: Arc<UnsafeCell<PageTable>>) -> Self {
-        let old_satp = unsafe { csr::get_satp() };
-        Self(old_satp, pt)
-    }
-    pub fn access<'a>(&'a self) -> SpaceMark<'a> {
-        SpaceMark { _mark: PhantomData }
-    }
-}
-
-impl Drop for SpaceVaildMark {
-    fn drop(&mut self) {
-        unsafe { csr::set_satp(self.0) };
-    }
-}
-
-#[derive(Copy, Clone)]
-pub struct SpaceMark<'a> {
-    _mark: PhantomData<&'a ()>,
-}
 
 pub struct UserData<T: 'static> {
     data: *const [T],
@@ -55,7 +24,7 @@ unsafe impl<T: 'static> Sync for UserData<T> {}
 
 pub struct UserDataGuard<'a, T: 'static> {
     data: &'static [T],
-    _mark: SpaceMark<'a>,
+    _mark: PhantomData<&'a ()>,
     _auto_sum: AutoSum,
 }
 
@@ -74,7 +43,7 @@ impl<'a, T: 'static> Deref for UserDataGuard<'a, T> {
 }
 pub struct UserDataGuardMut<'a, T: 'static> {
     data: &'static mut [T],
-    _mark: SpaceMark<'a>,
+    _mark: PhantomData<&'a ()>,
     _auto_sum: AutoSum,
 }
 
@@ -93,6 +62,7 @@ impl<'a, T: 'static> DerefMut for UserDataGuardMut<'a, T> {
         self.data
     }
 }
+
 impl<T: 'static> UserData<T> {
     pub fn new(data: *const [T]) -> Self {
         Self { data }
@@ -100,10 +70,10 @@ impl<T: 'static> UserData<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    pub fn access<'b>(&self, mark: &'b SpaceVaildMark) -> UserDataGuard<'b, T> {
+    pub fn access(&self) -> UserDataGuard<T> {
         UserDataGuard {
             data: unsafe { &*self.data },
-            _mark: mark.access(),
+            _mark: PhantomData,
             _auto_sum: AutoSum::new(),
         }
     }
@@ -113,15 +83,15 @@ impl UserData<u8> {
     /// return an read only iterator containing a 4KB buffer.
     ///
     /// before each access, it will copy 4KB from user range to buffer.
-    pub fn read_only_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
-        UserData4KIter::new(self, proc, buffer)
+    pub fn read_only_iter(&self, buffer: FrameTracker) -> UserData4KIter {
+        UserData4KIter::new(self, buffer)
     }
 }
 
 impl<T: Clone + 'static> UserData<T> {
     /// after into_vec the data will no longer need space_guard.
-    pub fn into_vec(&self, mark: &SpaceVaildMark) -> Vec<T> {
-        self.access(mark).to_vec()
+    pub fn into_vec(&self) -> Vec<T> {
+        self.access().to_vec()
     }
 }
 
@@ -139,17 +109,17 @@ impl<T> UserDataMut<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    pub fn access<'b>(&self, mark: &'b SpaceVaildMark) -> UserDataGuard<'b, T> {
+    pub fn access<'b>(&self) -> UserDataGuard<'b, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
-            _mark: mark.access(),
+            _mark: PhantomData,
             _auto_sum: AutoSum::new(),
         }
     }
-    pub fn access_mut<'b>(&self, mark: &'b SpaceVaildMark) -> UserDataGuardMut<'b, T> {
+    pub fn access_mut<'b>(&self) -> UserDataGuardMut<'b, T> {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
-            _mark: mark.access(),
+            _mark: PhantomData,
             _auto_sum: AutoSum::new(),
         }
     }
@@ -162,21 +132,21 @@ impl UserDataMut<u8> {
     /// return an read only iterator containing a 4KB buffer.
     ///
     /// before each access, it will copy 4KB from user range to buffer.
-    pub fn read_only_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserData4KIter {
-        UserData4KIter::new(self.as_const(), proc, buffer)
+    pub fn read_only_iter(&self, buffer: FrameTracker) -> UserData4KIter {
+        UserData4KIter::new(self.as_const(), buffer)
     }
     /// return an write only iterator containing a 4KB buffer.
     ///
     /// before each access, it will copy 4KB from buffer to user range except for the first time.
-    pub fn write_only_iter(&self, proc: Arc<Process>, buffer: FrameTracker) -> UserDataMut4KIter {
-        UserDataMut4KIter::new(self, proc, buffer)
+    pub fn write_only_iter(&self, buffer: FrameTracker) -> UserDataMut4KIter {
+        UserDataMut4KIter::new(self, buffer)
     }
 }
 
 impl<T: Clone + 'static> UserDataMut<T> {
     /// after into_vec the data will no longer need space_guard.
-    pub fn into_vec(&self, mark: &SpaceVaildMark) -> Vec<T> {
-        self.access(mark).to_vec()
+    pub fn into_vec(&self) -> Vec<T> {
+        self.access().to_vec()
     }
 }
 
@@ -270,40 +240,41 @@ impl<T: 'static> UserType for *mut T {
     }
 }
 
-pub struct AutoSie(bool);
+pub struct AutoSie;
+
+impl !Send for AutoSie {}
+impl !Sync for AutoSie {}
+
 impl AutoSie {
     pub fn new() -> Self {
-        let f = sstatus::read().sie();
-        unsafe { sstatus::set_sie() };
-        Self(f)
+        local::current_local().sie_inc();
+        Self
     }
 }
 
 impl Drop for AutoSie {
     fn drop(&mut self) {
-        if !self.0 {
-            unsafe { sstatus::clear_sie() }
-        }
+        local::current_local().sie_dec();
     }
 }
 
 /// access user data and close interrupt.
-pub struct AutoSum(bool, AutoSie);
+pub struct AutoSum(AutoSie);
+
+impl !Send for AutoSum {}
+impl !Sync for AutoSum {}
+
 impl AutoSum {
     pub fn new() -> Self {
-        let f = sstatus::read().sum();
         let sie = AutoSie::new();
-        unsafe { sstatus::set_sum() };
-        Self(f, sie)
+        local::current_local().sum_inc();
+        Self(sie)
     }
 }
 
 impl Drop for AutoSum {
     fn drop(&mut self) {
-        if !self.0 {
-            unsafe { sstatus::clear_sum() }
-            // clear sie later
-        }
+        local::current_local().sum_dec();
     }
 }
 

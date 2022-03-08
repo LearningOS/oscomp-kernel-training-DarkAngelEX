@@ -10,13 +10,14 @@ use crate::{
     config::{PAGE_SIZE, USER_STACK_RESERVE},
     fs, local,
     memory::{self, address::PageCount, allocator::frame, user_ptr::UserOutPtr, UserSpace},
-    process::{thread, userloop, Pid, proc_table},
+    process::{proc_table, thread, userloop, Pid},
     sync::{
         even_bus::{self, Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
     },
     timer::{self, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
+    user::check::{UserCheck},
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
@@ -51,13 +52,13 @@ impl Syscall<'_> {
         let (path, args, _envp) = {
             let (path, args, _envp): (*const u8, *const *const u8, *const *const u8) =
                 self.cx.parameter3();
-            let guard = self.using_space()?;
+            let user_check = UserCheck::new();
             let path =
-                String::from_utf8(guard.translated_user_array_zero_end(path)?.into_vec(&guard))?;
-            let args: Vec<String> = guard
+                String::from_utf8(user_check.translated_user_array_zero_end(path)?.into_vec())?;
+            let args: Vec<String> = user_check
                 .translated_user_2d_array_zero_end(args)?
                 .into_iter()
-                .map(|a| unsafe { String::from_utf8_unchecked(a.into_vec(&guard)) })
+                .map(|a| unsafe { String::from_utf8_unchecked(a.into_vec()) })
                 .collect();
             // println!("args ptr: {:#x}", args as usize);
             // let args = Vec::new();
@@ -74,25 +75,25 @@ impl Syscall<'_> {
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse, allocator)
                 .map_err(|_e| SysError::ENOEXEC)?;
-        let (user_sp, argc, argv) = user_space.push_args(args, user_sp.into());
-        let check = NeverFail::new();
-        // reset stack_id
-        // user_space.using();
-        // sfence::fence_i();
-        local::all_hart_fence_i();
-        let mut alive = self.alive_lock()?;
+
         // TODO: kill other thread and await
+        let mut alive = self.alive_lock()?;
         if alive.threads.len() > 1 {
             todo!();
         }
+        let check = NeverFail::new();
+        unsafe { user_space.using() };
+        let (user_sp, argc, argv) = user_space.push_args(args, user_sp.into());
+        // reset stack_id
         alive.exec_path = path;
         alive.user_space = user_space;
         drop(alive);
         self.thread.inner().stack_id = stack_id;
         let sstatus = self.thread.get_context().user_sstatus;
         self.thread
-            .get_context()
-            .exec_init(user_sp, entry_point, sstatus, argc, argv);
+        .get_context()
+        .exec_init(user_sp, entry_point, sstatus, argc, argv);
+        local::all_hart_fence_i();
         check.assume_success();
         Ok(argc)
     }
@@ -127,13 +128,13 @@ impl Syscall<'_> {
                 if let Some(process) = process {
                     if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                         let exit_code = process.exit_code.load(Ordering::Relaxed);
-                        let guard = alive.user_space.using_guard();
-                        let access =
-                            guard.translated_user_writable_slice(exit_code_ptr as *mut u8, 4)?;
+                        // assert!(alive.user_space.in_using());
+                        let access = UserCheck::new()
+                        .translated_user_writable_slice(exit_code_ptr as *mut u8, 4)?;
                         let exit_code_slice =
                             core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
-                        access
-                            .access_mut(&guard)
+                            access
+                            .access_mut()
                             .copy_from_slice(unsafe { &*exit_code_slice });
                     }
                     if PRINT_SYSCALL_PROCESS {
@@ -177,7 +178,6 @@ impl Syscall<'_> {
         };
         self.process.exit_code.store(exit_code, Ordering::Relaxed);
         // TODO: waiting other thread exit
-
         memory::set_satp_by_global();
         alive.clear_all(self.process.pid());
         *lock = None;
@@ -214,9 +214,9 @@ impl Syscall<'_> {
         match target {
             Target::Pid(pid) => {
                 let proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
-                
+
                 todo!();
-            },
+            }
             Target::AllInGroup => todo!(),
             Target::All => todo!(),
             Target::Group(_) => todo!(),

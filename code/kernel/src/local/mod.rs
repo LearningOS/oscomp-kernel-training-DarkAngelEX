@@ -1,11 +1,16 @@
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use riscv::register::sstatus;
 
 use crate::{
     config::PAGE_SIZE,
     hart::{self, cpu, sfence},
-    memory::asid::{Asid, AsidVersion},
-    process::thread::Thread,
+    memory::{
+        asid::{Asid, AsidVersion},
+        PageTable,
+    },
+    process::{thread::Thread, Tid},
     sync::mutex::SpinNoIrqLock as Mutex,
+    tools::container::sync_unsafe_cell::SyncUnsafeCell,
     user::UserAccessStatus,
 };
 
@@ -23,6 +28,9 @@ pub struct Local {
     pub kstack_bottom: usize,
     pub user_access_status: UserAccessStatus,
     pub thread: Option<Arc<Thread>>,
+    pub page_table: Option<Arc<SyncUnsafeCell<PageTable>>>,
+    sie_count: usize,
+    sum_count: usize,
     asid_version: AsidVersion,
     queue: Vec<Box<dyn FnOnce()>>,
     pending: Mutex<Vec<Box<dyn FnOnce()>>>,
@@ -34,6 +42,9 @@ impl Local {
             kstack_bottom: 0,
             user_access_status: UserAccessStatus::Forbid,
             thread: None,
+            page_table: None,
+            sie_count: 0,
+            sum_count: 0,
             asid_version: AsidVersion::first_asid_version(),
             queue: Vec::new(),
             pending: Mutex::new(Vec::new()),
@@ -48,6 +59,49 @@ impl Local {
         core::mem::swap(&mut self.queue, &mut *self.pending.lock(place!()));
         while let Some(f) = self.queue.pop() {
             f()
+        }
+    }
+    pub fn null_owner_assert(&self) {
+        assert!(self.thread.is_none());
+        assert!(self.page_table.is_none());
+    }
+    pub fn have_owner_assert(&self, tid: Tid) {
+        assert_eq!(self.thread.as_ref().unwrap().tid, tid);
+        assert!(self.page_table.is_some());
+    }
+    pub fn sstatus_zero_assert(&self) {
+        assert!(self.sum_count == 0);
+        assert!(self.sie_count == 0);
+        let sstatus = sstatus::read();
+        assert!(!sstatus.sum());
+        assert!(!sstatus.sie());
+    }
+    pub fn sum_inc(&mut self) {
+        assert!(self.sie_count != 0);
+        if self.sum_count == 0 {
+            unsafe { sstatus::set_sum() };
+        }
+        self.sum_count += 1;
+    }
+    pub fn sum_dec(&mut self) {
+        assert!(self.sie_count != 0);
+        assert!(self.sum_count != 0);
+        self.sum_count -= 1;
+        if self.sum_count == 0 {
+            unsafe { sstatus::clear_sum() };
+        }
+    }
+    pub fn sie_inc(&mut self) {
+        if self.sie_count == 0 {
+            unsafe { sstatus::set_sie() };
+        }
+        self.sie_count += 1;
+    }
+    pub fn sie_dec(&mut self) {
+        assert!(self.sie_count != 0);
+        self.sie_count -= 1;
+        if self.sie_count == 0 {
+            unsafe { sstatus::clear_sie() };
         }
     }
 }

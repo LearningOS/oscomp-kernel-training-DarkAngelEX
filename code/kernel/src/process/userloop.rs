@@ -23,12 +23,13 @@ async fn userloop(thread: Arc<Thread>) {
         let mut stack_trace = Box::pin(StackTrace::new());
 
         local::handle_current_local();
+        let mut do_exit = false;
+
         let context = thread.as_ref().get_context();
 
-        let mut do_exit = false;
         // let mut do_yield = false;
-        match thread.process.using_space() {
-            Ok(guard) => context.run_user(&guard),
+        match thread.process.alive_then(|_a| ()) {
+            Ok(_x) => context.run_user(),
             Err(_e) => do_exit = true,
         };
         if !do_exit {
@@ -100,8 +101,9 @@ async fn userloop(thread: Arc<Thread>) {
 }
 
 pub fn spawn(thread: Arc<Thread>) {
-    let future = userloop(thread);
-    let (runnable, task) = executor::spawn(future);
+    let future = userloop(thread.clone());
+    // let (runnable, task) = executor::spawn(future);
+    let (runnable, task) = executor::spawn(OutermostFuture::new(thread, future));
     runnable.schedule();
     task.detach();
 }
@@ -109,8 +111,23 @@ pub fn spawn(thread: Arc<Thread>) {
 struct OutermostFuture<F: Future + Send + 'static> {
     thread: Arc<Thread>,
     thread_take: Option<Arc<Thread>>,
-    page_table: Arc<SyncUnsafeCell<PageTable>>,
+    page_table: Option<Arc<SyncUnsafeCell<PageTable>>>,
     future: Pin<Box<F>>,
+}
+impl<F: Future + Send + 'static> OutermostFuture<F> {
+    pub fn new(thread: Arc<Thread>, future: F) -> Self {
+        let thread_clone = thread.clone();
+        let page_table = thread
+            .process
+            .alive_then(|a| a.user_space.page_table_arc())
+            .unwrap();
+        Self {
+            thread,
+            thread_take: Some(thread_clone),
+            page_table: Some(page_table),
+            future: Box::pin(future),
+        }
+    }
 }
 
 impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
@@ -118,16 +135,16 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::current_local();
-        assert!(local.thread.is_none());
+        local.null_owner_assert();
         local.thread = Some(self.thread_take.take().unwrap());
-        unsafe { self.page_table.get().using() };
+        unsafe { self.page_table.as_ref().unwrap().get().using() };
+        local.page_table = Some(self.page_table.take().unwrap());
 
         let ret = self.future.as_mut().poll(cx);
-
+        local.have_owner_assert(self.thread.tid);
         memory::set_satp_by_global();
         self.thread_take = local.thread.take();
-        assert!(self.thread_take.is_some());
-        assert_eq!(self.thread_take.as_ref().unwrap().tid, self.thread.tid);
+        self.page_table = local.page_table.take();
         ret
     }
 }

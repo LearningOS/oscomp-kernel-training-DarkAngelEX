@@ -8,9 +8,17 @@ use crate::{
     syscall::{SysError, UniqueSysError},
 };
 
-use super::{SpaceVaildMark, UserAccessTrace, UserData, UserDataMut, UserType};
+use super::{AutoSum, UserAccessTrace, UserData, UserDataMut, UserType};
 
-impl SpaceVaildMark {
+pub struct UserCheck(AutoSum);
+
+impl !Send for UserCheck {}
+impl !Sync for UserCheck {}
+
+impl UserCheck {
+    pub fn new() -> Self {
+        Self(AutoSum::new())
+    }
     pub fn translated_user_array_zero_end<T>(
         &self,
         ptr: *const T,
@@ -64,7 +72,7 @@ impl SpaceVaildMark {
     {
         let arr_1d = self.translated_user_array_zero_end(ptr)?;
         let mut ret = Vec::new();
-        for &arr_2d in &*arr_1d.access(self) {
+        for &arr_2d in &*arr_1d.access() {
             ret.push(self.translated_user_array_zero_end(arr_2d)?);
         }
         Ok(ret)

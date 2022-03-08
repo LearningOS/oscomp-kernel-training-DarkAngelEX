@@ -16,7 +16,6 @@ use crate::{
     },
     syscall::{SysError, UniqueSysError},
     tools::error::FrameOutOfMemory,
-    user::SpaceVaildMark,
     xdebug::NeverFail,
 };
 
@@ -91,11 +90,6 @@ impl Process {
             None => Err(DeadProcess),
         }
     }
-    #[inline(always)]
-    pub fn using_space(&self) -> Result<SpaceVaildMark, DeadProcess> {
-        self.alive_then(|a| a.user_space.using_guard())
-    }
-
     // fork and release all thread except tid
     pub fn fork(
         self: &Arc<Self>,

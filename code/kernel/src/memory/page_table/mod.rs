@@ -185,8 +185,12 @@ impl PageTable {
     fn satp(&self) -> usize {
         self.satp.load(Ordering::Relaxed)
     }
+    pub fn in_using(&self) -> bool {
+        let satp = unsafe { csr::get_satp() };
+        satp == self.satp()
+    }
     /// used in AsidManager when update version.
-    pub fn change_satp_asid(satp: usize, asid: usize) -> usize {
+    pub(super) fn change_satp_asid(satp: usize, asid: usize) -> usize {
         (satp & !(0xffff << 44)) | (asid & 0xffff) << 44
     }
     unsafe fn set_satp_register_uncheck(&self) {

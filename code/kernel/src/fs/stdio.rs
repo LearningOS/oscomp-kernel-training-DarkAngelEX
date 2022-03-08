@@ -3,7 +3,7 @@ use alloc::{boxed::Box, sync::Arc};
 use super::{AsyncFileOutput, File};
 use crate::{
     console,
-    process::{thread, Process},
+    process::thread,
     sync::sleep_mutex::SleepMutex,
     user::{UserData, UserDataMut},
 };
@@ -21,7 +21,7 @@ impl File for Stdin {
     fn writable(&self) -> bool {
         false
     }
-    fn read(self: Arc<Self>, proc: Arc<Process>, buf: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, buf: UserDataMut<u8>) -> AsyncFileOutput {
         Box::pin(async move {
             let len = buf.len();
             for i in 0..len {
@@ -36,13 +36,12 @@ impl File for Stdin {
                     break;
                 }
                 let ch = c as u8;
-                let guard = proc.using_space().unwrap();
-                buf.access_mut(&guard)[i] = ch;
+                buf.access_mut()[i] = ch;
             }
             Ok(len)
         })
     }
-    fn write(self: Arc<Self>, _proc: Arc<Process>, _buf: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, _buf: UserData<u8>) -> AsyncFileOutput {
         panic!("Cannot write to stdin!");
     }
 }
@@ -54,16 +53,15 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read(self: Arc<Self>, _proc: Arc<Process>, _buf: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, _buf: UserDataMut<u8>) -> AsyncFileOutput {
         panic!("Cannot read from stdout!");
     }
-    fn write(self: Arc<Self>, proc: Arc<Process>, buf: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, buf: UserData<u8>) -> AsyncFileOutput {
         Box::pin(async move {
             // print!("!");
             let lock = STDOUT_MUTEX.lock().await;
             // print!("<");
-            let guard = proc.using_space().unwrap();
-            let str = buf.access(&guard);
+            let str = buf.access();
             print_unlock!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
             let len = buf.len();
             drop(lock);

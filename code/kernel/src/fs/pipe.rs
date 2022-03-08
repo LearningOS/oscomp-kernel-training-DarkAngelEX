@@ -13,7 +13,6 @@ use alloc::{
 use crate::{
     config::PAGE_SIZE,
     memory::allocator::frame::{self, global::FrameTracker},
-    process::Process,
     sync::{mutex::SpinNoIrqLock, sleep_mutex::SleepMutex},
     syscall::SysResult,
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOutOfMemory},
@@ -138,7 +137,7 @@ impl File for PipeReader {
     fn writable(&self) -> bool {
         false
     }
-    fn read(self: Arc<Self>, proc: Arc<Process>, write_only: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, write_only: UserDataMut<u8>) -> AsyncFileOutput {
         Box::pin(async move {
             if write_only.len() == 0 {
                 return Ok(0);
@@ -148,14 +147,13 @@ impl File for PipeReader {
                 pipe: unsafe { pipe.get() },
                 waker: &self.waker,
                 writer: &self.writer,
-                proc,
                 buffer: write_only,
                 current: 0,
             }
             .await
         })
     }
-    fn write(self: Arc<Self>, _proc: Arc<Process>, _read_only: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, _read_only: UserData<u8>) -> AsyncFileOutput {
         panic!("write to PipeReader");
     }
 }
@@ -185,10 +183,10 @@ impl File for PipeWriter {
     fn writable(&self) -> bool {
         true
     }
-    fn read(self: Arc<Self>, _proc: Arc<Process>, _write_only: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, _write_only: UserDataMut<u8>) -> AsyncFileOutput {
         panic!("read from PipeWriter");
     }
-    fn write(self: Arc<Self>, proc: Arc<Process>, read_only: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, read_only: UserData<u8>) -> AsyncFileOutput {
         Box::pin(async move {
             if read_only.len() == 0 {
                 return Ok(0);
@@ -198,7 +196,6 @@ impl File for PipeWriter {
                 pipe: unsafe { pipe.get() },
                 waker: &self.waker,
                 reader: &self.reader,
-                proc,
                 buffer: read_only,
                 current: 0,
             }
@@ -211,9 +208,13 @@ struct ReadPipeFuture<'a> {
     pipe: &'a mut Pipe,
     waker: &'a SpinNoIrqLock<Option<Waker>>,
     writer: &'a Weak<PipeWriter>,
-    proc: Arc<Process>,
     buffer: UserDataMut<u8>,
     current: usize,
+}
+impl ReadPipeFuture<'_> {
+    fn pipe_and_buf_mut<'a>(&'a mut self) -> (&'a mut Pipe, &'a mut UserDataMut<u8>) {
+        (self.pipe, &mut self.buffer)
+    }
 }
 impl Future for ReadPipeFuture<'_> {
     type Output = SysResult;
@@ -233,9 +234,13 @@ impl Future for ReadPipeFuture<'_> {
                 None => Poll::Ready(Ok(self.current)),
             };
         }
-        let space = self.proc.using_space()?;
-        let dst = &mut self.buffer.access_mut(&space)[self.current..];
-        self.current += self.pipe.read(dst);
+        // let dst = &mut self.buffer.access_mut()[self.current..];
+        // self.current += self.pipe.read(dst);
+        let current = self.current;
+        let (pipe, buffer) = self.pipe_and_buf_mut();
+        let dst = &mut buffer.access_mut()[current..];
+        self.current += pipe.read(dst);
+
         if let Some(w) = self
             .writer
             .upgrade()
@@ -257,11 +262,14 @@ struct WritePipeFuture<'a> {
     pipe: &'a mut Pipe,
     waker: &'a SpinNoIrqLock<Option<Waker>>,
     reader: &'a Weak<PipeReader>,
-    proc: Arc<Process>,
     buffer: UserData<u8>,
     current: usize,
 }
-
+impl WritePipeFuture<'_> {
+    fn pipe_and_buf_mut<'a>(&'a mut self) -> (&'a mut Pipe, &'a mut UserData<u8>) {
+        (self.pipe, &mut self.buffer)
+    }
+}
 impl Future for WritePipeFuture<'_> {
     type Output = SysResult;
 
@@ -280,9 +288,13 @@ impl Future for WritePipeFuture<'_> {
                 None => Poll::Ready(Ok(self.current)),
             };
         }
-        let space = self.proc.using_space()?;
-        let dst = &self.buffer.access(&space)[self.current..];
-        self.current += self.pipe.write(dst);
+        // let dst = &self.buffer.access()[self.current..];
+        // self.current += self.pipe.write(dst);
+        let current = self.current;
+        let (pipe, buffer) = self.pipe_and_buf_mut();
+        let dst = &buffer.access()[current..];
+        self.current += pipe.write(dst);
+
         if let Some(w) = self
             .reader
             .upgrade()

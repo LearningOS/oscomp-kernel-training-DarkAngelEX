@@ -1,16 +1,11 @@
 use core::mem::MaybeUninit;
 
+use crate::memory::{
+    address::UserAddr,
+    user_ptr::{Policy, UserPtr},
+};
 use crate::riscv::register::sstatus::Sstatus;
 use crate::tools::allocator::from_usize_allocator::FromUsize;
-use crate::{
-    memory::{
-        address::UserAddr,
-        user_ptr::{Policy, UserPtr},
-    },
-    user::SpaceVaildMark,
-};
-
-use super::run_user;
 
 #[repr(C)]
 pub struct UKContext {
@@ -130,7 +125,7 @@ impl UKContext {
         new.user_sstatus = self.user_sstatus;
         new
     }
-    pub fn run_user(&mut self, _mark: &SpaceVaildMark) {
-        run_user(self)
+    pub fn run_user(&mut self) {
+        super::run_user(self)
     }
 }

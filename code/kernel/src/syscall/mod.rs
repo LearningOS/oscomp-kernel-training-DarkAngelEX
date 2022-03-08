@@ -10,7 +10,6 @@ use crate::{
     process::{thread::Thread, AliveProcess, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
-    user::SpaceVaildMark,
     xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
 };
 
@@ -120,18 +119,6 @@ impl<'a> Syscall<'a> {
         }
         self.cx.set_user_a0(a0);
         self.do_exit
-    }
-    /// if return Err will set do_exit = true
-    ///
-    /// deprecate function likes using_space_then because it probably lock process for a long time.
-    #[inline(always)]
-    pub fn using_space(
-        &mut self,
-    ) -> Result<SpaceVaildMark, UniqueSysError<{ SysError::ESRCH as isize }>> {
-        self.process.using_space().map_err(|e| {
-            self.do_exit = true;
-            e.into()
-        })
     }
     /// if return Err will set do_exit = true
     #[inline(always)]

@@ -4,7 +4,7 @@ use alloc::collections::VecDeque;
 use async_task::{Runnable, Task};
 use riscv::register::sstatus;
 
-use crate::sync::mutex::SpinNoIrqLock;
+use crate::{sync::mutex::SpinNoIrqLock, local};
 
 pub struct TaskQueue {
     queue: SpinNoIrqLock<Option<VecDeque<Runnable>>>,
@@ -76,7 +76,7 @@ pub fn run_until_idle() {
         // println!("fetch task success");
         task.run();
         unsafe {
-            assert!(!sstatus::read().sie());
+            local::current_local().sstatus_zero_assert();
             sstatus::set_sie();
             sstatus::clear_sie();
         }
