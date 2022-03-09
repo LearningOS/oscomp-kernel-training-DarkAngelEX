@@ -26,6 +26,7 @@ pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
     mutex: &'a Mutex<T, S>,
     support_guard: S::GuardData,
 }
+// 禁止Mutex跨越await导致死锁或无意义阻塞
 impl<'a, T: ?Sized, S: MutexSupport> !Sync for MutexGuard<'a, T, S> {}
 impl<'a, T: ?Sized, S: MutexSupport> !Send for MutexGuard<'a, T, S> {}
 

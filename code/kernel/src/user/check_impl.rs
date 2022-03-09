@@ -22,16 +22,13 @@ pub(super) struct UserCheckImpl;
 
 impl Drop for UserCheckImpl {
     fn drop(&mut self) {
-        unsafe { trap::set_kernel_trap_entry() };
-        debug_check!(local::task_local().sie_cur() != 0);
+        unsafe { trap::set_kernel_default_trap() };
         assert!(Self::status().is_access());
     }
 }
 
-// 必须全程关闭中断。
 impl UserCheckImpl {
     pub fn new() -> Self {
-        debug_check!(local::task_local().sie_cur() != 0);
         assert!(Self::status().is_access());
         unsafe { set_error_handle() };
         Self
@@ -134,21 +131,18 @@ fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), ()> {
 
 unsafe fn set_error_handle() {
     extern "C" {
-        fn __try_access_user_error();
+        fn __try_access_user_error_vector();
     }
-    stvec::write(__try_access_user_error as usize, TrapMode::Direct);
+    stvec::write(__try_access_user_error_vector as usize, TrapMode::Vectored);
 }
 
+// 只有check_impl.S的两个函数可以进入这里, 中断会丢失寄存器信息
 #[no_mangle]
 fn try_access_user_error_debug() {
     let cause = scause::read().cause();
     println!("cause {:?} sepc {:#x}", cause, sepc::read());
     match cause {
-        scause::Trap::Exception(e) => match e {
-            Exception::LoadPageFault => (),
-            Exception::StorePageFault => (),
-            x => panic!("{:?}", x),
-        },
+        scause::Trap::Exception(Exception::LoadPageFault | Exception::StorePageFault) => (),
         // if handle this must save all register!!!
         // scause::Trap::Interrupt(i) if i == Interrupt::SupervisorTimer => {
         //     panic!("{:#x}", sepc::read())

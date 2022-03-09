@@ -1,12 +1,15 @@
     .section .text
-    .align 2
+    .global __try_read_user_u8
+    .global __try_write_user_u8
+    .global __try_access_user_error_vector
 
+    .align 2
 __try_read_user_u8:
     mv a1, a0
     mv a0, zero
     lb a1, 0(a1)
     ret
-
+    .align 2
 __try_write_user_u8:
     mv a2, a0
     mv a0, zero
@@ -14,7 +17,8 @@ __try_write_user_u8:
     ret
 
 // if page fault happen, a0 will become 1, a1 will become scause.
-__try_access_user_error:
+    .align 2
+try_access_user_error:
     addi sp, sp, -16
     sd   ra, 8(sp)
     call try_access_user_error_debug
@@ -26,3 +30,11 @@ __try_access_user_error:
     ld   ra, 8(sp)
     addi sp, sp, 16
     sret
+
+__try_access_user_error_vector:
+    .align 2
+    j try_access_user_error
+    .rept 16
+    .align 2
+    j __kernel_default_interrupt_entry
+    .endr

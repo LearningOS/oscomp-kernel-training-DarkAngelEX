@@ -7,12 +7,12 @@ use core::{
 use alloc::{boxed::Box, sync::Arc};
 use riscv::register::{
     scause::{self, Exception, Interrupt},
-    sstatus, stval,
+    stval,
 };
 
 use crate::{
     executor,
-    local::{self, TaskLocal},
+    local::{self, task_local::TaskLocal},
     process::thread,
     syscall::Syscall,
     timer,

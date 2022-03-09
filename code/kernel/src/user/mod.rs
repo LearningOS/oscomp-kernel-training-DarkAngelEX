@@ -1,17 +1,20 @@
-use core::ops::{Deref, DerefMut};
-use core::{marker::PhantomData, ptr};
+use core::{
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    ptr,
+};
 
-use alloc::boxed::Box;
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use riscv::register::scause::Exception;
 
-use crate::executor;
-use crate::local::TaskLocal;
-use crate::memory::address::UserAddr;
-use crate::memory::user_ptr::{Policy, UserPtr};
 use crate::{
-    local,
-    memory::{address::OutOfUserRange, allocator::frame::global::FrameTracker},
+    executor, local,
+    local::task_local::TaskLocal,
+    memory::{
+        address::{OutOfUserRange, UserAddr},
+        allocator::frame::global::FrameTracker,
+        user_ptr::{Policy, UserPtr},
+    },
     user::check_impl::UserCheckImpl,
 };
 
@@ -268,16 +271,15 @@ impl Drop for AutoSie {
 }
 
 /// access user data and close interrupt.
-pub struct AutoSum(AutoSie);
+pub struct AutoSum;
 
 unsafe impl Send for AutoSum {}
 unsafe impl Sync for AutoSum {}
 
 impl AutoSum {
     pub fn new() -> Self {
-        let sie = AutoSie::new();
         local::task_local().sum_inc();
-        Self(sie)
+        Self
     }
 }
 

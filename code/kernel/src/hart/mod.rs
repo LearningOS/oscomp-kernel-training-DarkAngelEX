@@ -115,7 +115,7 @@ fn others_main(hartid: usize) -> ! {
     memory::set_satp_by_global();
     sfence::sfence_vma_all_global();
     sfence::fence_i();
-    unsafe { trap::set_kernel_trap_entry() };
+    unsafe { trap::set_kernel_default_trap() };
     if !CLOSE_TIME_INTERRUPT {
         trap::enable_timer_interrupt();
         timer::set_next_trigger();

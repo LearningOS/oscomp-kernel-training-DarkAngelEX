@@ -25,6 +25,14 @@ pub fn trace_by_cnt(cnt: usize) -> bool {
 
 #[macro_export]
 macro_rules! memory_trace {
+    () => {
+        if crate::xdebug::trace::OPEN_MEMORY_TRACE {
+            crate::xdebug::trace::memory_trace("", file!(), line!());
+        }
+        if crate::xdebug::trace::STACK_DETECTION {
+            crate::xdebug::trace::stack_detection();
+        }
+    };
     ($name: expr) => {
         if crate::xdebug::trace::OPEN_MEMORY_TRACE {
             crate::xdebug::trace::memory_trace($name, file!(), line!());
@@ -72,7 +80,7 @@ pub fn current_count() -> usize {
 }
 
 #[inline(never)]
-pub fn memory_trace(name: &str, file: &str, line: u32) {
+pub fn memory_trace(name: &'static str, file: &'static str, line: u32) {
     let cnt = TRACE_CNT.fetch_add(1, Ordering::SeqCst);
     let (prev, current, change) = current_update();
     if change {
@@ -91,7 +99,7 @@ pub fn memory_trace(name: &str, file: &str, line: u32) {
 }
 
 #[inline(never)]
-pub fn memory_trace_show(name: &str, file: &str, line: u32) {
+pub fn memory_trace_show(name: &'static str, file: &'static str, line: u32) {
     let current = current_value();
     let cnt = current_count();
     println!(
