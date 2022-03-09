@@ -22,6 +22,7 @@
 #![feature(generic_arg_infer)]
 #![feature(once_cell)]
 #![feature(get_mut_unchecked)]
+#![feature(new_uninit)]
 
 // #![allow(dead_code)]
 
@@ -59,6 +60,7 @@ mod lang_items;
 mod local;
 mod memory;
 mod process;
+mod signal;
 mod sync;
 mod syscall;
 mod timer;

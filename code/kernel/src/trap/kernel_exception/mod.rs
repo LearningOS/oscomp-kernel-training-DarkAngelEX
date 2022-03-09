@@ -5,7 +5,7 @@ use riscv::register::{scause, sepc, sstatus, stval};
 use crate::{
     hart::{self, cpu},
     local,
-    xdebug::trace,
+    xdebug::trace, tools,
 };
 
 #[no_mangle]
@@ -20,7 +20,7 @@ pub fn kernel_default_exception() {
     *in_exception = true;
     let mut sepc = sepc::read();
     let stval = stval::read();
-    
+
     let exception = match scause::read().cause() {
         scause::Trap::Exception(e) => e,
         scause::Trap::Interrupt(i) => panic!("should kernel_exception but {:?}", i),
@@ -29,7 +29,10 @@ pub fn kernel_default_exception() {
         scause::Exception::InstructionMisaligned => todo!(),
         scause::Exception::InstructionFault => todo!(),
         scause::Exception::IllegalInstruction => todo!(),
-        scause::Exception::Breakpoint => todo!(),
+        scause::Exception::Breakpoint => {
+            println!("breakpoint of sepc: {:#x}", sepc);
+            sepc = tools::next_sepc(sepc);
+        },
         scause::Exception::LoadFault => todo!(),
         scause::Exception::StoreMisaligned => todo!(),
         scause::Exception::StoreFault => todo!(),

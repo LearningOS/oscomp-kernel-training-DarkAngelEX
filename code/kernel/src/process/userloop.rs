@@ -37,17 +37,23 @@ async fn userloop(thread: Arc<Thread>) {
             Err(_e) => do_exit = true,
         };
         if !do_exit {
+            let scause = scause::read().cause();
+            let stval = stval::read();
+
+            drop(auto_sie);
+
             let mut user_fatal_error = || {
                 println!(
                     "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x}",
                     thread.process.pid(),
                     thread.tid,
-                    scause::read().cause(),
-                    stval::read(),
+                    scause,
+                    stval,
                 );
                 do_exit = true;
             };
-            match scause::read().cause() {
+
+            match scause {
                 scause::Trap::Exception(e) => match e {
                     Exception::UserEnvCall => {
                         // println!("enter syscall");
@@ -91,7 +97,6 @@ async fn userloop(thread: Arc<Thread>) {
                 },
             }
         }
-        drop(auto_sie);
         if do_exit {
             let mut lock = thread.process.alive.lock(place!());
             if let Some(alive) = &mut *lock {

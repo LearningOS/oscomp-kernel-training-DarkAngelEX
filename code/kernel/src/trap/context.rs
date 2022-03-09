@@ -1,4 +1,4 @@
-use core::mem::MaybeUninit;
+use alloc::boxed::Box;
 
 use crate::memory::{
     address::UserAddr,
@@ -62,9 +62,8 @@ impl<T: FromUsize> UsizeForward for T {
 }
 
 impl UKContext {
-    pub unsafe fn any() -> Self {
-        MaybeUninit::uninit().assume_init()
-        // MaybeUninit::zeroed().assume_init()
+    pub unsafe fn any() -> Box<Self> {
+        Box::new_uninit().assume_init()
     }
     pub fn a7(&self) -> usize {
         self.user_rx[17]
@@ -118,7 +117,7 @@ impl UKContext {
         self.user_sstatus = sstatus;
     }
 
-    pub fn fork(&self) -> Self {
+    pub fn fork(self: &Box<Self>) -> Box<Self> {
         let mut new = unsafe { Self::any() };
         new.user_rx = self.user_rx;
         new.user_sepc = self.user_sepc;

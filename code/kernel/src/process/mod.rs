@@ -1,4 +1,5 @@
 use alloc::{
+    collections::LinkedList,
     string::String,
     sync::{Arc, Weak},
 };
@@ -10,6 +11,7 @@ use crate::{
         allocator::frame::{self, FrameAllocator},
         UserSpace,
     },
+    signal::SignalPack,
     sync::{
         even_bus::{Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
@@ -33,7 +35,6 @@ pub mod proc_table;
 pub mod thread;
 pub mod tid;
 pub mod userloop;
-pub mod signal;
 pub use {pid::Pid, tid::Tid};
 
 pub struct Process {
@@ -60,6 +61,7 @@ pub struct AliveProcess {
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
     pub fd_table: FdTable,
+    pub signal_queue: LinkedList<SignalPack>,
 }
 
 #[derive(Debug)]
@@ -113,6 +115,7 @@ impl Process {
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(),
             fd_table: alive.fd_table.clone(),
+            signal_queue: LinkedList::new(),
         };
         let new_process = Arc::new(Process {
             pid: new_pid,

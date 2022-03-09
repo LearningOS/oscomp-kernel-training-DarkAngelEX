@@ -6,19 +6,13 @@ use core::arch::asm;
 fn sbi_call<const N: usize>(sbi_id: usize, args: [usize; N]) -> usize {
     let ret: usize;
     unsafe {
-        let x = core::mem::MaybeUninit::uninit().assume_init();
-        let a = match *args.as_slice() {
-            [] => (x, x, x),
-            [a0] => (a0, x, x),
-            [a0, a1] => (a0, a1, x),
-            [a0, a1, a2] => (a0, a1, a2),
-            _ => panic!(),
-        };
+        let mut a = [0; 3];
+        a[..N].copy_from_slice(&args);
         asm!(
             "ecall",
-            inlateout("a0") a.0 => ret,
-            in("a1") a.1,
-            in("a2") a.2,
+            inlateout("a0") a[0] => ret,
+            in("a1") a[1],
+            in("a2") a[2],
             in("a7") sbi_id
         );
     }

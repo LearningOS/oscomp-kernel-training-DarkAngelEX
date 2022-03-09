@@ -7,7 +7,8 @@ use core::{
 };
 
 use alloc::{
-    collections::BTreeMap,
+    boxed::Box,
+    collections::{BTreeMap, LinkedList},
     string::String,
     sync::{Arc, Weak},
 };
@@ -76,7 +77,7 @@ unsafe impl Sync for Thread {}
 
 pub struct ThreadInner {
     pub stack_id: StackID,
-    uk_context: UKContext,
+    uk_context: Box<UKContext>,
 }
 
 impl Thread {
@@ -98,6 +99,7 @@ impl Thread {
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(),
                 fd_table: FdTable::new(),
+                signal_queue: LinkedList::new(),
             })),
             exit_code: AtomicI32::new(0),
         });

@@ -7,7 +7,10 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
-use crate::tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack};
+use crate::{
+    process::DeadProcess,
+    tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
+};
 use alloc::sync::Arc;
 
 bitflags! {
@@ -36,6 +39,11 @@ pub struct EvenBusClose;
 impl From<EvenBusClose> for () {
     fn from(_: EvenBusClose) -> Self {
         ()
+    }
+}
+impl From<EvenBusClose> for DeadProcess {
+    fn from(_: EvenBusClose) -> Self {
+        DeadProcess
     }
 }
 

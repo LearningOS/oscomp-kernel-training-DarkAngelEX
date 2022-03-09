@@ -9,9 +9,9 @@ use crate::{
     fs, local,
     memory::{self, address::PhyAddr},
     process, timer,
-    tools::{container, self},
-    trap,
-    xdebug::CLOSE_TIME_INTERRUPT, user,
+    tools::{self, container},
+    trap, user,
+    xdebug::CLOSE_TIME_INTERRUPT,
 };
 
 pub mod cpu;
