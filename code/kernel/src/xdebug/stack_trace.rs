@@ -2,35 +2,44 @@ use core::pin::Pin;
 
 use alloc::vec::Vec;
 
-use crate::hart::cpu;
+use crate::{hart::cpu, local};
 
-pub const STACK_TRACE: bool = false;
+/// panic时打印堆栈上全部调用了stack_trace的路径
+pub const STACK_TRACE: bool = true;
 
 #[macro_export]
 macro_rules! stack_trace {
-    ($stack_trace: expr) => {
-        let _stack_trace =
-            crate::xdebug::stack_trace::StackTracker::new($stack_trace, "", file!(), line!());
+    () => {
+        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new("", file!(), line!());
+    };
+    ($msg: expr) => {
+        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new($msg, file!(), line!());
     };
 }
 
-pub struct StackTracker {
-    trace_ptr: usize,
-}
+pub struct StackTracker;
 
 impl StackTracker {
-    pub fn new(trace_ptr: usize, _msg: &'static str, _file: &'static str, _line: u32) -> Option<Self> {
+    #[inline(always)]
+    pub fn new(msg: &'static str, file: &'static str, line: u32) -> Self {
         if STACK_TRACE {
-            Some(Self { trace_ptr })
-        } else {
-            None
+            if let Some(local) = local::hart_local().try_task() {
+                let info = StackInfo::new(msg, file, line);
+                local.stack_trace.push(info);
+            }
         }
+        Self
     }
 }
 
 impl Drop for StackTracker {
+    #[inline(always)]
     fn drop(&mut self) {
-        unsafe { (*(self.trace_ptr as *mut StackTrace)).pop() }
+        if STACK_TRACE {
+            if let Some(local) = local::hart_local().try_task() {
+                local.stack_trace.pop();
+            }
+        }
     }
 }
 
@@ -47,12 +56,12 @@ impl StackInfo {
     }
     pub fn show(&self, i: usize) {
         println!(
-            "{} {} {}:{} hart {}",
+            "{} hart {} {} {}:{}",
             i,
+            cpu::hart_id(),
             self.msg,
             self.file,
             self.line,
-            cpu::hart_id()
         );
     }
 }

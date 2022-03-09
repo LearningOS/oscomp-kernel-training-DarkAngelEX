@@ -1,6 +1,7 @@
 use crate::{
     hart::{cpu, sbi},
-    xdebug::trace,
+    local,
+    xdebug::{stack_trace, trace},
 };
 use core::panic::PanicInfo;
 
@@ -22,16 +23,18 @@ fn panic(info: &PanicInfo) -> ! {
     }
     trace::using_stack_size_print();
     println!("current hart {}", cpu::hart_id());
-    print!("\n");
-    // if stack_trace::STACK_TRACE {
-    //     let ptr = executor::get_current_stack_trace();
-    //     if ptr == core::ptr::null_mut() {
-    //         println!("stack trace: empty");
-    //     } else {
-    //         unsafe { (*ptr).print_all_stack() }
-    //     }
-    // }
-    println!("loop forever!!");
+    if stack_trace::STACK_TRACE {
+        match local::hart_local().try_task() {
+            None => {
+                println!("stack trace: empty");
+            }
+            Some(task) => {
+                println!("stack_trace:");
+                task.stack_trace.print_all_stack()
+            }
+        }
+    }
+    println!("shutdown!!");
     // loop {}
     sbi::shutdown()
 }

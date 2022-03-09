@@ -1,18 +1,24 @@
 use core::ops::{Deref, DerefMut};
 use core::{marker::PhantomData, ptr};
 
+use alloc::boxed::Box;
 use alloc::vec::Vec;
+use riscv::register::scause::Exception;
 
-use crate::local;
-use crate::riscv::register::sstatus;
+use crate::executor;
+use crate::local::TaskLocal;
+use crate::memory::address::UserAddr;
+use crate::memory::user_ptr::{Policy, UserPtr};
 use crate::{
+    local,
     memory::{address::OutOfUserRange, allocator::frame::global::FrameTracker},
-    syscall::{SysError, UniqueSysError},
+    user::check_impl::UserCheckImpl,
 };
 
 use self::iter::{UserData4KIter, UserDataMut4KIter};
 
 pub mod check;
+mod check_impl;
 pub mod iter;
 
 pub struct UserData<T: 'static> {
@@ -28,11 +34,8 @@ pub struct UserDataGuard<'a, T: 'static> {
     _auto_sum: AutoSum,
 }
 
-impl<'a, T> !Send for UserDataGuard<'a, T> {}
-impl<'a, T> !Sync for UserDataGuard<'a, T> {}
-
-// unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
-// unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
+unsafe impl<T: 'static> Send for UserDataGuard<'_, T> {}
+unsafe impl<T: 'static> Sync for UserDataGuard<'_, T> {}
 
 impl<'a, T: 'static> Deref for UserDataGuard<'a, T> {
     type Target = [T];
@@ -47,8 +50,8 @@ pub struct UserDataGuardMut<'a, T: 'static> {
     _auto_sum: AutoSum,
 }
 
-// unsafe impl<T: 'static> Send for UserDataGuardMut<'_, T> {}
-// unsafe impl<T: 'static> Sync for UserDataGuardMut<'_, T> {}
+unsafe impl<T: 'static> Send for UserDataGuardMut<'_, T> {}
+unsafe impl<T: 'static> Sync for UserDataGuardMut<'_, T> {}
 
 impl<'a, T: 'static> Deref for UserDataGuardMut<'a, T> {
     type Target = [T];
@@ -155,7 +158,7 @@ impl<T: Clone + 'static> UserDataMut<T> {
 pub enum UserAccessStatus {
     Forbid,
     Access,
-    Error, // set by interrupt
+    Error(UserAddr, Exception), // stval, Excetion
 }
 
 #[derive(Debug)]
@@ -177,44 +180,44 @@ impl From<UserAccessStatus> for UserAccessError {
 }
 
 impl UserAccessStatus {
-    pub fn set_forbit(&mut self) {
-        *self = UserAccessStatus::Forbid;
+    pub fn get(&self) -> Self {
+        unsafe { ptr::read_volatile(self) }
+    }
+    pub fn set(&mut self, value: Self) {
+        unsafe { ptr::write_volatile(self, value) };
+    }
+    pub fn set_forbid(&mut self) {
+        self.set(UserAccessStatus::Forbid);
     }
     pub fn set_access(&mut self) {
-        *self = UserAccessStatus::Access;
+        self.set(UserAccessStatus::Access);
     }
-    pub fn is_forbid_volatile(&self) -> bool {
-        let x = unsafe { ptr::read_volatile(self) };
-        matches!(x, UserAccessStatus::Forbid)
+    pub fn is_forbid(&self) -> bool {
+        matches!(self.get(), UserAccessStatus::Forbid)
     }
-    pub fn not_forbid_volatile(&self) -> bool {
-        !self.is_forbid_volatile()
+    pub fn not_forbid(&self) -> bool {
+        !self.is_forbid()
     }
-    pub fn is_access_volatile(&self) -> bool {
-        let x = unsafe { ptr::read_volatile(self) };
-        matches!(x, UserAccessStatus::Access)
+    pub fn is_access(&self) -> bool {
+        matches!(self.get(), UserAccessStatus::Access)
     }
-    pub fn is_error_volatile(&self) -> bool {
-        let x = unsafe { ptr::read_volatile(self) };
-        matches!(x, UserAccessStatus::Error)
-    }
-    pub fn access_check(&self) -> Result<(), UniqueSysError<{ SysError::EFAULT as isize }>> {
-        let x = unsafe { ptr::read_volatile(self) };
-        match x {
-            UserAccessStatus::Access => Ok(()),
-            _e => Err(UniqueSysError),
-        }
+    pub fn set_error(&mut self, stval: UserAddr, e: Exception) {
+        self.set(UserAccessStatus::Error(stval, e))
     }
 }
 
-pub trait UserType: Copy + 'static {
+pub trait UserType: Copy + Send + 'static {
     fn is_null(&self) -> bool;
+    fn new_usize(a: usize) -> Self;
 }
 macro_rules! user_type_impl_default {
     ($type: ident) => {
         impl UserType for $type {
             fn is_null(&self) -> bool {
                 *self == 0
+            }
+            fn new_usize(a: usize) -> $type {
+                a as $type
             }
         }
     };
@@ -229,71 +232,60 @@ user_type_impl_default!(u16);
 user_type_impl_default!(i16);
 user_type_impl_default!(u8);
 user_type_impl_default!(i8);
-impl<T: 'static> UserType for *const T {
+impl<T: Clone + Copy + 'static, P: Policy + 'static> UserType for UserPtr<T, P> {
     fn is_null(&self) -> bool {
-        *self == core::ptr::null()
+        self.raw_ptr() == core::ptr::null()
+    }
+    fn new_usize(a: usize) -> Self {
+        Self::from_usize(a)
     }
 }
-impl<T: 'static> UserType for *mut T {
-    fn is_null(&self) -> bool {
-        *self == core::ptr::null_mut()
-    }
-}
+// impl<T: 'static> UserType for *mut T {
+//     fn is_null(&self) -> bool {
+//         *self == core::ptr::null_mut()
+//     }
+//     fn new_usize(a: usize) -> Self {
+//         a as Self
+//     }
+// }
 
 pub struct AutoSie;
 
-impl !Send for AutoSie {}
-impl !Sync for AutoSie {}
+unsafe impl Send for AutoSie {}
+unsafe impl Sync for AutoSie {}
 
 impl AutoSie {
     pub fn new() -> Self {
-        local::current_local().sie_inc();
+        local::task_local().sie_inc();
         Self
     }
 }
 
 impl Drop for AutoSie {
     fn drop(&mut self) {
-        local::current_local().sie_dec();
+        local::task_local().sie_dec();
     }
 }
 
 /// access user data and close interrupt.
 pub struct AutoSum(AutoSie);
 
-impl !Send for AutoSum {}
-impl !Sync for AutoSum {}
+unsafe impl Send for AutoSum {}
+unsafe impl Sync for AutoSum {}
 
 impl AutoSum {
     pub fn new() -> Self {
         let sie = AutoSie::new();
-        local::current_local().sum_inc();
+        local::task_local().sum_inc();
         Self(sie)
     }
 }
 
 impl Drop for AutoSum {
     fn drop(&mut self) {
-        local::current_local().sum_dec();
-    }
-}
-
-pub struct UserAccessTrace(*mut UserAccessStatus, AutoSum);
-impl UserAccessTrace {
-    pub fn new(user_access_status: &mut UserAccessStatus) -> Self {
-        assert!(user_access_status.is_forbid_volatile());
-        user_access_status.set_access();
-        Self(user_access_status, AutoSum::new())
-    }
-}
-
-impl Drop for UserAccessTrace {
-    fn drop(&mut self) {
-        unsafe {
-            let status = &mut (*self.0);
-            assert!(status.not_forbid_volatile());
-            status.set_forbit();
-        }
+        let local = local::task_local();
+        assert!(local.user_access_status.is_access());
+        local.sum_dec();
     }
 }
 
@@ -311,4 +303,27 @@ impl From<UserAccessError> for UserAccessU8Error {
     fn from(e: UserAccessError) -> Self {
         Self::UserAccessError(e)
     }
+}
+
+pub fn test() {
+    let func = async {
+        println!("[FTL OS]user_check test begin");
+        let check = UserCheckImpl::new();
+        let mut array = 123u8;
+        let rw_data = &mut array as *mut u8 as usize;
+        let ro_data = "123456".as_ptr() as *const u8 as usize;
+        let un_data = 1234567 as *const u8 as usize;
+        check.read_check::<u8>(rw_data.into()).await.unwrap();
+        check.read_check::<u8>(ro_data.into()).await.unwrap();
+        check.read_check::<u8>(un_data.into()).await.unwrap_err();
+        check.write_check::<u8>(rw_data.into()).await.unwrap();
+        check.write_check::<u8>(ro_data.into()).await.unwrap_err();
+        check.write_check::<u8>(un_data.into()).await.unwrap_err();
+        println!("[FTL OS]user_check test pass");
+    };
+    local::hart_local().set_task(Box::new(TaskLocal::by_initproc()));
+    let auto_sie = AutoSum::new();
+    executor::block_on(func);
+    drop(auto_sie);
+    local::hart_local().take_task();
 }

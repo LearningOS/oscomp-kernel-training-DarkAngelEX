@@ -69,6 +69,7 @@ impl<'a, T> DerefMut for SleepMutexGuard<'a, T> {
 
 impl<'a, T> Drop for SleepMutexGuard<'a, T> {
     fn drop(&mut self) {
+        stack_trace!();
         let mut mutex = self.mutex.inner.lock(place!());
         assert!(mutex.locked && mutex.slot.is_none());
         mutex.locked = false;
@@ -95,6 +96,7 @@ impl<'a, T> Future for SleepMutexFuture<'a, T> {
     type Output = SleepMutexGuard<'a, T>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        stack_trace!();
         let mut mutex = self.mutex.inner.lock(place!());
         let mut need_push_queue = false;
         let id = *self.id.get_or_insert_with(|| {

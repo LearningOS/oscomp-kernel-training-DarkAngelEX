@@ -5,14 +5,18 @@ use core::{
 };
 
 use alloc::{boxed::Box, sync::Arc};
-use riscv::register::scause::{self, Exception, Interrupt};
+use riscv::register::{
+    scause::{self, Exception, Interrupt},
+    sstatus, stval,
+};
 
 use crate::{
-    executor, local,
-    memory::{self, PageTable},
+    executor,
+    local::{self, TaskLocal},
+    process::thread,
     syscall::Syscall,
     timer,
-    tools::container::sync_unsafe_cell::SyncUnsafeCell,
+    user::{AutoSie, UserAccessStatus},
     xdebug::stack_trace::StackTrace,
 };
 
@@ -20,13 +24,13 @@ use super::thread::Thread;
 
 async fn userloop(thread: Arc<Thread>) {
     loop {
-        let mut stack_trace = Box::pin(StackTrace::new());
-
+        stack_trace!();
         local::handle_current_local();
+
         let mut do_exit = false;
 
         let context = thread.as_ref().get_context();
-
+        let auto_sie = AutoSie::new();
         // let mut do_yield = false;
         match thread.process.alive_then(|_a| ()) {
             Ok(_x) => context.run_user(),
@@ -35,10 +39,11 @@ async fn userloop(thread: Arc<Thread>) {
         if !do_exit {
             let mut user_fatal_error = || {
                 println!(
-                    "[kernel]{:?} {:?} exception: {:?}",
+                    "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x}",
                     thread.process.pid(),
                     thread.tid,
-                    scause::read().cause()
+                    scause::read().cause(),
+                    stval::read(),
                 );
                 do_exit = true;
             };
@@ -46,10 +51,9 @@ async fn userloop(thread: Arc<Thread>) {
                 scause::Trap::Exception(e) => match e {
                     Exception::UserEnvCall => {
                         // println!("enter syscall");
-                        do_exit =
-                            Syscall::new(context, &thread, &thread.process, stack_trace.as_mut())
-                                .syscall()
-                                .await;
+                        do_exit = Syscall::new(context, &thread, &thread.process)
+                            .syscall()
+                            .await;
                     }
                     Exception::InstructionPageFault
                     | Exception::LoadPageFault
@@ -75,8 +79,10 @@ async fn userloop(thread: Arc<Thread>) {
                     Interrupt::UserTimer => todo!(),
                     Interrupt::VirtualSupervisorTimer => todo!(),
                     Interrupt::SupervisorTimer => {
-                        // do_yield = true;
                         timer::tick();
+                        if !do_exit {
+                            thread::yield_now().await;
+                        }
                     }
                     Interrupt::UserExternal => todo!(),
                     Interrupt::VirtualSupervisorExternal => todo!(),
@@ -85,6 +91,7 @@ async fn userloop(thread: Arc<Thread>) {
                 },
             }
         }
+        drop(auto_sie);
         if do_exit {
             let mut lock = thread.process.alive.lock(place!());
             if let Some(alive) = &mut *lock {
@@ -109,23 +116,26 @@ pub fn spawn(thread: Arc<Thread>) {
 }
 
 struct OutermostFuture<F: Future + Send + 'static> {
-    thread: Arc<Thread>,
-    thread_take: Option<Arc<Thread>>,
-    page_table: Option<Arc<SyncUnsafeCell<PageTable>>>,
     future: Pin<Box<F>>,
+    task: Option<Box<TaskLocal>>,
 }
 impl<F: Future + Send + 'static> OutermostFuture<F> {
     pub fn new(thread: Arc<Thread>, future: F) -> Self {
-        let thread_clone = thread.clone();
         let page_table = thread
             .process
             .alive_then(|a| a.user_space.page_table_arc())
             .unwrap();
-        Self {
+        let task = Box::new(TaskLocal {
             thread,
-            thread_take: Some(thread_clone),
-            page_table: Some(page_table),
+            page_table,
+            sie_count: 0,
+            sum_count: 0,
+            user_access_status: UserAccessStatus::Forbid,
+            stack_trace: StackTrace::new(),
+        });
+        Self {
             future: Box::pin(future),
+            task: Some(task),
         }
     }
 }
@@ -134,17 +144,12 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
     type Output = F::Output;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let local = local::current_local();
-        local.null_owner_assert();
-        local.thread = Some(self.thread_take.take().unwrap());
-        unsafe { self.page_table.as_ref().unwrap().get().using() };
-        local.page_table = Some(self.page_table.take().unwrap());
+        let local = local::hart_local();
+        local.set_task(self.task.take().unwrap());
 
         let ret = self.future.as_mut().poll(cx);
-        local.have_owner_assert(self.thread.tid);
-        memory::set_satp_by_global();
-        self.thread_take = local.thread.take();
-        self.page_table = local.page_table.take();
+
+        self.task = Some(local.take_task());
         ret
     }
 }

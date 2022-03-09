@@ -1,11 +1,15 @@
 use core::arch::{asm, global_asm};
+use core::convert::TryFrom;
+
+use riscv::register::{sepc, sstatus};
 
 use crate::hart::{self, cpu};
+use crate::memory::address::UserAddr;
 use crate::riscv::register::{
     scause, sie, stval,
     stvec::{self, TrapMode},
 };
-use crate::timer;
+use crate::{local, timer, tools};
 
 use self::context::UKContext;
 
@@ -38,9 +42,11 @@ pub fn get_return_from_user() -> usize {
     __return_from_user as usize
 }
 
+// 如果发生了用户态访存错误，直接填0
 #[no_mangle]
 pub fn trap_from_kernel() {
     unsafe { close_kernel_trap_entry() };
+    stack_trace!();
     memory_trace_show!("trap_from_kernel entry");
     // println!("trap_from_kernel {:?} sepc = {:#x}", scause::read().cause(), get_sepc());
     match scause::read().cause() {
@@ -55,8 +61,28 @@ pub fn trap_from_kernel() {
             scause::Exception::UserEnvCall => todo!(),
             scause::Exception::VirtualSupervisorEnvCall => todo!(),
             scause::Exception::InstructionPageFault => fatal_error(),
-            scause::Exception::LoadPageFault => fatal_error(),
-            scause::Exception::StorePageFault => fatal_error(),
+            e @ (scause::Exception::LoadPageFault | scause::Exception::StorePageFault) => {
+                let mut error = true;
+                stack_trace!();
+                let local = local::task_local();
+                if local.sum_cur() != 0 {
+                    assert!(local.user_access_status.not_forbid());
+                    let stval = get_stval();
+                    if let Ok(addr) = UserAddr::try_from(stval as *const u8) {
+                        if local.user_access_status.is_access() {
+                            println!("access user data error! ignore this instruction. {:?} stval: {:#x}", e, stval);
+                            local.user_access_status.set_error(addr, e);
+                        }
+                        sepc::write(tools::next_sepc(get_sepc()));
+                        error = false;
+                    }
+                } else {
+                    assert!(local.user_access_status.is_forbid());
+                }
+                if error {
+                    fatal_error()
+                }
+            }
             scause::Exception::InstructionGuestPageFault => todo!(),
             scause::Exception::LoadGuestPageFault => todo!(),
             scause::Exception::VirtualInstruction => todo!(),
@@ -86,6 +112,9 @@ pub fn trap_from_kernel() {
         }
         sepc
     }
+    fn get_stval() -> usize {
+        stval::read()
+    }
     fn fatal_error() -> ! {
         let sepc = get_sepc();
         panic!(
@@ -104,6 +133,7 @@ pub fn loop_forever() -> ! {
     loop {}
 }
 
+#[inline(always)]
 pub unsafe fn set_kernel_trap_entry() {
     extern "C" {
         fn __kernel_trap_entry();
@@ -111,6 +141,7 @@ pub unsafe fn set_kernel_trap_entry() {
     stvec::write(__kernel_trap_entry as usize, TrapMode::Direct);
 }
 
+#[inline(always)]
 pub unsafe fn close_kernel_trap_entry() {
     stvec::write(loop_forever as usize, TrapMode::Direct);
 }
@@ -120,6 +151,7 @@ unsafe fn set_user_trap_entry() {
     stvec::write(get_return_from_user(), TrapMode::Direct);
 }
 
+#[inline(always)]
 pub fn enable_timer_interrupt() {
     unsafe {
         sie::set_stimer();

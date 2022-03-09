@@ -13,7 +13,7 @@ use crate::{
     tools,
 };
 
-use super::page_table::PageTableEntry;
+use super::{page_table::PageTableEntry, user_ptr::{UserPtr, Policy}};
 
 // const PA_WIDTH_SV39: usize = 56;
 // const VA_WIDTH_SV39: usize = 39;
@@ -249,6 +249,17 @@ impl<T> TryFrom<*mut T> for UserAddr {
 
     fn try_from(value: *mut T) -> Result<Self, Self::Error> {
         let r = Self(value as usize);
+        match r.valid() {
+            Ok(_) => Ok(r),
+            Err(_) => Err(OutOfUserRange),
+        }
+    }
+}
+impl<T: Clone + Copy + 'static, P: Policy> TryFrom<UserPtr<T, P>> for UserAddr {
+    type Error = OutOfUserRange;
+
+    fn try_from(value: UserPtr<T, P>) -> Result<Self, Self::Error> {
+        let r = Self(value.as_usize());
         match r.valid() {
             Ok(_) => Ok(r),
             Err(_) => Err(OutOfUserRange),

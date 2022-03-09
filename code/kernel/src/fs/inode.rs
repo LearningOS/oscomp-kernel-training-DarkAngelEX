@@ -2,7 +2,6 @@ use super::{AsyncFileOutput, File};
 use crate::{
     drivers::BLOCK_DEVICE,
     memory::allocator::frame,
-    process::Process,
     sync::mutex::SpinNoIrqLock,
     syscall::SysError,
     user::{UserData, UserDataMut},

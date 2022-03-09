@@ -9,7 +9,13 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 use crate::{
     config::{PAGE_SIZE, USER_STACK_RESERVE},
     fs, local,
-    memory::{self, address::PageCount, allocator::frame, user_ptr::UserOutPtr, UserSpace},
+    memory::{
+        self,
+        address::PageCount,
+        allocator::frame,
+        user_ptr::{UserReadPtr, UserWritePtr},
+        UserSpace,
+    },
     process::{proc_table, thread, userloop, Pid},
     sync::{
         even_bus::{self, Event, EventBus},
@@ -17,7 +23,7 @@ use crate::{
     },
     timer::{self, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
-    user::check::{UserCheck},
+    user::check::UserCheck,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
@@ -27,6 +33,7 @@ const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
     pub fn sys_fork(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             print!("sys_fork {:?} ", self.process.pid());
         }
@@ -46,17 +53,26 @@ impl Syscall<'_> {
         Ok(pid.into_usize())
     }
     pub async fn sys_exec(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exec {:?}", self.process.pid());
         }
         let (path, args, _envp) = {
-            let (path, args, _envp): (*const u8, *const *const u8, *const *const u8) =
-                self.cx.parameter3();
+            let (path, args, _envp): (
+                UserReadPtr<u8>,
+                UserReadPtr<UserReadPtr<u8>>,
+                UserReadPtr<UserReadPtr<u8>>,
+            ) = self.cx.parameter3();
             let user_check = UserCheck::new();
-            let path =
-                String::from_utf8(user_check.translated_user_array_zero_end(path)?.into_vec())?;
+            let path = String::from_utf8(
+                user_check
+                    .translated_user_array_zero_end(path)
+                    .await?
+                    .into_vec(),
+            )?;
             let args: Vec<String> = user_check
-                .translated_user_2d_array_zero_end(args)?
+                .translated_user_2d_array_zero_end(args)
+                .await?
                 .into_iter()
                 .map(|a| unsafe { String::from_utf8_unchecked(a.into_vec()) })
                 .collect();
@@ -91,14 +107,15 @@ impl Syscall<'_> {
         self.thread.inner().stack_id = stack_id;
         let sstatus = self.thread.get_context().user_sstatus;
         self.thread
-        .get_context()
-        .exec_init(user_sp, entry_point, sstatus, argc, argv);
+            .get_context()
+            .exec_init(user_sp, entry_point, sstatus, argc, argv);
         local::all_hart_fence_i();
         check.assume_success();
         Ok(argc)
     }
     pub async fn sys_waitpid(&mut self) -> SysResult {
-        let (pid, exit_code_ptr): (isize, UserOutPtr<i32>) = self.cx.parameter2();
+        stack_trace!();
+        let (pid, exit_code_ptr): (isize, UserWritePtr<i32>) = self.cx.parameter2();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_waitpid {:?} <- {}", self.process.pid(), pid);
         }
@@ -116,35 +133,39 @@ impl Syscall<'_> {
         };
         loop {
             // this brace is for xlock which drop before .await but stupid rust can't see it.
-            {
-                let this_pid = self.process.pid();
+
+            let this_pid = self.process.pid();
+
+            let process = {
                 let mut alive = self.alive_lock()?;
-                let process = match target {
+                let p = match target {
                     WaitFor::AnyChild => alive.children.try_remove_zombie_any(),
                     WaitFor::Pid(pid) => alive.children.try_remove_zombie(pid),
                     WaitFor::PGid(_) => unimplemented!(),
                     WaitFor::AnyChildInGroup => unimplemented!(),
                 };
-                if let Some(process) = process {
-                    if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
-                        let exit_code = process.exit_code.load(Ordering::Relaxed);
-                        // assert!(alive.user_space.in_using());
-                        let access = UserCheck::new()
-                        .translated_user_writable_slice(exit_code_ptr as *mut u8, 4)?;
-                        let exit_code_slice =
-                            core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
-                            access
-                            .access_mut()
-                            .copy_from_slice(unsafe { &*exit_code_slice });
-                    }
-                    if PRINT_SYSCALL_PROCESS {
-                        println!("sys_waitpid success {:?} <- {:?}", this_pid, process.pid());
-                    }
-                    return Ok(process.pid().into_usize());
-                } else if alive.children.is_empty() {
+                if p.is_none() && alive.children.is_empty() {
                     return Err(SysError::ECHILD);
                 }
-                drop(alive);
+                p
+            };
+            if let Some(process) = process {
+                if let Some(exit_code_ptr) = exit_code_ptr.transmute::<u8>().nonnull_mut() {
+                    let exit_code = process.exit_code.load(Ordering::Relaxed);
+                    // assert!(alive.user_space.in_using());
+                    let access = UserCheck::new()
+                        .translated_user_writable_slice(exit_code_ptr, 4)
+                        .await?;
+                    let exit_code_slice =
+                        core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
+                    access
+                        .access_mut()
+                        .copy_from_slice(unsafe { &*exit_code_slice });
+                }
+                if PRINT_SYSCALL_PROCESS {
+                    println!("sys_waitpid success {:?} <- {:?}", this_pid, process.pid());
+                }
+                return Ok(process.pid().into_usize());
             }
             let event_bus = &self.process.event_bus;
             if let Err(_e) = even_bus::wait_for_event(event_bus.clone(), Event::CHILD_PROCESS_QUIT)
@@ -158,13 +179,14 @@ impl Syscall<'_> {
         }
     }
     pub fn sys_getpid(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getpid");
         }
         Ok(self.process.pid().into_usize())
     }
     pub fn sys_exit(&mut self) -> SysResult {
-        stack_trace!(self.stack_trace.ptr_usize());
+        stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exit {:?}", self.process.pid());
         }
@@ -184,6 +206,7 @@ impl Syscall<'_> {
         Ok(0)
     }
     pub async fn sys_yield(&mut self) -> SysResult {
+        stack_trace!();
         thread::yield_now().await;
         Ok(0)
     }
@@ -198,6 +221,7 @@ impl Syscall<'_> {
         future.await
     }
     pub fn sys_kill(&mut self) -> SysResult {
+        stack_trace!();
         let (pid, signal): (isize, u32) = self.cx.parameter2();
         enum Target {
             Pid(Pid),     // > 0
@@ -233,6 +257,7 @@ impl Future for SleepFuture {
     type Output = SysResult;
 
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        stack_trace!();
         if timer::get_time_ticks() >= self.deadline {
             cx.waker().wake_by_ref();
             return Poll::Ready(Ok(0));

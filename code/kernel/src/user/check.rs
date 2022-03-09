@@ -3,133 +3,125 @@ use core::convert::TryFrom;
 use alloc::vec::Vec;
 
 use crate::{
+    config::PAGE_SIZE,
     local,
-    memory::address::{PageCount, UserAddr},
+    memory::{
+        address::{PageCount, UserAddr},
+        user_ptr::{UserReadPtr, UserWritePtr},
+    },
     syscall::{SysError, UniqueSysError},
 };
 
-use super::{AutoSum, UserAccessTrace, UserData, UserDataMut, UserType};
+use super::{check_impl::UserCheckImpl, AutoSum, UserData, UserDataMut, UserType};
 
 pub struct UserCheck(AutoSum);
 
-impl !Send for UserCheck {}
-impl !Sync for UserCheck {}
+unsafe impl Send for UserCheck {}
+unsafe impl Sync for UserCheck {}
 
 impl UserCheck {
     pub fn new() -> Self {
+        assert!(local::task_local().user_access_status.is_forbid());
         Self(AutoSum::new())
     }
-    pub fn translated_user_array_zero_end<T>(
+    pub async fn translated_user_array_zero_end<T>(
         &self,
-        ptr: *const T,
+        ptr: UserReadPtr<T>,
     ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>>
     where
         T: UserType,
     {
-        if ptr as usize % core::mem::size_of::<T>() != 0 {
+        // misalign check
+        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
             return Err(UniqueSysError);
         }
         let mut uptr = UserAddr::try_from(ptr)?;
-        let user_access_status = &mut local::current_local().user_access_status;
-        let _trace = UserAccessTrace::new(user_access_status);
+
+        let check_impl = UserCheckImpl::new();
+        check_impl.read_check(ptr).await?;
+
         let mut len = 0;
-        let mut get_ch = || {
+        let mut ch_is_null = move || {
             let ch: T = unsafe { *uptr.as_ptr() }; // if access fault, return 0.
             uptr.add_assign(core::mem::size_of::<T>());
-            (ch, uptr)
+            ch.is_null()
         };
-        let (ch, _next_ptr) = get_ch();
         // check first access
-        user_access_status.access_check()?;
-        if !ch.is_null() {
-            len += 1;
-        } else {
-            let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr, 0) };
+        if ch_is_null() {
+            let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), 0) };
             return Ok(UserData::new(slice));
+        } else {
+            len += 1;
         }
         loop {
-            let (ch, next_ptr) = get_ch();
-            if ch.is_null() {
+            let nxt_ptr = ptr.offset(len as isize);
+            if nxt_ptr.as_usize() % PAGE_SIZE == 0 {
+                check_impl.read_check(nxt_ptr).await?;
+            }
+            if ch_is_null() {
                 break;
             }
             len += 1;
             // check when first access a page.
-            if next_ptr.page_offset() == core::mem::size_of::<T>() {
-                user_access_status.access_check()?;
-            }
         }
-        user_access_status.access_check()?;
-        let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr, len) };
+        let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len) };
         return Ok(UserData::new(slice));
     }
 
-    pub fn translated_user_2d_array_zero_end<T>(
+    pub async fn translated_user_2d_array_zero_end<T: UserType>(
         &self,
-        ptr: *const *const T,
-    ) -> Result<Vec<UserData<T>>, UniqueSysError<{ SysError::EFAULT as isize }>>
-    where
-        T: UserType,
-    {
-        let arr_1d = self.translated_user_array_zero_end(ptr)?;
+        ptr: UserReadPtr<UserReadPtr<T>>,
+    ) -> Result<Vec<UserData<T>>, UniqueSysError<{ SysError::EFAULT as isize }>> {
+        let arr_1d = self.translated_user_array_zero_end(ptr).await?;
         let mut ret = Vec::new();
         for &arr_2d in &*arr_1d.access() {
-            ret.push(self.translated_user_array_zero_end(arr_2d)?);
+            ret.push(self.translated_user_array_zero_end(arr_2d).await?);
         }
         Ok(ret)
     }
 
-    pub fn translated_user_readonly_slice<T>(
+    pub async fn translated_user_readonly_slice<T: UserType>(
         &self,
-        ptr: *const T,
+        ptr: UserReadPtr<T>,
         len: usize,
     ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
-        if ptr as usize % core::mem::size_of::<T>() != 0 {
+        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
             return Err(UniqueSysError);
         }
         let ubegin = UserAddr::try_from(ptr)?;
-        let uend = UserAddr::try_from(unsafe { ptr.offset(len as isize) as *mut u8 })?;
-        let user_access_status = &mut local::current_local().user_access_status;
-        let trace = UserAccessTrace::new(user_access_status);
+        let uend = UserAddr::try_from(ptr.offset(len as isize))?;
         let mut cur = ubegin.floor();
         let uend4k = uend.ceil();
+        let check_impl = UserCheckImpl::new();
         while cur != uend4k {
-            let cur_ptr = cur.into_usize() as *const u8;
+            let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
             // if error occur will change status by exception
-            let _v = unsafe { cur_ptr.read_volatile() };
-            user_access_status.access_check()?;
+            check_impl.read_check::<u8>(cur_ptr).await?;
             cur.add_page_assign(PageCount::from_usize(1));
         }
-        drop(trace);
-        let slice = core::ptr::slice_from_raw_parts(ptr, len);
+        let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
         Ok(UserData::new(unsafe { &*slice }))
     }
 
-    pub fn translated_user_writable_slice<T>(
+    pub async fn translated_user_writable_slice<T: UserType>(
         &self,
-        ptr: *mut T,
+        ptr: UserWritePtr<T>,
         len: usize,
     ) -> Result<UserDataMut<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
-        if ptr as usize % core::mem::size_of::<T>() != 0 {
+        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
             return Err(UniqueSysError);
         }
         let ubegin = UserAddr::try_from(ptr)?;
-        let uend = UserAddr::try_from(unsafe { ptr.offset(len as isize) as *mut u8 })?;
-        let user_access_status = &mut local::current_local().user_access_status;
-        let trace = UserAccessTrace::new(user_access_status);
+        let uend = UserAddr::try_from(ptr.offset(len as isize))?;
         let mut cur = ubegin.floor();
         let uend4k = uend.ceil();
+        let check_impl = UserCheckImpl::new();
         while cur != uend4k {
-            let cur_ptr = cur.into_usize() as *mut u8;
-            unsafe {
-                // if error occur will change status by exception
-                let v = cur_ptr.read_volatile();
-                cur_ptr.write_volatile(v);
-            }
-            local::current_local().user_access_status.access_check()?;
+            let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
+            check_impl.write_check::<u8>(cur_ptr).await?;
             cur.add_page_assign(PageCount::from_usize(1));
         }
-        drop(trace);
-        let slice = core::ptr::slice_from_raw_parts_mut(ptr, len);
+        let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
         Ok(UserDataMut::new(slice))
     }
 }

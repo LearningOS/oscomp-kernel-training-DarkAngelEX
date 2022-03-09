@@ -1,10 +1,15 @@
-use core::{cell::RefCell, future::Future};
+use core::{
+    cell::RefCell,
+    future::Future,
+    pin::Pin,
+    task::{Context, Poll, Waker},
+};
 
-use alloc::collections::VecDeque;
+use alloc::{boxed::Box, collections::VecDeque};
 use async_task::{Runnable, Task};
 use riscv::register::sstatus;
 
-use crate::{sync::mutex::SpinNoIrqLock, local};
+use crate::{local, sync::mutex::SpinNoIrqLock};
 
 pub struct TaskQueue {
     queue: SpinNoIrqLock<Option<VecDeque<Runnable>>>,
@@ -45,6 +50,27 @@ where
     async_task::spawn(future, |runnable| TASK_QUEUE.push(runnable))
 }
 
+struct BlockOnFuture<F: Future> {
+    future: Pin<Box<F>>,
+}
+impl<F: Future> BlockOnFuture<F> {
+    pub fn new(future: F) -> Self {
+        Self {
+            future: Box::pin(future),
+        }
+    }
+}
+impl<F: Future> Future for BlockOnFuture<F> {
+    type Output = F::Output;
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        loop {
+            let ans = self.future.as_mut().poll(cx);
+            if let Poll::Ready(ret) = ans {
+                break Poll::Ready(ret);
+            }
+        }
+    }
+}
 /// loop forever until future return Poll::Ready
 pub fn block_on<F>(future: F) -> F::Output
 where
@@ -55,10 +81,10 @@ where
     let queue = RefCell::new(None);
     let (r, _t) = unsafe {
         async_task::spawn_unchecked(
-            async {
+            BlockOnFuture::new(async {
                 let x = future.await;
                 ans = Some(x);
-            },
+            }),
             |r| {
                 queue.borrow_mut().replace(r).is_some().then(|| panic!());
             },
@@ -76,7 +102,7 @@ pub fn run_until_idle() {
         // println!("fetch task success");
         task.run();
         unsafe {
-            local::current_local().sstatus_zero_assert();
+            local::hart_local().sstatus_zero_assert();
             sstatus::set_sie();
             sstatus::clear_sie();
         }

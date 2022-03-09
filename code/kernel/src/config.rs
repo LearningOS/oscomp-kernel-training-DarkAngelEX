@@ -2,7 +2,7 @@
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE * 1; // 4096 * 2
-pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 4; // 4096 * 4
+pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 4
 
 /// ============================== KERNEL ==============================
 ///

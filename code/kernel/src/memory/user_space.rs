@@ -358,9 +358,8 @@ impl UserSpace {
         unsafe { &mut *self.page_table.get() }
     }
     pub unsafe fn using(&self) {
-        let page_table = &mut local::current_local().page_table;
-        assert!(page_table.is_some());
-        *page_table = Some(self.page_table.clone());
+        let page_table = &mut local::task_local().page_table;
+        *page_table = self.page_table.clone();
         self.page_table().using();
     }
     pub fn in_using(&self) -> bool {

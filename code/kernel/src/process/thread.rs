@@ -55,6 +55,11 @@ impl ThreadGroup {
     pub fn len(&self) -> usize {
         self.threads.len()
     }
+    pub fn get_first(&self) -> Option<Arc<Thread>> {
+        self.threads
+            .first_key_value()
+            .and_then(|(_tid, thread)| thread.upgrade())
+    }
 }
 
 // only run in local thread

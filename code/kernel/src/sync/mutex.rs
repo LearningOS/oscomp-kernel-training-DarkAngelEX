@@ -70,7 +70,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
-    fn obtain_lock(&self, place: &str) {
+    fn obtain_lock(&self, place: &'static str) {
         while self
             .lock
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -118,7 +118,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     /// }
     ///
     /// ```
-    pub fn lock(&self, place: &str) -> MutexGuard<T, S> {
+    pub fn lock(&self, place: &'static str) -> MutexGuard<T, S> {
         let support_guard = S::before_lock();
 
         self.ensure_support();

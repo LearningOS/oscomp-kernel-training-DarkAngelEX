@@ -69,3 +69,16 @@ pub fn size_to_mkb(size: usize) -> (usize, usize, usize) {
     let mask = 1 << 10;
     (size >> 20, (size >> 10) % mask, size % mask)
 }
+
+pub fn next_instruction_sepc(sepc: usize, ir: u8) -> usize {
+    if ir & 0b11 == 0b11 {
+        sepc + 4
+    } else {
+        sepc + 2 //  RVC extend: Compressed Instructions
+    }
+}
+
+pub fn next_sepc(sepc: usize) -> usize {
+    let ir = unsafe { *(sepc as *const u8) };
+    next_instruction_sepc(sepc, ir)
+}

@@ -1,7 +1,6 @@
 use core::{
     fmt,
     ops::{Deref, DerefMut},
-    pin::Pin,
 };
 
 use alloc::{string::FromUtf8Error, sync::Arc};
@@ -10,7 +9,7 @@ use crate::{
     process::{thread::Thread, AliveProcess, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
-    xdebug::{stack_trace::StackTrace, PRINT_SYSCALL_ALL},
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 mod fs;
@@ -52,7 +51,6 @@ pub struct Syscall<'a> {
     process: &'a Process,
     process_arc: &'a Arc<Process>,
     do_exit: bool,
-    stack_trace: Pin<&'a mut StackTrace>,
 }
 
 impl<'a> Syscall<'a> {
@@ -60,7 +58,6 @@ impl<'a> Syscall<'a> {
         cx: &'a mut UKContext,
         thread_arc: &'a Arc<Thread>,
         process_arc: &'a Arc<Process>,
-        stack_trace: Pin<&'a mut StackTrace>,
     ) -> Self {
         Self {
             cx,
@@ -69,20 +66,19 @@ impl<'a> Syscall<'a> {
             process: process_arc.as_ref(),
             process_arc,
             do_exit: false,
-            stack_trace,
         }
     }
     /// return do_exit
     #[inline(always)]
     pub async fn syscall(&mut self) -> bool {
-        stack_trace!(self.stack_trace.ptr_usize());
+        stack_trace!();
         memory_trace!("syscall entry");
         self.cx.into_next_instruction();
         let result: SysResult = match self.cx.a7() {
             SYSCALL_DUP => self.sys_dup(),
             SYSCALL_OPEN => self.sys_open().await,
             SYSCALL_CLOSE => self.sys_close(),
-            SYSCALL_PIPE => self.sys_pipe(),
+            SYSCALL_PIPE => self.sys_pipe().await,
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
             SYSCALL_EXIT => self.sys_exit(),
@@ -280,7 +276,14 @@ impl fmt::Display for SysError {
 }
 
 // zero-size SysError!
+#[derive(Debug)]
 pub struct UniqueSysError<const X: isize>;
+
+impl<const X: isize> From<()> for UniqueSysError<X> {
+    fn from(_: ()) -> Self {
+        UniqueSysError
+    }
+}
 
 impl<const X: isize> From<UniqueSysError<X>> for SysError {
     fn from(_: UniqueSysError<X>) -> Self {

@@ -49,6 +49,7 @@ pub struct EventBus {
 
 impl Drop for EventBus {
     fn drop(&mut self) {
+        stack_trace!();
         debug_check!(
             !self.should_suspend(),
             "impossible status in event_bus drop!"
@@ -65,6 +66,7 @@ impl EventBus {
         self.closed
     }
     pub fn close(&mut self) {
+        stack_trace!();
         // assert!(!self.closed, "event_bus double closed");
         assert!(!self.should_suspend(), "impossible status in close!");
         self.closed = true;

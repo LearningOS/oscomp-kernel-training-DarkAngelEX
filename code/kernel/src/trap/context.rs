@@ -50,7 +50,7 @@ impl<T> UsizeForward for *mut T {
     }
 }
 
-impl<T, P: Policy> UsizeForward for UserPtr<T, P> {
+impl<T: Clone + Copy + 'static, P: Policy> UsizeForward for UserPtr<T, P> {
     fn usize_forward(a: usize) -> Self {
         Self::from_usize(a)
     }

@@ -2,10 +2,11 @@ use alloc::string::String;
 
 use crate::{
     fs::{self, pipe},
+    memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::SysError,
     tools::allocator::from_usize_allocator::FromUsize,
-    user::check::{self, UserCheck},
+    user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
@@ -15,6 +16,7 @@ const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_
 
 impl<'a> Syscall<'a> {
     pub fn sys_dup(&mut self) -> SysResult {
+        stack_trace!();
         let fd: usize = self.cx.parameter1();
         let fd = Fd::from_usize(fd);
         let new = self
@@ -23,12 +25,15 @@ impl<'a> Syscall<'a> {
         Ok(new.into_usize())
     }
     pub async fn sys_read(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_read");
         }
         let (fd, write_only_buffer) = {
-            let (fd, buf, len): (usize, *mut u8, usize) = self.cx.parameter3();
-            let write_only_buffer = UserCheck::new().translated_user_writable_slice(buf, len)?;
+            let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.parameter3();
+            let write_only_buffer = UserCheck::new()
+                .translated_user_writable_slice(buf, len)
+                .await?;
             (fd, write_only_buffer)
         };
         let file = self
@@ -40,12 +45,15 @@ impl<'a> Syscall<'a> {
         file.read(write_only_buffer).await
     }
     pub async fn sys_write(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_write");
         }
         let (fd, read_only_buffer) = {
-            let (fd, buf, len): (usize, *const u8, usize) = self.cx.parameter3();
-            let read_only_buffer = UserCheck::new().translated_user_readonly_slice(buf, len)?;
+            let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.parameter3();
+            let read_only_buffer = UserCheck::new()
+                .translated_user_readonly_slice(buf, len)
+                .await?;
             (fd, read_only_buffer)
         };
         let file = self
@@ -54,16 +62,19 @@ impl<'a> Syscall<'a> {
         if !file.writable() {
             return Err(SysError::EPERM);
         }
-        file.write(read_only_buffer).await
+        let ret = file.write(read_only_buffer).await;
+        ret
     }
     pub async fn sys_open(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_open");
         }
         let (path, flags) = {
-            let (path, flags): (*const u8, u32) = self.cx.parameter2();
+            let (path, flags): (UserReadPtr<u8>, u32) = self.cx.parameter2();
             let path = UserCheck::new()
-                .translated_user_array_zero_end(path)?
+                .translated_user_array_zero_end(path)
+                .await?
                 .into_vec();
             (String::from_utf8(path)?, flags)
         };
@@ -73,6 +84,7 @@ impl<'a> Syscall<'a> {
         Ok(fd.into_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {
+        stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_close");
         }
@@ -84,9 +96,12 @@ impl<'a> Syscall<'a> {
         drop(file); // just for clarity
         Ok(0)
     }
-    pub fn sys_pipe(&mut self) -> SysResult {
-        let pipe: *mut usize = self.cx.parameter1();
-        let write_to = UserCheck::new().translated_user_writable_slice(pipe, 2)?;
+    pub async fn sys_pipe(&mut self) -> SysResult {
+        stack_trace!();
+        let pipe: UserWritePtr<usize> = self.cx.parameter1();
+        let write_to = UserCheck::new()
+            .translated_user_writable_slice(pipe, 2)
+            .await?;
         let (reader, writer) = pipe::make_pipe()?;
         let (rfd, wfd) = self.alive_then(move |a| {
             let rfd = a.fd_table.insert(reader).into_usize();

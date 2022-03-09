@@ -76,5 +76,6 @@ pub fn timer_push_task(ticks: TimeTicks, waker: Waker) {
 }
 
 pub fn check_timer() {
+    stack_trace!();
     SLEEP_QUEUE.lock(place!()).as_mut().unwrap().check_timer()
 }

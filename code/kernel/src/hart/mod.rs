@@ -11,7 +11,7 @@ use crate::{
     process, timer,
     tools::{container, self},
     trap,
-    xdebug::CLOSE_TIME_INTERRUPT,
+    xdebug::CLOSE_TIME_INTERRUPT, user,
 };
 
 pub mod cpu;
@@ -96,6 +96,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     trap::init();
     fs::init();
     process::init();
+    user::test();
     if !CLOSE_TIME_INTERRUPT {
         trap::enable_timer_interrupt();
         timer::set_next_trigger();
