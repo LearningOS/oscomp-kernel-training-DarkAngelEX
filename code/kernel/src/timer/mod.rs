@@ -1,7 +1,5 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use riscv::register::sepc;
-
 use crate::board::CLOCK_FREQ;
 use crate::hart::sbi;
 

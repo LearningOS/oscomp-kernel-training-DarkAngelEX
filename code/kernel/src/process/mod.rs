@@ -113,7 +113,7 @@ impl Process {
             exec_path: alive.exec_path.clone(),
             parent: Some(Arc::downgrade(self)),
             children: ChildrenSet::new(),
-            threads: ThreadGroup::new(),
+            threads: ThreadGroup::new(new_pid.get_usize() + 1),
             fd_table: alive.fd_table.clone(),
             signal_queue: LinkedList::new(),
         };
@@ -128,6 +128,10 @@ impl Process {
         success_check.assume_success();
         proc_table::insert_proc(&new_process);
         Ok(new_process)
+    }
+    pub fn create_thread(self: &Arc<Self>) -> Result<Arc<Thread>, SysError> {
+        self.alive_then(|a| a.threads.alloc())?;
+        Ok(Thread::from_process(self.clone(), tid, stack_id))
     }
 }
 

@@ -14,6 +14,7 @@ use crate::{
 
 mod fs;
 mod process;
+mod thread;
 mod time;
 
 const SYSCALL_DUP: usize = 24;
@@ -47,9 +48,9 @@ const SYSCALL_CONDVAR_WAIT: usize = 1032;
 pub struct Syscall<'a> {
     cx: &'a mut UKContext,
     thread: &'a Thread,
-    thread_arc: &'a Arc<Thread>,
+    // thread_arc: &'a Arc<Thread>,
     process: &'a Process,
-    process_arc: &'a Arc<Process>,
+    // process_arc: &'a Arc<Process>,
     do_exit: bool,
 }
 
@@ -62,9 +63,9 @@ impl<'a> Syscall<'a> {
         Self {
             cx,
             thread: thread_arc.as_ref(),
-            thread_arc,
+            // thread_arc,
             process: process_arc.as_ref(),
-            process_arc,
+            // process_arc,
             do_exit: false,
         }
     }
@@ -90,7 +91,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_FORK => self.sys_fork(),
             SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_WAITPID => self.sys_waitpid().await,
-            SYSCALL_THREAD_CREATE => todo!(),
+            SYSCALL_THREAD_CREATE => self.sys_thread_create(),
             SYSCALL_GETTID => todo!(),
             SYSCALL_WAITTID => todo!(),
             SYSCALL_MUTEX_CREATE => todo!(),

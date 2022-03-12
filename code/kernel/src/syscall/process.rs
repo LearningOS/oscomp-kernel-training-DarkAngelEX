@@ -238,7 +238,6 @@ impl Syscall<'_> {
         match target {
             Target::Pid(pid) => {
                 let proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
-
                 todo!();
             }
             Target::AllInGroup => todo!(),

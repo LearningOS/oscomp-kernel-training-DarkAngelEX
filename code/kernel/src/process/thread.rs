@@ -17,7 +17,10 @@ use riscv::register::sstatus;
 use crate::{
     memory::{address::PageCount, allocator::frame::FrameAllocator, StackID, UserSpace},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
-    tools::{allocator::from_usize_allocator::FromUsize, error::FrameOutOfMemory},
+    tools::{
+        allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
+        error::FrameOutOfMemory,
+    },
     trap::context::UKContext,
 };
 
@@ -27,12 +30,14 @@ use super::{
 
 pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
+    tid_allocator: NeverCloneUsizeAllocator,
 }
 
 impl ThreadGroup {
-    pub fn new() -> Self {
+    pub fn new(start: usize) -> Self {
         Self {
             threads: BTreeMap::new(),
+            tid_allocator: NeverCloneUsizeAllocator::new(start),
         }
     }
     pub fn iter(&self) -> impl Iterator<Item = Arc<Thread>> + '_ {
@@ -60,6 +65,13 @@ impl ThreadGroup {
         self.threads
             .first_key_value()
             .and_then(|(_tid, thread)| thread.upgrade())
+    }
+    pub fn alloc_tid(&mut self) -> Tid {
+        let x = self.tid_allocator.alloc();
+        Tid::from_usize(x)
+    }
+    pub unsafe fn dealloc_tid(&mut self, tid: Tid) {
+        self.tid_allocator.dealloc(tid.into_usize())
     }
 }
 
@@ -97,7 +109,7 @@ impl Thread {
                 exec_path: String::new(),
                 parent: None,
                 children: ChildrenSet::new(),
-                threads: ThreadGroup::new(),
+                threads: ThreadGroup::new(tid.into_usize() + 1),
                 fd_table: FdTable::new(),
                 signal_queue: LinkedList::new(),
             })),
@@ -126,6 +138,16 @@ impl Thread {
         proc_table::insert_proc(&process);
         unsafe { proc_table::set_initproc(process) };
         ptr
+    }
+    pub fn from_process(process: Arc<Process>, tid: Tid, stack_id: StackID) -> Self {
+        Self {
+            tid,
+            process,
+            inner: UnsafeCell::new(ThreadInner {
+                stack_id,
+                uk_context: unsafe { UKContext::any() },
+            }),
+        }
     }
     pub fn inner(&self) -> &mut ThreadInner {
         unsafe { &mut *self.inner.get() }

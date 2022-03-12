@@ -4,12 +4,11 @@ use core::{
     ptr,
 };
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 use riscv::register::scause::Exception;
 
 use crate::{
     executor, local,
-    local::task_local::TaskLocal,
     memory::{
         address::{OutOfUserRange, UserAddr},
         allocator::frame::global::FrameTracker,
