@@ -23,7 +23,7 @@ impl PowerfulList {
     pub fn pop(&mut self) -> Option<NonNull<usize>> {
         self.list.pop()
     }
-    pub fn maybe_merge(
+    pub fn maybe_collection(
         &mut self,
         mut src: IntrusiveLinkedList,
         align: usize,
@@ -33,21 +33,11 @@ impl PowerfulList {
         if stop || self.list.len() < self.collection_size {
             return None;
         }
-        let mask = 1 << align;
-        self.list.sort();
-        let mut node_iter = self.list.node_iter();
-        let mut list = IntrusiveLinkedList::new();
-        while let Some((a, b)) = node_iter.current_and_next() {
-            if (a.as_ptr() as usize ^ b.as_ptr() as usize) == mask {
-                unsafe { list.push(node_iter.remove_current_and_next()) };
-                continue;
-            }
-            if node_iter.next().is_err() {
-                break;
-            }
-        }
-        self.list.size_reset(self.list.len() - list.len() * 2);
+        let list = self.list.collection(align);
         self.collection_size = self.list.len() * 2;
+        if list.is_empty() {
+            return None;
+        }
         Some(list)
     }
 }

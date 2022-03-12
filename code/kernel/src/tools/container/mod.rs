@@ -15,30 +15,7 @@ pub trait Stack<T> {
 }
 
 pub fn test() {
-    let mut a = never_clone_linked_list::NeverCloneLinkedList::new();
-    a.push(1);
-    a.push(2);
-    a.push(3);
-    a.push(4);
-    a.push(5);
-    a.retain(|a|*a != 5);
-    while let Some(x) = a.pop() {
-        print!("{} ", x);
-    }
-    println!("container test end");
-    let mut queue = LockFreeQueue::new();
-    queue.init();
-    queue.push(1).unwrap();
-    queue.push(2).unwrap();
-    queue.push(3).unwrap();
-    queue.push(4).unwrap();
-    queue.push(5).unwrap();
-    assert_eq!(queue.pop().unwrap().unwrap(), 1);
-    assert_eq!(queue.pop().unwrap().unwrap(), 2);
-    assert_eq!(queue.pop().unwrap().unwrap(), 3);
-    assert_eq!(queue.pop().unwrap().unwrap(), 4);
-    assert_eq!(queue.pop().unwrap().unwrap(), 5);
-    assert_eq!(queue.pop().unwrap(), None);
+    intrusive_linked_list::test::test();
 }
 
 pub fn multi_thread_test(hart: usize) {

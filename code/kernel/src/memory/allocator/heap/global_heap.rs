@@ -94,7 +94,7 @@ impl GlobalHeap {
             while current_class < self.free_list.len() {
                 let stop = current_class + 1 != self.free_list.len();
                 temp_list =
-                    match self.free_list[current_class].maybe_merge(temp_list, current_class, stop)
+                    match self.free_list[current_class].maybe_collection(temp_list, current_class, stop)
                     {
                         Some(list) => list,
                         None => break,
