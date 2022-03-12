@@ -62,7 +62,6 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
         }
     }
     pub fn transmute<V: Clone + Copy + 'static>(self) -> UserPtr<V, P> {
-        let a: *mut u8 = 0 as *mut _;
         UserPtr {
             ptr: self.ptr as *mut V,
             _mark: PhantomData,

@@ -1,10 +1,7 @@
 use alloc::sync::Arc;
-use riscv::register::sstatus;
 
 use crate::{
-    memory::{self, PageTable},
-    process::thread::Thread,
-    tools::container::sync_unsafe_cell::SyncUnsafeCell,
+    memory::PageTable, process::thread::Thread, tools::container::sync_unsafe_cell::SyncUnsafeCell,
 };
 
 use super::always_local::AlwaysLocal;

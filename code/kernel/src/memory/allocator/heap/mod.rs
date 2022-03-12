@@ -3,28 +3,52 @@ use core::{
     ptr::NonNull,
 };
 
+use self::gc_heap::DelayGCHeap;
 use crate::{
     config::{KERNEL_HEAP_SIZE, KERNEL_OFFSET_FROM_DIRECT_MAP},
+    local,
     sync::mutex::SpinNoIrqLock,
-    xdebug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
+    tools::container::intrusive_linked_list::IntrusiveLinkedList,
+    xdebug::{CLOSE_HEAP_DEALLOC, CLOSE_LOCAL_HEAP, HEAP_DEALLOC_OVERWRITE},
 };
-use buddy_system_allocator::Heap;
 
-mod global_heap;
-mod local_heap;
-mod powerful_list;
+mod delay_gc_list;
+mod gc_heap;
+pub mod local_heap;
 
 struct GlobalHeap {
-    heap: SpinNoIrqLock<Heap<32>>,
+    heap: SpinNoIrqLock<DelayGCHeap>,
 }
 
 unsafe impl GlobalAlloc for GlobalHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
-        self.alloc(layout).unwrap().as_ptr()
+        let ret = if !CLOSE_LOCAL_HEAP {
+            local::hart_local()
+                .local_heap
+                .alloc(layout)
+                .unwrap()
+                .as_ptr()
+        } else {
+            self.alloc(layout).unwrap().as_ptr()
+        };
+        ret
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
-        self.dealloc(NonNull::new(ptr).unwrap(), layout)
+        if HEAP_DEALLOC_OVERWRITE {
+            let arr = core::slice::from_raw_parts_mut(ptr, layout.size());
+            arr.fill(0xf0);
+        }
+        if CLOSE_HEAP_DEALLOC {
+            return;
+        }
+        if !CLOSE_LOCAL_HEAP {
+            local::hart_local()
+                .local_heap
+                .dealloc(NonNull::new(ptr).unwrap(), layout);
+        } else {
+            self.dealloc(NonNull::new(ptr).unwrap(), layout)
+        }
     }
 }
 
@@ -33,21 +57,20 @@ impl GlobalHeap {
         self.heap.lock(place!()).alloc(layout)
     }
     pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
-        if HEAP_DEALLOC_OVERWRITE {
-            let arr = unsafe { core::slice::from_raw_parts_mut(ptr.as_ptr(), layout.size()) };
-            arr.fill(0xf0);
-        }
-        if CLOSE_HEAP_DEALLOC {
-            return;
-        }
         self.heap.lock(place!()).dealloc(ptr, layout)
+    }
+    pub fn alloc_list(&self, layout: Layout, n: usize) -> Result<IntrusiveLinkedList, ()> {
+        self.heap.lock(place!()).alloc_list(layout, n)
+    }
+    pub fn dealloc_list(&self, list: IntrusiveLinkedList, layout: Layout) {
+        self.heap.lock(place!()).dealloc_list(list, layout)
     }
 }
 
 impl GlobalHeap {
     pub const fn empty() -> Self {
         Self {
-            heap: SpinNoIrqLock::new(Heap::empty()),
+            heap: SpinNoIrqLock::new(DelayGCHeap::empty()),
         }
     }
 }
@@ -76,6 +99,24 @@ pub fn global_heap_alloc(layout: Layout) -> Result<NonNull<u8>, ()> {
     HEAP_ALLOCATOR.alloc(layout)
 }
 
+pub fn global_heap_alloc_list(layout: Layout, n: usize) -> Result<IntrusiveLinkedList, ()> {
+    HEAP_ALLOCATOR.alloc_list(layout, n)
+}
+
 pub fn global_heap_dealloc(ptr: NonNull<u8>, layout: Layout) {
     HEAP_ALLOCATOR.dealloc(ptr, layout)
+}
+
+pub fn global_heap_dealloc_list(list: IntrusiveLinkedList, layout: Layout) {
+    HEAP_ALLOCATOR.dealloc_list(list, layout)
+}
+
+// return (size, align_log2)
+fn layout_info(layout: Layout) -> (usize, usize) {
+    let size = layout
+        .size()
+        .next_power_of_two()
+        .max(layout.align())
+        .max(core::mem::size_of::<usize>());
+    (size, size.trailing_zeros() as usize)
 }

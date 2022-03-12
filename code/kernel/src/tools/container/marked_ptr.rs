@@ -51,6 +51,16 @@ impl<T> MarkedPtr<T> {
         };
         Self(value, PhantomData)
     }
+    pub fn new_invalid() -> Self {
+        Self(usize::MAX, PhantomData)
+    }
+    pub fn valid(self) -> Result<(), ()> {
+        if self != Self::new_invalid() {
+            Ok(())
+        } else {
+            Err(())
+        }
+    }
     pub fn null(id: PtrID) -> Self {
         Self::new(id, None)
     }
@@ -79,6 +89,9 @@ impl<T> MarkedPtr<T> {
 impl<T> AtomicMarkedPtr<T> {
     pub const fn null() -> Self {
         Self(AtomicUsize::new(0), PhantomData)
+    }
+    pub const fn invalid() -> Self {
+        Self(AtomicUsize::new(usize::MAX), PhantomData)
     }
     pub fn new(ptr: MarkedPtr<T>) -> Self {
         Self(AtomicUsize::new(ptr.0), PhantomData)

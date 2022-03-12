@@ -6,6 +6,7 @@ use crate::{
     hart::{self, cpu, sfence},
     memory::{
         self,
+        allocator::LocalHeap,
         asid::{Asid, AsidVersion},
     },
     sync::mutex::SpinNoIrqLock as Mutex,
@@ -17,8 +18,10 @@ pub mod always_local;
 pub mod task_local;
 
 const HART_LOCAL_EACH: HartLocal = HartLocal::new();
-
 static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
+
+const ALWAYS_LOCAL_EACH: AlwaysLocal = AlwaysLocal::new();
+static mut ALWAYS_LOCAL: [AlwaysLocal; 16] = [ALWAYS_LOCAL_EACH; 16];
 
 /// any hart can only access each unit so didn't need mutex.
 ///
@@ -30,6 +33,7 @@ pub struct HartLocal {
     kstack_bottom: usize,
     asid_version: AsidVersion,
     pub in_exception: bool, // forbid exception nest
+    pub local_heap: LocalHeap,
 }
 
 pub enum LocalNow {
@@ -63,6 +67,7 @@ impl HartLocal {
             kstack_bottom: 0,
             asid_version: AsidVersion::first_asid_version(),
             in_exception: false,
+            local_heap: LocalHeap::new(),
         }
     }
     /// must init after init memory.
@@ -72,7 +77,12 @@ impl HartLocal {
             LocalNow::Task(_task) => panic!(),
         };
         assert!(idle.is_none());
-        *idle = Some(Box::new(AlwaysLocal::new()));
+        // *idle = Some(Box::new(AlwaysLocal::new()));
+        // ALWAYS_LOCAL 没有和分配器对齐! 此部分禁止释放到全局分配器
+        let hart = cpu::hart_id();
+        unsafe {
+            *idle = Some(Box::from_raw(&mut ALWAYS_LOCAL[hart]));
+        }
     }
     fn register(&self, f: impl FnOnce() + 'static) {
         self.pending.lock(place!()).push(Box::new(f))

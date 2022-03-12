@@ -2,14 +2,13 @@ use core::{
     cell::RefCell,
     future::Future,
     pin::Pin,
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 use alloc::{boxed::Box, collections::VecDeque};
 use async_task::{Runnable, Task};
-use riscv::register::sstatus;
 
-use crate::{local, sync::mutex::SpinNoIrqLock};
+use crate::sync::mutex::SpinNoIrqLock;
 
 pub struct TaskQueue {
     queue: SpinNoIrqLock<Option<VecDeque<Runnable>>>,

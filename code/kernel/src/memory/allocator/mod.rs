@@ -1,12 +1,14 @@
-pub mod frame;
-mod heap;
-
 use core::alloc::Layout;
 
 use crate::{
     config::PAGE_SIZE,
     tools::{error::HeapOutOfMemory, FailRun},
 };
+
+pub mod frame;
+mod heap;
+
+pub use heap::local_heap::LocalHeap;
 
 pub fn heap_space_enough() -> Result<(), HeapOutOfMemory> {
     let layout = Layout::from_size_align(PAGE_SIZE * 4, PAGE_SIZE * 4).unwrap();

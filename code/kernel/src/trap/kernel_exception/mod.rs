@@ -33,9 +33,9 @@ pub fn kernel_default_exception() {
             println!("breakpoint of sepc: {:#x}", sepc);
             sepc = tools::next_sepc(sepc);
         },
-        scause::Exception::LoadFault => todo!(),
-        scause::Exception::StoreMisaligned => todo!(),
-        scause::Exception::StoreFault => todo!(),
+        scause::Exception::LoadFault => fatal_exception_error(),
+        scause::Exception::StoreMisaligned => fatal_exception_error(),
+        scause::Exception::StoreFault => fatal_exception_error(),
         scause::Exception::UserEnvCall => todo!(),
         scause::Exception::VirtualSupervisorEnvCall => todo!(),
         scause::Exception::InstructionPageFault => fatal_exception_error(),

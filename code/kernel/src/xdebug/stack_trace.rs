@@ -67,7 +67,7 @@ pub struct StackTrace {
 }
 
 impl StackTrace {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self { stack: Vec::new() }
     }
     pub fn clear(&mut self) {

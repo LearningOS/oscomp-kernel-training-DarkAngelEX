@@ -10,7 +10,7 @@ pub struct AlwaysLocal {
 }
 
 impl AlwaysLocal {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             sie_count: 0,
             sum_count: 0,

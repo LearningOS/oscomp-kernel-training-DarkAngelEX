@@ -6,9 +6,13 @@ pub struct IntrusiveLinkedList {
     tail: *mut usize, // used in O(1) append. if is invalid when head is none.
     size: usize,
 }
+
+unsafe impl Send for IntrusiveLinkedList {}
+
 impl Drop for IntrusiveLinkedList {
     fn drop(&mut self) {
-        // 强制析构前释放全部数据
+        // 防止内存泄露
+        // 不能回收 因为这个链表就是用来写内存分配器的
         debug_check!(self.head.is_none());
     }
 }
@@ -28,8 +32,37 @@ impl IntrusiveLinkedList {
     pub fn is_empty(&self) -> bool {
         self.head.is_none()
     }
+    pub fn from_range(begin: usize, end: usize, align_log2: usize) -> Self {
+        let size = 1 << align_log2;
+        let mut list = Self::new();
+        let mut cur = end;
+        while cur != begin {
+            let next = cur - size;
+            unsafe { list.push(NonNull::new_unchecked(next as *mut _)) };
+            cur = next;
+        }
+        list
+    }
+    pub fn empty_forward(self) -> Option<Self> {
+        if self.is_empty() {
+            return None;
+        }
+        Some(self)
+    }
     pub fn len(&self) -> usize {
         self.size
+    }
+    pub fn size_check(&self) -> Option<usize> {
+        let mut x = self.head;
+        let mut cnt = self.size;
+        while cnt > 0 {
+            x = unsafe { *x?.cast().as_ptr() };
+            cnt -= 1;
+        }
+        if x.is_some() {
+            return None
+        }
+        Some(self.size)
     }
     pub fn size_reset(&mut self, new_size: usize) {
         self.size = new_size;
@@ -67,6 +100,17 @@ impl IntrusiveLinkedList {
                 src.size = 0;
             }
         }
+    }
+    pub fn take(&mut self, n: usize) -> Self {
+        let mut new_list = Self::new();
+        for _i in 0..n {
+            if let Some(ptr) = self.pop() {
+                unsafe { new_list.push(ptr) };
+            } else {
+                break;
+            }
+        }
+        new_list
     }
     pub fn for_each(&self, mut f: impl FnMut(NonNull<usize>)) {
         let mut cur = self.head;
@@ -182,8 +226,8 @@ impl IntrusiveLinkedList {
     }
 
     /// returned list will be sorted by large-first.
-    pub fn collection(&mut self, align: usize) -> IntrusiveLinkedList {
-        let mask = 1 << align;
+    pub fn collection(&mut self, align_log2: usize) -> IntrusiveLinkedList {
+        let mask = 1 << align_log2;
         let mut list = IntrusiveLinkedList::new();
         self.sort();
         let mut node_iter = self.node_iter();

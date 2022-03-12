@@ -1,6 +1,6 @@
 /// 逻辑参考自 https://coolshell.cn/articles/8239.html
 ///
-/// 本队列的优势除了无锁, 更重要的是使用时不需要关中断。
+/// 无锁队列的优势除了无锁, 更重要的是使用时不需要关中断。
 use core::{
     mem::MaybeUninit,
     ptr::NonNull,
@@ -9,7 +9,10 @@ use core::{
 
 use alloc::boxed::Box;
 
-use super::marked_ptr::{AtomicMarkedPtr, MarkedPtr, PtrID};
+use super::{
+    marked_ptr::{AtomicMarkedPtr, MarkedPtr, PtrID},
+    thread_local_linked_list::ThreadLocalLinkedList,
+};
 
 // 无锁单向链表
 pub struct LockFreeQueue<T> {
@@ -22,17 +25,9 @@ unsafe impl<T: Send> Send for LockFreeQueue<T> {}
 unsafe impl<T> Sync for LockFreeQueue<T> {}
 
 ///
-pub struct ThreadLocalLinkedList<T> {
-    head: MarkedPtr<ThreadLocalNode<T>>,
-}
 
 struct LockFreeNode<T> {
     next: AtomicMarkedPtr<Self>,
-    value: MaybeUninit<T>,
-}
-
-struct ThreadLocalNode<T> {
-    next: MarkedPtr<Self>,
     value: MaybeUninit<T>,
 }
 
@@ -145,7 +140,7 @@ impl<T> LockFreeQueue<T> {
 
         let next = head.get_mut().unwrap().next.get().cast();
         unsafe { Box::from_raw(head.get_ptr().unwrap().as_ptr()) };
-        Ok(ThreadLocalLinkedList { head: next })
+        Ok(ThreadLocalLinkedList::ptr_new(next))
     }
     pub fn close(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
         stack_trace!();
@@ -175,7 +170,15 @@ impl<T> LockFreeQueue<T> {
         }
         let next = head.get_mut().unwrap().next.get().cast();
         unsafe { Box::from_raw(head.get_ptr().unwrap().as_ptr()) };
-        Ok(ThreadLocalLinkedList { head: next })
+        Ok(ThreadLocalLinkedList::ptr_new(next))
+    }
+    pub fn vaild_check<X>(ptr: MarkedPtr<X>) -> Result<(), ()> {
+        let v: usize = unsafe { core::mem::transmute(ptr) };
+        if v as u32 != 0xf0f0f0f0 {
+            Ok(())
+        } else {
+            Err(())
+        }
     }
     pub fn push(&self, value: T) -> Result<(), ()> {
         stack_trace!();
@@ -215,8 +218,8 @@ impl<T> LockFreeQueue<T> {
                     let _ = self.tail.compare_exchange(tail, new_tail);
                     return Ok(());
                 }
-                Err(cur_tail) => {
-                    tail = cur_tail;
+                Err(_) => {
+                    tail = self.tail.get();
                     core::hint::spin_loop();
                     continue;
                 }
@@ -284,7 +287,7 @@ pub mod test {
         vec::Vec,
     };
 
-    use crate::{sync::mutex::SpinLock, timer, tools};
+    use crate::{sync::mutex::SpinNoIrqLock, timer, tools::{self, container::lock_free_stack::LockFreeStack}};
 
     use super::LockFreeQueue;
 
@@ -321,12 +324,12 @@ pub mod test {
             };
             unsafe {
                 SET_TABLE[hart].clear();
-                for _i in 0..n {
+                for i in 0..n {
                     let mut retry = 0;
                     loop {
                         retry += 1;
-                        if retry > 10000 {
-                            panic!();
+                        if retry > 10000000 {
+                            panic!("{}", i);
                         }
                         if let Some(v) = pop() {
                             SET_TABLE[hart].push(v);
@@ -385,13 +388,14 @@ pub mod test {
     ) {
         if hart == 0 {
             println!(
-                "{}lock free queue test producer: {} consumer: {} total: {}",
+                "{}test producer: {} consumer: {} total: {}",
                 tools::n_space(off),
                 producer,
                 consumer,
                 total
             );
         }
+        stack_trace!();
         tools::wait_all_hart();
         test_push_pop_impl(hart, producer, consumer, total, push, pop, off + 4);
         tools::wait_all_hart();
@@ -402,27 +406,34 @@ pub mod test {
         }
     }
 
+    type Mutex<T> = SpinNoIrqLock<T>;
+    // type Mutex<T> = SpinLock<T>;
     static TEST_QUEUE_0: LockFreeQueue<usize> = LockFreeQueue::new();
-    static TEST_QUEUE_1: SpinLock<LinkedList<usize>> = SpinLock::new(LinkedList::new());
-    static TEST_QUEUE_2: SpinLock<core::lazy::Lazy<VecDeque<usize>>> =
-        SpinLock::new(core::lazy::Lazy::new(|| VecDeque::new()));
+    static TEST_QUEUE_1: Mutex<LinkedList<usize>> = Mutex::new(LinkedList::new());
+    static TEST_QUEUE_2: Mutex<core::lazy::Lazy<VecDeque<usize>>> =
+    Mutex::new(core::lazy::Lazy::new(|| VecDeque::new()));
+    static TEST_QUEUE_3: LockFreeStack<usize> = LockFreeStack::new();
     static mut SET_TABLE: [Vec<usize>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
     pub fn multi_thread_test(hart: usize, off: usize) {
         stack_trace!();
         if hart == 0 {
             println!(
-                "{}lock lock_free queue multi_thread_test begin",
+                "{}lock_free queue multi_thread_test begin",
                 tools::n_space(off)
             );
             unsafe { TEST_QUEUE_0.init_uncheck() };
         }
+        const TOTAL: usize = 100000;
         tools::wait_all_hart();
-        let push = |a| TEST_QUEUE_0.push(a).unwrap();
+        let push = |a| {
+            TEST_QUEUE_0.push(a).unwrap();
+        };
         let pop = || TEST_QUEUE_0.pop().unwrap();
-        test_impl(hart, 1, 3, 10000, push, pop, off + 4);
-        test_impl(hart, 2, 2, 10000, push, pop, off + 4);
-        test_impl(hart, 3, 1, 10000, push, pop, off + 4);
+        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
         tools::wait_all_hart();
         if hart == 0 {
             println!(
@@ -432,9 +443,10 @@ pub mod test {
         }
         let push = |a| TEST_QUEUE_1.lock(place!()).push_back(a);
         let pop = || TEST_QUEUE_1.lock(place!()).pop_front();
-        test_impl(hart, 1, 3, 10000, push, pop, off + 4);
-        test_impl(hart, 2, 2, 10000, push, pop, off + 4);
-        test_impl(hart, 3, 1, 10000, push, pop, off + 4);
+        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
         if hart == 0 {
             println!(
                 "{}locked VecDeque multi_thread_test begin",
@@ -449,13 +461,31 @@ pub mod test {
             let v = &**TEST_QUEUE_2.lock(place!());
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.pop_front()
         };
-        test_impl(hart, 1, 3, 10000, push, pop, off + 4);
-        test_impl(hart, 2, 2, 10000, push, pop, off + 4);
-        test_impl(hart, 3, 1, 10000, push, pop, off + 4);
+        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
         tools::wait_all_hart();
         if hart == 0 {
             println!(
-                "{}lock free queue multi_thread_test pass",
+                "{}lock_free stack multi_thread_test begin",
+                tools::n_space(off)
+            );
+        }
+        let push = |a| {
+            TEST_QUEUE_3.push(a).unwrap()
+        };
+        let pop = || {
+            TEST_QUEUE_3.pop().unwrap()
+        };
+        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        tools::wait_all_hart();
+        if hart == 0 {
+            println!(
+                "{}lock free stack multi_thread_test pass",
                 tools::n_space(off)
             );
         }

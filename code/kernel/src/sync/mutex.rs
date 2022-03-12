@@ -8,10 +8,7 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
-use crate::{
-    hart::{cpu::hart_id, interrupt},
-    user::AutoSie,
-};
+use crate::hart::{cpu::hart_id, interrupt};
 
 pub type SpinLock<T> = Mutex<T, Spin>;
 pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;

@@ -197,9 +197,6 @@ impl StackSpaceManager {
             using_stacks: BTreeMap::new(),
         }
     }
-    pub fn using_size(&self) -> usize {
-        self.using_stacks.len()
-    }
     pub fn alloc(
         &mut self,
         stack_reverse: PageCount,
@@ -499,9 +496,6 @@ impl UserSpace {
         while let Some(stack_id) = self.stacks.get_any_id() {
             self.stack_dealloc(stack_id, allocator);
         }
-    }
-    pub fn using_size(&self) -> usize {
-        self.stacks.using_size()
     }
     /// return (user_sp, argc, argv)
     pub fn push_args(&self, args: Vec<String>, sp: UserAddr) -> (UserAddr, usize, usize) {
