@@ -34,7 +34,7 @@ impl UserCheckImpl {
         Self
     }
     fn status() -> &'static mut UserAccessStatus {
-        &mut local::task_local().user_access_status
+        &mut local::always_local().user_access_status
     }
     pub async fn read_check<T: UserType>(
         &self,

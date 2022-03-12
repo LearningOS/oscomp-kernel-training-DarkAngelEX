@@ -1,4 +1,4 @@
-const OUTPUT_LOCK: bool = false;
+const OUTPUT_LOCK: bool = true;
 
 use crate::{hart::sbi, place};
 

@@ -12,12 +12,11 @@ use riscv::register::{
 
 use crate::{
     executor,
-    local::{self, task_local::TaskLocal},
+    local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
     process::thread,
     syscall::Syscall,
     timer,
-    user::{AutoSie, UserAccessStatus},
-    xdebug::stack_trace::StackTrace,
+    user::AutoSie,
 };
 
 use super::thread::Thread;
@@ -122,7 +121,7 @@ pub fn spawn(thread: Arc<Thread>) {
 
 struct OutermostFuture<F: Future + Send + 'static> {
     future: Pin<Box<F>>,
-    task: Option<Box<TaskLocal>>,
+    local_switch: LocalNow,
 }
 impl<F: Future + Send + 'static> OutermostFuture<F> {
     pub fn new(thread: Arc<Thread>, future: F) -> Self {
@@ -130,17 +129,14 @@ impl<F: Future + Send + 'static> OutermostFuture<F> {
             .process
             .alive_then(|a| a.user_space.page_table_arc())
             .unwrap();
-        let task = Box::new(TaskLocal {
+        let local_switch = LocalNow::Task(Box::new(TaskLocal {
+            always_local: AlwaysLocal::new(),
             thread,
             page_table,
-            sie_count: 0,
-            sum_count: 0,
-            user_access_status: UserAccessStatus::Forbid,
-            stack_trace: StackTrace::new(),
-        });
+        }));
         Self {
             future: Box::pin(future),
-            task: Some(task),
+            local_switch,
         }
     }
 }
@@ -150,11 +146,9 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
-        local.set_task(self.task.take().unwrap());
-
+        local.into_task_switch(&mut self.local_switch);
         let ret = self.future.as_mut().poll(cx);
-
-        self.task = Some(local.take_task());
+        local.leave_task_switch(&mut self.local_switch);
         ret
     }
 }

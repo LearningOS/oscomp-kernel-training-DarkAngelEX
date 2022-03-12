@@ -1,4 +1,4 @@
-    .section .text.trampoline
+    .section .text
     .global __entry_user
     .global __return_from_user
     .global __kernel_default_exception_entry

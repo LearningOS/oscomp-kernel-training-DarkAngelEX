@@ -21,7 +21,7 @@ unsafe impl Sync for UserCheck {}
 
 impl UserCheck {
     pub fn new() -> Self {
-        assert!(local::task_local().user_access_status.is_forbid());
+        assert!(local::always_local().user_access_status.is_forbid());
         Self(AutoSum::new())
     }
     pub async fn translated_user_array_zero_end<T>(

@@ -6,6 +6,7 @@ use crate::{
 use core::panic::PanicInfo;
 
 #[panic_handler]
+#[inline(never)]
 fn panic(info: &PanicInfo) -> ! {
     if let Some(location) = info.location() {
         println!(
@@ -24,15 +25,7 @@ fn panic(info: &PanicInfo) -> ! {
     trace::using_stack_size_print();
     println!("current hart {}", cpu::hart_id());
     if stack_trace::STACK_TRACE {
-        match local::hart_local().try_task() {
-            None => {
-                println!("stack trace: empty");
-            }
-            Some(task) => {
-                println!("stack_trace:");
-                task.stack_trace.print_all_stack()
-            }
-        }
+        local::always_local().stack_trace.print_all_stack();
     }
     println!("shutdown!!");
     // loop {}

@@ -23,10 +23,8 @@ impl StackTracker {
     #[inline(always)]
     pub fn new(msg: &'static str, file: &'static str, line: u32) -> Self {
         if STACK_TRACE {
-            if let Some(local) = local::hart_local().try_task() {
-                let info = StackInfo::new(msg, file, line);
-                local.stack_trace.push(info);
-            }
+            let info = StackInfo::new(msg, file, line);
+            local::always_local().stack_trace.push(info);
         }
         Self
     }
@@ -36,9 +34,7 @@ impl Drop for StackTracker {
     #[inline(always)]
     fn drop(&mut self) {
         if STACK_TRACE {
-            if let Some(local) = local::hart_local().try_task() {
-                local.stack_trace.pop();
-            }
+            local::always_local().stack_trace.pop();
         }
     }
 }

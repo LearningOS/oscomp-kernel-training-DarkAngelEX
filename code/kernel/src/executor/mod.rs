@@ -101,10 +101,5 @@ pub fn run_until_idle() {
     while let Some(task) = TASK_QUEUE.fetch() {
         // println!("fetch task success");
         task.run();
-        unsafe {
-            local::hart_local().sstatus_zero_assert();
-            sstatus::set_sie();
-            sstatus::clear_sie();
-        }
     }
 }

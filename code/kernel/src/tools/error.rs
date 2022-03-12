@@ -25,6 +25,11 @@ impl OutOfMemory for FrameOutOfMemory {}
 
 #[derive(Debug)]
 pub struct HeapOutOfMemory;
+impl From<()> for HeapOutOfMemory {
+    fn from(_: ()) -> Self {
+        Self
+    }
+}
 
 impl Error for HeapOutOfMemory {}
 impl OutOfMemory for HeapOutOfMemory {}

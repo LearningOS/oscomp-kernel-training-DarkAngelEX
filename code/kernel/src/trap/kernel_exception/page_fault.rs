@@ -9,7 +9,7 @@ use crate::{
 pub fn page_fault_handle(e: Exception, stval: usize, mut sepc: usize) -> usize {
     let mut error = true;
     stack_trace!();
-    let local = local::task_local();
+    let local = local::always_local();
 
     if local.sum_cur() != 0 {
         assert!(local.user_access_status.not_forbid());

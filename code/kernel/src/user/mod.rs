@@ -258,15 +258,16 @@ unsafe impl Send for AutoSie {}
 unsafe impl Sync for AutoSie {}
 
 impl AutoSie {
+    #[inline(always)]
     pub fn new() -> Self {
-        local::task_local().sie_inc();
+        local::always_local().sie_inc();
         Self
     }
 }
 
 impl Drop for AutoSie {
     fn drop(&mut self) {
-        local::task_local().sie_dec();
+        local::always_local().sie_dec();
     }
 }
 
@@ -278,14 +279,14 @@ unsafe impl Sync for AutoSum {}
 
 impl AutoSum {
     pub fn new() -> Self {
-        local::task_local().sum_inc();
+        local::always_local().sum_inc();
         Self
     }
 }
 
 impl Drop for AutoSum {
     fn drop(&mut self) {
-        let local = local::task_local();
+        let local = local::always_local();
         assert!(local.user_access_status.is_access());
         local.sum_dec();
     }
@@ -323,9 +324,6 @@ pub fn test() {
         check.write_check::<u8>(un_data.into()).await.unwrap_err();
         println!("[FTL OS]user_check test pass");
     };
-    local::hart_local().set_task(Box::new(TaskLocal::by_initproc()));
     let auto_sie = AutoSum::new();
     executor::block_on(func);
-    drop(auto_sie);
-    local::hart_local().take_task();
 }

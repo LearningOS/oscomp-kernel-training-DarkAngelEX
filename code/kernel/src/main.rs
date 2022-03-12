@@ -33,7 +33,6 @@ extern crate async_task;
 #[macro_use]
 extern crate bitflags;
 extern crate riscv;
-#[macro_use]
 extern crate lazy_static;
 extern crate easy_fs;
 extern crate xmas_elf;
@@ -57,6 +56,7 @@ mod fs;
 mod hart;
 mod lang_items;
 // mod loader;
+mod benchmark;
 mod local;
 mod memory;
 mod process;
@@ -74,13 +74,19 @@ mod user;
 /// It will run on each core.
 ///
 pub fn kmain(_hart_id: usize) -> ! {
+    let local = local::always_local();
+    assert!(local.sie_cur() == 0);
+    assert!(local.sum_cur() == 0);
+    unsafe {
+        sstatus::set_sie();
+        sstatus::clear_sum();
+    }
     loop {
         executor::run_until_idle();
         // println!("sie {}", sstatus::read().sie());
         unsafe {
-            sstatus::set_sie();
+            assert!(sstatus::read().sie());
             riscv::asm::wfi();
-            sstatus::clear_sie();
         }
     }
 }

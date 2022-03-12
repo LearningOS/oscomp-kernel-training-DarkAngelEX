@@ -4,45 +4,75 @@ use riscv::register::sstatus;
 use crate::{
     config::PAGE_SIZE,
     hart::{self, cpu, sfence},
-    memory::asid::{Asid, AsidVersion},
+    memory::{
+        self,
+        asid::{Asid, AsidVersion},
+    },
     sync::mutex::SpinNoIrqLock as Mutex,
 };
 
-use self::task_local::TaskLocal;
+use self::{always_local::AlwaysLocal, task_local::TaskLocal};
 
+pub mod always_local;
 pub mod task_local;
 
-macro_rules! array_repeat {
-    ($a: expr) => {
-        [
-            $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a, $a,
-        ]
-    };
-}
+const HART_LOCAL_EACH: HartLocal = HartLocal::new();
 
-static mut HART_LOCAL: [HartLocal; 16] = array_repeat!(HartLocal::new());
+static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 
 /// any hart can only access each unit so didn't need mutex.
 ///
 /// access other local must through function below.
 pub struct HartLocal {
-    task_local: Option<Box<TaskLocal>>,
+    local_now: LocalNow,
     queue: Vec<Box<dyn FnOnce()>>,
     pending: Mutex<Vec<Box<dyn FnOnce()>>>,
     kstack_bottom: usize,
     asid_version: AsidVersion,
     pub in_exception: bool, // forbid exception nest
 }
+
+pub enum LocalNow {
+    Idle(Option<Box<AlwaysLocal>>),
+    Task(Box<TaskLocal>),
+}
+
+impl LocalNow {
+    #[inline(always)]
+    pub fn always(&mut self) -> &mut AlwaysLocal {
+        match self {
+            LocalNow::Idle(i) => i.as_mut().unwrap().as_mut(),
+            LocalNow::Task(t) => t.always(),
+        }
+    }
+    #[inline(always)]
+    pub fn task(&mut self) -> &mut TaskLocal {
+        match self {
+            LocalNow::Idle(_i) => panic!(),
+            LocalNow::Task(task) => task.as_mut(),
+        }
+    }
+}
+
 impl HartLocal {
     const fn new() -> Self {
         Self {
-            task_local: None,
+            local_now: LocalNow::Idle(None),
             queue: Vec::new(),
             pending: Mutex::new(Vec::new()),
             kstack_bottom: 0,
             asid_version: AsidVersion::first_asid_version(),
             in_exception: false,
         }
+    }
+    /// must init after init memory.
+    fn init(&mut self) {
+        let idle = match &mut self.local_now {
+            LocalNow::Idle(idle) => idle,
+            LocalNow::Task(_task) => panic!(),
+        };
+        assert!(idle.is_none());
+        *idle = Some(Box::new(AlwaysLocal::new()));
     }
     fn register(&self, f: impl FnOnce() + 'static) {
         self.pending.lock(place!()).push(Box::new(f))
@@ -55,45 +85,70 @@ impl HartLocal {
             f()
         }
     }
-    pub fn try_task(&mut self) -> Option<&mut TaskLocal> {
-        self.task_local.as_mut().map(|a| a.as_mut())
-    }
+    #[inline(always)]
     pub fn task(&mut self) -> &mut TaskLocal {
-        self.task_local.as_mut().unwrap().as_mut()
+        self.local_now.task()
     }
-    pub fn set_task(&mut self, task: Box<TaskLocal>) {
-        task.set_env();
-        assert!(self.task_local.is_none());
-        self.task_local = Some(task);
+    #[inline(always)]
+    pub fn always(&mut self) -> &mut AlwaysLocal {
+        self.local_now.always()
     }
-    pub fn take_task(&mut self) -> Box<TaskLocal> {
-        let ret = self.task_local.take().unwrap();
-        ret.clear_env();
-        ret
+    pub fn into_task_switch(&mut self, task: &mut LocalNow) {
+        assert!(matches!(&mut self.local_now, LocalNow::Idle(_)));
+        assert!(matches!(task, LocalNow::Task(_)));
+        let old = self.always();
+        let new = task.always();
+        if old.sie_cur() == 0 {
+            unsafe { sstatus::clear_sie() };
+        }
+        let open_intrrupt = AlwaysLocal::env_change(new, old);
+        unsafe { task.task().page_table.get().using() }
+        core::mem::swap(&mut self.local_now, task);
+        if open_intrrupt {
+            unsafe { sstatus::set_sie() };
+        }
     }
-    pub fn sstatus_zero_assert(&self) {
-        let sstatus = sstatus::read();
-        assert!(!sstatus.sum());
-        assert!(!sstatus.sie());
+    pub fn leave_task_switch(&mut self, task: &mut LocalNow) {
+        assert!(matches!(&mut self.local_now, LocalNow::Task(_)));
+        assert!(matches!(task, LocalNow::Idle(_)));
+        let old = self.always();
+        let new = task.always();
+        if old.sie_cur() == 0 {
+            unsafe { sstatus::clear_sie() };
+        }
+        let open_intrrupt = AlwaysLocal::env_change(new, old);
+        memory::set_satp_by_global();
+        core::mem::swap(&mut self.local_now, task);
+        if open_intrrupt {
+            unsafe { sstatus::set_sie() };
+        }
     }
 }
-
+pub fn init() {
+    hart_local().init()
+}
 #[inline(always)]
 pub fn hart_local() -> &'static mut HartLocal {
     let i = cpu::hart_id();
     unsafe { &mut HART_LOCAL[i] }
 }
+#[inline(always)]
+pub fn always_local() -> &'static mut AlwaysLocal {
+    hart_local().always()
+}
+#[inline(always)]
 pub fn task_local() -> &'static mut TaskLocal {
     hart_local().task()
 }
 
+#[inline(always)]
 fn get_local_by_id(id: usize) -> &'static HartLocal {
     unsafe { &HART_LOCAL[id] }
 }
 
 pub fn set_stack() {
     let sp = hart::current_sp();
-    // ceil 4KB
+    // round up 4KB
     hart_local().kstack_bottom = (sp & !(PAGE_SIZE - 1)) + PAGE_SIZE;
 }
 

@@ -4,7 +4,7 @@ use core::{
 };
 
 use crate::{
-    executor,
+    benchmark, executor,
     fdt::FdtHeader,
     fs, local,
     memory::{self, address::PhyAddr},
@@ -90,6 +90,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     // show_device();
 
     memory::init();
+    local::init();
     container::test();
     timer::init();
     executor::init();
@@ -97,16 +98,17 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     fs::init();
     process::init();
     user::test();
+    benchmark::run_all();
+    println!("[FTL OS]hello! from hart {}", hartid);
+    fs::list_apps();
+    sfence::fence_i();
+    println!("init complete! weakup the other cores.");
+    AP_CAN_INIT.store(true, Ordering::Release);
+    tools::multi_thread_test(hartid);
     if !CLOSE_TIME_INTERRUPT {
         trap::enable_timer_interrupt();
         timer::set_next_trigger();
     }
-    println!("[FTL OS]hello! from hart {}", hartid);
-    fs::list_apps();
-
-    sfence::fence_i();
-    println!("init complete! weakup the other cores.");
-    AP_CAN_INIT.store(true, Ordering::Release);
     crate::kmain(hartid);
 }
 
@@ -116,6 +118,8 @@ fn others_main(hartid: usize) -> ! {
     sfence::sfence_vma_all_global();
     sfence::fence_i();
     unsafe { trap::set_kernel_default_trap() };
+    local::init();
+    tools::multi_thread_test(hartid);
     if !CLOSE_TIME_INTERRUPT {
         trap::enable_timer_interrupt();
         timer::set_next_trigger();

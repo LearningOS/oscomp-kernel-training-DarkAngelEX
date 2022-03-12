@@ -1,4 +1,3 @@
-//! global heap
 use core::{
     alloc::{GlobalAlloc, Layout},
     ptr::NonNull,
@@ -7,13 +6,16 @@ use core::{
 use crate::{
     config::{KERNEL_HEAP_SIZE, KERNEL_OFFSET_FROM_DIRECT_MAP},
     sync::mutex::SpinNoIrqLock,
-    tools::error::HeapOutOfMemory,
     xdebug::{CLOSE_HEAP_DEALLOC, HEAP_DEALLOC_OVERWRITE},
 };
 use buddy_system_allocator::Heap;
 
+mod global_heap;
+mod local_heap;
+mod powerful_list;
+
 struct GlobalHeap {
-    heap: SpinNoIrqLock<Heap>,
+    heap: SpinNoIrqLock<Heap<32>>,
 }
 
 unsafe impl GlobalAlloc for GlobalHeap {
@@ -70,8 +72,8 @@ pub fn handle_alloc_error(layout: core::alloc::Layout) -> ! {
     panic!("Heap allocation error, layout = {:?}", layout);
 }
 
-pub fn global_heap_alloc(layout: Layout) -> Result<NonNull<u8>, HeapOutOfMemory> {
-    HEAP_ALLOCATOR.alloc(layout).map_err(|_| HeapOutOfMemory)
+pub fn global_heap_alloc(layout: Layout) -> Result<NonNull<u8>, ()> {
+    HEAP_ALLOCATOR.alloc(layout)
 }
 
 pub fn global_heap_dealloc(ptr: NonNull<u8>, layout: Layout) {

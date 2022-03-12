@@ -16,11 +16,11 @@ k210-soc = { git = "https://github.com/wyfcyx/k210-soc" }
 # riscv = "0.7.0"
 # bare-metal = "0.2.5"
 lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
-buddy_system_allocator = "0.6"
+buddy_system_allocator = "0.8"
 bitflags = "1.3.2"
 bit_field = "0.10.1"
-xmas-elf = "0.7.0"
-async-task = { version = "4.1.0", default-features = false }
+xmas-elf = "0.8.0"
+async-task = { version = "4.2.0", default-features = false }
 
 [features]
 board_qemu = []

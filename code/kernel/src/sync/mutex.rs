@@ -8,7 +8,10 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
-use crate::hart::{cpu::hart_id, interrupt};
+use crate::{
+    hart::{cpu::hart_id, interrupt},
+    user::AutoSie,
+};
 
 pub type SpinLock<T> = Mutex<T, Spin>;
 pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
@@ -71,6 +74,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
+    #[inline(always)]
     fn obtain_lock(&self, place: &'static str) {
         while self
             .lock
@@ -119,6 +123,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     /// }
     ///
     /// ```
+    #[inline(always)]
     pub fn lock(&self, place: &'static str) -> MutexGuard<T, S> {
         let support_guard = S::before_lock();
 
@@ -145,6 +150,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
         }
     }
 
+    #[inline(always)]
     pub fn ensure_support(&self) {
         let initialization = self.support_initialization.load(Ordering::Relaxed);
         if initialization == 2 {
@@ -288,11 +294,12 @@ impl FlagsGuard {
 impl MutexSupport for SpinNoIrq {
     type GuardData = FlagsGuard;
     fn new() -> Self {
-        SpinNoIrq
+        Self
     }
     fn cpu_relax(&self) {
         core::hint::spin_loop();
     }
+    #[inline(always)]
     fn before_lock() -> Self::GuardData {
         FlagsGuard(unsafe { interrupt::disable_and_store() })
     }
