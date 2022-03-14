@@ -33,8 +33,8 @@ struct LockFreeNode<T> {
 
 impl<T> Drop for LockFreeQueue<T> {
     fn drop(&mut self) {
-        let mut head = self.head.get();
-        let tail = self.head.get();
+        let mut head = self.head.load();
+        let tail = self.head.load();
         if head.get_ptr().is_none() {
             debug_check!(tail.get_ptr().is_none());
             return;
@@ -42,7 +42,7 @@ impl<T> Drop for LockFreeQueue<T> {
         unsafe {
             while head != tail {
                 let this = head.get_ptr().unwrap().as_mut();
-                head = this.next.get();
+                head = this.next.load();
                 drop(head.get_ptr().unwrap().as_mut().value.assume_init_read());
                 drop(Box::from_raw(this));
             }
@@ -89,10 +89,12 @@ impl<T> LockFreeQueue<T> {
         };
         let new_dummy: Option<NonNull<_>> = Some(Box::leak(Box::new(new_dummy)).into());
 
-        let mut tail = self.tail.get();
+        let mut tail = self.tail.load();
         loop {
-            let next_v = tail.get_mut().ok_or(())?.next.get();
-            let cur_tail = self.tail.get();
+            let next_v = tail.get_mut().ok_or(())?.next.load();
+            // next.load() 必须 在self.tail.load() 之前
+            self.tail.fence();
+            let cur_tail = self.tail.load();
             if tail != cur_tail {
                 tail = cur_tail;
                 continue;
@@ -118,7 +120,7 @@ impl<T> LockFreeQueue<T> {
                 }
             }
         }
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         loop {
             // 禁止 take 函数发生时被另一个进程关闭
             head.get_ptr().unwrap();
@@ -138,14 +140,14 @@ impl<T> LockFreeQueue<T> {
             .compare_exchange(1, 0, Ordering::Relaxed, Ordering::Relaxed)
             .is_ok());
 
-        let next = head.get_mut().unwrap().next.get().cast();
+        let next = head.get_mut().unwrap().next.load().cast();
         unsafe { Box::from_raw(head.get_ptr().unwrap().as_ptr()) };
         Ok(ThreadLocalLinkedList::ptr_new(next))
     }
     pub fn close(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
         stack_trace!();
         // 顺序: 先禁止入队(tail) 再禁止出队(head)
-        let mut tail = self.tail.get();
+        let mut tail = self.tail.load();
         loop {
             tail.get_ptr().ok_or(())?;
             match self.tail.compare_exchange(tail, tail.into_null()) {
@@ -157,7 +159,7 @@ impl<T> LockFreeQueue<T> {
             }
         }
         // 如果tail关闭成功了, head一定有效, 其他尝试关闭的线程都将失败.
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         loop {
             head.get_ptr().unwrap();
             match self.head.compare_exchange(head, head.into_null()) {
@@ -168,7 +170,7 @@ impl<T> LockFreeQueue<T> {
                 }
             }
         }
-        let next = head.get_mut().unwrap().next.get().cast();
+        let next = head.get_mut().unwrap().next.load().cast();
         unsafe { Box::from_raw(head.get_ptr().unwrap().as_ptr()) };
         Ok(ThreadLocalLinkedList::ptr_new(next))
     }
@@ -188,14 +190,15 @@ impl<T> LockFreeQueue<T> {
         };
         let new_node: Option<NonNull<_>> = Some(Box::leak(Box::new(node)).into());
         // tail 定义为一定在 head 之后且距离队列尾很近的标记.
-        let mut tail = self.tail.get();
+        let mut tail = self.tail.load();
         loop {
             let next = &tail.get_mut().ok_or(())?.next;
             // tail可能已经被释放, 这个指针的值可能是无效值
-            let next_ptr = next.get();
+            let next_ptr = next.load();
             let next_v = next_ptr.get_ptr();
             // tail 有效则保证 next_v 有效
-            let cur_tail = self.tail.get();
+            self.tail.fence();
+            let cur_tail = self.tail.load();
             if tail != cur_tail {
                 tail = cur_tail;
                 core::hint::spin_loop();
@@ -219,7 +222,7 @@ impl<T> LockFreeQueue<T> {
                     return Ok(());
                 }
                 Err(_) => {
-                    tail = self.tail.get();
+                    tail = self.tail.load();
                     core::hint::spin_loop();
                     continue;
                 }
@@ -229,15 +232,16 @@ impl<T> LockFreeQueue<T> {
     pub fn pop(&self) -> Result<Option<T>, ()> {
         stack_trace!();
         // self.head 必然是合法地址, 即使被释放了也可以取到无效数据而不会异常 放在 loop 外减少一次 fetch
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         loop {
             // 如果 head 为空指针则表示队列已经被关闭.
             let next = &head.get_mut().ok_or(())?.next;
             // head 可能在这里被释放, 下面的 next.get() 取到了无效值
-            let next_ptr = next.get();
+            let next_ptr = next.load();
             // 如果观测到 next_ptr 是无效数据, 由于 self.head.cas 包含 Acquire 内存序 下面的内存释放无法排序到 self.head 修改之前
             // 一定导致接下来的 self.head.get() 观测到修改, 重新开始循环.
-            let cur_head = self.head.get();
+            self.head.fence();
+            let cur_head = self.head.load();
             // 保存 cur_head 避免额外的 fetch
             if head != cur_head {
                 head = cur_head;
@@ -250,7 +254,8 @@ impl<T> LockFreeQueue<T> {
                 return Ok(None);
             }
             // 避免tail落后head
-            let tail = self.tail.get();
+            self.tail.fence();
+            let tail = self.tail.load();
             // 防止关闭的队列被重新打开
             tail.get_ptr().ok_or(())?;
             if head == tail {
@@ -282,12 +287,17 @@ impl<T> LockFreeQueue<T> {
 }
 
 pub mod test {
+
     use alloc::{
         collections::{LinkedList, VecDeque},
         vec::Vec,
     };
 
-    use crate::{sync::mutex::SpinNoIrqLock, timer, tools::{self, container::lock_free_stack::LockFreeStack}};
+    use crate::{
+        sync::mutex::SpinNoIrqLock,
+        timer,
+        tools::{self, container::lock_free_stack::LockFreeStack},
+    };
 
     use super::LockFreeQueue;
 
@@ -382,8 +392,10 @@ pub mod test {
         producer: usize,
         consumer: usize,
         total: usize,
+        begin: impl FnOnce(),
         push: impl Fn(usize),
         pop: impl Fn() -> Option<usize>,
+        end: impl FnOnce(),
         off: usize,
     ) {
         if hart == 0 {
@@ -397,7 +409,15 @@ pub mod test {
         }
         stack_trace!();
         tools::wait_all_hart();
+        if hart == 0 {
+            begin();
+        }
+        tools::wait_all_hart();
         test_push_pop_impl(hart, producer, consumer, total, push, pop, off + 4);
+        tools::wait_all_hart();
+        if hart == 0 {
+            end();
+        }
         tools::wait_all_hart();
         if hart == 0 {
             println!("{}check begin", tools::n_space(off));
@@ -411,17 +431,14 @@ pub mod test {
     static TEST_QUEUE_0: LockFreeQueue<usize> = LockFreeQueue::new();
     static TEST_QUEUE_1: Mutex<LinkedList<usize>> = Mutex::new(LinkedList::new());
     static TEST_QUEUE_2: Mutex<core::lazy::Lazy<VecDeque<usize>>> =
-    Mutex::new(core::lazy::Lazy::new(|| VecDeque::new()));
+        Mutex::new(core::lazy::Lazy::new(|| VecDeque::new()));
     static TEST_QUEUE_3: LockFreeStack<usize> = LockFreeStack::new();
     static mut SET_TABLE: [Vec<usize>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
-    pub fn multi_thread_test(hart: usize, off: usize) {
+    pub fn multi_thread_performance_test(hart: usize, off: usize) {
         stack_trace!();
         if hart == 0 {
-            println!(
-                "{}lock_free queue multi_thread_test begin",
-                tools::n_space(off)
-            );
+            println!("{}lock_free queue test begin", tools::n_space(off));
             unsafe { TEST_QUEUE_0.init_uncheck() };
         }
         const TOTAL: usize = 100000;
@@ -430,28 +447,22 @@ pub mod test {
             TEST_QUEUE_0.push(a).unwrap();
         };
         let pop = || TEST_QUEUE_0.pop().unwrap();
-        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 1, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 1, 3, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 2, 2, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 3, 1, TOTAL, || (), push, pop, || (), off + 4);
         tools::wait_all_hart();
         if hart == 0 {
-            println!(
-                "{}locked linked list multi_thread_test begin",
-                tools::n_space(off)
-            );
+            println!("{}locked linked list test begin", tools::n_space(off));
         }
         let push = |a| TEST_QUEUE_1.lock(place!()).push_back(a);
         let pop = || TEST_QUEUE_1.lock(place!()).pop_front();
-        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 1, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 1, 3, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 2, 2, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 3, 1, TOTAL, || (), push, pop, || (), off + 4);
         if hart == 0 {
-            println!(
-                "{}locked VecDeque multi_thread_test begin",
-                tools::n_space(off)
-            );
+            println!("{}locked VecDeque test begin", tools::n_space(off));
         }
         let push = |a| {
             let v = &**TEST_QUEUE_2.lock(place!());
@@ -461,33 +472,59 @@ pub mod test {
             let v = &**TEST_QUEUE_2.lock(place!());
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.pop_front()
         };
-        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        test_impl(hart, 1, 1, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 1, 3, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 2, 2, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 3, 1, TOTAL, || (), push, pop, || (), off + 4);
+        tools::wait_all_hart();
+        if hart == 0 {
+            println!("{}lock_free stack test begin", tools::n_space(off));
+        }
+        let push = |a| TEST_QUEUE_3.push(a).unwrap();
+        let pop = || TEST_QUEUE_3.pop().unwrap();
+        test_impl(hart, 1, 1, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 1, 3, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 2, 2, TOTAL, || (), push, pop, || (), off + 4);
+        test_impl(hart, 3, 1, TOTAL, || (), push, pop, || (), off + 4);
         tools::wait_all_hart();
         if hart == 0 {
             println!(
-                "{}lock_free stack multi_thread_test begin",
+                "{}lock free stack multi_thread_performance_test pass",
                 tools::n_space(off)
             );
         }
-        let push = |a| {
-            TEST_QUEUE_3.push(a).unwrap()
-        };
-        let pop = || {
-            TEST_QUEUE_3.pop().unwrap()
-        };
-        test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
-        tools::wait_all_hart();
+    }
+    pub fn multi_thread_stress_test(hart: usize, off: usize) {
+        stack_trace!();
         if hart == 0 {
             println!(
-                "{}lock free stack multi_thread_test pass",
+                "{}lock_free queue multi_thread_stress_test begin",
                 tools::n_space(off)
             );
+            unsafe { TEST_QUEUE_0.init_uncheck() };
+        }
+        const TOTAL: usize = 10000;
+        tools::wait_all_hart();
+
+        let push = |a| {
+            TEST_QUEUE_0.push(a).unwrap();
+        };
+        let pop = || TEST_QUEUE_0.pop().unwrap();
+        let begin = || {};
+        let end = || {};
+        for i in 0..1000 {
+            if hart == 0 {
+                println!("{}test {}", tools::n_space(off), i);
+            }
+            // test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            // test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+            test_impl(hart, 2, 2, TOTAL, begin, push, pop, end, off + 4);
+            // test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+            tools::wait_all_hart();
+        }
+        tools::wait_all_hart();
+        if hart == 0 {
+            println!("{}lock free stack stress_test pass", tools::n_space(off));
         }
     }
 }

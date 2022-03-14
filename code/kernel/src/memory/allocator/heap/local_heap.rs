@@ -95,7 +95,10 @@ impl LocalHeap {
             list.push(ptr.cast());
             let store_size = Self::max_cache_size(class);
             if list.len() >= store_size {
+                list.size_check().unwrap();
                 let store_list = list.take(store_size / 2);
+                list.size_check().unwrap();
+                store_list.size_check().unwrap();
                 super::global_heap_dealloc_list(store_list, layout);
             }
         }

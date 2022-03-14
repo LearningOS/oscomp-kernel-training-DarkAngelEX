@@ -1,5 +1,3 @@
-use crate::{memory::address::UserAddr, process::thread::Thread,};
-
 use super::{SysResult, Syscall};
 
 impl Syscall<'_> {

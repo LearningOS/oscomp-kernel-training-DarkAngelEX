@@ -48,6 +48,7 @@ pub struct StackInfo {
 
 impl StackInfo {
     pub fn new(msg: &'static str, file: &'static str, line: u32) -> Self {
+
         Self { msg, file, line }
     }
     pub fn show(&self, i: usize) {

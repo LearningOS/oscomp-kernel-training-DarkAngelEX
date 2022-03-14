@@ -37,10 +37,10 @@ impl DelayGCList {
         self.collection_size = self.list.len() * 2;
         list.empty_forward()
     }
-    pub fn should_colloection(&self) -> bool {
+    fn should_colloection(&self) -> bool {
         self.list.len() >= self.collection_size || self.run_count >= self.collection_size
     }
-    pub fn collection_reset(&mut self, reset_min: usize) {
+    fn collection_reset(&mut self, reset_min: usize) {
         self.collection_size = reset_min.max(self.list.len() * 2);
         self.run_count = 0;
     }
@@ -52,10 +52,9 @@ impl DelayGCList {
         reset_min: usize,
     ) -> Option<IntrusiveLinkedList> {
         self.list.append(&mut src);
-        if stop || self.should_colloection() {
+        if stop || !self.should_colloection() {
             return None;
         }
-        // println!("\x1b[31mcollection of align {} size {}\x1b[0m", align, self.list.len());
         let list = self.list.collection(align_log2);
         self.collection_reset(reset_min);
         list.empty_forward()

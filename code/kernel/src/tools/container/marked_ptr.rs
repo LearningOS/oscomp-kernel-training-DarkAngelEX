@@ -1,7 +1,7 @@
 use core::{
     marker::PhantomData,
     ptr::NonNull,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering, self},
 };
 
 /// MarkedRV39Ptr 高 25 位放置计数器
@@ -96,8 +96,11 @@ impl<T> AtomicMarkedPtr<T> {
     pub fn new(ptr: MarkedPtr<T>) -> Self {
         Self(AtomicUsize::new(ptr.0), PhantomData)
     }
-    pub fn get(&self) -> MarkedPtr<T> {
+    pub fn load(&self) -> MarkedPtr<T> {
         MarkedPtr::from_usize(self.0.load(Ordering::SeqCst))
+    }
+    pub fn fence(&self) {
+        atomic::fence(Ordering::SeqCst)
     }
     pub fn compare_exchange(
         &self,

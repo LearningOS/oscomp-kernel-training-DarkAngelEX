@@ -20,7 +20,7 @@ pub const PRINT_PAGE_FAULT: bool = false;
 
 pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;
-pub const CLOSE_LOCAL_HEAP: bool = true;
+pub const CLOSE_LOCAL_HEAP: bool = false;
 
 pub const FRAME_DEALLOC_OVERWRITE: bool = true;
 pub const HEAP_DEALLOC_OVERWRITE: bool = true;

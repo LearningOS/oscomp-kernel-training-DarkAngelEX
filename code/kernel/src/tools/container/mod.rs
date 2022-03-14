@@ -18,6 +18,10 @@ pub fn test() {
     lock_free_stack::test::base_test();
 }
 
-pub fn multi_thread_test(hart: usize) {
-    lock_free_queue::test::multi_thread_test(hart, 4);
+pub fn multi_thread_performance_test(hart: usize) {
+    lock_free_queue::test::multi_thread_performance_test(hart, 4);
+}
+
+pub fn multi_thread_stress_test(hart: usize) {
+    lock_free_queue::test::multi_thread_stress_test(hart, 4);
 }

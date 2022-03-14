@@ -29,7 +29,14 @@ unsafe impl GlobalAlloc for GlobalHeap {
                 .unwrap()
                 .as_ptr()
         } else {
-            self.alloc(layout).unwrap().as_ptr()
+            match self.alloc(layout) {
+                Ok(p) => p.as_ptr(),
+                Err(_) => panic!(
+                    "heap alloc error! layout: {:?} info: {:?}",
+                    layout,
+                    self.info()
+                ),
+            }
         };
         ret
     }
@@ -53,6 +60,10 @@ unsafe impl GlobalAlloc for GlobalHeap {
 }
 
 impl GlobalHeap {
+    // (used, allocated, total)
+    pub fn info(&self) -> (usize, usize, usize) {
+        self.heap.lock(place!()).info()
+    }
     pub fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, ()> {
         self.heap.lock(place!()).alloc(layout)
     }

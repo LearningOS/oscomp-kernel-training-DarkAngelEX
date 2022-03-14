@@ -1,3 +1,5 @@
+use core::ptr::NonNull;
+
 use alloc::{boxed::Box, vec::Vec};
 use riscv::register::sstatus;
 
@@ -37,15 +39,18 @@ pub struct HartLocal {
 }
 
 pub enum LocalNow {
-    Idle(Option<Box<AlwaysLocal>>),
+    Idle(Option<NonNull<AlwaysLocal>>),
     Task(Box<TaskLocal>),
 }
+
+unsafe impl Send for LocalNow {}
+unsafe impl Sync for LocalNow {}
 
 impl LocalNow {
     #[inline(always)]
     pub fn always(&mut self) -> &mut AlwaysLocal {
         match self {
-            LocalNow::Idle(i) => i.as_mut().unwrap().as_mut(),
+            LocalNow::Idle(i) => unsafe { i.unwrap().as_mut() },
             LocalNow::Task(t) => t.always(),
         }
     }
@@ -81,7 +86,7 @@ impl HartLocal {
         // ALWAYS_LOCAL 没有和分配器对齐! 此部分禁止释放到全局分配器
         let hart = cpu::hart_id();
         unsafe {
-            *idle = Some(Box::from_raw(&mut ALWAYS_LOCAL[hart]));
+            *idle = NonNull::new(&mut ALWAYS_LOCAL[hart]);
         }
     }
     fn register(&self, f: impl FnOnce() + 'static) {

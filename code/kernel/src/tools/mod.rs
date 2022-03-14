@@ -9,7 +9,8 @@ use crate::hart::cpu;
 
 pub mod allocator;
 pub mod container;
-
+#[macro_use]
+pub mod color;
 pub mod error;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
@@ -126,18 +127,46 @@ pub fn n_space(n: usize) -> String {
     s
 }
 
-const MULTI_THREAD_TEST: bool = false;
+const COLOR_TEST: bool = false;
+const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
+const MULTI_THREAD_STRESS_TEST: bool = false;
 
 pub fn multi_thread_test(hart: usize) {
-    if MULTI_THREAD_TEST {
+    wait_all_hart();
+    if hart == 0 {
+        if COLOR_TEST {
+            color::test::color_test();
+        }
+    }
+    wait_all_hart();
+    multi_thread_performance_test(hart);
+    multi_thread_stress_test(hart);
+}
+
+fn multi_thread_performance_test(hart: usize) {
+    if MULTI_THREAD_PERFORMANCE_TEST {
         assert!(!sstatus::read().sie());
         wait_all_hart();
-        container::multi_thread_test(hart);
+        container::multi_thread_performance_test(hart);
         wait_all_hart();
-        panic!("multi_thread_test complete");
+        panic!("multi_thread_performance_test complete");
     } else {
         if hart == 0 {
-            println!("skip multi_thread_test in {}", place!());
+            println!("skip multi_thread_performance_test");
+        }
+    }
+}
+
+fn multi_thread_stress_test(hart: usize) {
+    if MULTI_THREAD_STRESS_TEST {
+        assert!(!sstatus::read().sie());
+        wait_all_hart();
+        container::multi_thread_stress_test(hart);
+        wait_all_hart();
+        panic!("multi_thread_stress_test complete");
+    } else {
+        if hart == 0 {
+            println!("skip multi_thread_stress_test");
         }
     }
 }

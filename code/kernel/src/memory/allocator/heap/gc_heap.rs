@@ -4,12 +4,19 @@ use crate::tools::container::intrusive_linked_list::IntrusiveLinkedList;
 
 use super::delay_gc_list::DelayGCList;
 
+const SORT_BUFFER_SIZE: usize = 512;
+type SortBuffer = [usize; SORT_BUFFER_SIZE];
+
 pub struct DelayGCHeap {
     free_list: [DelayGCList; 32],
-    used: usize,
-    allocated: usize,
-    total: usize,
+    used: usize,      // 用户认为正在使用的空间大小
+    allocated: usize, // 分配器分配的内存大小 比used更大
+    total: usize,     // 分配器管理的全部内存
+    sort_buffer: *mut SortBuffer,
 }
+
+unsafe impl Send for DelayGCHeap {}
+unsafe impl Sync for DelayGCHeap {}
 
 impl DelayGCHeap {
     pub const fn empty() -> Self {
@@ -19,11 +26,23 @@ impl DelayGCHeap {
             used: 0,
             allocated: 0,
             total: 0,
+            sort_buffer: core::ptr::null_mut(),
         }
+    }
+    // (used, allocated, total)
+    pub fn info(&self) -> (usize, usize, usize) {
+        (self.used, self.allocated, self.total)
     }
     pub fn init(&mut self, start: usize, size: usize) {
         unsafe {
-            self.add_to_heap(start, start + size, true);
+            assert!(self.sort_buffer.is_null());
+            assert!(size >= SORT_BUFFER_SIZE);
+            self.sort_buffer = start as *mut SortBuffer;
+            self.add_to_heap(
+                start + SORT_BUFFER_SIZE,
+                start + size - SORT_BUFFER_SIZE,
+                true,
+            );
         }
     }
     /// Add a range of memory [start, end) to the heap
@@ -59,15 +78,12 @@ impl DelayGCHeap {
             if !self.free_list[i].is_empty() {
                 // Split buffers
                 for j in (class + 1..i + 1).rev() {
-                    if let Some(block) = self.free_list[j].pop() {
-                        unsafe {
-                            self.free_list[j - 1].push(NonNull::new_unchecked(
-                                (block.as_ptr() as usize + (1 << (j - 1))) as *mut usize,
-                            ));
-                            self.free_list[j - 1].push(block);
-                        }
-                    } else {
-                        return Err(());
+                    let block = self.free_list[j].pop().unwrap();
+                    unsafe {
+                        self.free_list[j - 1].push(NonNull::new_unchecked(
+                            (block.as_ptr() as usize + (1 << (j - 1))) as *mut usize,
+                        ));
+                        self.free_list[j - 1].push(block);
                     }
                 }
                 let result = self.free_list[class].pop().unwrap();
@@ -116,19 +132,20 @@ impl DelayGCHeap {
             return Err(());
         }
         if take_all_class != 0 {
-            for xclass in class..=take_all_class {
-                let list = &mut self.free_list[xclass];
-                while let Some(a) = list.get_list().pop() {
+            ret_list.append(self.free_list[class].get_list());
+            for xclass in class + 1..=take_all_class {
+                let list = self.free_list[xclass].get_list();
+                while let Some(a) = list.pop() {
                     let begin = a.as_ptr() as usize;
                     let end = begin + (1 << xclass);
                     ret_list.append(&mut IntrusiveLinkedList::from_range(begin, end, class));
                 }
             }
         }
-        let list = &mut self.free_list[cur_class];
         if xn != 0 {
+            let list = self.free_list[cur_class].get_list();
             while xn >= 1 << cur_class - class {
-                let a = list.get_list().pop().unwrap();
+                let a = list.pop().unwrap();
                 let begin = a.as_ptr() as usize;
                 let end = begin + (1 << cur_class);
                 ret_list.append(&mut IntrusiveLinkedList::from_range(begin, end, class));
@@ -158,7 +175,7 @@ impl DelayGCHeap {
         let mut current_class = class;
         let mut temp_list = list;
         while current_class < self.free_list.len() {
-            let stop = current_class + 1 != self.free_list.len();
+            let stop = current_class + 1 == self.free_list.len();
             let reset_min = if current_class <= 12 { 16 } else { 0 };
             match self.free_list[current_class].maybe_collection(
                 temp_list,

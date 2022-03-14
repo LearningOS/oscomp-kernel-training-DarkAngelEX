@@ -28,7 +28,7 @@ impl<T> LockFreeStack<T> {
         }
     }
     pub fn take(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         loop {
             head.valid()?;
             let null = MarkedPtr::null(head.id());
@@ -45,7 +45,7 @@ impl<T> LockFreeStack<T> {
         }
     }
     pub fn close(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         let invalid = MarkedPtr::new_invalid();
         loop {
             head.valid()?;
@@ -68,7 +68,7 @@ impl<T> LockFreeStack<T> {
             value: MaybeUninit::new(value),
         };
         let mut new_node: NonNull<LockFreeNode<T>> = Box::leak(Box::new(node)).into();
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         loop {
             head.valid()?;
             unsafe {
@@ -87,14 +87,14 @@ impl<T> LockFreeStack<T> {
     }
     pub fn pop(&self) -> Result<Option<T>, ()> {
         stack_trace!();
-        let mut head = self.head.get();
+        let mut head = self.head.load();
         loop {
             head.valid()?;
             let node = match head.get_ptr() {
                 None => return Ok(None),
                 Some(value) => unsafe { &*value.as_ptr() },
             };
-            let new_head = MarkedPtr::new(head.id(), node.next.get().get_ptr());
+            let new_head = MarkedPtr::new(head.id(), node.next.load().get_ptr());
             match self.head.compare_exchange(head, new_head) {
                 Ok(_) => unsafe {
                     let value = node.value.assume_init_read();

@@ -64,6 +64,7 @@ mod signal;
 mod sync;
 mod syscall;
 mod timer;
+#[macro_use]
 mod tools;
 mod trap;
 mod user;

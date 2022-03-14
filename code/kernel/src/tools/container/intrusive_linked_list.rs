@@ -1,5 +1,7 @@
 use core::ptr::NonNull;
 
+use crate::xdebug::trace;
+
 // 侵入式链表
 pub struct IntrusiveLinkedList {
     head: Option<NonNull<usize>>,
@@ -60,7 +62,7 @@ impl IntrusiveLinkedList {
             cnt -= 1;
         }
         if x.is_some() {
-            return None
+            return None;
         }
         Some(self.size)
     }
@@ -112,19 +114,22 @@ impl IntrusiveLinkedList {
         }
         new_list
     }
-    pub fn for_each(&self, mut f: impl FnMut(NonNull<usize>)) {
-        let mut cur = self.head;
+    pub fn for_each_impl(node: Option<NonNull<usize>>, mut f: impl FnMut(NonNull<usize>)) {
+        let mut cur = node;
         while let Some(value) = cur {
             f(value);
             cur = unsafe { *value.cast().as_ptr() };
         }
+    }
+    pub fn for_each(&self, f: impl FnMut(NonNull<usize>)) {
+        Self::for_each_impl(self.head, f);
     }
     fn node_iter(&mut self) -> NodeIter {
         NodeIter {
             pointer: &mut self.head,
         }
     }
-    pub fn sort(&mut self) {
+    pub fn sort_no_buffer(&mut self) {
         if let Some(x) = self.head {
             self.head = unsafe { Some(merge_sort(x)) };
         }
@@ -144,7 +149,8 @@ impl IntrusiveLinkedList {
             if next_v(head).is_none() {
                 return head;
             }
-            stack_trace!();
+            // stack_trace!(); // this will result in dead_lock!
+            trace::stack_detection();
             let mut p = head;
             let mut q = Some(head);
             let mut pre = None;
@@ -225,11 +231,41 @@ impl IntrusiveLinkedList {
         }
     }
 
+    pub fn sort_with_buffer(&mut self, buffer: &mut [usize]) {
+        let size = self.size;
+        if size <= 1 {
+            return;
+        }
+        assert!(size <= buffer.len());
+
+        let buffer = &mut buffer[0..size];
+        let mut cur = self.head;
+        for v in buffer.iter_mut() {
+            unsafe {
+                *v = core::mem::transmute(cur);
+                cur = *cur.unwrap().cast().as_ptr();
+            }
+        }
+        assert!(cur.is_none());
+        buffer.sort_unstable();
+        assert!(buffer[0] != 0);
+        unsafe {
+            self.head = core::mem::transmute(buffer[0]);
+            for a in buffer.windows(2) {
+                let p = a[0] as *mut usize;
+                *p = a[1];
+            }
+            let p = buffer[size - 1] as *mut usize;
+            *p = 0;
+        }
+    }
+
     /// returned list will be sorted by large-first.
     pub fn collection(&mut self, align_log2: usize) -> IntrusiveLinkedList {
         let mask = 1 << align_log2;
         let mut list = IntrusiveLinkedList::new();
-        self.sort();
+        self.size_check().unwrap();
+        self.sort_no_buffer();
         let mut node_iter = self.node_iter();
         while let Some((a, b)) = node_iter.current_and_next() {
             debug_assert!(a < b);
@@ -307,7 +343,7 @@ pub mod test {
                 assert!(x < 512);
                 list.push(tran(x));
             }
-            list.sort();
+            list.sort_no_buffer();
 
             for x in test_set.iter_mut() {
                 let v = list.pop().unwrap();
@@ -347,7 +383,7 @@ pub mod test {
             xprint(&list);
             print!(" -> ");
             let mut new_list = list.collection(3);
-            new_list.sort();
+            new_list.sort_no_buffer();
             xprint(&list);
             print!(" ");
             xprint(&new_list);
