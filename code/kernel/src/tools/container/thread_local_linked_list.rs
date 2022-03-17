@@ -2,7 +2,7 @@ use core::{mem::MaybeUninit, ptr::NonNull};
 
 use alloc::boxed::Box;
 
-use super::marked_ptr::{MarkedPtr, PtrID};
+use super::lockfree::marked_ptr::{MarkedPtr, PtrID};
 
 pub struct ThreadLocalLinkedList<T> {
     head: MarkedPtr<ThreadLocalNode<T>>,
@@ -41,6 +41,15 @@ impl<T> ThreadLocalLinkedList<T> {
             self.head = next;
             Some(value.assume_init())
         }
+    }
+    pub fn len(&self) -> usize {
+        let mut x = self.head;
+        let mut n = 0;
+        while let Some(mut value) = x.get_ptr() {
+            x = unsafe { value.as_mut().next };
+            n += 1;
+        }
+        n
     }
     pub fn tail_pointer(&self) -> *mut MarkedPtr<ThreadLocalNode<T>> {
         let mut cur: *mut MarkedPtr<ThreadLocalNode<T>> = &self.head as *const _ as *mut _;

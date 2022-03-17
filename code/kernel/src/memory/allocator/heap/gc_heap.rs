@@ -135,7 +135,10 @@ impl DelayGCHeap {
             ret_list.append(self.free_list[class].get_list());
             for xclass in class + 1..=take_all_class {
                 let list = self.free_list[xclass].get_list();
+                let mut max_len = list.len();
                 while let Some(a) = list.pop() {
+                    assert!(max_len != 0);
+                    max_len -= 1;
                     let begin = a.as_ptr() as usize;
                     let end = begin + (1 << xclass);
                     ret_list.append(&mut IntrusiveLinkedList::from_range(begin, end, class));

@@ -54,17 +54,19 @@ impl IntrusiveLinkedList {
     pub fn len(&self) -> usize {
         self.size
     }
-    pub fn size_check(&self) -> Option<usize> {
+    // Err: (target_size, missing_size)
+    pub fn size_check(&self) -> Result<usize, (usize, isize)> {
         let mut x = self.head;
-        let mut cnt = self.size;
+        let target = self.size;
+        let mut cnt = target;
         while cnt > 0 {
-            x = unsafe { *x?.cast().as_ptr() };
+            x = unsafe { *x.ok_or((target, cnt as isize))?.cast().as_ptr() };
             cnt -= 1;
         }
         if x.is_some() {
-            return None;
+            return Err((target, -1));
         }
-        Some(self.size)
+        Ok(self.size)
     }
     pub fn size_reset(&mut self, new_size: usize) {
         self.size = new_size;
@@ -131,7 +133,7 @@ impl IntrusiveLinkedList {
     }
     pub fn sort_no_buffer(&mut self) {
         if let Some(x) = self.head {
-            self.head = unsafe { Some(merge_sort(x)) };
+            self.head = unsafe { Some(merge_sort(x, self.len())) };
         }
 
         type Node = NonNull<usize>;
@@ -145,7 +147,7 @@ impl IntrusiveLinkedList {
         unsafe fn value(this: Node) -> usize {
             this.as_ptr() as usize
         }
-        unsafe fn merge_sort(head: Node) -> Node {
+        unsafe fn merge_sort(head: Node, max_len: usize) -> Node {
             if next_v(head).is_none() {
                 return head;
             }
@@ -154,7 +156,10 @@ impl IntrusiveLinkedList {
             let mut p = head;
             let mut q = Some(head);
             let mut pre = None;
+            let mut cnt = 0;
             loop {
+                assert!(cnt < max_len);
+                cnt += 1;
                 if let Some(qn) = q {
                     if let Some(qnn) = next_v(qn) {
                         pre = Some(p);
@@ -171,8 +176,8 @@ impl IntrusiveLinkedList {
                 // list have only one node.
                 return head;
             }
-            let l = merge_sort(head);
-            let r = merge_sort(p);
+            let l = merge_sort(head, max_len);
+            let r = merge_sort(p, max_len);
             merge(l, r)
         }
         #[inline(never)]
@@ -268,7 +273,7 @@ impl IntrusiveLinkedList {
         self.sort_no_buffer();
         let mut node_iter = self.node_iter();
         while let Some((a, b)) = node_iter.current_and_next() {
-            debug_assert!(a < b);
+            debug_check!(a < b);
             if (a.as_ptr() as usize ^ b.as_ptr() as usize) == mask {
                 node_iter.remove_current_and_next();
                 unsafe { list.push(a) };

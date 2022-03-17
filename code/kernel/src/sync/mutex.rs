@@ -78,7 +78,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
             .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
             .is_err()
         {
-            let mut try_count = 0;
+            let mut try_count = 0usize;
             // Wait until the lock looks unlocked before retrying
             while self.lock.load(Ordering::Relaxed) {
                 unsafe { &*self.support.as_ptr() }.cpu_relax();

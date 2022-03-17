@@ -1,5 +1,6 @@
 macro_rules! color_def {
     ($name: ident, $n: expr) => {
+        #[macro_export]
         macro_rules! $name {
             ($str: expr) => {
                 concat!("\x1b[", $n, "m", $str, "\x1b[0m")

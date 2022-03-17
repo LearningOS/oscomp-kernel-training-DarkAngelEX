@@ -2,26 +2,23 @@ use core::{mem::MaybeUninit, ptr::NonNull};
 
 use alloc::boxed::Box;
 
-use crate::tools::container::marked_ptr::PtrID;
+use crate::tools::container::thread_local_linked_list::ThreadLocalLinkedList;
 
-use super::{
-    marked_ptr::{AtomicMarkedPtr, MarkedPtr},
-    thread_local_linked_list::ThreadLocalLinkedList,
-};
+use super::marked_ptr::{AtomicMarkedPtr, MarkedPtr, PtrID};
 
 // 无锁单向链表
-pub struct LockFreeStack<T> {
-    head: AtomicMarkedPtr<LockFreeNode<T>>,
+pub struct LockfreeStack<T> {
+    head: AtomicMarkedPtr<LockfreeNode<T>>,
 }
-unsafe impl<T> Send for LockFreeStack<T> {}
-unsafe impl<T> Sync for LockFreeStack<T> {}
+unsafe impl<T> Send for LockfreeStack<T> {}
+unsafe impl<T> Sync for LockfreeStack<T> {}
 
-struct LockFreeNode<T> {
+struct LockfreeNode<T> {
     next: AtomicMarkedPtr<Self>,
     value: MaybeUninit<T>,
 }
 
-impl<T> LockFreeStack<T> {
+impl<T> LockfreeStack<T> {
     pub const fn new() -> Self {
         Self {
             head: AtomicMarkedPtr::null(),
@@ -46,9 +43,9 @@ impl<T> LockFreeStack<T> {
     }
     pub fn close(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
         let mut head = self.head.load();
-        let invalid = MarkedPtr::new_invalid();
         loop {
             head.valid()?;
+            let invalid = MarkedPtr::new_invalid(head.id());
             match self.head.compare_exchange(head, invalid) {
                 Ok(_) => {
                     let head = head.cast();
@@ -63,11 +60,11 @@ impl<T> LockFreeStack<T> {
     }
     pub fn push(&self, value: T) -> Result<(), ()> {
         stack_trace!();
-        let node = LockFreeNode::<T> {
+        let node = LockfreeNode::<T> {
             next: AtomicMarkedPtr::null(),
             value: MaybeUninit::new(value),
         };
-        let mut new_node: NonNull<LockFreeNode<T>> = Box::leak(Box::new(node)).into();
+        let mut new_node: NonNull<LockfreeNode<T>> = Box::leak(Box::new(node)).into();
         let mut head = self.head.load();
         loop {
             head.valid()?;
@@ -111,10 +108,10 @@ impl<T> LockFreeStack<T> {
 }
 
 pub mod test {
-    use super::LockFreeStack;
+    use super::LockfreeStack;
 
     pub fn base_test() {
-        let list = LockFreeStack::new();
+        let list = LockfreeStack::new();
         for i in [1, 2, 3, 4, 5, 6, 7] {
             list.push(i).unwrap();
         }
