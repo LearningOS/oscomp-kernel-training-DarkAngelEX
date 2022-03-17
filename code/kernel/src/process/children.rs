@@ -48,7 +48,7 @@ impl ChildrenSet {
     pub fn have_child_of(&mut self, pid: Pid) -> bool {
         !self.alive_no_find(pid) || !self.zombie_no_find(pid) || !self.zombie_pending_no_find(pid)
     }
-    pub fn is_empty(&mut self) -> bool {
+    pub fn is_empty(&self) -> bool {
         self.alive.is_empty() && self.zombie.is_empty() && self.zombie_pending.is_empty()
     }
 
@@ -126,12 +126,12 @@ impl Debug for ChildrenSet {
             };
         }
         f_write!("child-alive:  [")?;
-        for (pid, _p) in &self.alive {
+        for pid in self.alive.keys() {
             f_write!("{:?},", pid)?;
         }
         f_write!("]\n")?;
         f_write!("child-zombie: [")?;
-        for (pid, _p) in &self.zombie {
+        for pid in self.zombie.keys() {
             f_write!("{:?},", pid)?;
         }
         f_write!("]\n")?;

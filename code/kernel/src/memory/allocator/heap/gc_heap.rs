@@ -51,7 +51,7 @@ impl DelayGCHeap {
         const ALIGN_SIZE: usize = size_of::<usize>();
 
         start = (start + ALIGN_SIZE - 1) & (!ALIGN_SIZE + 1);
-        end = end & (!ALIGN_SIZE + 1);
+        end &= !ALIGN_SIZE + 1;
         assert!(start <= end, "{:#x} {:#x}", start, end);
 
         let mut total = 0;
@@ -147,12 +147,12 @@ impl DelayGCHeap {
         }
         if xn != 0 {
             let list = self.free_list[cur_class].get_list();
-            while xn >= 1 << cur_class - class {
+            while xn >= 1 << (cur_class - class) {
                 let a = list.pop().unwrap();
                 let begin = a.as_ptr() as usize;
                 let end = begin + (1 << cur_class);
                 ret_list.append(&mut IntrusiveLinkedList::from_range(begin, end, class));
-                xn -= 1 << cur_class - class;
+                xn -= 1 << (cur_class - class);
             }
         }
         if xn != 0 {

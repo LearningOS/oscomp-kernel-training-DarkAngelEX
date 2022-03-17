@@ -35,7 +35,7 @@ impl FdTable {
     pub fn new() -> Self {
         let mut ret = Self {
             map: BTreeMap::new(),
-            fd_allocator: FdAllocator::new(0),
+            fd_allocator: FdAllocator::default(),
         };
         ret.insert(Arc::new(Stdin)).assert_eq(0);
         ret.insert(Arc::new(Stdout)).assert_eq(1);

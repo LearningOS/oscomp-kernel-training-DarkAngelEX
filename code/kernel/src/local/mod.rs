@@ -19,9 +19,11 @@ use self::{always_local::AlwaysLocal, task_local::TaskLocal};
 pub mod always_local;
 pub mod task_local;
 
+#[allow(clippy::declare_interior_mutable_const)]
 const HART_LOCAL_EACH: HartLocal = HartLocal::new();
 static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 
+#[allow(clippy::declare_interior_mutable_const)]
 const ALWAYS_LOCAL_EACH: AlwaysLocal = AlwaysLocal::new();
 static mut ALWAYS_LOCAL: [AlwaysLocal; 16] = [ALWAYS_LOCAL_EACH; 16];
 
@@ -108,7 +110,7 @@ impl HartLocal {
     pub fn always(&mut self) -> &mut AlwaysLocal {
         self.local_now.always()
     }
-    pub fn into_task_switch(&mut self, task: &mut LocalNow) {
+    pub fn enter_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Idle(_)));
         assert!(matches!(task, LocalNow::Task(_)));
         let old = self.always();
@@ -199,7 +201,7 @@ pub fn all_hart_fn(f: impl Fn<(), Output = impl FnOnce() + 'static>) {
 }
 
 pub fn all_hart_fence_i() {
-    all_hart_fn(|| || sfence::fence_i());
+    all_hart_fn(|| sfence::fence_i);
 }
 
 pub fn all_hart_sfence_vma_asid(asid: Asid) {

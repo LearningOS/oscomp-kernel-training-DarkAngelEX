@@ -68,13 +68,13 @@ impl Syscall<'_> {
                 user_check
                     .translated_user_array_zero_end(path)
                     .await?
-                    .into_vec(),
+                    .to_vec(),
             )?;
             let args: Vec<String> = user_check
                 .translated_user_2d_array_zero_end(args)
                 .await?
                 .into_iter()
-                .map(|a| unsafe { String::from_utf8_unchecked(a.into_vec()) })
+                .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
                 .collect();
             // println!("args ptr: {:#x}", args as usize);
             // let args = Vec::new();
@@ -222,7 +222,7 @@ impl Syscall<'_> {
     }
     pub fn sys_kill(&mut self) -> SysResult {
         stack_trace!();
-        let (pid, signal): (isize, u32) = self.cx.parameter2();
+        let (pid, _signal): (isize, u32) = self.cx.parameter2();
         enum Target {
             Pid(Pid),     // > 0
             AllInGroup,   // == 0
@@ -237,7 +237,7 @@ impl Syscall<'_> {
         };
         match target {
             Target::Pid(pid) => {
-                let proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
+                let _proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
                 todo!();
             }
             Target::AllInGroup => todo!(),

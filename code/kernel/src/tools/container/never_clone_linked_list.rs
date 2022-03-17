@@ -49,6 +49,12 @@ impl<T> NeverCloneLinkedList<T> {
     }
 }
 
+impl<T> const Default for NeverCloneLinkedList<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T> Stack<T> for NeverCloneLinkedList<T> {
     fn push(&mut self, data: T) {
         let next = self.node.take();
@@ -60,12 +66,6 @@ impl<T> Stack<T> for NeverCloneLinkedList<T> {
         self.size -= 1;
         self.node = next;
         Some(data)
-    }
-}
-
-impl<T> Default for NeverCloneLinkedList<T> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

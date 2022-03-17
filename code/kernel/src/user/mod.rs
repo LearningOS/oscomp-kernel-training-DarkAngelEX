@@ -94,8 +94,8 @@ impl UserData<u8> {
 }
 
 impl<T: Clone + 'static> UserData<T> {
-    /// after into_vec the data will no longer need space_guard.
-    pub fn into_vec(&self) -> Vec<T> {
+    /// after to_vec the data will no longer need space_guard.
+    pub fn to_vec(&self) -> Vec<T> {
         self.access().to_vec()
     }
 }
@@ -114,14 +114,14 @@ impl<T> UserDataMut<T> {
     pub fn len(&self) -> usize {
         self.data.len()
     }
-    pub fn access<'b>(&self) -> UserDataGuard<'b, T> {
+    pub fn access(&self) -> UserDataGuard<'_, T> {
         UserDataGuard {
             data: unsafe { &*self.data },
             _mark: PhantomData,
             _auto_sum: AutoSum::new(),
         }
     }
-    pub fn access_mut<'b>(&self) -> UserDataGuardMut<'b, T> {
+    pub fn access_mut(&self) -> UserDataGuardMut<'_, T> {
         UserDataGuardMut {
             data: unsafe { &mut *self.data },
             _mark: PhantomData,
@@ -149,8 +149,8 @@ impl UserDataMut<u8> {
 }
 
 impl<T: Clone + 'static> UserDataMut<T> {
-    /// after into_vec the data will no longer need space_guard.
-    pub fn into_vec(&self) -> Vec<T> {
+    /// after to_vec the data will no longer need space_guard.
+    pub fn to_vec(&self) -> Vec<T> {
         self.access().to_vec()
     }
 }
@@ -236,7 +236,7 @@ user_type_impl_default!(u8);
 user_type_impl_default!(i8);
 impl<T: Clone + Copy + 'static, P: Policy + 'static> UserType for UserPtr<T, P> {
     fn is_null(&self) -> bool {
-        self.raw_ptr() == core::ptr::null()
+        self.raw_ptr().is_null()
     }
     fn new_usize(a: usize) -> Self {
         Self::from_usize(a)
@@ -323,6 +323,6 @@ pub fn test() {
         check.write_check::<u8>(un_data.into()).await.unwrap_err();
         println!("[FTL OS]user_check test pass");
     };
-    let auto_sie = AutoSum::new();
+    let _auto_sum = AutoSum::new();
     executor::block_on(func);
 }

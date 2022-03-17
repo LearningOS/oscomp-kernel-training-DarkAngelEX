@@ -51,7 +51,7 @@ impl<T> SleepMutex<T> {
     ///
     /// TODO: 如果增加响应逻辑则需要清除队列数据并更新slot，避免进入死锁。
     ///
-    pub async fn lock<'a>(&'a self) -> SleepMutexGuard<'a, T> {
+    pub async fn lock(&self) -> SleepMutexGuard<'_, T> {
         SleepMutexFuture::new(self).await
     }
 }
@@ -119,13 +119,11 @@ impl<'a, T> Future for SleepMutexFuture<'a, T> {
         }
         // now mutex.locked is false.
         match slot {
-            Some(slot_id) if slot_id != id => {
-                return push_queue();
-            }
+            Some(slot_id) if slot_id != id => push_queue(),
             _ => {
                 mutex.slot = None;
                 mutex.locked = true;
-                return Poll::Ready(SleepMutexGuard { mutex: self.mutex });
+                Poll::Ready(SleepMutexGuard { mutex: self.mutex })
             }
         }
     }

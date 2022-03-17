@@ -51,7 +51,6 @@ pub fn kernel_default_exception() {
 
     *in_exception = false;
     sepc::write(sepc);
-    return;
 }
 
 fn fatal_exception_error() -> ! {

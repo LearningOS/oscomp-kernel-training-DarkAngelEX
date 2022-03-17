@@ -19,7 +19,7 @@ pub fn find_proc(pid: Pid) -> Option<Arc<Process>> {
 pub fn insert_proc(proc: &Arc<Process>) {
     PROC_MAP
         .lock(place!())
-        .insert(proc.pid(), Arc::downgrade(&proc));
+        .insert(proc.pid(), Arc::downgrade(proc));
 }
 
 pub fn clear_proc(pid: Pid) {

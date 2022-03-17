@@ -77,7 +77,7 @@ impl Drop for StackAllocator {
 impl StackAllocator {
     pub const fn new() -> Self {
         Self {
-            allocator: FastCloneUsizeAllocator::new(0),
+            allocator: FastCloneUsizeAllocator::default(),
         }
     }
     pub fn stack_max() -> usize {
@@ -202,9 +202,12 @@ impl StackSpaceManager {
         stack_reverse: PageCount,
     ) -> Result<UsingStackTracker, TooManyUserStack> {
         let using_stack = self.allocator.alloc(stack_reverse)?;
-        self.using_stacks
+        if let Some(s) = self
+            .using_stacks
             .insert(using_stack.stack_id(), using_stack)
-            .map(|s| panic!("stack double alloc! {:?}", s));
+        {
+            panic!("stack double alloc! {:?}", s)
+        }
         Ok(UsingStackTracker::new(self, using_stack))
     }
     pub unsafe fn dealloc(&mut self, stack_id: StackID) {

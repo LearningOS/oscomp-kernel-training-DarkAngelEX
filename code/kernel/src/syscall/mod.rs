@@ -74,7 +74,7 @@ impl<'a> Syscall<'a> {
     pub async fn syscall(&mut self) -> bool {
         stack_trace!();
         memory_trace!("syscall entry");
-        self.cx.into_next_instruction();
+        self.cx.set_next_instruction();
         let result: SysResult = match self.cx.a7() {
             SYSCALL_DUP => self.sys_dup(),
             SYSCALL_OPEN => self.sys_open().await,
@@ -157,7 +157,7 @@ impl DerefMut for AliveGurad<'_> {
 
 pub type SysResult = Result<usize, SysError>;
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::upper_case_acronyms)]
 #[repr(isize)]
 #[derive(Debug)]
 pub enum SysError {

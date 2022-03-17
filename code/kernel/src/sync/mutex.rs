@@ -100,8 +100,9 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     /// Assume the mutex is free and get reference of value.
     ///
     /// This is only safe during initialization
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn assert_unique_get(&self) -> &mut T {
-        assert_eq!(self.lock.load(Ordering::Relaxed), false);
+        assert!(!self.lock.load(Ordering::Relaxed));
         &mut *self.data.get()
     }
 

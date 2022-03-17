@@ -193,7 +193,7 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
                 return Ok(());
             }
         }
-        while let Some(target) = range.next() {
+        for target in range {
             *target = self.current;
             self.current.add_page_assign(PageCount::from_usize(1));
         }

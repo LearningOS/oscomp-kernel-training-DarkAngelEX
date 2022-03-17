@@ -12,7 +12,7 @@ use crate::{
 pub struct Pid(usize);
 
 impl Pid {
-    pub fn into_usize(&self) -> usize {
+    pub fn into_usize(self) -> usize {
         self.0
     }
 }
@@ -52,7 +52,7 @@ impl Drop for PidHandle {
     }
 }
 
-static PID_ALLOCATOR: SpinLock<PidAllocator> = SpinLock::new(PidAllocator::new(0));
+static PID_ALLOCATOR: SpinLock<PidAllocator> = SpinLock::new(PidAllocator::default());
 
 pub fn pid_alloc() -> PidHandle {
     PID_ALLOCATOR.lock(place!()).alloc()

@@ -38,6 +38,13 @@ impl<T: Copy> FastCloneLinkedList<T> {
         self.size = 0;
     }
 }
+
+impl<T: Copy> const Default for FastCloneLinkedList<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<T: Copy> Stack<T> for FastCloneLinkedList<T> {
     fn push(&mut self, data: T) {
         let next = self.node.take();
@@ -50,12 +57,6 @@ impl<T: Copy> Stack<T> for FastCloneLinkedList<T> {
         self.size -= 1;
         self.node = this.next.clone();
         Some(this.data)
-    }
-}
-
-impl<T: Copy> Default for FastCloneLinkedList<T> {
-    fn default() -> Self {
-        Self::new()
     }
 }
 

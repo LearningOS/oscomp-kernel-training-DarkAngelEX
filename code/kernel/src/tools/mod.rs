@@ -30,7 +30,7 @@ macro_rules! impl_usize_from {
             }
         }
         impl $name {
-            pub const fn into_usize(&self) -> usize {
+            pub const fn into_usize(self) -> usize {
                 let $v = self;
                 $body
             }
@@ -129,12 +129,12 @@ pub fn n_space(n: usize) -> String {
 
 const COLOR_TEST: bool = false;
 const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
-const MULTI_THREAD_STRESS_TEST: bool = false;
+const MULTI_THREAD_STRESS_TEST: bool = true;
 
 pub fn multi_thread_test(hart: usize) {
-    wait_all_hart();
-    if hart == 0 {
-        if COLOR_TEST {
+    if COLOR_TEST {
+        wait_all_hart();
+        if hart == 0 {
             color::test::color_test();
         }
     }
@@ -151,6 +151,7 @@ fn multi_thread_performance_test(hart: usize) {
         wait_all_hart();
         panic!("multi_thread_performance_test complete");
     } else {
+        wait_all_hart();
         if hart == 0 {
             println!("skip multi_thread_performance_test");
         }
@@ -165,6 +166,7 @@ fn multi_thread_stress_test(hart: usize) {
         wait_all_hart();
         panic!("multi_thread_stress_test complete");
     } else {
+        wait_all_hart();
         if hart == 0 {
             println!("skip multi_thread_stress_test");
         }

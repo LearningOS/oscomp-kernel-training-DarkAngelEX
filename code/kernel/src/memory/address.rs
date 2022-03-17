@@ -178,16 +178,16 @@ impl_usize_from!(PageCount, v, v.0);
 macro_rules! impl_addr_4K_common {
     ($name: ident, $x4K_name: ident) => {
         impl $name {
-            pub const fn floor(&self) -> $x4K_name {
+            pub const fn floor(self) -> $x4K_name {
                 $x4K_name(self.0 & !(PAGE_SIZE - 1))
             }
-            pub const fn ceil(&self) -> $x4K_name {
+            pub const fn ceil(self) -> $x4K_name {
                 $x4K_name((self.0 + PAGE_SIZE - 1) & !(PAGE_SIZE - 1))
             }
-            pub const fn page_offset(&self) -> usize {
+            pub const fn page_offset(self) -> usize {
                 self.0 & (PAGE_SIZE - 1)
             }
-            pub const fn aligned(&self) -> bool {
+            pub const fn aligned(self) -> bool {
                 self.page_offset() == 0
             }
         }
@@ -272,22 +272,22 @@ macro_rules! add_sub_impl {
         impl $name_4k {
             /// the answer is in the return value!
             #[must_use = "the answer is in the return value!"]
-            pub const fn add_one_page(&self) -> Self {
+            pub const fn add_one_page(self) -> Self {
                 Self(self.0 + PAGE_SIZE)
             }
             /// the answer is in the return value!
             #[must_use = "the answer is in the return value!"]
-            pub const fn sub_one_page(&self) -> Self {
+            pub const fn sub_one_page(self) -> Self {
                 Self(self.0 - PAGE_SIZE)
             }
             #[must_use = "the answer is in the return value!"]
             /// the answer is in the return value!
-            pub const fn add_page(&self, n: PageCount) -> Self {
+            pub const fn add_page(self, n: PageCount) -> Self {
                 Self(self.0 + n.byte_space())
             }
             #[must_use = "the answer is in the return value!"]
             /// the answer is in the return value!
-            pub const fn sub_page(&self, n: PageCount) -> Self {
+            pub const fn sub_page(self, n: PageCount) -> Self {
                 Self(self.0 - n.byte_space())
             }
             pub fn add_page_assign(&mut self, n: PageCount) {
@@ -308,51 +308,51 @@ add_sub_impl!(PhyAddr4K);
 add_sub_impl!(PhyAddrRef4K);
 
 impl UserAddr {
-    pub const fn is_4k_align(&self) -> bool {
+    pub const fn is_4k_align(self) -> bool {
         (self.into_usize() % PAGE_SIZE) == 0
     }
-    pub const fn valid(&self) -> Result<(), ()> {
+    pub const fn valid(self) -> Result<(), ()> {
         tools::bool_result(self.0 <= USER_END)
     }
     pub const unsafe fn from_usize(addr: usize) -> Self {
         Self(addr)
     }
-    pub fn get_mut<T>(&self) -> &'static mut T {
+    pub fn get_mut<T>(self) -> &'static mut T {
         unsafe { &mut *(self.0 as *mut T) }
     }
     pub fn add_assign(&mut self, num: usize) {
         self.0 += num
     }
-    pub unsafe fn as_ptr<T>(&self) -> &'static T {
+    pub unsafe fn as_ptr<T>(self) -> &'static T {
         &*(self.0 as *const T)
     }
-    pub unsafe fn as_ptr_mut<T>(&self) -> &'static mut T {
+    pub unsafe fn as_ptr_mut<T>(self) -> &'static mut T {
         &mut *(self.0 as *mut T)
     }
 }
 impl VirAddr {
-    pub fn as_ptr<T>(&self) -> *const T {
+    pub fn as_ptr<T>(self) -> *const T {
         self.into_usize() as *const T
     }
-    pub fn as_ptr_mut<T>(&self) -> *mut T {
+    pub fn as_ptr_mut<T>(self) -> *mut T {
         self.into_usize() as *mut T
     }
-    pub unsafe fn as_ref<T>(&self) -> &'static T {
+    pub unsafe fn as_ref<T>(self) -> &'static T {
         &*self.as_ptr()
     }
-    pub unsafe fn as_mut<T>(&self) -> &'static mut T {
+    pub unsafe fn as_mut<T>(self) -> &'static mut T {
         &mut *self.as_ptr_mut()
     }
 }
 impl VirAddr4K {
-    pub const fn indexes(&self) -> [usize; 3] {
+    pub const fn indexes(self) -> [usize; 3] {
         let v = self.vpn();
         const fn f(a: usize) -> usize {
             a & 0x1ff
         }
         [f(v >> 18), f(v >> 9), f(v)]
     }
-    pub const fn vpn(&self) -> usize {
+    pub const fn vpn(self) -> usize {
         self.0 >> PAGE_SIZE_BITS
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
@@ -363,50 +363,50 @@ impl PhyAddr {
     pub const fn from_usize(n: usize) -> Self {
         Self(n)
     }
-    pub fn into_ref(&self) -> PhyAddrRef {
-        PhyAddrRef::from(*self)
+    pub fn into_ref(self) -> PhyAddrRef {
+        PhyAddrRef::from(self)
     }
 }
 impl PhyAddr4K {
     /// physical page number
-    pub const fn ppn(&self) -> usize {
+    pub const fn ppn(self) -> usize {
         self.0 >> PAGE_SIZE_BITS
     }
     pub const fn from_satp(satp: usize) -> Self {
         // let ppn = satp & (1usize << 44) - 1;
-        let ppn = satp & (1usize << 38) - 1;
+        let ppn = satp & ((1usize << 38) - 1);
         Self(ppn << 12)
     }
     /// assume n % PAGE_SIZE
     pub const unsafe fn from_usize(n: usize) -> Self {
         Self(n)
     }
-    pub fn into_ref(&self) -> PhyAddrRef4K {
-        PhyAddrRef4K::from(*self)
+    pub fn into_ref(self) -> PhyAddrRef4K {
+        PhyAddrRef4K::from(self)
     }
 }
 
 impl PhyAddrRef4K {
-    pub fn as_pte_array(&self) -> &'static [PageTableEntry; 512] {
+    pub fn as_pte_array(self) -> &'static [PageTableEntry; 512] {
         self.as_mut()
     }
-    pub fn as_pte_array_mut(&self) -> &'static mut [PageTableEntry; 512] {
+    pub fn as_pte_array_mut(self) -> &'static mut [PageTableEntry; 512] {
         self.as_mut()
     }
-    pub fn as_bytes_array(&self) -> &'static [u8; 4096] {
+    pub fn as_bytes_array(self) -> &'static [u8; 4096] {
         self.as_mut()
     }
-    pub fn as_bytes_array_mut(&self) -> &'static mut [u8; 4096] {
+    pub fn as_bytes_array_mut(self) -> &'static mut [u8; 4096] {
         self.as_mut()
     }
-    pub fn as_usize_array(&self) -> &'static [usize; 512] {
+    pub fn as_usize_array(self) -> &'static [usize; 512] {
         self.as_mut()
     }
-    pub fn as_usize_array_mut(&self) -> &'static mut [usize; 512] {
+    pub fn as_usize_array_mut(self) -> &'static mut [usize; 512] {
         self.as_mut()
     }
-    pub fn as_mut<T>(&self) -> &'static mut T {
-        let pa: PhyAddrRef = (*self).into();
+    pub fn as_mut<T>(self) -> &'static mut T {
+        let pa: PhyAddrRef = self.into();
         unsafe { &mut *(pa.0 as *mut T) }
     }
     pub const unsafe fn from_usize(n: usize) -> Self {
@@ -427,22 +427,22 @@ impl UserAddr4K {
     }
     /// the answer is in the return value!
     #[must_use = "the answer is in the return value!"]
-    pub const fn add_one_page(&self) -> Self {
+    pub const fn add_one_page(self) -> Self {
         Self(self.0 + PAGE_SIZE)
     }
     /// the answer is in the return value!
     #[must_use = "the answer is in the return value!"]
-    pub const fn sub_one_page(&self) -> Self {
+    pub const fn sub_one_page(self) -> Self {
         Self(self.0 - PAGE_SIZE)
     }
     #[must_use = "the answer is in the return value!"]
     /// the answer is in the return value!
-    pub const fn add_page(&self, n: PageCount) -> Self {
+    pub const fn add_page(self, n: PageCount) -> Self {
         Self(self.0 + n.byte_space())
     }
     #[must_use = "the answer is in the return value!"]
     /// the answer is in the return value!
-    pub const fn sub_page(&self, n: PageCount) -> Self {
+    pub const fn sub_page(self, n: PageCount) -> Self {
         Self(self.0 - n.byte_space())
     }
     pub fn add_page_assign(&mut self, n: PageCount) {
@@ -452,10 +452,10 @@ impl UserAddr4K {
     pub fn sub_page_assign(&mut self, n: PageCount) {
         self.0 -= n.byte_space()
     }
-    pub const fn vpn(&self) -> usize {
+    pub const fn vpn(self) -> usize {
         self.0 >> PAGE_SIZE_BITS
     }
-    pub const fn indexes(&self) -> [usize; 3] {
+    pub const fn indexes(self) -> [usize; 3] {
         let v = self.vpn();
         const fn f(a: usize) -> usize {
             a & 0x1ff
@@ -474,7 +474,7 @@ impl PageCount {
     pub const fn from_usize(v: usize) -> Self {
         Self(v)
     }
-    pub const fn byte_space(&self) -> usize {
+    pub const fn byte_space(self) -> usize {
         self.0 * PAGE_SIZE
     }
 }

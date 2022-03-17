@@ -189,9 +189,9 @@ impl<T> LockfreeQueue<T> {
     }
     pub fn push(&self, value: T) -> Result<(), ()> {
         fn block() {
-            // for i in 0..1000 {
-            //     core::hint::black_box(i);
-            // }
+            for i in 0..1000 {
+                core::hint::black_box(i);
+            }
         }
         stack_trace!();
         let node = LockfreeNode::new(value);
@@ -237,7 +237,7 @@ impl<T> LockfreeQueue<T> {
                 }
             };
             let new_tail = MarkedPtr::new(next_ptr.id(), Some(new_node));
-            block();
+            // block();
             // next 延迟修改会导致 take_all 无法正确获得最新 next
             match next.compare_exchange(next_ptr, new_tail) {
                 Ok(_) => {
@@ -262,6 +262,11 @@ impl<T> LockfreeQueue<T> {
         }
     }
     pub fn pop(&self) -> Result<Option<T>, ()> {
+        fn block() {
+            for i in 0..1000 {
+                core::hint::black_box(i);
+            }
+        }
         stack_trace!();
         // self.head 必然是合法地址, 即使被释放了也可以取到无效数据而不会异常 放在 loop 外减少一次 fetch
         let mut head = self.head.load();
@@ -305,6 +310,7 @@ impl<T> LockfreeQueue<T> {
             // 避免 value 被另一个线程 pop 后释放, 提前读数据, 这个数据可能是无效值 next_v 已经被判断.
             let value = unsafe { core::ptr::read(&next_v.unwrap().as_mut().value) };
             // 使用 SeqCst 保证 value 取值在 cas 之前, 释放head在 cas 之后
+            // block();
             match self.head.compare_exchange(head, new_head) {
                 Ok(_) => {
                     // 如果 CAS 成功则拥有了 head 与 value 的所有权. head 已经被非空判断.
@@ -427,11 +433,9 @@ pub mod test {
                 }
                 v.clear();
             }
-            let mut cnt = 0;
-            for &i in set.iter() {
+            for (cnt, &i) in set.iter().enumerate() {
                 // print!("{} ", i);
                 assert_eq!(i, cnt);
-                cnt += 1;
             }
         }
     }
@@ -557,27 +561,28 @@ pub mod test {
         let t0 = timer::get_time_ticks();
         tools::wait_all_hart();
 
-        if hart == 0 {
-            const IN_ORDER: bool = false;
-            let mut xv = 0;
-            loop {
-                if COUNT_PUSH.load(Ordering::Relaxed) >= total {
-                    break;
-                }
-                let mut list = take_all();
-                let mut cnt = 0;
-                while let Some(v) = list.pop() {
-                    if IN_ORDER {
-                        assert_eq!(xv, v);
-                        xv += 1;
+        match hart {
+            0 => {
+                const IN_ORDER: bool = false;
+                let mut xv = 0;
+                loop {
+                    if COUNT_PUSH.load(Ordering::Relaxed) >= total {
+                        break;
                     }
-                    unsafe { SET_TABLE[hart].push(v) };
-                    cnt += 1;
+                    let mut list = take_all();
+                    let mut cnt = 0;
+                    while let Some(v) = list.pop() {
+                        if IN_ORDER {
+                            assert_eq!(xv, v);
+                            xv += 1;
+                        }
+                        unsafe { SET_TABLE[hart].push(v) };
+                        cnt += 1;
+                    }
+                    COUNT_POP.fetch_add(cnt, Ordering::Relaxed);
                 }
-                COUNT_POP.fetch_add(cnt, Ordering::Relaxed);
             }
-        } else if hart == 1 && false {
-            loop {
+            1 => loop {
                 if COUNT_PUSH.load(Ordering::Relaxed) >= total {
                     break;
                 }
@@ -585,19 +590,21 @@ pub mod test {
                     unsafe { SET_TABLE[hart].push(v) };
                     COUNT_POP.fetch_add(1, Ordering::Relaxed);
                 }
-            }
-        } else {
-            const BATCH: usize = 1000;
-            loop {
-                let begin = COUNT_PUSH.fetch_add(BATCH, Ordering::Relaxed);
-                if begin >= total {
-                    break;
+            },
+            2 => {
+                const BATCH: usize = 1000;
+                loop {
+                    let begin = COUNT_PUSH.fetch_add(BATCH, Ordering::Relaxed);
+                    if begin >= total {
+                        break;
+                    }
+                    let end = (begin + BATCH).min(total);
+                    for i in begin..end {
+                        push(i);
+                    }
                 }
-                let end = (begin + BATCH).min(total);
-                for i in begin..end {
-                    push(i);
-                }
             }
+            _ => (),
         }
         tools::wait_all_hart();
         if hart == 0 {
@@ -632,7 +639,7 @@ pub mod test {
     static TEST_QUEUE_0: LockfreeQueue<usize> = LockfreeQueue::new();
     static TEST_QUEUE_1: Mutex<LinkedList<usize>> = Mutex::new(LinkedList::new());
     static TEST_QUEUE_2: Mutex<core::lazy::Lazy<VecDeque<usize>>> =
-        Mutex::new(core::lazy::Lazy::new(|| VecDeque::new()));
+        Mutex::new(core::lazy::Lazy::new(VecDeque::new));
     static TEST_QUEUE_3: LockfreeStack<usize> = LockfreeStack::new();
     static mut SET_TABLE: [Vec<usize>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
@@ -667,10 +674,12 @@ pub mod test {
         }
         let push = |a| {
             let v = &**TEST_QUEUE_2.lock(place!());
+            #[allow(clippy::cast_ref_to_mut)]
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.push_back(a)
         };
         let pop = || {
             let v = &**TEST_QUEUE_2.lock(place!());
+            #[allow(clippy::cast_ref_to_mut)]
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.pop_front()
         };
         group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);

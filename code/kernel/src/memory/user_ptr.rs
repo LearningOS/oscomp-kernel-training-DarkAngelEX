@@ -50,7 +50,7 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
         self.ptr
     }
     pub fn as_ptr(self) -> Option<*const T> {
-        if self.ptr == core::ptr::null_mut() || self.ptr as usize > USER_END {
+        if self.ptr.is_null() || self.ptr as usize > USER_END {
             return None;
         }
         Some(self.ptr)
@@ -70,7 +70,7 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
 }
 impl<T: Clone + Copy + 'static, P: Read> UserPtr<T, P> {
     pub fn nonnull(self) -> Option<Self> {
-        (self.ptr != core::ptr::null_mut()).then_some(self)
+        (!self.ptr.is_null()).then_some(self)
     }
 }
 impl<T: Clone + Copy + 'static, P: Write> UserPtr<T, P> {
@@ -78,7 +78,7 @@ impl<T: Clone + Copy + 'static, P: Write> UserPtr<T, P> {
         self.ptr
     }
     pub fn nonnull_mut(self) -> Option<Self> {
-        (self.ptr != core::ptr::null_mut()).then_some(self)
+        (!self.ptr.is_null()).then_some(self)
     }
 }
 impl<T: Clone + Copy + 'static, P: Policy> From<usize> for UserPtr<T, P> {

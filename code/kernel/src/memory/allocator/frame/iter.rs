@@ -47,7 +47,7 @@ impl<'a> SliceFrameDataIter<'a> {
         let len = self.data.len();
         let (l, r) = self.data.split_at(PAGE_SIZE.min(len));
         self.data = r;
-        return Some(l);
+        Some(l)
     }
 }
 

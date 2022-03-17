@@ -21,19 +21,19 @@ pub mod test {
         for i in 0..30 {
             print!("\x1b[{}m{:0>3}\x1b[0m ", i, i);
         }
-        println!("");
+        println!();
         for i in 30..60 {
             print!("\x1b[{}m{:0>3}\x1b[0m ", i, i);
         }
-        println!("");
+        println!();
         for i in 60..90 {
             print!("\x1b[{}m{:0>3}\x1b[0m ", i, i);
         }
-        println!("");
+        println!();
         for i in 90..120 {
             print!("\x1b[{}m{:0>3}\x1b[0m ", i, i);
         }
-        println!("");
+        println!();
         println!("color_test end");
         panic!()
     }

@@ -12,10 +12,10 @@ impl Debug for Fdt32 {
 }
 
 impl Fdt32 {
-    pub fn small_end(&self) -> u32 {
+    pub fn small_end(self) -> u32 {
         let x = self.0;
-        let [a, b, c, d] = [x >> 0, x >> 8, x >> 16, x >> 24].map(|a| a & 0xff);
-        a << 24 | b << 16 | c << 8 | d << 0
+        let [a, b, c, d] = [x, x >> 8, x >> 16, x >> 24].map(|a| a & 0xff);
+        a << 24 | b << 16 | c << 8 | d
     }
 }
 

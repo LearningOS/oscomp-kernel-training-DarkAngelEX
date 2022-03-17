@@ -76,7 +76,7 @@ impl BenchmarkTimer {
             print!("*");
         }
         print!("\x1b[0m");
-        print!("\n");
+        println!();
         self.tick = timer::get_time_ticks();
         dur
     }
@@ -127,7 +127,8 @@ fn atomic_test() {
     let a = AtomicUsize::new(0);
     for i in 0..base_n / ratio {
         let x = a.load(Ordering::Relaxed);
-        a.compare_exchange_weak(x, x + i, Ordering::Relaxed, Ordering::Relaxed).unwrap();
+        a.compare_exchange_weak(x, x + i, Ordering::Relaxed, Ordering::Relaxed)
+            .unwrap();
     }
     timer.check("CAS", base_time, ratio);
 
@@ -217,8 +218,6 @@ fn atomic_test() {
         sfence::sfence_vma_va_asid(123, 456);
     }
     timer.check("sfence_vma_va_asid", base_time, ratio);
-
-    return;
 }
 
 unsafe fn set_benchmark_trap() {
@@ -234,8 +233,5 @@ unsafe fn set_benchmark_save_trap() {
     extern "C" {
         fn __kernel_benchmark_save_vector();
     }
-    stvec::write(
-        __kernel_benchmark_save_vector as usize,
-        TrapMode::Vectored,
-    );
+    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Vectored);
 }

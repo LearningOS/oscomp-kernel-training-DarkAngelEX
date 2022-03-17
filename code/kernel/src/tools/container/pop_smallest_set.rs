@@ -33,6 +33,11 @@ impl<T: Ord> PopSmallestSet<T> {
         self.set.retain(f)
     }
 }
+impl<T: Ord> const Default for PopSmallestSet<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl<T: Ord> Stack<T> for PopSmallestSet<T> {
     fn push(&mut self, data: T) {

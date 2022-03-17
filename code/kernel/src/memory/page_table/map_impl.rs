@@ -482,14 +482,14 @@ impl PageTable {
                 if full {
                     // 1GB page table
                     assert!(!pte.is_valid(), "1GB pagetable: remap");
-                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 2)) == 0);
+                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << (9 * 2))) == 0);
                     // if true || PRINT_MAP_ALL {
                     //     println!("map 1GB {:?} -> {:?}", va, pa);
                     // }
                     *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
                     unsafe {
-                        va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 2));
-                        pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 2));
+                        va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << (9 * 2)));
+                        pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << (9 * 2)));
                     }
                 } else {
                     if !pte.is_valid() {
@@ -519,11 +519,11 @@ impl PageTable {
                 if full {
                     // 1MB page table
                     assert!(!pte.is_valid(), "1MB pagetable: remap");
-                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9 * 1)) == 0);
+                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9)) == 0);
                     *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
                     unsafe {
-                        va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9 * 1));
-                        pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9 * 1));
+                        va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9));
+                        pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9));
                     }
                 } else {
                     if !pte.is_valid() {

@@ -20,13 +20,14 @@ pub struct VirtIOBlock(SpinNoIrqLock<VirtIOBlk<'static>>);
 
 impl BlockDevice for VirtIOBlock {
     fn read_block(&self, block_id: usize, buf: &mut [u8]) {
-        file!();
+        stack_trace!();
         self.0
             .lock(place!())
             .read_block(block_id, buf)
             .expect("Error when reading VirtIOBlk");
     }
     fn write_block(&self, block_id: usize, buf: &[u8]) {
+        stack_trace!();
         self.0
             .lock(place!())
             .write_block(block_id, buf)
@@ -68,12 +69,12 @@ pub extern "C" fn virtio_phys_to_virt(paddr: PhyAddr) -> PhyAddrRef {
 pub extern "C" fn virtio_virt_to_phys(vaddr: VirAddr) -> PhyAddr {
     //println!("v:{:x}",vaddr);
     let vaddr = vaddr.into_usize();
-    let pa = if vaddr >= DIRECT_MAP_BEGIN && vaddr <= DIRECT_MAP_END {
-        vaddr - DIRECT_MAP_OFFSET
-    } else if vaddr >= KERNEL_TEXT_BEGIN && vaddr <= KERNEL_TEXT_END {
-        vaddr - KERNEL_OFFSET_FROM_DIRECT_MAP - DIRECT_MAP_OFFSET
-    } else {
-        panic!("virtio_virt_to_phys error: {:#x}", vaddr);
+    let pa = match vaddr {
+        DIRECT_MAP_BEGIN..=DIRECT_MAP_END => vaddr - DIRECT_MAP_OFFSET,
+        KERNEL_TEXT_BEGIN..=KERNEL_TEXT_END => {
+            vaddr - KERNEL_OFFSET_FROM_DIRECT_MAP - DIRECT_MAP_OFFSET
+        }
+        _ => panic!("virtio_virt_to_phys error: {:#x}", vaddr),
     };
     PhyAddr::from_usize(pa)
 }

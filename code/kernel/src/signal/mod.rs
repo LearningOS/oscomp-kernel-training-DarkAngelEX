@@ -5,7 +5,7 @@ use crate::{
     sync::even_bus::Event,
 };
 
-#[allow(dead_code)]
+#[allow(dead_code, clippy::upper_case_acronyms)]
 pub enum StardardSignal {
     SIGHUP = 1,
     SIGINT = 2,

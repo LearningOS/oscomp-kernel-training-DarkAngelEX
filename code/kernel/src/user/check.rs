@@ -65,7 +65,7 @@ impl UserCheck {
             // check when first access a page.
         }
         let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len) };
-        return Ok(UserData::new(slice));
+        Ok(UserData::new(slice))
     }
 
     pub async fn translated_user_2d_array_zero_end<T: UserType>(

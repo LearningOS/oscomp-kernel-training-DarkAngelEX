@@ -22,13 +22,13 @@ impl TimeTicks {
     pub fn from_usize(ticks: usize) -> Self {
         Self(ticks)
     }
-    pub fn into_usize(&self) -> usize {
+    pub fn into_usize(self) -> usize {
         self.0
     }
     pub fn from_millisecond(ms: usize) -> Self {
         Self(ms * (CLOCK_FREQ / MILLISECOND_PER_SEC))
     }
-    pub fn into_millisecond(&self) -> usize {
+    pub fn into_millisecond(self) -> usize {
         self.0 / (CLOCK_FREQ / MILLISECOND_PER_SEC)
     }
 }

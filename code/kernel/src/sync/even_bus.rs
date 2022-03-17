@@ -37,9 +37,7 @@ bitflags! {
 pub struct EvenBusClose;
 
 impl From<EvenBusClose> for () {
-    fn from(_: EvenBusClose) -> Self {
-        ()
-    }
+    fn from(_: EvenBusClose) -> Self {}
 }
 impl From<EvenBusClose> for DeadProcess {
     fn from(_: EvenBusClose) -> Self {

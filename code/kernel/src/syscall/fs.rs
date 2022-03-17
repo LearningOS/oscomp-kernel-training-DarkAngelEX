@@ -21,8 +21,8 @@ impl<'a> Syscall<'a> {
         let fd = Fd::from_usize(fd);
         let new = self
             .alive_then(move |a| a.fd_table.dup(fd))?
-            .ok_or_else(|| SysError::ENFILE)?;
-        Ok(new.into_usize())
+            .ok_or(SysError::ENFILE)?;
+        Ok(new.to_usize())
     }
     pub async fn sys_read(&mut self) -> SysResult {
         stack_trace!();
@@ -37,7 +37,7 @@ impl<'a> Syscall<'a> {
             (fd, write_only_buffer)
         };
         let file = self
-            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).map(|p| p.clone()))?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
             .ok_or(SysError::EBADF)?;
         if !file.readable() {
             return Err(SysError::EPERM);
@@ -57,7 +57,7 @@ impl<'a> Syscall<'a> {
             (fd, read_only_buffer)
         };
         let file = self
-            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).map(|p| p.clone()))?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
             .ok_or(SysError::EBADF)?;
         if !file.writable() {
             return Err(SysError::EPERM);
@@ -75,13 +75,13 @@ impl<'a> Syscall<'a> {
             let path = UserCheck::new()
                 .translated_user_array_zero_end(path)
                 .await?
-                .into_vec();
+                .to_vec();
             (String::from_utf8(path)?, flags)
         };
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::from_bits(flags).unwrap())
             .ok_or(SysError::ENFILE)?;
         let fd = self.alive_then(move |a| a.fd_table.insert(inode))?;
-        Ok(fd.into_usize())
+        Ok(fd.to_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {
         stack_trace!();
@@ -104,8 +104,8 @@ impl<'a> Syscall<'a> {
             .await?;
         let (reader, writer) = pipe::make_pipe()?;
         let (rfd, wfd) = self.alive_then(move |a| {
-            let rfd = a.fd_table.insert(reader).into_usize();
-            let wfd = a.fd_table.insert(writer).into_usize();
+            let rfd = a.fd_table.insert(reader).to_usize();
+            let wfd = a.fd_table.insert(writer).to_usize();
             (rfd, wfd)
         })?;
         write_to.access_mut().copy_from_slice(&[rfd, wfd]);

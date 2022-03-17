@@ -152,7 +152,7 @@ fn using_stack_size_print_impl(current: usize) {
     if current >= KERNEL_STACK_SIZE {
         print!(" \x1b[31m!!!stack over flow!!!\x1b[0m");
     }
-    print!("\n");
+    println!();
 }
 
 pub fn using_stack_size() -> usize {

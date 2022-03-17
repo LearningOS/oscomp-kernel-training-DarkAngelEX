@@ -146,7 +146,7 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
-        local.into_task_switch(&mut self.local_switch);
+        local.enter_task_switch(&mut self.local_switch);
         let ret = self.future.as_mut().poll(cx);
         local.leave_task_switch(&mut self.local_switch);
         ret

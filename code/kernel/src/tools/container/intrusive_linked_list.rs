@@ -296,7 +296,7 @@ impl NodeIter {
                     return Some((a, b));
                 }
             }
-            return None;
+            None
         }
     }
     pub fn next(&mut self) -> Result<(), ()> {
@@ -306,7 +306,7 @@ impl NodeIter {
                 return Ok(());
             }
         }
-        return Err(());
+        Err(())
     }
     // 释放连续两个节点并返回第一个的值 需要保证第二个节点的空间不会被立刻使用。
     pub fn remove_current_and_next(&mut self) {
@@ -324,8 +324,6 @@ impl NodeIter {
 
 pub mod test {
     use core::ptr::NonNull;
-
-    use alloc::vec;
 
     use crate::{
         memory::allocator::frame, tools::container::intrusive_linked_list::IntrusiveLinkedList,
@@ -355,7 +353,7 @@ pub mod test {
                 *x = anti(v);
                 print!("{} ", x);
             }
-            print!("\n");
+            println!();
             assert_eq!(list.pop(), None);
             for x in test_set.windows(2) {
                 assert!(x[0] < x[1]);
@@ -392,7 +390,7 @@ pub mod test {
             xprint(&list);
             print!(" ");
             xprint(&new_list);
-            print!("\n");
+            println!();
             for &x in leave.iter() {
                 let v = list.pop().unwrap();
                 assert_eq!(x, anti(v));
@@ -409,14 +407,14 @@ pub mod test {
         stack_trace!();
         if false {
             println!("IntrusiveLinkedList sort_test begin");
-            sort_test(&mut vec![1]);
-            sort_test(&mut vec![1, 2]);
-            sort_test(&mut vec![2, 1]);
-            sort_test(&mut vec![2, 3, 1]);
-            sort_test(&mut vec![1, 2, 3, 4, 5]);
-            sort_test(&mut vec![5, 4, 3, 2, 1]);
-            sort_test(&mut vec![1, 8, 45, 13, 56, 15, 489, 12, 68, 74, 23, 49]);
-            sort_test(&mut vec![5, 12, 68, 74, 23, 49, 1, 8, 45, 13, 56, 15, 489]);
+            sort_test(&mut [1]);
+            sort_test(&mut [1, 2]);
+            sort_test(&mut [2, 1]);
+            sort_test(&mut [2, 3, 1]);
+            sort_test(&mut [1, 2, 3, 4, 5]);
+            sort_test(&mut [5, 4, 3, 2, 1]);
+            sort_test(&mut [1, 8, 45, 13, 56, 15, 489, 12, 68, 74, 23, 49]);
+            sort_test(&mut [5, 12, 68, 74, 23, 49, 1, 8, 45, 13, 56, 15, 489]);
             println!("IntrusiveLinkedList sort_test pass");
             println!("IntrusiveLinkedList collection_test begin");
             collection_test(&[2, 4], &[2, 4], &[]);

@@ -212,7 +212,7 @@ struct ReadPipeFuture<'a> {
     current: usize,
 }
 impl ReadPipeFuture<'_> {
-    fn pipe_and_buf_mut<'a>(&'a mut self) -> (&'a mut Pipe, &'a mut UserDataMut<u8>) {
+    fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut UserDataMut<u8>) {
         (self.pipe, &mut self.buffer)
     }
 }
@@ -266,7 +266,7 @@ struct WritePipeFuture<'a> {
     current: usize,
 }
 impl WritePipeFuture<'_> {
-    fn pipe_and_buf_mut<'a>(&'a mut self) -> (&'a mut Pipe, &'a mut UserData<u8>) {
+    fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut UserData<u8>) {
         (self.pipe, &mut self.buffer)
     }
 }

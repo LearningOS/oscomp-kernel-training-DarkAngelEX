@@ -47,6 +47,7 @@ pub fn sfence_vma_va(va: usize) {
 pub fn sfence_vma_va_asid(va: usize, asid: usize) {
     unsafe {
         // alloc a register, assume rs2 != x0
+        #[allow(clippy::uninit_assumed_init)]
         let mut x: usize = MaybeUninit::uninit().assume_init();
         asm!(
         "add {2}, x0, {1}",

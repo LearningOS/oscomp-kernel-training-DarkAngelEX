@@ -99,7 +99,7 @@ impl UKContext {
     //     rx.rsplit_array_ref::<22>().1.split_array_ref().0
     // }
     /// sepc += 4
-    pub fn into_next_instruction(&mut self) {
+    pub fn set_next_instruction(&mut self) {
         self.user_sepc.add_assign(4);
     }
 
@@ -117,7 +117,7 @@ impl UKContext {
         self.user_sstatus = sstatus;
     }
 
-    pub fn fork(self: &Box<Self>) -> Box<Self> {
+    pub fn fork(&self) -> Box<Self> {
         let mut new = unsafe { Self::any() };
         new.user_rx = self.user_rx;
         new.user_sepc = self.user_sepc;

@@ -23,6 +23,12 @@
 #![feature(once_cell)]
 #![feature(get_mut_unchecked)]
 #![feature(new_uninit)]
+#![feature(const_trait_impl)]
+#![feature(const_try)]
+#![feature(const_mut_refs)]
+#![feature(const_option)]
+#![feature(const_convert)]
+#![feature(const_for)]
 
 // #![allow(dead_code)]
 

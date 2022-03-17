@@ -37,7 +37,7 @@ impl ThreadGroup {
     pub fn new(start: usize) -> Self {
         Self {
             threads: BTreeMap::new(),
-            tid_allocator: NeverCloneUsizeAllocator::new(start),
+            tid_allocator: NeverCloneUsizeAllocator::default().start(start),
         }
     }
     pub fn iter(&self) -> impl Iterator<Item = Arc<Thread>> + '_ {
@@ -71,7 +71,7 @@ impl ThreadGroup {
         Tid::from_usize(x)
     }
     pub unsafe fn dealloc_tid(&mut self, tid: Tid) {
-        self.tid_allocator.dealloc(tid.into_usize())
+        self.tid_allocator.dealloc(tid.to_usize())
     }
 }
 
@@ -109,7 +109,7 @@ impl Thread {
                 exec_path: String::new(),
                 parent: None,
                 children: ChildrenSet::new(),
-                threads: ThreadGroup::new(tid.into_usize() + 1),
+                threads: ThreadGroup::new(tid.to_usize() + 1),
                 fd_table: FdTable::new(),
                 signal_queue: LinkedList::new(),
             })),
@@ -149,9 +149,11 @@ impl Thread {
             }),
         }
     }
+    #[allow(clippy::mut_from_ref)]
     pub fn inner(&self) -> &mut ThreadInner {
         unsafe { &mut *self.inner.get() }
     }
+    #[allow(clippy::mut_from_ref)]
     pub fn get_context(&self) -> &mut UKContext {
         unsafe { &mut (*self.inner.get()).uk_context }
     }

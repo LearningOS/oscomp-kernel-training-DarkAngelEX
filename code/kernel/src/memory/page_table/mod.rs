@@ -94,7 +94,7 @@ impl PageTableEntry {
         (self.bits & 1usize << 9) != 0
     }
     pub fn reserved_bit(&self) -> usize {
-        self.bits & ((1usize << 10 - 1) << 54)
+        self.bits & (((1usize << 10) - 1) << 54)
     }
     pub fn alloc_by(
         &mut self,

@@ -3,21 +3,21 @@ use core::marker::PhantomData;
 use crate::tools::{
     container::{
         fast_clone_linked_list::FastCloneLinkedList, never_clone_linked_list::NeverCloneLinkedList,
-        Stack, pop_smallest_set::PopSmallestSet,
+        Stack,
     },
     ForwardWrapper, Wrapper,
 };
 
 pub trait FromUsize {
     fn from_usize(num: usize) -> Self;
-    fn into_usize(&self) -> usize;
+    fn to_usize(&self) -> usize;
 }
 
 impl FromUsize for usize {
     fn from_usize(num: usize) -> Self {
         num
     }
-    fn into_usize(&self) -> usize {
+    fn to_usize(&self) -> usize {
         *self
     }
 }
@@ -29,7 +29,7 @@ macro_rules! from_usize_impl {
             fn from_usize(num: usize) -> Self {
                 Self(num)
             }
-            fn into_usize(&self) -> usize {
+            fn to_usize(&self) -> usize {
                 self.0
             }
         }
@@ -55,6 +55,9 @@ impl<T: FromUsize> FromUsizeIter<T> {
         self.next += 1;
         ret
     }
+    pub const fn set_next(&mut self, v: usize) {
+        self.next = v;
+    }
 }
 
 pub type NeverCloneUsizeAllocator =
@@ -70,26 +73,44 @@ pub struct FromUsizeAllocator<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> {
     _marker: PhantomData<R>,
 }
 
-macro_rules! from_usize_allocator_const_new_impl {
-    ($contain: ident) => {
-        impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R, $contain<usize>> {
-            pub const fn new(start: usize) -> Self {
-                Self {
-                    iter: FromUsizeIter::new(start),
-                    recycled: $contain::new(),
-                    using: 0,
-                    _marker: PhantomData,
-                }
-            }
+// macro_rules! from_usize_allocator_const_new_impl {
+//     ($contain: ident) => {
+//         impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R, $contain<usize>> {
+//             pub const fn new(start: usize) -> Self {
+//                 Self {
+//                     iter: FromUsizeIter::new(start),
+//                     recycled: $contain::new(),
+//                     using: 0,
+//                     _marker: PhantomData,
+//                 }
+//             }
+//         }
+//     };
+// }
+
+// from_usize_allocator_const_new_impl!(NeverCloneLinkedList);
+// from_usize_allocator_const_new_impl!(FastCloneLinkedList);
+// from_usize_allocator_const_new_impl!(PopSmallestSet);
+
+impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize> + ~const Default> const Default
+    for FromUsizeAllocator<T, R, S>
+{
+    fn default() -> Self {
+        Self {
+            iter: FromUsizeIter::new(0),
+            recycled: S::default(),
+            using: 0,
+            _marker: PhantomData,
         }
-    };
+    }
 }
 
-from_usize_allocator_const_new_impl!(NeverCloneLinkedList);
-from_usize_allocator_const_new_impl!(FastCloneLinkedList);
-from_usize_allocator_const_new_impl!(PopSmallestSet);
-
 impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> FromUsizeAllocator<T, R, S> {
+    // this will only be used after default()
+    pub const fn start(mut self, start: usize) -> Self {
+        self.iter.set_next(start);
+        self
+    }
     pub fn alloc(&mut self) -> R::Output {
         self.using += 1;
         if let Some(value) = self.recycled.pop() {
@@ -102,7 +123,7 @@ impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> FromUsizeAllocator<T, R, S> {
     /// It must be ensured that the value is released only once.
     pub unsafe fn dealloc(&mut self, value: T) {
         self.using -= 1;
-        self.recycled.push(value.into_usize());
+        self.recycled.push(value.to_usize());
     }
     pub const fn using(&self) -> usize {
         self.using
