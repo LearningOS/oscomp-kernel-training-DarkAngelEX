@@ -45,6 +45,44 @@ impl PageTable {
         PageCount::from_usize(x1 - x0)
     }
 
+    pub fn map_user_addr(
+        &mut self,
+        addr: UserAddr4K,
+        perm: PTEFlags,
+        data_iter: &mut impl FrameDataIter,
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<(), FrameOutOfMemory> {
+        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        stack_trace!();
+        let x = &addr.indexes();
+        let pte = next_pte(self.root_pa(), x[0]);
+        if !pte.is_valid() {
+            pte.alloc_by(PTEFlags::V, allocator)?;
+        }
+        let pte = next_pte(pte.phy_addr(), x[1]);
+        if !pte.is_valid() {
+            pte.alloc_by(PTEFlags::V, allocator)?;
+        }
+        let pte = next_pte(pte.phy_addr(), x[2]);
+        assert!(!pte.is_valid(), "remap of {:?}", addr);
+        let par = allocator.alloc()?.consume();
+        // fill zero if return Error
+        let _ = data_iter.write_to(par.as_bytes_array_mut());
+        *pte = PageTableEntry::new(par.into(), perm | PTEFlags::V);
+        Ok(())
+    }
+    pub fn unmap_user_addr(&mut self, addr: UserAddr4K, allocator: &mut impl FrameAllocator) {
+        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        let x = &addr.indexes();
+        let pte = next_pte(self.root_pa(), x[0]);
+        assert!(pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[1]);
+        assert!(pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[2]);
+        assert!(pte.is_leaf());
+        unsafe { pte.dealloc_by(allocator) };
+    }
+
     /// return Err if out of memory
     pub fn map_user_range(
         &mut self,
@@ -70,7 +108,7 @@ impl PageTable {
             }
             Err(ua) => {
                 // realease page table
-                let alloc_area = UserArea::new(ubegin, ua, flags);
+                let alloc_area = UserArea::new(ubegin..ua, flags);
                 self.unmap_user_range(&alloc_area, allocator);
                 Err(FrameOutOfMemory)
             }
@@ -246,7 +284,7 @@ impl PageTable {
                 Ok(())
             }
             Err(ua) => {
-                let alloc_area = UserArea::new(ubegin, ua, PTEFlags::U);
+                let alloc_area = UserArea::new(ubegin..ua, PTEFlags::U);
                 dst.unmap_user_range_lazy(&alloc_area, allocator);
                 Err(FrameOutOfMemory)
             }

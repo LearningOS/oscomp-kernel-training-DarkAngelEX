@@ -50,6 +50,7 @@ impl SleepQueue {
         self.queue.push(TimerCondVar::new(ticks, waker))
     }
     pub fn check_timer(&mut self) {
+        stack_trace!();
         let current = get_time_ticks();
         while let Some(v) = self.queue.peek() {
             if v.expire_ticks <= current {
@@ -77,5 +78,5 @@ pub fn timer_push_task(ticks: TimeTicks, waker: Waker) {
 
 pub fn check_timer() {
     stack_trace!();
-    SLEEP_QUEUE.lock(place!()).as_mut().unwrap().check_timer()
+    SLEEP_QUEUE.lock(place!()).as_mut().unwrap().check_timer();
 }

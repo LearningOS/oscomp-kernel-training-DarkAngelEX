@@ -3,11 +3,11 @@
 /// 无锁队列的优势除了无锁, 更重要的是使用时不需要关中断。
 ///
 /// 压力测试中约1亿次操作出错一次，原因未知
-use core::{mem::MaybeUninit, ptr::NonNull, sync::atomic::AtomicUsize};
+use core::{mem::MaybeUninit, ptr::NonNull};
 
 use alloc::boxed::Box;
 
-use crate::tools::container::thread_local_linked_list::ThreadLocalLinkedList;
+use crate::tools::{container::thread_local_linked_list::ThreadLocalLinkedList, FailRun};
 
 use super::marked_ptr::{AtomicMarkedPtr, MarkedPtr, PtrID};
 
@@ -16,7 +16,6 @@ const QUEUE_DEBUG: bool = true;
 pub struct LockfreeQueue<T> {
     head: AtomicMarkedPtr<LockfreeNode<T>>,
     tail: AtomicMarkedPtr<LockfreeNode<T>>,
-    unique: AtomicUsize,
 }
 
 unsafe impl<T: Send> Send for LockfreeQueue<T> {}
@@ -71,7 +70,6 @@ impl<T> LockfreeQueue<T> {
         Self {
             head: AtomicMarkedPtr::null(),
             tail: AtomicMarkedPtr::null(),
-            unique: AtomicUsize::new(0),
         }
     }
     pub fn init(&mut self) {
@@ -91,21 +89,81 @@ impl<T> LockfreeQueue<T> {
         let ptr = self as *const _ as *mut Self;
         (*ptr).init();
     }
-    /// 只能同时有一个线程进行这个操作! push pop 不需要被阻塞
-    ///
-    /// 如果多个线程同时调用这个函数会导致 tail 指向错误的链表
-    pub fn take_all(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
+    /// 所有权操作! 细节见replace_impl
+    pub fn take(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
         stack_trace!();
-        // 先让 tail 指向 new_dummy, 再让 head 指向 new_dummy
-        let new_dummy = LockfreeNode::dummy();
-        let new_dummy: &mut LockfreeNode<T> = Box::leak(Box::new(new_dummy));
+        let mut new_dummy = Box::new(LockfreeNode::dummy());
+        match self.replace_impl(new_dummy.as_mut(), new_dummy.as_mut()) {
+            Ok(list) => {
+                Box::leak(new_dummy);
+                Ok(list)
+            }
+            Err(_) => Err(()),
+        }
+    }
+    /// if error, return input list.
+    pub fn relpace(
+        &self,
+        list: ThreadLocalLinkedList<T>,
+    ) -> Result<ThreadLocalLinkedList<T>, ThreadLocalLinkedList<T>> {
+        stack_trace!();
+        let mut new_dummy = Box::new(LockfreeNode::dummy());
+        let tail = match list.head_tail() {
+            Some((head, tail)) => {
+                new_dummy.next.init(head);
+                tail
+            }
+            None => new_dummy.as_mut(),
+        };
+        match self.replace_impl(new_dummy.as_mut(), tail) {
+            Ok(new_list) => {
+                Box::leak(new_dummy);
+                core::mem::forget(list);
+                Ok(new_list)
+            }
+            Err(_) => Err(list),
+        }
+    }
+    /// 非所有权操作, 可以被任意执行!
+    ///
+    /// 无竞争时可以O(1)修改tail指针! 但有竞争时可能导致tail更新失败, 导致其他进程缓慢地fetch tail到队尾, 但不会出错.
+    pub fn appand(&self, list: &mut ThreadLocalLinkedList<T>) -> Result<(), ()> {
+        stack_trace!();
+        let (head, tail) = list.head_tail().ok_or(())?;
+        match self.appand_impl(head.get_mut().unwrap(), tail) {
+            Ok(_) => {
+                unsafe { list.leak_reset() };
+                Ok(())
+            }
+            Err(_) => Err(()),
+        }
+    }
+    /// 所有权操作 任何所有权操作都是互斥的 但push/pop操作仍可以同时进行.
+    fn replace_impl(
+        &self,
+        in_head: *mut LockfreeNode<T>,
+        in_tail: *mut LockfreeNode<T>,
+    ) -> Result<ThreadLocalLinkedList<T>, ()> {
+        stack_trace!();
+        debug_check!(!in_head.is_null() && !in_tail.is_null());
         let mut tail = self.tail.load();
         loop {
-            new_dummy.next.set_id_null(tail.id());
-            let new_tail = MarkedPtr::new(tail.id(), Some(new_dummy.into()));
+            tail.get_ptr().ok_or(())?;
+            let tail_next = &tail.get_mut().unwrap().next;
+            let tail_next_v = tail_next.load();
+            let cur_tail = self.tail.load();
+            if tail != cur_tail {
+                tail = cur_tail;
+                continue;
+            }
+            unsafe { (*in_tail).next.set_id_null(tail.id()) };
+            let new_tail = MarkedPtr::new(tail.id(), NonNull::new(in_tail));
+            debug_check!(tail.id().is_valid());
+            debug_check!(tail_next_v.id().is_valid());
             match self.tail.compare_exchange(tail, new_tail) {
-                Ok(cur_tail) => {
-                    tail = cur_tail;
+                Ok(_) => {
+                    // change id to disable the push of other threads.
+                    let _ = tail_next.compare_exchange(tail_next_v, tail_next_v);
                     break;
                 }
                 Err(cur_tail) => {
@@ -115,48 +173,91 @@ impl<T> LockfreeQueue<T> {
                 }
             }
         }
+
         let mut head = self.head.load();
-        // print_n(2);
-        loop {
+
+        let next_v = loop {
             // 禁止 take 函数发生时被另一个进程关闭
             head.get_ptr().unwrap();
-            let new_head = MarkedPtr::new(head.id(), Some(new_dummy.into()));
+            let head_next = &head.get_mut().unwrap().next;
+            let next_v = head_next.load();
+            let cur_head = self.head.load();
+            if head != cur_head {
+                head = cur_head;
+                continue;
+            }
+            let new_head = MarkedPtr::new(head.id(), NonNull::new(in_head));
+            debug_check!(head.id().is_valid());
             match self.head.compare_exchange(head, new_head) {
-                Ok(_) => break,
+                Ok(_) => {
+                    let _ = head_next.compare_exchange(next_v, next_v);
+                    break next_v;
+                }
                 Err(cur_head) => {
                     head = cur_head;
                     core::hint::spin_loop();
                     continue;
                 }
             }
-        }
-        // change marker to forbid push or pop.
-        let head_next = &head.get_mut().unwrap().next;
-        let mut next_v = head_next.load();
-        loop {
-            let null = MarkedPtr::null(next_v.id());
-            match head_next.compare_exchange(next_v, null) {
-                Ok(_) => break,
-                Err(x) => next_v = x,
-            }
-        }
-        let tail_next = &tail.get_mut().unwrap().next;
-        let mut tail_next_v = tail_next.load();
-        loop {
-            match tail_next.compare_exchange(tail_next_v, tail_next_v) {
-                Ok(_) => break,
-                Err(x) => tail_next_v = x,
-            }
-        }
+        };
         let list = ThreadLocalLinkedList::ptr_new(next_v.cast());
-        // let x2: usize = unsafe { core::mem::transmute(MarkedPtr::<usize>::null(next_v.id())) };
-        // let next = head.get_mut().unwrap().next.load();
-        // let x3: usize = unsafe { core::mem::transmute(next) };
-        // println!("{} {:#x} {:#x} {:#x} ", xlen, x1, x2, x3);
-        // assert_eq!(x2 + (1 << 39), x3);
         unsafe { Box::from_raw(head.get_ptr().unwrap().as_ptr()) };
         Ok(list)
     }
+    /// in_head is valid node, not dummy.
+    fn appand_impl(
+        &self,
+        in_head: *mut LockfreeNode<T>,
+        in_tail: *mut LockfreeNode<T>,
+    ) -> Result<(), ()> {
+        stack_trace!();
+        debug_check!(!in_head.is_null() && !in_tail.is_null());
+        let mut new_node: NonNull<_> = NonNull::new(in_head).unwrap();
+        // tail 定义为一定在 head 之后且距离队列尾很近的标记.
+        let mut tail = self.tail.load();
+        loop {
+            // 只是tail的偏移量而已
+            let next = &tail.get_mut().ok_or(())?.next;
+            // tail可能已经被释放, 这个指针的值可能是无效值
+            let next_ptr = next.load();
+            let next_v = next_ptr.get_ptr();
+            // tail 有效则保证 next_v 有效
+            let cur_tail = self.tail.load();
+            if tail != cur_tail {
+                tail = cur_tail;
+                core::hint::spin_loop();
+                continue;
+            }
+            if next_v.is_some() {
+                // tail 不是真正的队尾
+                let new_tail = MarkedPtr::new(tail.id(), next_v);
+                tail = match self.tail.compare_exchange(tail, new_tail) {
+                    Ok(_) => new_tail,
+                    Err(cur_tail) => cur_tail,
+                };
+                core::hint::spin_loop();
+                continue;
+            }
+            // self.debug_block(300);
+            // 防止 ABA 错误: new_node.next.id初始化为0, 缺少版本号
+            unsafe { new_node.as_mut().next.set_id(tail.id()) };
+            let new_tail = MarkedPtr::new(next_ptr.id(), Some(new_node));
+            // block();
+            // next 延迟修改会导致 take_all 无法正确获得最新 next
+            match next.compare_exchange(next_ptr, new_tail) {
+                Ok(_) => (),
+                Err(_) => {
+                    tail = self.tail.load();
+                    core::hint::spin_loop();
+                    continue;
+                }
+            }
+            let new_tail = MarkedPtr::new(tail.id(), NonNull::new(in_tail));
+            let _ = self.tail.compare_exchange(tail, new_tail);
+            return Ok(());
+        }
+    }
+    // 所有权操作
     pub fn close(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
         stack_trace!();
         // 顺序: 先禁止入队(tail) 再禁止出队(head)
@@ -188,14 +289,12 @@ impl<T> LockfreeQueue<T> {
         Ok(ThreadLocalLinkedList::ptr_new(next))
     }
     pub fn push(&self, value: T) -> Result<(), ()> {
-        fn block() {
-            for i in 0..1000 {
-                core::hint::black_box(i);
-            }
-        }
         stack_trace!();
         let node = LockfreeNode::new(value);
         let mut new_node: NonNull<_> = Box::leak(Box::new(node)).into();
+        let fail_run = FailRun::new(move || unsafe {
+            Box::from_raw(new_node.as_ptr());
+        });
         // tail 定义为一定在 head 之后且距离队列尾很近的标记.
         let mut tail = self.tail.load();
         loop {
@@ -226,47 +325,24 @@ impl<T> LockfreeQueue<T> {
             unsafe {
                 new_node.as_mut().next.set_id_null(tail.id());
             }
-
-            // debug release check
-            let vp = unsafe {
-                if QUEUE_DEBUG {
-                    let p = &tail.get_mut().unwrap().value as *const _ as *const u32;
-                    *p
-                } else {
-                    0
-                }
-            };
             let new_tail = MarkedPtr::new(next_ptr.id(), Some(new_node));
             // block();
             // next 延迟修改会导致 take_all 无法正确获得最新 next
             match next.compare_exchange(next_ptr, new_tail) {
-                Ok(_) => {
-                    // tail已经被释放了!!!
-                    if QUEUE_DEBUG && vp == 0xf0f0f0f0 {
-                        unsafe {
-                            let next_ptr: usize = core::mem::transmute(next_ptr);
-                            let new_tail: usize = core::mem::transmute(new_tail);
-                            panic!("{:#x} {:#x}", next_ptr, new_tail);
-                        }
-                    }
-                    let new_tail = MarkedPtr::new(tail.id(), Some(new_node));
-                    let _ = self.tail.compare_exchange(tail, new_tail);
-                    return Ok(());
-                }
+                Ok(_) => (),
                 Err(_) => {
                     tail = self.tail.load();
                     core::hint::spin_loop();
                     continue;
                 }
             }
+            let new_tail = MarkedPtr::new(tail.id(), Some(new_node));
+            let _ = self.tail.compare_exchange(tail, new_tail);
+            fail_run.consume();
+            return Ok(());
         }
     }
     pub fn pop(&self) -> Result<Option<T>, ()> {
-        fn block() {
-            for i in 0..1000 {
-                core::hint::black_box(i);
-            }
-        }
         stack_trace!();
         // self.head 必然是合法地址, 即使被释放了也可以取到无效数据而不会异常 放在 loop 外减少一次 fetch
         let mut head = self.head.load();
@@ -312,23 +388,21 @@ impl<T> LockfreeQueue<T> {
             // 使用 SeqCst 保证 value 取值在 cas 之前, 释放head在 cas 之后
             // block();
             match self.head.compare_exchange(head, new_head) {
-                Ok(_) => {
-                    // 如果 CAS 成功则拥有了 head 与 value 的所有权. head 已经被非空判断.
-                    unsafe {
-                        let old_head = head.get_ptr().unwrap().as_ptr();
-                        // (*old_head).next.confusion();
-                        // 释放内存
-                        Box::from_raw(old_head);
-                        // next become new dummy
-                        let value = value.assume_init_read();
-                        return Ok(Some(value));
-                    }
-                }
+                Ok(_) => (),
                 Err(cur_head) => {
                     head = cur_head;
                     core::hint::spin_loop();
                     continue;
                 }
+            }
+            // 如果 CAS 成功则拥有了 head 与 value 的所有权. head 已经被非空判断.
+            unsafe {
+                let old_head = head.get_ptr().unwrap().as_ptr();
+                // 释放内存
+                Box::from_raw(old_head);
+                // next become new dummy
+                let value = value.assume_init_read();
+                return Ok(Some(value));
             }
         }
     }
@@ -542,12 +616,14 @@ pub mod test {
             }
         }
     }
-    fn take_all_test(
+    fn oper_test(
         hart: usize,
         total: usize,
         push: impl Fn(usize),
         pop: impl Fn() -> Option<usize>,
-        take_all: impl Fn() -> ThreadLocalLinkedList<usize>,
+        take: impl Fn() -> ThreadLocalLinkedList<usize>,
+        replace: impl Fn(ThreadLocalLinkedList<usize>) -> ThreadLocalLinkedList<usize>,
+        appand: impl Fn(&mut ThreadLocalLinkedList<usize>),
         off: usize,
     ) {
         stack_trace!();
@@ -563,35 +639,66 @@ pub mod test {
 
         match hart {
             0 => {
-                const IN_ORDER: bool = false;
-                let mut xv = 0;
-                loop {
-                    if COUNT_PUSH.load(Ordering::Relaxed) >= total {
-                        break;
+                let test_take = false;
+                let test_replace = true;
+                if test_take {
+                    stack_trace!();
+                    const IN_ORDER: bool = false;
+                    let mut xv = 0;
+                    loop {
+                        if COUNT_PUSH.load(Ordering::Relaxed) >= total {
+                            break;
+                        }
+                        let mut list = take();
+                        let mut cnt = 0;
+                        while let Some(v) = list.pop() {
+                            if IN_ORDER {
+                                assert_eq!(xv, v);
+                                xv += 1;
+                            }
+                            // print_unlock!("{}{} {}", to_green!(), v, reset_color!());
+                            unsafe { SET_TABLE[hart].push(v) };
+                            cnt += 1;
+                        }
+                        COUNT_POP.fetch_add(cnt, Ordering::Relaxed);
                     }
-                    let mut list = take_all();
+                } else if test_replace {
+                    stack_trace!();
+                    let mut list = ThreadLocalLinkedList::empty();
+                    loop {
+                        if COUNT_PUSH.load(Ordering::Relaxed) >= total {
+                            break;
+                        }
+                        list = replace(list);
+                        let len = list.len();
+                        let cnt = len / 2;
+                        for _i in 0..cnt {
+                            let v = list.pop().unwrap();
+                            unsafe { SET_TABLE[hart].push(v) };
+                        }
+                        COUNT_POP.fetch_add(cnt, Ordering::Relaxed);
+                    }
                     let mut cnt = 0;
                     while let Some(v) = list.pop() {
-                        if IN_ORDER {
-                            assert_eq!(xv, v);
-                            xv += 1;
-                        }
                         unsafe { SET_TABLE[hart].push(v) };
                         cnt += 1;
                     }
                     COUNT_POP.fetch_add(cnt, Ordering::Relaxed);
+                } else {
+                    panic!();
                 }
             }
-            1 => loop {
+            1 | 2 => loop {
                 if COUNT_PUSH.load(Ordering::Relaxed) >= total {
                     break;
                 }
                 if let Some(v) = pop() {
+                    // print_unlock!("{}{} {}", to_red!(), v, reset_color!());
                     unsafe { SET_TABLE[hart].push(v) };
                     COUNT_POP.fetch_add(1, Ordering::Relaxed);
                 }
             },
-            2 => {
+            3 => {
                 const BATCH: usize = 1000;
                 loop {
                     let begin = COUNT_PUSH.fetch_add(BATCH, Ordering::Relaxed);
@@ -599,8 +706,16 @@ pub mod test {
                         break;
                     }
                     let end = (begin + BATCH).min(total);
-                    for i in begin..end {
-                        push(i);
+                    if true {
+                        let mut list = ThreadLocalLinkedList::empty();
+                        for i in begin..end {
+                            list.push(i);
+                        }
+                        appand(&mut list);
+                    } else {
+                        for i in begin..end {
+                            push(i);
+                        }
                     }
                 }
             }
@@ -624,7 +739,7 @@ pub mod test {
             let ms = (t1 - t0).into_millisecond();
             println!("{}time: {}ms", tools::n_space(off), ms);
             assert_eq!(TEST_QUEUE_0.pop().unwrap(), None);
-            if true {
+            if false {
                 println!("{}check begin", tools::n_space(off));
                 check();
                 println!("{}check pass", tools::n_space(off));
@@ -721,14 +836,19 @@ pub mod test {
             TEST_QUEUE_0.push(a).unwrap();
         };
         let pop = || TEST_QUEUE_0.pop().unwrap();
-        let take_all = || TEST_QUEUE_0.take_all().unwrap();
+        let take = || TEST_QUEUE_0.take().unwrap();
+        let replace = |list| TEST_QUEUE_0.relpace(list).ok().unwrap();
+        let appand = |list: &mut ThreadLocalLinkedList<usize>| TEST_QUEUE_0.appand(list).unwrap();
         for i in 0..100000 {
             if hart == 0 {
                 println!("{}test {}", tools::n_space(off), i);
             }
-            // group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-            // gather_test_impl(hart, 1000, TOTAL, push, pop, off + 4);
-            take_all_test(hart, TOTAL, push, pop, take_all, off);
+            match 2 {
+                0 => group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4),
+                1 => gather_test_impl(hart, 1000, TOTAL, push, pop, off + 4),
+                2 => oper_test(hart, TOTAL, push, pop, take, replace, appand, off),
+                _ => panic!(),
+            }
             tools::wait_all_hart();
         }
         tools::wait_all_hart();

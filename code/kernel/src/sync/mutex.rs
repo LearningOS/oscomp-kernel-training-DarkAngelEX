@@ -8,7 +8,10 @@ use core::{
     sync::atomic::{AtomicBool, AtomicU8, Ordering},
 };
 
-use crate::hart::{cpu::hart_id, interrupt};
+use crate::{
+    hart::{cpu::hart_id, interrupt},
+    user::AutoSie,
+};
 
 pub type SpinLock<T> = Mutex<T, Spin>;
 pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
@@ -16,6 +19,7 @@ pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
 
 pub struct Mutex<T: ?Sized, S: MutexSupport> {
     pub lock: AtomicBool,
+    _unused: usize,
     support: MaybeUninit<S>,
     support_initialization: AtomicU8, // 0 = uninitialized, 1 = initializing, 2 = initialized
     user: UnsafeCell<(usize, usize)>, // (cid, tid)
@@ -54,6 +58,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
     pub const fn new(user_data: T) -> Mutex<T, S> {
         Mutex {
             lock: AtomicBool::new(false),
+            _unused: 0,
             data: UnsafeCell::new(user_data),
             support: MaybeUninit::uninit(),
             support_initialization: AtomicU8::new(0),
@@ -83,11 +88,12 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
             while self.lock.load(Ordering::Relaxed) {
                 unsafe { &*self.support.as_ptr() }.cpu_relax();
                 try_count += 1;
-                if try_count == 0x1000000 {
+                if try_count == 0x10000000 {
                     let (cid, tid) = unsafe { *self.user.get() };
+                    let value = unsafe { *(&self.lock as *const _ as *const u8) as usize };
                     panic!(
-                        "Mutex: deadlock detected! try_count > {:#x} in {}\n locked by cpu {} thread {} @ {:?}",
-                        try_count, place, cid, tid, self as *const Self
+                        "Mutex: deadlock detected! try_count > {:#x} in {}\n locked by cpu {} thread {} @ {:?} value {}",
+                        try_count, place, cid, tid, self as *const Self, value
                     );
                 }
             }
@@ -236,6 +242,7 @@ impl<'a, T: ?Sized, S: MutexSupport> DerefMut for MutexGuard<'a, T, S> {
 impl<'a, T: ?Sized, S: MutexSupport> Drop for MutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
     fn drop(&mut self) {
+        unsafe { self.mutex.user.get().write((127, 127)) };
         self.mutex.lock.store(false, Ordering::Release);
         unsafe { &*self.mutex.support.as_ptr() }.after_unlock();
     }
@@ -299,10 +306,24 @@ impl MutexSupport for SpinNoIrq {
     }
     #[inline(always)]
     fn before_lock() -> Self::GuardData {
-        FlagsGuard(unsafe { interrupt::disable_and_store() })
+        FlagsGuard::no_irq_region()
     }
     fn after_unlock(&self) {}
 }
+// impl MutexSupport for SpinNoIrq {
+//     type GuardData = AutoSie;
+//     fn new() -> Self {
+//         Self
+//     }
+//     fn cpu_relax(&self) {
+//         core::hint::spin_loop();
+//     }
+//     #[inline(always)]
+//     fn before_lock() -> Self::GuardData {
+//         AutoSie::new()
+//     }
+//     fn after_unlock(&self) {}
+// }
 
 // impl MutexSupport for Condvar {
 //     type GuardData = ();

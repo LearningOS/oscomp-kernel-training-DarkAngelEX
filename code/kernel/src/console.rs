@@ -1,12 +1,16 @@
-const OUTPUT_LOCK: bool = true;
-
 use crate::{hart::sbi, place};
 
-use core::fmt::{self, Write};
+use crate::sync::mutex::SpinNoIrqLock;
+use core::{
+    fmt::{self, Write},
+    sync::atomic::{AtomicBool, Ordering},
+};
+
+const OUTPUT_LOCK: bool = true;
+
+static ALLOW_GETCHAR: AtomicBool = AtomicBool::new(true);
 
 struct Stdout;
-
-use crate::sync::mutex::SpinNoIrqLock;
 
 #[inline(always)]
 pub fn putchar(c: char) {
@@ -15,9 +19,14 @@ pub fn putchar(c: char) {
 
 #[inline(always)]
 pub fn getchar() -> char {
+    while let Err(_) =
+        ALLOW_GETCHAR.compare_exchange(true, true, Ordering::SeqCst, Ordering::SeqCst)
+    {}
     unsafe { char::from_u32_unchecked(sbi::console_getchar() as u32) }
 }
-
+pub fn disable_getchar() {
+    ALLOW_GETCHAR.store(false, Ordering::SeqCst);
+}
 impl Write for Stdout {
     fn write_str(&mut self, s: &str) -> fmt::Result {
         for c in s.chars() {

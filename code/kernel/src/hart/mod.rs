@@ -4,11 +4,7 @@ use core::{
 };
 
 use crate::{
-    benchmark, executor,
-    fdt::FdtHeader,
-    fs, local,
-    memory::{self, address::PhyAddr},
-    process, timer,
+    benchmark, executor, fs, local, memory, process, timer,
     tools::{self, container},
     trap, user,
     xdebug::CLOSE_TIME_INTERRUPT,
@@ -31,33 +27,34 @@ static DEVICE_TREE_PADDR: AtomicUsize = AtomicUsize::new(0);
 
 const BOOT_HART_ID: usize = 0;
 
-pub fn device_tree_ptr() -> PhyAddr {
-    DEVICE_TREE_PADDR.load(Ordering::Relaxed).into()
-}
+// pub fn device_tree_ptr() -> PhyAddr {
+//     DEVICE_TREE_PADDR.load(Ordering::Relaxed).into()
+// }
 
-fn show_device() {
-    println!("[FTL OS]show device");
-    let ptr = device_tree_ptr();
-    let ptr = ptr.into_usize() as *mut FdtHeader;
-    let x = unsafe { &*ptr };
-    println!("fdt ptr: {:#x}", ptr as usize);
-    println!("{:?}", x);
-    panic!();
-}
+// fn show_device() {
+//     println!("[FTL OS]show device");
+//     let ptr = device_tree_ptr();
+//     let ptr = ptr.into_usize() as *mut FdtHeader;
+//     let x = unsafe { &*ptr };
+//     println!("fdt ptr: {:#x}", ptr as usize);
+//     println!("{:?}", x);
+//     panic!();
+// }
 
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     unsafe { cpu::set_cpu_id(hartid) };
     if FIRST_HART
-        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
-    {
+        {
         clear_bss();
         INIT_START.store(true, Ordering::Release);
-        println!("[FTL OS]clear bss using hart {}", hartid);
+        // println!("[FTL OS]clear bss using hart {}", hartid);
     } else {
         while !INIT_START.load(Ordering::Acquire) {}
     }
+    local::init();
     println!(
         "[FTL OS]hart {} device tree: {:#x}",
         hartid, device_tree_paddr
@@ -89,7 +86,6 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     // assert!(DEVICE_TREE_PADDR.load(Ordering::Relaxed) != 0);
     // show_device();
 
-    local::init();
     memory::init();
     container::test();
     timer::init();
@@ -118,7 +114,7 @@ fn others_main(hartid: usize) -> ! {
     sfence::sfence_vma_all_global();
     sfence::fence_i();
     unsafe { trap::set_kernel_default_trap() };
-    local::init();
+    // local::init();
     tools::multi_thread_test(hartid);
     if !CLOSE_TIME_INTERRUPT {
         trap::enable_timer_interrupt();

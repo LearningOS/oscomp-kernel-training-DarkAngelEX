@@ -1,19 +1,60 @@
-macro_rules! color_def {
-    ($name: ident, $n: expr) => {
-        #[macro_export]
-        macro_rules! $name {
-            ($str: expr) => {
-                concat!("\x1b[", $n, "m", $str, "\x1b[0m")
-            };
-        }
+#[macro_export]
+macro_rules! color_str {
+    ($n: expr) => {
+        concat!("\x1b[", $n, "m")
     };
 }
-
-color_def!(red_str, 31);
-color_def!(green_str, 32);
-color_def!(blue_str, 34);
-color_def!(gray_str, 90);
-color_def!(yellow_str, 93);
+#[macro_export]
+macro_rules! reset_color {
+    () => {
+        color_str!(0)
+    };
+}
+#[macro_export]
+macro_rules! to_red {
+    () => {
+        color_str!(31)
+    };
+    ($str: literal) => {
+        concat!(to_red!(), $str, reset_color!())
+    };
+}
+#[macro_export]
+macro_rules! to_green {
+    () => {
+        color_str!(32)
+    };
+    ($str: literal) => {
+        concat!(to_green!(), $str, reset_color!())
+    };
+}
+#[macro_export]
+macro_rules! to_blue {
+    () => {
+        color_str!(34)
+    };
+    ($str: literal) => {
+        concat!(to_blue!(), $str, reset_color!())
+    };
+}
+#[macro_export]
+macro_rules! to_gray {
+    () => {
+        color_str!(90)
+    };
+    ($str: literal) => {
+        concat!(to_gray!(), $str, reset_color!())
+    };
+}
+#[macro_export]
+macro_rules! to_yellow {
+    () => {
+        color_str!(93)
+    };
+    ($str: literal) => {
+        concat!(to_yellow!(), $str, reset_color!())
+    };
+}
 
 pub mod test {
     pub fn color_test() {

@@ -1,5 +1,4 @@
 use crate::{
-    from_usize_impl,
     sync::mutex::SpinLock,
     tools::{
         allocator::{from_usize_allocator::FromUsizeAllocator, Own},

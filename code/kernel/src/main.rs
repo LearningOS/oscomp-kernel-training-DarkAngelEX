@@ -38,9 +38,9 @@ extern crate alloc;
 extern crate async_task;
 #[macro_use]
 extern crate bitflags;
-extern crate riscv;
-extern crate lazy_static;
 extern crate easy_fs;
+extern crate lazy_static;
+extern crate riscv;
 extern crate xmas_elf;
 
 #[cfg(feature = "board_k210")]
@@ -55,14 +55,15 @@ mod config;
 mod console;
 #[macro_use]
 mod xdebug;
+#[macro_use]
+mod tools;
+mod benchmark;
 mod drivers;
 mod executor;
 mod fdt;
 mod fs;
 mod hart;
 mod lang_items;
-// mod loader;
-mod benchmark;
 mod local;
 mod memory;
 mod process;
@@ -70,8 +71,6 @@ mod signal;
 mod sync;
 mod syscall;
 mod timer;
-#[macro_use]
-mod tools;
 mod trap;
 mod user;
 
@@ -81,6 +80,7 @@ mod user;
 /// It will run on each core.
 ///
 pub fn kmain(_hart_id: usize) -> ! {
+    stack_trace!(to_yellow!("running in global space"));
     let local = local::always_local();
     assert!(local.sie_cur() == 0);
     assert!(local.sum_cur() == 0);

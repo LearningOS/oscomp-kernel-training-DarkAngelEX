@@ -4,13 +4,13 @@ use crate::{config::KERNEL_STACK_SIZE, hart, local, tools};
 
 pub const OPEN_MEMORY_TRACE: bool = false;
 pub const STACK_DETECTION: bool = true;
-pub const TRACE_ADDR: usize = 0xfffffff08040df80;
+pub const TRACE_ADDR: usize = 0xfffffff081281618;
 
 #[inline(never)]
 #[allow(unreachable_code, unused_variables)]
 pub fn trace_by_cnt(cnt: usize) -> bool {
-    return true;
     return false;
+    // return false;
     if cnt >= 500 {
         return true;
     }

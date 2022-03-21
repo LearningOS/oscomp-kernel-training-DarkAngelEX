@@ -1,17 +1,25 @@
 #![allow(dead_code)]
 
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::{
+    arch::asm,
+    future::Future,
+    ops::{Bound, Range, RangeBounds},
+    pin::Pin,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-use alloc::string::String;
+use alloc::{boxed::Box, string::String};
 use riscv::register::sstatus;
 
-use crate::hart::cpu;
-
-pub mod allocator;
-pub mod container;
+use crate::{hart::cpu, timer};
 #[macro_use]
 pub mod color;
+#[macro_use]
+pub mod allocator;
+pub mod container;
 pub mod error;
+
+pub type Async<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
     if x {
@@ -91,6 +99,24 @@ pub fn next_sepc(sepc: usize) -> usize {
     next_instruction_sepc(sepc, ir)
 }
 
+/// 限制range
+pub fn range_limit<T: Ord + Clone>(src: impl RangeBounds<T>, area: Range<T>) -> Range<T> {
+    let start = match src.start_bound() {
+        Bound::Included(x) => x.max(&area.start),
+        Bound::Unbounded => &area.start,
+        Bound::Excluded(_) => panic!(),
+    };
+    let end = match src.start_bound() {
+        Bound::Excluded(x) => x.min(&area.end),
+        Bound::Unbounded => &area.end,
+        Bound::Included(_) => panic!(),
+    };
+    Range {
+        start: start.clone(),
+        end: end.clone(),
+    }
+}
+
 static BLOCK_0: AtomicUsize = AtomicUsize::new(0);
 static BLOCK_1: AtomicUsize = AtomicUsize::new(0);
 static BLOCK_2: AtomicUsize = AtomicUsize::new(0);
@@ -129,7 +155,7 @@ pub fn n_space(n: usize) -> String {
 
 const COLOR_TEST: bool = false;
 const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
-const MULTI_THREAD_STRESS_TEST: bool = true;
+const MULTI_THREAD_STRESS_TEST: bool = false;
 
 pub fn multi_thread_test(hart: usize) {
     if COLOR_TEST {
@@ -150,8 +176,25 @@ fn multi_thread_performance_test(hart: usize) {
         container::multi_thread_performance_test(hart);
         wait_all_hart();
         panic!("multi_thread_performance_test complete");
-    } else {
+    } else if false {
+        if hart == 0 {
+            let mut cnt = 0x1000000;
+            loop {
+                let begin = timer::get_time_ticks();
+                for _i in 0..cnt {
+                    unsafe { asm!("nop") }
+                }
+                let end = timer::get_time_ticks();
+                let total = (end - begin).into_millisecond();
+                println!("loop {:#x}({}) using {}ms", cnt, cnt, total);
+                if total > 1000 {
+                    break;
+                }
+                cnt *= 2;
+            }
+        }
         wait_all_hart();
+    } else {
         if hart == 0 {
             println!("skip multi_thread_performance_test");
         }

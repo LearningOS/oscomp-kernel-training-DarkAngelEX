@@ -6,7 +6,7 @@ pub mod user_ptr;
 mod user_space;
 
 pub use page_table::{set_satp_by_global, PageTable, PageTableClosed};
-pub use user_space::{StackID, USpaceCreateError, UserSpace};
+pub use user_space::{stack::StackID, USpaceCreateError, UserSpace};
 
 pub fn init() {
     allocator::init();

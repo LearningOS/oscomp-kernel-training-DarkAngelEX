@@ -1,7 +1,6 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    from_usize_impl,
     fs::{File, Stdin, Stdout},
     tools::{
         allocator::from_usize_allocator::FromUsizeAllocator,

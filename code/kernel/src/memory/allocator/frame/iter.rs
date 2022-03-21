@@ -8,7 +8,7 @@ pub trait FrameDataIter {
     }
     /// if empty will return 0
     fn len(&self) -> usize;
-    /// if no data exists, fill zero
+    /// if no data exists, fill zero and return Err(())
     fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()>;
 }
 
@@ -59,10 +59,11 @@ impl FrameDataIter for ZeroFrameDataIter {
     }
     fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
         dst.fill(0);
-        Err(())
+        Ok(())
     }
 }
 
+/// write nothing
 pub struct NullFrameDataIter;
 
 impl FrameDataIter for NullFrameDataIter {

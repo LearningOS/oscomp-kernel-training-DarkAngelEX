@@ -19,7 +19,7 @@ use crate::{
     user::{UserData, UserDataMut},
 };
 
-use super::{AsyncFileOutput, File};
+use super::{AsyncFile, File};
 
 const RING_PAGE: usize = 4;
 const RING_SIZE: usize = RING_PAGE * PAGE_SIZE;
@@ -137,7 +137,7 @@ impl File for PipeReader {
     fn writable(&self) -> bool {
         false
     }
-    fn read(self: Arc<Self>, write_only: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, write_only: UserDataMut<u8>) -> AsyncFile {
         Box::pin(async move {
             if write_only.len() == 0 {
                 return Ok(0);
@@ -153,7 +153,7 @@ impl File for PipeReader {
             .await
         })
     }
-    fn write(self: Arc<Self>, _read_only: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, _read_only: UserData<u8>) -> AsyncFile {
         panic!("write to PipeReader");
     }
 }
@@ -183,10 +183,10 @@ impl File for PipeWriter {
     fn writable(&self) -> bool {
         true
     }
-    fn read(self: Arc<Self>, _write_only: UserDataMut<u8>) -> AsyncFileOutput {
+    fn read(self: Arc<Self>, _write_only: UserDataMut<u8>) -> AsyncFile {
         panic!("read from PipeWriter");
     }
-    fn write(self: Arc<Self>, read_only: UserData<u8>) -> AsyncFileOutput {
+    fn write(self: Arc<Self>, read_only: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
             if read_only.len() == 0 {
                 return Ok(0);

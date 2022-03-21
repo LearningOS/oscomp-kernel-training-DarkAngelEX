@@ -1,5 +1,3 @@
-use core::ptr::NonNull;
-
 use alloc::{boxed::Box, vec::Vec};
 use riscv::register::sstatus;
 
@@ -23,25 +21,23 @@ pub mod task_local;
 const HART_LOCAL_EACH: HartLocal = HartLocal::new();
 static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 
-#[allow(clippy::declare_interior_mutable_const)]
-const ALWAYS_LOCAL_EACH: AlwaysLocal = AlwaysLocal::new();
-static mut ALWAYS_LOCAL: [AlwaysLocal; 16] = [ALWAYS_LOCAL_EACH; 16];
-
 /// any hart can only access each unit so didn't need mutex.
 ///
 /// access other local must through function below.
 pub struct HartLocal {
+    always_local: AlwaysLocal,
     local_now: LocalNow,
     queue: Vec<Box<dyn FnOnce()>>,
     pending: Mutex<Vec<Box<dyn FnOnce()>>>,
     kstack_bottom: usize,
     asid_version: AsidVersion,
+    pub interrupt: bool,
     pub in_exception: bool, // forbid exception nest
     pub local_heap: LocalHeap,
 }
 
 pub enum LocalNow {
-    Idle(Option<NonNull<AlwaysLocal>>),
+    Idle,
     Task(Box<TaskLocal>),
 }
 
@@ -50,16 +46,16 @@ unsafe impl Sync for LocalNow {}
 
 impl LocalNow {
     #[inline(always)]
-    pub fn always(&mut self) -> &mut AlwaysLocal {
+    pub fn always(&mut self, idle: *mut AlwaysLocal) -> &mut AlwaysLocal {
         match self {
-            LocalNow::Idle(i) => unsafe { i.unwrap().as_mut() },
+            LocalNow::Idle => unsafe { &mut *idle },
             LocalNow::Task(t) => t.always(),
         }
     }
     #[inline(always)]
     pub fn task(&mut self) -> &mut TaskLocal {
         match self {
-            LocalNow::Idle(_i) => panic!(),
+            LocalNow::Idle => panic!(),
             LocalNow::Task(task) => task.as_mut(),
         }
     }
@@ -68,27 +64,15 @@ impl LocalNow {
 impl HartLocal {
     const fn new() -> Self {
         Self {
-            local_now: LocalNow::Idle(None),
+            always_local: AlwaysLocal::new(),
+            local_now: LocalNow::Idle,
             queue: Vec::new(),
             pending: Mutex::new(Vec::new()),
             kstack_bottom: 0,
             asid_version: AsidVersion::first_asid_version(),
+            interrupt: false,
             in_exception: false,
             local_heap: LocalHeap::new(),
-        }
-    }
-    /// must init after init memory.
-    fn init(&mut self) {
-        let idle = match &mut self.local_now {
-            LocalNow::Idle(idle) => idle,
-            LocalNow::Task(_task) => panic!(),
-        };
-        assert!(idle.is_none());
-        // *idle = Some(Box::new(AlwaysLocal::new()));
-        // ALWAYS_LOCAL 没有和分配器对齐! 此部分禁止释放到全局分配器
-        let hart = cpu::hart_id();
-        unsafe {
-            *idle = NonNull::new(&mut ALWAYS_LOCAL[hart]);
         }
     }
     fn register(&self, f: impl FnOnce() + 'static) {
@@ -108,13 +92,17 @@ impl HartLocal {
     }
     #[inline(always)]
     pub fn always(&mut self) -> &mut AlwaysLocal {
-        self.local_now.always()
+        self.local_now.always(&mut self.always_local)
+    }
+    #[inline(always)]
+    pub fn always_ref(&self) -> &AlwaysLocal {
+        unsafe { (*(self as *const _ as *mut Self)).always() }
     }
     pub fn enter_task_switch(&mut self, task: &mut LocalNow) {
-        assert!(matches!(&mut self.local_now, LocalNow::Idle(_)));
+        assert!(matches!(&mut self.local_now, LocalNow::Idle));
         assert!(matches!(task, LocalNow::Task(_)));
+        let new = task.always(&mut self.always_local);
         let old = self.always();
-        let new = task.always();
         if old.sie_cur() == 0 {
             unsafe { sstatus::clear_sie() };
         }
@@ -127,9 +115,9 @@ impl HartLocal {
     }
     pub fn leave_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Task(_)));
-        assert!(matches!(task, LocalNow::Idle(_)));
+        assert!(matches!(task, LocalNow::Idle));
+        let new = task.always(&mut self.always_local);
         let old = self.always();
-        let new = task.always();
         if old.sie_cur() == 0 {
             unsafe { sstatus::clear_sie() };
         }
@@ -142,7 +130,7 @@ impl HartLocal {
     }
 }
 pub fn init() {
-    hart_local().init()
+    // hart_local().init()
 }
 #[inline(always)]
 pub fn hart_local() -> &'static mut HartLocal {
@@ -159,8 +147,8 @@ pub fn task_local() -> &'static mut TaskLocal {
 }
 
 #[inline(always)]
-fn get_local_by_id(id: usize) -> &'static HartLocal {
-    unsafe { &HART_LOCAL[id] }
+pub unsafe fn get_local_by_id(id: usize) -> &'static HartLocal {
+    &HART_LOCAL[id]
 }
 
 pub fn set_stack() {
@@ -195,7 +183,7 @@ pub fn all_hart_fn(f: impl Fn<(), Output = impl FnOnce() + 'static>) {
         if i == cur {
             continue;
         }
-        get_local_by_id(i).register(f());
+        unsafe { get_local_by_id(i).register(f()) };
     }
     f()();
 }

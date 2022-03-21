@@ -1,5 +1,5 @@
 use super::error::FrameOutOfMemory;
-
+#[macro_use]
 pub mod from_usize_allocator;
 
 /// release T when drop

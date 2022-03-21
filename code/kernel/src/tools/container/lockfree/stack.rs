@@ -6,8 +6,9 @@ use crate::tools::container::thread_local_linked_list::ThreadLocalLinkedList;
 
 use super::marked_ptr::{AtomicMarkedPtr, MarkedPtr, PtrID};
 
-// 无锁单向链表
+/// 无锁单向链表
 pub struct LockfreeStack<T> {
+    /// 使用 INVAILD 表示关闭
     head: AtomicMarkedPtr<LockfreeNode<T>>,
 }
 unsafe impl<T> Send for LockfreeStack<T> {}
@@ -41,6 +42,55 @@ impl<T> LockfreeStack<T> {
             }
         }
     }
+    pub fn replace(
+        &self,
+        list: ThreadLocalLinkedList<T>,
+    ) -> Result<ThreadLocalLinkedList<T>, ThreadLocalLinkedList<T>> {
+        let mut head = self.head.load();
+        loop {
+            match head.valid() {
+                Ok(_) => (),
+                Err(_) => return Err(list),
+            }
+            let new_head = MarkedPtr::new(head.id(), list.head().get_ptr());
+            match self.head.compare_exchange(head, new_head) {
+                Ok(_) => {
+                    let head = head.cast();
+                    return Ok(ThreadLocalLinkedList::ptr_new(head));
+                }
+                Err(cur_head) => {
+                    head = cur_head;
+                    core::hint::spin_loop();
+                }
+            }
+        }
+    }
+    pub fn appand(&self, list: &mut ThreadLocalLinkedList<T>) -> Result<(), ()> {
+        let list_tail = list.tail_pointer().ok_or(())?;
+        let mut head = self.head.load();
+        loop {
+            match head.valid() {
+                Ok(_) => (),
+                Err(_) => {
+                    unsafe { (*list_tail).into_null() };
+                    return Err(());
+                }
+            }
+            unsafe { (*list_tail) = head };
+            let new_head = MarkedPtr::new(head.id(), list.head().get_ptr());
+            match self.head.compare_exchange(head, new_head) {
+                Ok(_) => {
+                    unsafe { list.leak_reset() };
+                    return Ok(());
+                }
+                Err(cur_head) => {
+                    head = cur_head;
+                    core::hint::spin_loop();
+                }
+            }
+        }
+    }
+
     pub fn close(&self) -> Result<ThreadLocalLinkedList<T>, ()> {
         let mut head = self.head.load();
         loop {

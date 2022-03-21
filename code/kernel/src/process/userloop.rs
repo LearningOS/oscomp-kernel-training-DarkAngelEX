@@ -22,8 +22,8 @@ use crate::{
 use super::thread::Thread;
 
 async fn userloop(thread: Arc<Thread>) {
+    stack_trace!(to_yellow!("running in user loop"));
     loop {
-        stack_trace!();
         local::handle_current_local();
 
         let mut do_exit = false;

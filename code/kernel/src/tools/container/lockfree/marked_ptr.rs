@@ -9,7 +9,7 @@ use core::{
 /// [63:39|38:0] [id:value]
 ///
 /// 拥有25位ID, 循环周期 33554432
-pub struct MarkedPtr<T>(usize, PhantomData<*mut T>);
+pub(in super::super) struct MarkedPtr<T>(usize, PhantomData<*mut T>);
 
 impl<T> Clone for MarkedPtr<T> {
     fn clone(&self) -> Self {
@@ -24,7 +24,7 @@ impl<T> PartialEq for MarkedPtr<T> {
     }
 }
 
-pub struct AtomicMarkedPtr<T>(AtomicUsize, PhantomData<*mut T>);
+pub(super) struct AtomicMarkedPtr<T>(AtomicUsize, PhantomData<*mut T>);
 
 /// 定义 PtrID 的低39位都是 0
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -34,11 +34,18 @@ impl PtrID {
     pub fn zero() -> Self {
         Self(0)
     }
+    // skip -1
+    pub fn next(self) -> Self {
+        let mut b: usize = (self.0 >> 39) + 1;
+        // avoid undefined behavior and branch jmp
+        b = b.wrapping_add((b.wrapping_add(1) != 0) as usize);
+        Self(b << 39)
+    }
+    pub fn is_valid(self) -> bool {
+        self.0.wrapping_add(PTR_ID_BASE) != 0
+    }
     pub fn num(self) -> usize {
         self.0 >> 39
-    }
-    pub fn confuse(self) -> Self {
-        Self((self.num() * 2381 + 523) << 39)
     }
 }
 
@@ -85,6 +92,9 @@ impl<T> MarkedPtr<T> {
     pub fn cast<V>(self) -> MarkedPtr<V> {
         unsafe { core::mem::transmute(self) }
     }
+    pub fn next_id_ptr(self) -> Self {
+        Self::new(self.id().next(), self.get_ptr())
+    }
 }
 
 impl<T> AtomicMarkedPtr<T> {
@@ -97,11 +107,20 @@ impl<T> AtomicMarkedPtr<T> {
     pub fn new(ptr: MarkedPtr<T>) -> Self {
         Self(AtomicUsize::new(ptr.0), PhantomData)
     }
+    pub fn init(&mut self, ptr: MarkedPtr<T>) {
+        *self.0.get_mut() = ptr.0;
+    }
     pub fn confusion(&self) {
         self.0.fetch_xor(0x1a1a1a1a1a1a1a1a, Ordering::Release);
     }
+    pub fn set_id(&mut self, id: PtrID) {
+        let cur = self.0.get_mut();
+        let mut ptr: MarkedPtr<T> = unsafe { core::mem::transmute(*cur) };
+        ptr = MarkedPtr::new(id, ptr.get_ptr());
+        *cur = ptr.0;
+    }
     pub fn set_id_null(&mut self, id: PtrID) {
-        self.0.store(id.0, Ordering::Relaxed);
+        *self.0.get_mut() = id.0;
     }
     pub fn load(&self) -> MarkedPtr<T> {
         MarkedPtr::from_usize(self.0.load(Ordering::Acquire))
@@ -111,9 +130,10 @@ impl<T> AtomicMarkedPtr<T> {
         current: MarkedPtr<T>,
         new: MarkedPtr<T>,
     ) -> Result<MarkedPtr<T>, MarkedPtr<T>> {
+        debug_check!(current.id().is_valid());
         match self.0.compare_exchange(
             current.0,
-            new.0.wrapping_add(PTR_ID_BASE),
+            new.next_id_ptr().0,
             Ordering::SeqCst,
             Ordering::Acquire,
         ) {

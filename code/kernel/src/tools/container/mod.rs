@@ -3,6 +3,7 @@ pub mod intrusive_linked_list;
 pub mod lockfree;
 pub mod never_clone_linked_list;
 pub mod pop_smallest_set;
+pub mod range_map;
 pub mod sync_unsafe_cell;
 pub mod thread_local_linked_list;
 

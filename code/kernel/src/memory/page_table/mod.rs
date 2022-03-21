@@ -292,7 +292,7 @@ impl PageTable {
         Self::copy_user_range_lazy(
             &mut pt,
             self,
-            &UserArea::new(UserAddr4K::null(), UserAddr4K::user_max(), PTEFlags::U),
+            &UserArea::new(UserAddr4K::null()..UserAddr4K::user_max(), PTEFlags::U),
             allocator,
         )?;
         memory_trace!("PageTable::fork end");

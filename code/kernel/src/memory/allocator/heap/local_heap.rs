@@ -74,11 +74,8 @@ impl LocalHeap {
         let mut new_list = super::global_heap_alloc_list(layout, load_size)?;
 
         list.append(&mut new_list);
-
-        if let Some(ptr) = list.pop() {
-            return Ok(ptr.cast());
-        }
-        panic!();
+        
+        Ok(list.pop().unwrap().cast())
     }
 
     pub fn dealloc(&mut self, ptr: NonNull<u8>, layout: Layout) {
