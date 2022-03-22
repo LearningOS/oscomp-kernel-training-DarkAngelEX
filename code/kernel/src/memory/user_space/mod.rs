@@ -10,7 +10,7 @@ use crate::{
     },
     tools::{
         container::sync_unsafe_cell::SyncUnsafeCell,
-        error::{FrameOutOfMemory, TooManyUserStack},
+        error::{FrameOOM, TooManyUserStack},
     },
     user::AutoSum,
 };
@@ -42,7 +42,7 @@ pub struct UserArea {
 
 impl UserArea {
     pub fn new(range: Range<UserAddr4K>, perm: PTEFlags) -> Self {
-        debug_check!(range.start < range.end);
+        debug_assert!(range.start < range.end);
         Self { range, perm }
     }
     pub fn begin(&self) -> UserAddr4K {
@@ -75,7 +75,7 @@ unsafe impl Sync for UserSpace {}
 
 #[derive(Debug)]
 pub enum USpaceCreateError {
-    FrameOutOfMemory(FrameOutOfMemory),
+    FrameOOM(FrameOOM),
     ElfAnalysisFail(&'static str),
     TooManyUserStack(TooManyUserStack),
 }
@@ -83,14 +83,14 @@ pub enum USpaceCreateError {
 impl From<UserStackCreateError> for USpaceCreateError {
     fn from(e: UserStackCreateError) -> Self {
         match e {
-            UserStackCreateError::FrameOutOfMemory(e) => Self::FrameOutOfMemory(e),
+            UserStackCreateError::FrameOOM(e) => Self::FrameOOM(e),
             UserStackCreateError::TooManyUserStack(e) => Self::TooManyUserStack(e),
         }
     }
 }
-impl From<FrameOutOfMemory> for USpaceCreateError {
-    fn from(e: FrameOutOfMemory) -> Self {
-        Self::FrameOutOfMemory(e)
+impl From<FrameOOM> for USpaceCreateError {
+    fn from(e: FrameOOM) -> Self {
+        Self::FrameOOM(e)
     }
 }
 
@@ -116,7 +116,7 @@ impl Drop for UserSpace {
 
 impl UserSpace {
     /// need alloc 4KB to root entry.
-    pub fn from_global() -> Result<Self, FrameOutOfMemory> {
+    pub fn from_global() -> Result<Self, FrameOOM> {
         Ok(Self {
             page_table: Arc::new(SyncUnsafeCell::new(PageTable::from_global(
                 asid::alloc_asid(),
@@ -147,7 +147,7 @@ impl UserSpace {
         map_area: UserArea,
         data_iter: &mut impl FrameDataIter,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         memory_trace!("UserSpace::map_user_range");
         self.page_table_mut()
             .map_user_range(&map_area, data_iter, allocator)?;
@@ -252,12 +252,12 @@ impl UserSpace {
         let (stack_id, user_sp) = space.stack_alloc(stack_reverse, allocator)?;
         memory_trace!("UserSpace::from_elf 2");
         // set heap
-        space.heap_resize(PageCount::from_usize(1), allocator);
+        space.heap_resize(PageCount(1), allocator);
 
         let entry_point = elf.header.pt2.entry_point() as usize;
         Ok((space, stack_id, user_sp, entry_point.into()))
     }
-    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOutOfMemory> {
+    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOOM> {
         memory_trace!("UserSpace::fork");
         let page_table = self.page_table_mut().fork(allocator)?;
         let text_area = self.text_area.clone();

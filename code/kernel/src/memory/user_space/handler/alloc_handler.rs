@@ -1,4 +1,4 @@
-use core::ops::{Range, RangeBounds};
+use core::ops::Range;
 
 use alloc::boxed::Box;
 
@@ -10,65 +10,73 @@ use crate::{
         user_space::UserArea,
         PageTable,
     },
-    tools::{self, Async},
+    syscall::SysError,
+    tools::{
+        self,
+        xasync::{TryR, TryRunFail},
+    },
 };
 
-use super::UserAreaHandler;
+use super::{AsyncHandler, HandlerID, UserAreaHandler};
 
 pub struct GlobalAllocHandler {
+    id: HandlerID,
     range: Range<UserAddr4K>,
     perm: PTEFlags,
 }
 
 impl UserAreaHandler for GlobalAllocHandler {
+    fn id(&self) -> HandlerID {
+        self.id
+    }
     fn range(&self) -> Range<UserAddr4K> {
         self.range.clone()
     }
     fn perm(&self) -> PTEFlags {
         self.perm
     }
-    fn map(
+    fn try_map(
         &self,
         pt: &mut PageTable,
-        range: impl RangeBounds<UserAddr4K>,
-    ) -> Async<Result<(), ()>> {
+        range: Range<UserAddr4K>,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
+        stack_trace!();
         let range = tools::range_limit(range, self.range());
         if range.start >= range.end {
-            return Box::pin(async move { Ok(()) });
+            return Ok(());
         }
-        let ret = pt
-            .map_user_range(
-                &UserArea::new(range, self.perm()),
-                &mut NullFrameDataIter,
-                &mut frame::defualt_allocator(),
-            )
-            .map_err(|_e| ());
-        Box::pin(async move { ret })
-    }
-    fn unmap(&self, pt: &mut PageTable, range: impl RangeBounds<UserAddr4K>) -> Async<PageCount> {
-        let range = tools::range_limit(range, self.range());
-        if range.start >= range.end {
-            return Box::pin(async move { PageCount::from_usize(0) });
-        }
-        let ret = pt.unmap_user_range_lazy(
+        pt.map_user_range(
             &UserArea::new(range, self.perm()),
+            &mut NullFrameDataIter,
             &mut frame::defualt_allocator(),
-        );
-        Box::pin(async move { ret })
+        )?;
+        Ok(())
     }
-    fn page_fault(&self, pt: &mut PageTable, addr: UserAddr) -> Async<Result<(), ()>> {
+    fn try_page_fault(
+        &self,
+        pt: &mut PageTable,
+        addr: UserAddr,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
+        stack_trace!();
         let addr = addr.floor();
         if !self.contains(addr) {
-            return Box::pin(async move { Err(()) });
+            return Err(TryRunFail::Fatal(SysError::EFAULT));
         }
-        let ret = pt
-            .map_user_addr(
-                addr,
-                self.perm,
-                &mut NullFrameDataIter,
-                &mut frame::defualt_allocator(),
-            )
-            .map_err(|_e| ());
-        Box::pin(async move { ret })
+        pt.map_user_addr(
+            addr,
+            self.perm,
+            &mut NullFrameDataIter,
+            &mut frame::defualt_allocator(),
+        )?;
+        Ok(())
+    }
+    fn unmap(&self, pt: &mut PageTable, range: Range<UserAddr4K>) -> PageCount {
+        self.default_unmap(pt, range)
+    }
+    fn split_l(&mut self, addr: UserAddr4K) -> Box<dyn UserAreaHandler> {
+        todo!()
+    }
+    fn split_r(&mut self, addr: UserAddr4K) -> Box<dyn UserAreaHandler> {
+        todo!()
     }
 }

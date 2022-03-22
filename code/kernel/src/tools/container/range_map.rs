@@ -16,7 +16,7 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
     pub const fn new() -> Self {
         Self(BTreeMap::new())
     }
-    pub fn try_insert(&mut self, Range { start, end }: Range<U>, value: V) -> Result<(), V> {
+    pub fn try_insert(&mut self, Range { start, end }: Range<U>, value: V) -> Result<&mut V, V> {
         stack_trace!();
         assert!(start < end);
         if let Some((_, Node { end, .. })) = self.0.range(..end).next_back() {
@@ -24,8 +24,8 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
                 return Err(value);
             }
         }
-        self.0.try_insert(start, Node { end, value }).ok().unwrap();
-        Ok(())
+        let node = self.0.try_insert(start, Node { end, value }).ok().unwrap();
+        Ok(&mut node.value)
     }
     pub fn get(&self, key: U) -> Option<&V> {
         if let Some((_, Node { end, value })) = self.0.range(..=key).next_back() {
@@ -35,18 +35,22 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         }
         None
     }
-    pub fn force_remove(&mut self, Range { start, end }: Range<U>) -> V {
+    pub fn force_remove_one(&mut self, Range { start, end }: Range<U>) -> V {
         stack_trace!();
-        let node = self.0.remove(&start).unwrap();
-        assert!(node.end == end);
-        node.value
+        let Node { end: n_end, value } = self.0.remove(&start).unwrap();
+        assert!(n_end == end);
+        value
     }
+    /// split_l: take the left side of the range
+    ///
+    /// split_r: take the right side of the range
     pub fn replace(
         &mut self,
         Range { start, end }: Range<U>,
         value: V,
-        mut clone: impl FnMut(&mut V) -> V,
-        mut clear_range: impl FnMut(&mut V, Range<U>),
+        mut split_l: impl FnMut(&mut V, U) -> V,
+        mut split_r: impl FnMut(&mut V, U) -> V,
+        mut release: impl FnMut(V),
     ) {
         stack_trace!();
         if start >= end {
@@ -54,27 +58,29 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         }
         //  aaaaaaa  aaaaa
         //    bbb       bbbb
-        //  aa   aa  aaa
+        //  aa---aa  aaa--
         if let Some((_, node)) = self.0.range_mut(..start).next_back() {
-            if node.end > start {
-                clear_range(&mut node.value, start..end.min(node.end));
-                if node.end > end {
-                    let new_node = Node {
+            if start < node.end {
+                let mut v_m = split_r(&mut node.value, start);
+                if end < node.end {
+                    let v_r = split_r(&mut v_m, end);
+                    release(v_m);
+                    let value = Node {
                         end: node.end,
-                        value: clone(&mut node.value),
+                        value: v_r,
                     };
-                    self.0.try_insert(end, new_node).ok().unwrap();
+                    self.0.try_insert(end, value).ok().unwrap();
                 } else {
-                    node.end = start.min(node.end);
+                    release(v_m);
                 }
             }
         }
         //    aaaaaa
         //  bbbbb
-        //       aaa
+        //    ---aaa
         if let Some((&key, node)) = self.0.range_mut(..end).next_back() {
-            if node.end > end {
-                clear_range(&mut node.value, end..node.end);
+            if end < node.end {
+                release(split_l(&mut node.value, end));
                 let node = self.0.remove(&key).unwrap();
                 self.0.try_insert(end, node).ok().unwrap();
             }
@@ -82,16 +88,15 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         //    aaa
         //  bbbbbbb
         //   - - -
-        while let Some((&start, node)) = self.0.range_mut(start..end).next() {
-            clear_range(&mut node.value, start..node.end);
-            self.0.remove(&start).unwrap().value;
+        while let Some((&start, _node)) = self.0.range_mut(start..end).next() {
+            release(self.0.remove(&start).unwrap().value);
         }
         self.0.try_insert(start, Node { end, value }).ok().unwrap();
     }
-    pub fn clear(&mut self, mut clear_range: impl FnMut(&mut V, Range<U>)) {
+    pub fn clear(&mut self, mut release: impl FnMut(V)) {
         stack_trace!();
-        while let Some((start, mut node)) = self.0.pop_first() {
-            clear_range(&mut node.value, start..node.end);
+        while let Some((_start, node)) = self.0.pop_first() {
+            release(node.value);
         }
     }
 }

@@ -49,7 +49,7 @@ impl<T> Drop for LockfreeQueue<T> {
         let mut head = self.head.load();
         let tail = self.head.load();
         if head.get_ptr().is_none() {
-            debug_check!(tail.get_ptr().is_none());
+            debug_assert!(tail.get_ptr().is_none());
             return;
         }
         unsafe {
@@ -145,7 +145,7 @@ impl<T> LockfreeQueue<T> {
         in_tail: *mut LockfreeNode<T>,
     ) -> Result<ThreadLocalLinkedList<T>, ()> {
         stack_trace!();
-        debug_check!(!in_head.is_null() && !in_tail.is_null());
+        debug_assert!(!in_head.is_null() && !in_tail.is_null());
         let mut tail = self.tail.load();
         loop {
             tail.get_ptr().ok_or(())?;
@@ -158,8 +158,8 @@ impl<T> LockfreeQueue<T> {
             }
             unsafe { (*in_tail).next.set_id_null(tail.id()) };
             let new_tail = MarkedPtr::new(tail.id(), NonNull::new(in_tail));
-            debug_check!(tail.id().is_valid());
-            debug_check!(tail_next_v.id().is_valid());
+            debug_assert!(tail.id().is_valid());
+            debug_assert!(tail_next_v.id().is_valid());
             match self.tail.compare_exchange(tail, new_tail) {
                 Ok(_) => {
                     // change id to disable the push of other threads.
@@ -187,7 +187,7 @@ impl<T> LockfreeQueue<T> {
                 continue;
             }
             let new_head = MarkedPtr::new(head.id(), NonNull::new(in_head));
-            debug_check!(head.id().is_valid());
+            debug_assert!(head.id().is_valid());
             match self.head.compare_exchange(head, new_head) {
                 Ok(_) => {
                     let _ = head_next.compare_exchange(next_v, next_v);
@@ -211,7 +211,7 @@ impl<T> LockfreeQueue<T> {
         in_tail: *mut LockfreeNode<T>,
     ) -> Result<(), ()> {
         stack_trace!();
-        debug_check!(!in_head.is_null() && !in_tail.is_null());
+        debug_assert!(!in_head.is_null() && !in_tail.is_null());
         let mut new_node: NonNull<_> = NonNull::new(in_head).unwrap();
         // tail 定义为一定在 head 之后且距离队列尾很近的标记.
         let mut tail = self.tail.load();

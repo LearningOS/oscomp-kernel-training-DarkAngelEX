@@ -1,6 +1,6 @@
 use alloc::collections::BTreeMap;
 
-use crate::{tools::{allocator::from_usize_allocator::FastCloneUsizeAllocator, error::{TooManyUserStack, FrameOutOfMemory}}, config::{USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_SIZE}, memory::{address::{PageCount, UserAddr4K}, page_table::PTEFlags}};
+use crate::{tools::{allocator::from_usize_allocator::FastCloneUsizeAllocator, error::{TooManyUserStack, FrameOOM}}, config::{USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_SIZE}, memory::{address::{PageCount, UserAddr4K}, page_table::PTEFlags}};
 
 use super::UserArea;
 
@@ -98,12 +98,12 @@ impl<'a> UsingStackTracker<'a> {
 
 #[derive(Debug)]
 pub enum UserStackCreateError {
-    FrameOutOfMemory(FrameOutOfMemory),
+    FrameOOM(FrameOOM),
     TooManyUserStack(TooManyUserStack),
 }
-impl From<FrameOutOfMemory> for UserStackCreateError {
-    fn from(e: FrameOutOfMemory) -> Self {
-        Self::FrameOutOfMemory(e)
+impl From<FrameOOM> for UserStackCreateError {
+    fn from(e: FrameOOM) -> Self {
+        Self::FrameOOM(e)
     }
 }
 impl From<TooManyUserStack> for UserStackCreateError {

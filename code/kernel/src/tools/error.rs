@@ -4,35 +4,35 @@ use crate::syscall::{SysError, UniqueSysError};
 
 pub trait Error: Debug {}
 
-pub trait OutOfMemory: Error {}
+pub trait OOM: Error {}
 
 #[derive(Debug)]
-pub struct FrameOutOfMemory;
+pub struct FrameOOM;
 
-impl From<FrameOutOfMemory> for SysError {
-    fn from(_e: FrameOutOfMemory) -> Self {
+impl From<FrameOOM> for SysError {
+    fn from(_e: FrameOOM) -> Self {
         Self::ENOMEM
     }
 }
-impl From<FrameOutOfMemory> for UniqueSysError<{ SysError::ENOMEM as isize }> {
-    fn from(_e: FrameOutOfMemory) -> Self {
+impl From<FrameOOM> for UniqueSysError<{ SysError::ENOMEM as isize }> {
+    fn from(_e: FrameOOM) -> Self {
         UniqueSysError
     }
 }
 
-impl Error for FrameOutOfMemory {}
-impl OutOfMemory for FrameOutOfMemory {}
+impl Error for FrameOOM {}
+impl OOM for FrameOOM {}
 
 #[derive(Debug)]
-pub struct HeapOutOfMemory;
-impl From<()> for HeapOutOfMemory {
+pub struct HeapOOM;
+impl From<()> for HeapOOM {
     fn from(_: ()) -> Self {
         Self
     }
 }
 
-impl Error for HeapOutOfMemory {}
-impl OutOfMemory for HeapOutOfMemory {}
+impl Error for HeapOOM {}
+impl OOM for HeapOOM {}
 
 #[derive(Debug)]
 pub struct TooManyUserStack;

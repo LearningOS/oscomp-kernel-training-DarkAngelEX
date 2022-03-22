@@ -114,7 +114,7 @@ impl<'a, T> Future for SleepMutexFuture<'a, T> {
             Poll::Pending
         };
         if locked {
-            debug_check_eq!(slot, None);
+            debug_assert_eq!(slot, None);
             return push_queue();
         }
         // now mutex.locked is false.

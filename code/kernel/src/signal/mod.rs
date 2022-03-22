@@ -1,7 +1,7 @@
 use alloc::{collections::LinkedList, sync::Arc};
 
 use crate::{
-    process::{DeadProcess, Process},
+    process::{Dead, Process},
     sync::even_bus::Event,
 };
 
@@ -81,7 +81,7 @@ pub struct SignalPack {
 pub fn send_signal(
     process: Arc<Process>,
     signal_set: StardardSignalSet,
-) -> Result<(), DeadProcess> {
+) -> Result<(), Dead> {
     let mut signal_queue = LinkedList::new();
     for i in 1..31u8 {
         if signal_set.bits() & (1 << i) != 0 {

@@ -8,7 +8,7 @@ use core::{
 };
 
 use crate::{
-    process::DeadProcess,
+    process::Dead,
     tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
 };
 use alloc::sync::Arc;
@@ -39,9 +39,9 @@ pub struct EvenBusClose;
 impl From<EvenBusClose> for () {
     fn from(_: EvenBusClose) -> Self {}
 }
-impl From<EvenBusClose> for DeadProcess {
+impl From<EvenBusClose> for Dead {
     fn from(_: EvenBusClose) -> Self {
-        DeadProcess
+        Dead
     }
 }
 
@@ -56,7 +56,7 @@ pub struct EventBus {
 impl Drop for EventBus {
     fn drop(&mut self) {
         stack_trace!();
-        debug_check!(
+        debug_assert!(
             !self.should_suspend(),
             "impossible status in event_bus drop!"
         );

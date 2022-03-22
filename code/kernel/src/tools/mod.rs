@@ -2,13 +2,11 @@
 
 use core::{
     arch::asm,
-    future::Future,
-    ops::{Bound, Range, RangeBounds},
-    pin::Pin,
+    ops::Range,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::{boxed::Box, string::String};
+use alloc::string::String;
 use riscv::register::sstatus;
 
 use crate::{hart::cpu, timer};
@@ -18,8 +16,7 @@ pub mod color;
 pub mod allocator;
 pub mod container;
 pub mod error;
-
-pub type Async<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
+pub mod xasync;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
     if x {
@@ -99,22 +96,11 @@ pub fn next_sepc(sepc: usize) -> usize {
     next_instruction_sepc(sepc, ir)
 }
 
-/// 限制range
-pub fn range_limit<T: Ord + Clone>(src: impl RangeBounds<T>, area: Range<T>) -> Range<T> {
-    let start = match src.start_bound() {
-        Bound::Included(x) => x.max(&area.start),
-        Bound::Unbounded => &area.start,
-        Bound::Excluded(_) => panic!(),
-    };
-    let end = match src.start_bound() {
-        Bound::Excluded(x) => x.min(&area.end),
-        Bound::Unbounded => &area.end,
-        Bound::Included(_) => panic!(),
-    };
-    Range {
-        start: start.clone(),
-        end: end.clone(),
-    }
+/// 限制range 返回值可能出现 start > end
+pub fn range_limit<T: Ord + Copy>(src: Range<T>, area: Range<T>) -> Range<T> {
+    let start = src.start.max(area.start);
+    let end = src.end.min(area.end);
+    Range { start, end }
 }
 
 static BLOCK_0: AtomicUsize = AtomicUsize::new(0);

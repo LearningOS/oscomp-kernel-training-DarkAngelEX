@@ -119,7 +119,7 @@ impl UserCheck {
         while cur != uend4k {
             let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
             check_impl.write_check::<u8>(cur_ptr).await?;
-            cur.add_page_assign(PageCount::from_usize(1));
+            cur.add_page_assign(PageCount(1));
         }
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
         Ok(UserDataMut::new(slice))

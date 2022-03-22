@@ -15,7 +15,7 @@ impl Drop for IntrusiveLinkedList {
     fn drop(&mut self) {
         // 防止内存泄露
         // 不能回收 因为这个链表就是用来写内存分配器的
-        debug_check!(self.head.is_none());
+        debug_assert!(self.head.is_none());
     }
 }
 
@@ -273,7 +273,7 @@ impl IntrusiveLinkedList {
         self.sort_no_buffer();
         let mut node_iter = self.node_iter();
         while let Some((a, b)) = node_iter.current_and_next() {
-            debug_check!(a < b);
+            debug_assert!(a < b);
             if (a.as_ptr() as usize ^ b.as_ptr() as usize) == mask {
                 node_iter.remove_current_and_next();
                 unsafe { list.push(a) };

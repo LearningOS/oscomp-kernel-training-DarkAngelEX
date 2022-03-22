@@ -13,7 +13,10 @@ use crate::{
     tools,
 };
 
-use super::{page_table::PageTableEntry, user_ptr::{UserPtr, Policy}};
+use super::{
+    page_table::PageTableEntry,
+    user_ptr::{Policy, UserPtr},
+};
 
 // const PA_WIDTH_SV39: usize = 56;
 // const VA_WIDTH_SV39: usize = 39;
@@ -64,7 +67,7 @@ pub struct UserAddr4K(usize);
 
 #[repr(C)]
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct PageCount(usize);
+pub struct PageCount(pub usize);
 
 #[derive(Debug)]
 pub struct OutOfUserRange;
@@ -151,13 +154,13 @@ impl_from_usize!(
     PhyAddr,
     v,
     Self(v),
-    debug_check!(v < DIRECT_MAP_SIZE, "into PhyAddrRef error: {}", v)
+    debug_assert!(v < DIRECT_MAP_SIZE, "into PhyAddrRef error: {}", v)
 );
 impl_from_usize!(
     PhyAddrRef,
     v,
     Self(v),
-    debug_check!(
+    debug_assert!(
         v - DIRECT_MAP_OFFSET < DIRECT_MAP_SIZE,
         "into PhyAddr error: {:x}",
         v

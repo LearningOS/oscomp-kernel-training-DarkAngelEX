@@ -2,7 +2,7 @@ use core::alloc::Layout;
 
 use crate::{
     config::PAGE_SIZE,
-    tools::{error::HeapOutOfMemory, FailRun},
+    tools::{error::HeapOOM, FailRun},
 };
 
 pub mod frame;
@@ -10,7 +10,7 @@ mod heap;
 
 pub use heap::local_heap::LocalHeap;
 
-pub fn heap_space_enough() -> Result<(), HeapOutOfMemory> {
+pub fn heap_space_enough() -> Result<(), HeapOOM> {
     let layout = Layout::from_size_align(PAGE_SIZE * 4, PAGE_SIZE * 4).unwrap();
     let p1 = heap::global_heap_alloc(layout)?;
     let f1 = FailRun::new(|| {

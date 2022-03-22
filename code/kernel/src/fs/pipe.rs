@@ -15,7 +15,7 @@ use crate::{
     memory::allocator::frame::{self, global::FrameTracker},
     sync::{mutex::SpinNoIrqLock, sleep_mutex::SleepMutex},
     syscall::SysResult,
-    tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOutOfMemory},
+    tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
     user::{UserData, UserDataMut},
 };
 
@@ -32,7 +32,7 @@ pub struct Pipe {
 }
 
 impl Pipe {
-    pub fn new() -> Result<Self, FrameOutOfMemory> {
+    pub fn new() -> Result<Self, FrameOOM> {
         Ok(Self {
             buffer: frame::global::alloc_n()?,
             read_at: 0,
@@ -97,7 +97,7 @@ impl Pipe {
     }
 }
 
-pub fn make_pipe() -> Result<(Arc<PipeReader>, Arc<PipeWriter>), FrameOutOfMemory> {
+pub fn make_pipe() -> Result<(Arc<PipeReader>, Arc<PipeWriter>), FrameOOM> {
     let pipe = Arc::new(SyncUnsafeCell::new(Pipe::new()?));
     let mut reader = Arc::new(PipeReader {
         pipe: SleepMutex::new(pipe.clone()),

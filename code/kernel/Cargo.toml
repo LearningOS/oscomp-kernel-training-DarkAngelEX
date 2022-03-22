@@ -24,3 +24,22 @@ async-task = { version = "4.2.0", default-features = false }
 
 [features]
 board_qemu = []
+
+# https://zhuanlan.zhihu.com/p/476524365
+[profile.dev]
+opt-level = 1
+debug = 2
+debug-assertions = true # 断言标志
+overflow-checks = true  # 算数溢出检测
+lto = false             # 链接期优化
+incremental = true      # 增量编译
+codegen-units = 128     # 代码生成单元
+
+[profile.release]
+opt-level = 3
+debug = false
+debug-assertions = false
+overflow-checks = false
+lto = false
+incremental = false
+codegen-units = 16

@@ -10,8 +10,7 @@ use alloc::sync::Arc;
 
 use crate::{
     syscall::SysError,
-    tools::Async,
-    user::{UserData, UserDataMut},
+    user::{UserData, UserDataMut}, tools::xasync::Async,
 };
 
 pub type AsyncFile = Async<Result<usize, SysError>>;

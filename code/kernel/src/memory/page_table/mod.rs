@@ -17,7 +17,7 @@ use crate::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
     hart::{csr, sfence},
-    tools::error::FrameOutOfMemory,
+    tools::error::FrameOOM,
 };
 
 mod map_impl;
@@ -100,7 +100,7 @@ impl PageTableEntry {
         &mut self,
         flags: PTEFlags,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
         pa.as_pte_array_mut()
@@ -110,7 +110,7 @@ impl PageTableEntry {
         Ok(())
     }
     #[deprecated = "replace by alloc_by"]
-    pub fn alloc(&mut self, flags: PTEFlags) -> Result<(), FrameOutOfMemory> {
+    pub fn alloc(&mut self, flags: PTEFlags) -> Result<(), FrameOOM> {
         self.alloc_by(flags, &mut frame::defualt_allocator())
     }
     /// this function will clear V flag.
@@ -153,7 +153,7 @@ impl Drop for PageTable {
 
 impl PageTable {
     /// asid set to zero must be success.
-    pub fn new_empty(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
+    pub fn new_empty(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOOM> {
         let phy_ptr = frame::global::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
         arr.iter_mut()
@@ -164,7 +164,7 @@ impl PageTable {
             satp: AtomicUsize::new(8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn()),
         })
     }
-    pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOutOfMemory> {
+    pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOOM> {
         memory_trace!("PageTable::from_global");
         let phy_ptr = frame::global::alloc_dpa()?.consume();
         let arr = phy_ptr.into_ref().as_pte_array_mut();
@@ -210,7 +210,7 @@ impl PageTable {
         &mut self,
         va: VirAddr4K,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<&mut PageTableEntry, FrameOutOfMemory> {
+    ) -> Result<&mut PageTableEntry, FrameOOM> {
         let idxs = va.indexes();
         let mut par: PhyAddrRef4K = self.root_pa().into();
         for (i, &idx) in idxs.iter().enumerate() {
@@ -244,7 +244,7 @@ impl PageTable {
 
     #[inline(always)]
     fn ptes_from_pte(pte: &mut PageTableEntry) -> &'static mut [PageTableEntry; 512] {
-        debug_check!(pte.is_directory());
+        debug_assert!(pte.is_directory());
         PhyAddrRef4K::from(pte.phy_addr()).as_pte_array_mut()
     }
 
@@ -255,9 +255,9 @@ impl PageTable {
         par: PhyAddrRef4K,
         flags: PTEFlags,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         let pte = self.find_pte_create(va, allocator)?;
-        debug_check!(!pte.is_valid(), "va {:?} is mapped before mapping", va);
+        debug_assert!(!pte.is_valid(), "va {:?} is mapped before mapping", va);
         *pte = PageTableEntry::new(par.into(), flags | PTEFlags::V);
         Ok(())
     }
@@ -285,7 +285,7 @@ impl PageTable {
     /// copy kernel segment
     ///
     /// alloc new space for user
-    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOutOfMemory> {
+    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOOM> {
         memory_trace!("PageTable::fork begin");
         let mut pt = Self::from_global(asid::alloc_asid())?;
         // println!("PageTable::fork {:#x}", self as *const Self as usize);
@@ -303,7 +303,7 @@ impl PageTable {
 /// new a kernel page table
 /// set asid to 0.
 /// if return None, means no enough memory.
-fn new_kernel_page_table() -> Result<PageTable, FrameOutOfMemory> {
+fn new_kernel_page_table() -> Result<PageTable, FrameOOM> {
     extern "C" {
         // kernel segment ALIGN 4K
         fn stext();
@@ -475,7 +475,9 @@ pub fn init_kernel_page_table() {
         csr::set_satp(satp);
         sfence::sfence_vma_all_global();
         sfence::fence_i();
-        debug_run!({ direct_map_test() });
+        if cfg!(debug_assertions) {
+            direct_map_test();
+        }
     }
 }
 

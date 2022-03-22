@@ -62,8 +62,8 @@ impl ChildrenSet {
     }
     pub fn push_alive_child(&mut self, child: Arc<Process>) {
         let pid = child.pid();
-        debug_check!(self.zombie_no_find(pid));
-        debug_check!(self.zombie_pending_no_find(pid));
+        debug_assert!(self.zombie_no_find(pid));
+        debug_assert!(self.zombie_pending_no_find(pid));
         match self.alive.insert(pid, child) {
             Some(_) => panic!(),
             None => (),
@@ -71,8 +71,8 @@ impl ChildrenSet {
     }
     pub fn push_zombie_child(&mut self, child: Arc<Process>) {
         let pid = child.pid();
-        debug_check!(self.alive_no_find(pid));
-        debug_check!(self.zombie_pending_no_find(pid));
+        debug_assert!(self.alive_no_find(pid));
+        debug_assert!(self.zombie_pending_no_find(pid));
         match self.zombie.insert(child.pid(), child) {
             Some(_) => panic!(),
             None => (),
@@ -83,7 +83,7 @@ impl ChildrenSet {
             self.push_zombie_child(child);
             return;
         }
-        debug_check!(self.zombie_no_find(pid));
+        debug_assert!(self.zombie_no_find(pid));
         if !self.zombie_pending.insert(pid) {
             panic!("double insert zombie")
         }

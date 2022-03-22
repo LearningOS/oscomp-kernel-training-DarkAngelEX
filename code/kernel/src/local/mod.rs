@@ -79,7 +79,7 @@ impl HartLocal {
         self.pending.lock(place!()).push(Box::new(f))
     }
     fn handle(&mut self) {
-        debug_check!(self.queue.is_empty());
+        debug_assert!(self.queue.is_empty());
         // use swap instead of take bucause it can keep reverse space.
         core::mem::swap(&mut self.queue, &mut *self.pending.lock(place!()));
         while let Some(f) = self.queue.pop() {
@@ -103,6 +103,7 @@ impl HartLocal {
         assert!(matches!(task, LocalNow::Task(_)));
         let new = task.always(&mut self.always_local);
         let old = self.always();
+        // 关中断 避免中断时使用always_local时发生错误
         if old.sie_cur() == 0 {
             unsafe { sstatus::clear_sie() };
         }

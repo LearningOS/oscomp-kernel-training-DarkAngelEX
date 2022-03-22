@@ -139,7 +139,7 @@ impl AsidManager {
         if ai.version() == self.version {
             return;
         }
-        debug_check!(ai.version() < self.version);
+        debug_assert!(ai.version() < self.version);
         let new_asid_info = self.alloc().consume();
         let new_asid = new_asid_info.asid();
         asid_info.asid_info.set(new_asid_info, self);

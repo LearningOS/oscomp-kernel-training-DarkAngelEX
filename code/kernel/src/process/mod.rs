@@ -17,7 +17,7 @@ use crate::{
         mutex::SpinNoIrqLock as Mutex,
     },
     syscall::{SysError, UniqueSysError},
-    tools::error::FrameOutOfMemory,
+    tools::error::FrameOOM,
     xdebug::NeverFail,
 };
 
@@ -65,16 +65,16 @@ pub struct AliveProcess {
 }
 
 #[derive(Debug)]
-pub struct DeadProcess;
+pub struct Dead;
 
-impl From<DeadProcess> for UniqueSysError<{ SysError::ESRCH as isize }> {
-    fn from(_e: DeadProcess) -> Self {
+impl From<Dead> for UniqueSysError<{ SysError::ESRCH as isize }> {
+    fn from(_e: Dead) -> Self {
         UniqueSysError
     }
 }
 
-impl From<DeadProcess> for SysError {
-    fn from(e: DeadProcess) -> Self {
+impl From<Dead> for SysError {
+    fn from(e: Dead) -> Self {
         let err: UniqueSysError<_> = e.into();
         err.into()
     }
@@ -86,10 +86,10 @@ impl Process {
     }
     // return Err if zombies
     #[inline(always)]
-    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, DeadProcess> {
+    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, Dead> {
         match self.alive.lock(place!()).as_mut() {
             Some(alive) => Ok(f(alive)),
-            None => Err(DeadProcess),
+            None => Err(Dead),
         }
     }
     // fork and release all thread except tid
@@ -97,7 +97,7 @@ impl Process {
         self: &Arc<Self>,
         tid: Tid,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<Arc<Self>, FrameOutOfMemory> {
+    ) -> Result<Arc<Self>, FrameOOM> {
         let mut alive_guard = self.alive.lock(place!());
         let alive = alive_guard.as_mut().unwrap();
         let mut user_space = alive.user_space.fork(allocator)?;

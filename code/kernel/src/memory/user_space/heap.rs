@@ -18,9 +18,9 @@ impl Drop for HeapManager {
 impl HeapManager {
     pub fn new() -> Self {
         Self {
-            heap_size: PageCount::from_usize(0),
-            heap_alloc: PageCount::from_usize(0),
-            heap_free: PageCount::from_usize(0),
+            heap_size: PageCount(0),
+            heap_alloc: PageCount(0),
+            heap_free: PageCount(0),
         }
     }
     pub fn size(&self) -> PageCount {

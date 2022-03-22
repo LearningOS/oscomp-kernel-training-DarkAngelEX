@@ -5,7 +5,7 @@ use crate::{
         allocator::frame::FrameAllocator,
         page_table::{FrameDataIter, PTEFlags, PageTable, PageTableEntry, UserArea},
     },
-    tools::error::FrameOutOfMemory,
+    tools::error::FrameOOM,
     xdebug::PRINT_MAP_ALL,
 };
 
@@ -42,7 +42,7 @@ impl PageTable {
         }
         let x0 = get_num(begin);
         let x1 = get_num(end) + 1;
-        PageCount::from_usize(x1 - x0)
+        PageCount(x1 - x0)
     }
 
     pub fn map_user_addr(
@@ -51,7 +51,7 @@ impl PageTable {
         perm: PTEFlags,
         data_iter: &mut impl FrameDataIter,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
         stack_trace!();
         let x = &addr.indexes();
@@ -83,13 +83,15 @@ impl PageTable {
         unsafe { pte.dealloc_by(allocator) };
     }
 
+    /// if range have been map will panic.
+    ///
     /// return Err if out of memory
     pub fn map_user_range(
         &mut self,
         map_area: &UserArea,
         data_iter: &mut impl FrameDataIter,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         memory_trace!("PageTable::map_user_range");
         assert!(map_area.perm().contains(PTEFlags::U));
         let ubegin = map_area.begin();
@@ -103,14 +105,14 @@ impl PageTable {
         let r = &uend.sub_one_page().indexes();
         return match map_user_range_0(ptes, l, r, flags, data_iter, allocator, ubegin) {
             Ok(ua) => {
-                debug_check_eq!(ua, uend);
+                debug_assert_eq!(ua, uend);
                 Ok(())
             }
             Err(ua) => {
                 // realease page table
                 let alloc_area = UserArea::new(ubegin..ua, flags);
                 self.unmap_user_range(&alloc_area, allocator);
-                Err(FrameOutOfMemory)
+                Err(FrameOOM)
             }
         };
 
@@ -201,7 +203,7 @@ impl PageTable {
         let l = &ubegin.indexes();
         let r = &uend.sub_one_page().indexes();
         let ua = unmap_user_range_0(ptes, l, r, allocator, ubegin);
-        debug_check_eq!(ua, uend);
+        debug_assert_eq!(ua, uend);
         return;
 
         #[inline(always)]
@@ -269,7 +271,7 @@ impl PageTable {
         src: &mut Self,
         map_area: &UserArea,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         memory_trace!("copy_user_range_lazy");
         map_area.user_assert();
         let ubegin = map_area.begin();
@@ -280,13 +282,13 @@ impl PageTable {
         let dst_ptes = dst.root_pa().into_ref().as_pte_array_mut();
         return match copy_user_range_lazy_0(dst_ptes, src_ptes, l, r, ubegin, allocator) {
             Ok(ua) => {
-                debug_check_eq!(ua, uend);
+                debug_assert_eq!(ua, uend);
                 Ok(())
             }
             Err(ua) => {
                 let alloc_area = UserArea::new(ubegin..ua, PTEFlags::U);
                 dst.unmap_user_range_lazy(&alloc_area, allocator);
-                Err(FrameOutOfMemory)
+                Err(FrameOOM)
             }
         };
         #[inline(always)]
@@ -393,7 +395,7 @@ impl PageTable {
         let l = &ubegin.indexes();
         let r = &uend.sub_one_page().indexes();
         let (page_count, ua) = unmap_user_range_lazy_0(ptes, l, r, page_count, allocator, ubegin);
-        debug_check_eq!(ua, uend);
+        debug_assert_eq!(ua, uend);
         return page_count;
 
         #[inline(always)]
@@ -463,7 +465,7 @@ impl PageTable {
                 if pte.is_valid() {
                     assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
                     unsafe { pte.dealloc_by(allocator) };
-                    page_count += PageCount::from_usize(0);
+                    page_count += PageCount(0);
                 }
                 ua = ua.add_one_page();
             }
@@ -477,7 +479,7 @@ impl PageTable {
         size: usize,
         flags: PTEFlags,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOutOfMemory> {
+    ) -> Result<(), FrameOOM> {
         if size == 0 {
             return Ok(());
         }
@@ -499,7 +501,7 @@ impl PageTable {
         let ptes = par.as_pte_array_mut();
         // clear 12 + 9 * 3 = 39 bit
         let va = map_direct_range_0(ptes, l, r, flags, vbegin, pbegin.into(), allocator)?;
-        debug_check_eq!(va, vend);
+        debug_assert_eq!(va, vend);
         return Ok(());
 
         #[inline(always)]
@@ -511,7 +513,7 @@ impl PageTable {
             mut va: VirAddr4K,
             mut pa: PhyAddr4K,
             allocator: &mut impl FrameAllocator,
-        ) -> Result<VirAddr4K, FrameOutOfMemory> {
+        ) -> Result<VirAddr4K, FrameOOM> {
             // println!("level 0: {:?} {:?}-{:?}", va, l, r);
             let xbegin = &[0, 0];
             let xend = &[511, 511];
@@ -520,7 +522,7 @@ impl PageTable {
                 if full {
                     // 1GB page table
                     assert!(!pte.is_valid(), "1GB pagetable: remap");
-                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << (9 * 2))) == 0);
+                    debug_assert!(va.into_usize() % (PAGE_SIZE * (1 << (9 * 2))) == 0);
                     // if true || PRINT_MAP_ALL {
                     //     println!("map 1GB {:?} -> {:?}", va, pa);
                     // }
@@ -548,7 +550,7 @@ impl PageTable {
             mut va: VirAddr4K,
             mut pa: PhyAddr4K,
             allocator: &mut impl FrameAllocator,
-        ) -> Result<(VirAddr4K, PhyAddr4K), FrameOutOfMemory> {
+        ) -> Result<(VirAddr4K, PhyAddr4K), FrameOOM> {
             // println!("level 1: {:?} {:?}-{:?}", va, l, r);
             let xbegin = &[0];
             let xend = &[511];
@@ -557,7 +559,7 @@ impl PageTable {
                 if full {
                     // 1MB page table
                     assert!(!pte.is_valid(), "1MB pagetable: remap");
-                    debug_check!(va.into_usize() % (PAGE_SIZE * (1 << 9)) == 0);
+                    debug_assert!(va.into_usize() % (PAGE_SIZE * (1 << 9)) == 0);
                     *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
                     unsafe {
                         va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9));
@@ -618,10 +620,10 @@ impl PageTable {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if full {
                     // 1GB page table
-                    debug_check!(pte.is_leaf());
+                    debug_assert!(pte.is_leaf());
                     *pte = PageTableEntry::empty();
                 } else {
-                    debug_check!(pte.is_directory());
+                    debug_assert!(pte.is_directory());
                     let ptes = PageTable::ptes_from_pte(pte);
                     unmap_direct_range_1(ptes, l, r);
                 }
@@ -634,10 +636,10 @@ impl PageTable {
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if full {
-                    debug_check!(pte.is_leaf());
+                    debug_assert!(pte.is_leaf());
                     *pte = PageTableEntry::empty();
                 } else {
-                    debug_check!(pte.is_directory());
+                    debug_assert!(pte.is_directory());
                     let ptes = PageTable::ptes_from_pte(pte);
                     unmap_direct_range_2(ptes, l, r);
                 }
@@ -646,7 +648,7 @@ impl PageTable {
         #[inline(always)]
         fn unmap_direct_range_2(ptes: &mut [PageTableEntry; 512], l: &[usize; 1], r: &[usize; 1]) {
             for pte in &mut ptes[l[0]..=r[0]] {
-                debug_check!(pte.is_leaf());
+                debug_assert!(pte.is_leaf());
                 *pte = PageTableEntry::empty();
             }
         }
@@ -675,7 +677,7 @@ impl PageTable {
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if pte.is_valid() {
-                    debug_check!(
+                    debug_assert!(
                         pte.is_directory(),
                         "free_user_directory_all: need directory but leaf"
                     );
@@ -701,7 +703,7 @@ impl PageTable {
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if pte.is_valid() {
-                    debug_check!(
+                    debug_assert!(
                         pte.is_directory(),
                         "free_user_directory_all: need directory but leaf"
                     );

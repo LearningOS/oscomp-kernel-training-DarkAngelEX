@@ -12,10 +12,12 @@ pub fn kernel_default_interrupt() {
             panic!("should kernel_interrupt but {:?}", e);
         }
     };
-    let it = &mut local::hart_local().interrupt;
-    assert!(!*it);
-    *it = true;
-    assert!(!sstatus::read().sie());
+    if cfg!(debug_assertions) {
+        let it = &mut local::hart_local().interrupt;
+        assert!(!*it);
+        *it = true;
+        assert!(!sstatus::read().sie());
+    }
     match interrupt {
         scause::Interrupt::UserSoft => todo!(),
         scause::Interrupt::VirtualSupervisorSoft => todo!(),
@@ -28,5 +30,7 @@ pub fn kernel_default_interrupt() {
         scause::Interrupt::SupervisorExternal => todo!(),
         scause::Interrupt::Unknown => todo!(),
     }
-    *it = false;
+    if cfg!(debug_assertions) {
+        local::hart_local().interrupt = false;
+    }
 }

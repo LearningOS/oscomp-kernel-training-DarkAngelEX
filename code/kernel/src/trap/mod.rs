@@ -54,7 +54,7 @@ unsafe fn set_user_trap_entry() {
     extern "C" {
         fn __return_from_user();
     }
-    debug_check!(!sstatus::read().sie());
+    debug_assert!(!sstatus::read().sie());
     stvec::write(__return_from_user as usize, TrapMode::Direct);
 }
 

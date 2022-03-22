@@ -10,7 +10,6 @@ use core::{
 
 use crate::{
     hart::{cpu::hart_id, interrupt},
-    user::AutoSie,
 };
 
 pub type SpinLock<T> = Mutex<T, Spin>;

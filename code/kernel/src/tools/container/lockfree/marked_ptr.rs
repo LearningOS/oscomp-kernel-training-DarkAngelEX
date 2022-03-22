@@ -130,7 +130,7 @@ impl<T> AtomicMarkedPtr<T> {
         current: MarkedPtr<T>,
         new: MarkedPtr<T>,
     ) -> Result<MarkedPtr<T>, MarkedPtr<T>> {
-        debug_check!(current.id().is_valid());
+        debug_assert!(current.id().is_valid());
         match self.0.compare_exchange(
             current.0,
             new.next_id_ptr().0,

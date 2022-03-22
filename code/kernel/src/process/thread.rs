@@ -19,7 +19,7 @@ use crate::{
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     tools::{
         allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
-        error::FrameOutOfMemory,
+        error::FrameOOM,
     },
     trap::context::UKContext,
 };
@@ -158,7 +158,7 @@ impl Thread {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
 
-    pub fn fork(&self, allocator: &mut impl FrameAllocator) -> Result<Arc<Self>, FrameOutOfMemory> {
+    pub fn fork(&self, allocator: &mut impl FrameAllocator) -> Result<Arc<Self>, FrameOOM> {
         let new_process = self.process.fork(self.tid, allocator)?;
         let thread = Arc::new(Self {
             tid: self.tid,

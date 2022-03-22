@@ -29,6 +29,7 @@
 #![feature(const_option)]
 #![feature(const_convert)]
 #![feature(const_for)]
+#![feature(associated_type_bounds)]
 
 // #![allow(dead_code)]
 
