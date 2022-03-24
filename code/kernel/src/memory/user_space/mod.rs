@@ -1,6 +1,7 @@
 use core::mem::MaybeUninit;
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use riscv::register::scause::Exception;
 
 use crate::{
     local,
@@ -10,7 +11,9 @@ use crate::{
         page_table::PTEFlags,
     },
     syscall::SysError,
-    tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange},
+    tools::{
+        container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange, xasync::TryR,
+    },
     user::AutoSum,
 };
 
@@ -23,7 +26,7 @@ use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
     allocator::frame::{iter::FrameDataIter, FrameAllocator},
     asid,
-    map_segment::MapSegment,
+    map_segment::{handler::AsyncHandler, MapSegment},
     PageTable,
 };
 
@@ -32,11 +35,31 @@ pub mod stack;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct AccessType {
-    write: bool,
-    exec: bool,
-    user: bool,
+    pub write: bool,
+    pub exec: bool,
+    pub user: bool,
 }
 impl AccessType {
+    pub fn from_exception(e: Exception) -> Result<Self, ()> {
+        match e {
+            Exception::LoadPageFault => Ok(Self {
+                write: false,
+                exec: false,
+                user: true,
+            }),
+            Exception::InstructionPageFault => Ok(Self {
+                write: false,
+                exec: true,
+                user: true,
+            }),
+            Exception::StorePageFault => Ok(Self {
+                write: true,
+                exec: false,
+                user: true,
+            }),
+            _ => Err(()),
+        }
+    }
     pub fn check(self, flag: PTEFlags) -> Result<(), ()> {
         ((!self.write || flag.contains(PTEFlags::R))
             && (!self.exec || flag.contains(PTEFlags::X))
@@ -138,6 +161,17 @@ impl UserSpace {
             .force_push(r.clone(), MapAllHandler::box_new(map_area.perm))?;
         stack_trace!();
         self.map_segment.force_write_range(r, data)
+    }
+    pub fn page_fault(
+        &mut self,
+        addr: UserAddr4K,
+        access: AccessType,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
+        stack_trace!();
+        self.map_segment.page_fault(addr, access)
+    }
+    async fn a_page_fault(&mut self) {
+        todo!()
     }
     /// (stack, user_sp)
     pub fn stack_alloc(

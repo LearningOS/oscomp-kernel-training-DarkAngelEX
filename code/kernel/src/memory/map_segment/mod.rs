@@ -5,20 +5,20 @@ use crate::{
     syscall::SysError,
     tools::{
         self,
-        allocator::from_usize_allocator::LeakFromUsizeAllocator,
+        allocator::{from_usize_allocator::LeakFromUsizeAllocator, TrackerAllocator},
         container::sync_unsafe_cell::SyncUnsafeCell,
         range::URange,
-        xasync::{HandlerID, TryRunFail},
+        xasync::{HandlerID, TryR, TryRunFail},
         ForwardWrapper,
     },
 };
 
 use self::{
-    handler::{manager::HandlerManager, UserAreaHandler},
+    handler::{manager::HandlerManager, AsyncHandler, UserAreaHandler},
     sc_manager::SCManager,
 };
 
-use super::{allocator::frame::iter::FrameDataIter, PageTable};
+use super::{address::UserAddr4K, allocator::frame::iter::FrameDataIter, AccessType, PageTable};
 
 pub mod handler;
 mod sc_manager;
@@ -106,6 +106,50 @@ impl MapSegment {
                 let _ = data.write_to(pte.phy_addr().into_ref().as_bytes_array_mut());
             });
         }
+        Ok(())
+    }
+    pub fn page_fault(
+        &mut self,
+        addr: UserAddr4K,
+        access: AccessType,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
+        debug_assert!(access.user);
+        let h = self
+            .handlers
+            .get(addr)
+            .ok_or(TryRunFail::Error(SysError::EFAULT))?;
+
+        let pt = pt!(self);
+        let pte = match pt.try_get_pte_user(addr) {
+            None => return h.page_fault(pt, addr, access),
+            Some(a) => a,
+        };
+        if access.exec {
+            debug_assert!(!h.executable());
+            debug_assert!(!pte.executable());
+            return Err(TryRunFail::Error(SysError::EFAULT));
+        }
+        assert!(access.write);
+        if !h.unique_writable() {
+            return Err(TryRunFail::Error(SysError::EFAULT));
+        }
+        assert!(pte.shared());
+        if self.sc_manager.try_remove_unique(addr) {
+            pte.clear_shared();
+            pte.set_writable();
+            return Ok(());
+        }
+        let allocator = &mut frame::defualt_allocator();
+        let x = allocator
+            .alloc()
+            .map_err(|_e| TryRunFail::Error(SysError::EFAULT))?;
+        x.ptr()
+            .as_usize_array_mut()
+            .copy_from_slice(pte.phy_addr().into_ref().as_usize_array());
+        if self.sc_manager.remove_ua(addr) {
+            unsafe { pte.dealloc_by(allocator) };
+        }
+        *pte = PageTableEntry::new(x.consume().into(), h.map_perm());
         Ok(())
     }
     /// 共享优化 fork

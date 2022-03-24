@@ -1,9 +1,11 @@
+use core::pin::Pin;
+
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     memory::{
         address::{UserAddr, UserAddr4K},
-        allocator::frame::{self, iter::NullFrameDataIter},
+        allocator::frame,
         page_table::{PTEFlags, PageTableEntry},
         user_space::{AccessType, UserArea},
         PageTable, UserSpace,
@@ -43,7 +45,7 @@ pub trait UserAreaHandler: Send + 'static {
     fn shared_writable(&self) -> Option<bool> {
         Some(false)
     }
-    fn execable(&self) -> bool {
+    fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
     }
     /// 新加入管理器时将调用此函数 保证范围内无映射
@@ -146,10 +148,10 @@ pub trait UserAreaHandler: Send + 'static {
     }
 }
 
-pub trait AsyncHandler {
+pub trait AsyncHandler: Send + 'static {
     fn id(&self) -> HandlerID;
-    fn a_map(self: Arc<Self>, pt: SpaceHolder, range: URange) -> AsyncR<()>;
-    fn a_page_fault(self: Arc<Self>, pt: SpaceHolder, addr: UserAddr) -> AsyncR<()>;
+    fn a_map(self: Box<Self>, sh: SpaceHolder, range: URange) -> AsyncR<()>;
+    fn a_page_fault(self: Box<Self>, sh: SpaceHolder, addr: UserAddr4K) -> AsyncR<()>;
 }
 
 /// 数据获取完毕后才获取锁获取锁

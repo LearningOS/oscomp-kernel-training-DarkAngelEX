@@ -6,7 +6,7 @@ use core::{
 use alloc::{string::FromUtf8Error, sync::Arc};
 
 use crate::{
-    process::{thread::Thread, AliveProcess, Dead, Process},
+    process::{thread::Thread, AliveProcess, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
     xdebug::PRINT_SYSCALL_ALL,

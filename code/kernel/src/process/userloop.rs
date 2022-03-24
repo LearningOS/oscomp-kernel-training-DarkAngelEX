@@ -1,4 +1,5 @@
 use core::{
+    convert::TryFrom,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -13,9 +14,11 @@ use riscv::register::{
 use crate::{
     executor,
     local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
+    memory::{address::UserAddr, map_segment::handler::SpaceHolder, AccessType},
     process::thread,
     syscall::Syscall,
     timer,
+    tools::xasync::TryRunFail,
     user::AutoSie,
 };
 
@@ -60,9 +63,37 @@ async fn userloop(thread: Arc<Thread>) {
                             .syscall()
                             .await;
                     }
-                    Exception::InstructionPageFault
+                    e @ (Exception::InstructionPageFault
                     | Exception::LoadPageFault
-                    | Exception::StorePageFault => user_fatal_error(),
+                    | Exception::StorePageFault) => {
+                        let handler = || {
+                            stack_trace!();
+                            let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
+                            let perm = AccessType::from_exception(e)?;
+                            let addr = addr.floor();
+                            return match thread
+                                .process
+                                .alive_then(|a| a.user_space.page_fault(addr, perm))
+                                .map_err(|_| ())?
+                            {
+                                Ok(_x) => Ok(Ok(())),
+                                Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
+                                Err(TryRunFail::Error(_e)) => Err(()),
+                            };
+                        };
+                        match handler() {
+                            Err(()) => user_fatal_error(),
+                            Ok(Ok(())) => (),
+                            Ok(Err((addr, a))) => {
+                                stack_trace!();
+                                let sh = SpaceHolder::new(thread.process.clone());
+                                match a.a_page_fault(sh, addr).await {
+                                    Ok(_v) => (),
+                                    Err(_e) => user_fatal_error(),
+                                }
+                            }
+                        }
+                    }
                     Exception::InstructionMisaligned => todo!(),
                     Exception::InstructionFault => user_fatal_error(),
                     Exception::IllegalInstruction => user_fatal_error(),

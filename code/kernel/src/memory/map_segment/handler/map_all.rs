@@ -3,9 +3,9 @@ use alloc::boxed::Box;
 use crate::{
     memory::{
         address::UserAddr4K,
-        allocator::frame::{self, iter::NullFrameDataIter},
+        allocator::frame,
         page_table::{PTEFlags, PageTableEntry},
-        user_space::{AccessType, UserArea},
+        user_space::AccessType,
         PageTable,
     },
     syscall::SysError,
