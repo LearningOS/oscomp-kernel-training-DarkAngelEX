@@ -35,7 +35,3 @@ impl From<()> for HeapOOM {
 
 impl Error for HeapOOM {}
 impl OOM for HeapOOM {}
-
-#[derive(Debug)]
-pub struct TooManyUserStack;
-impl Error for TooManyUserStack {}

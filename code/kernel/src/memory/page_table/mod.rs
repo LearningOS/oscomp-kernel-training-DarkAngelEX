@@ -47,9 +47,9 @@ pub struct PageTableEntry {
 }
 
 impl PageTableEntry {
-    pub fn new(pa_4k: PhyAddr4K, flags: PTEFlags) -> Self {
+    pub fn new(pa_4k: PhyAddr4K, perm: PTEFlags) -> Self {
         PageTableEntry {
-            bits: (usize::from(pa_4k) >> 2) & ((1 << 54usize) - 1) | flags.bits as usize,
+            bits: (usize::from(pa_4k) >> 2) & ((1 << 54usize) - 1) | perm.bits as usize,
         }
     }
     pub fn empty() -> Self {
@@ -135,7 +135,7 @@ impl PageTableEntry {
 
     pub fn alloc_by(
         &mut self,
-        flags: PTEFlags,
+        perm: PTEFlags,
         allocator: &mut impl FrameAllocator,
     ) -> Result<(), FrameOOM> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
@@ -143,7 +143,7 @@ impl PageTableEntry {
         pa.as_pte_array_mut()
             .iter_mut()
             .for_each(|x| *x = PageTableEntry::empty());
-        *self = Self::new(PhyAddr4K::from(pa), flags | PTEFlags::V);
+        *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
         Ok(())
     }
     #[deprecated = "replace by alloc_by"]

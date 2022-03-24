@@ -222,6 +222,7 @@ impl fmt::Display for SysError {
             f,
             "{}",
             match self {
+                EUNDEF => unreachable!(),
                 EPERM => "Operation not permitted",
                 ENOENT => "No such file or directory",
                 ESRCH => "No such process",
@@ -262,6 +263,7 @@ impl fmt::Display for SysError {
                 ENOSYS => "Function not implemented",
                 ENOTEMPTY => "Directory not empty",
                 ELOOP => "Too many symbolic links encountered",
+                EIDRM => todo!(),
                 ENOTSOCK => "Socket operation on non-socket",
                 ENOPROTOOPT => "Protocol not available",
                 EPFNOSUPPORT => "Protocol family not supported",
@@ -269,8 +271,8 @@ impl fmt::Display for SysError {
                 ENOBUFS => "No buffer space available",
                 EISCONN => "Transport endpoint is already connected",
                 ENOTCONN => "Transport endpoint is not connected",
+                ETIMEDOUT => "Time out",
                 ECONNREFUSED => "Connection refused",
-                _ => "Unknown error",
             },
         )
     }

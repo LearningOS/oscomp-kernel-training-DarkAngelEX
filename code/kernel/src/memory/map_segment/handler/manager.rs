@@ -1,11 +1,8 @@
 use alloc::boxed::Box;
 
 use crate::{
-    memory::{address::UserAddr4K, map_segment::sc_manager::SCManager, PageTable},
-    tools::{
-        self, allocator::from_usize_allocator::LeakFromUsizeAllocator,
-        container::range_map::RangeMap, range::URange, xasync::HandlerID, ForwardWrapper,
-    },
+    memory::address::UserAddr4K,
+    tools::{container::range_map::RangeMap, range::URange},
 };
 
 use super::UserAreaHandler;
@@ -54,7 +51,7 @@ impl HandlerManager {
             release,
         );
     }
-    pub fn remove_range(
+    pub fn remove(
         &mut self,
         range: URange,
         release: impl FnMut(Box<dyn UserAreaHandler>, URange),
@@ -86,27 +83,5 @@ impl HandlerManager {
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (URange, &mut dyn UserAreaHandler)> {
         self.map.iter_mut().map(|(a, b)| (a, b.as_mut()))
-    }
-}
-
-fn auto_shard_release(pt: &mut PageTable, r: URange, h: &dyn UserAreaHandler, sm: &mut SCManager) {
-    if h.shared_writable().is_none() {
-        h.unmap(pt, r);
-        return;
-    }
-    for addr in tools::range::ur_iter(r) {
-        let pte = match pt.try_get_pte_user(addr) {
-            Some(pte) => pte,
-            None => continue,
-        };
-        if pte.shared() {
-            if sm.remove_ua(addr) {
-                h.unmap_ua(pt, addr);
-            } else {
-                pte.reset();
-            }
-        } else {
-            h.unmap_ua(pt, addr);
-        }
     }
 }

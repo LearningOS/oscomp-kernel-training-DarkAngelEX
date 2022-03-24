@@ -32,7 +32,7 @@ pub fn ur_iter(URange { start, end }: URange) -> impl Iterator<Item = UserAddr4K
             if x == self.end {
                 return None;
             }
-            self.cur.add_page_assign(PageCount(0));
+            self.cur.add_page_assign(PageCount(1));
             Some(x)
         }
     }

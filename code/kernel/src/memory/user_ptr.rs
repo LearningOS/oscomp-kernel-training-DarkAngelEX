@@ -1,3 +1,4 @@
+//! 这个模块用来绕过裸指针的异步 Send 检查
 #![allow(dead_code)]
 use core::marker::PhantomData;
 

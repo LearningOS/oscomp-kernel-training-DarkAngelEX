@@ -17,10 +17,8 @@ use riscv::register::sstatus;
 use crate::{
     memory::{address::PageCount, allocator::frame::FrameAllocator, StackID, UserSpace},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
-    tools::{
-        allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
-        error::FrameOOM,
-    },
+    syscall::SysError,
+    tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
     trap::context::UKContext,
 };
 
@@ -158,8 +156,8 @@ impl Thread {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
 
-    pub fn fork(&self, allocator: &mut impl FrameAllocator) -> Result<Arc<Self>, FrameOOM> {
-        let new_process = self.process.fork(self.tid, allocator)?;
+    pub fn fork(&self) -> Result<Arc<Self>, SysError> {
+        let new_process = self.process.fork(self.tid)?;
         let thread = Arc::new(Self {
             tid: self.tid,
             process: new_process,

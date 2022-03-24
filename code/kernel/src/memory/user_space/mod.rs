@@ -6,28 +6,25 @@ use crate::{
     local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
+        map_segment::handler::{delay::DelayHandler, map_all::MapAllHandler},
         page_table::PTEFlags,
     },
-    tools::{
-        container::sync_unsafe_cell::SyncUnsafeCell,
-        error::{FrameOOM, TooManyUserStack},
-        range::URange,
-    },
+    syscall::SysError,
+    tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange},
     user::AutoSum,
 };
 
 use self::{
     heap::HeapManager,
-    stack::{StackID, StackSpaceManager, UserStackCreateError},
+    stack::{StackID, StackSpaceManager},
 };
 
 use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
-    allocator::frame::{
-        iter::{FrameDataIter, NullFrameDataIter},
-        FrameAllocator,
-    },
-    asid, PageTable,
+    allocator::frame::{iter::FrameDataIter, FrameAllocator},
+    asid,
+    map_segment::MapSegment,
+    PageTable,
 };
 
 pub mod heap;
@@ -79,8 +76,7 @@ impl UserArea {
 ///
 /// shared between threads, necessary synchronizations operations are required
 pub struct UserSpace {
-    page_table: Arc<SyncUnsafeCell<PageTable>>, // access PageTable must through UserSpace
-    text_area: Vec<UserArea>,                   // used in drop
+    map_segment: MapSegment,
     stacks: StackSpaceManager,
     heap: HeapManager,
     // mmap_size: usize,
@@ -89,133 +85,100 @@ pub struct UserSpace {
 unsafe impl Send for UserSpace {}
 unsafe impl Sync for UserSpace {}
 
-#[derive(Debug)]
-pub enum USpaceCreateError {
-    FrameOOM(FrameOOM),
-    ElfAnalysisFail(&'static str),
-    TooManyUserStack(TooManyUserStack),
-}
-
-impl From<UserStackCreateError> for USpaceCreateError {
-    fn from(e: UserStackCreateError) -> Self {
-        match e {
-            UserStackCreateError::FrameOOM(e) => Self::FrameOOM(e),
-            UserStackCreateError::TooManyUserStack(e) => Self::TooManyUserStack(e),
-        }
-    }
-}
-impl From<FrameOOM> for USpaceCreateError {
-    fn from(e: FrameOOM) -> Self {
-        Self::FrameOOM(e)
-    }
-}
-
 impl Drop for UserSpace {
     fn drop(&mut self) {
-        memory_trace!("UserSpace::drop begin");
-        // free text
+        stack_trace!();
         let allocator = &mut frame::defualt_allocator();
-        while let Some(area) = self.text_area.pop() {
-            self.page_table_mut().unmap_user_range(&area, allocator);
-        }
-        // free heap
-        self.heap_resize(PageCount::from_usize(0), allocator);
-        // free user stack
-        unsafe {
-            self.clear_user_stack_all(allocator);
-            // assert_eq!(self.stacks.using_size(), 0);
-        }
+        self.map_segment.clear();
         self.page_table_mut().free_user_directory_all(allocator);
-        memory_trace!("UserSpace::drop end");
     }
 }
 
 impl UserSpace {
     /// need alloc 4KB to root entry.
     pub fn from_global() -> Result<Self, FrameOOM> {
+        let pt = Arc::new(SyncUnsafeCell::new(PageTable::from_global(
+            asid::alloc_asid(),
+        )?));
         Ok(Self {
-            page_table: Arc::new(SyncUnsafeCell::new(PageTable::from_global(
-                asid::alloc_asid(),
-            )?)),
-            text_area: Vec::new(),
+            map_segment: MapSegment::new(pt),
             stacks: StackSpaceManager::new(),
             heap: HeapManager::new(),
         })
     }
     fn page_table(&self) -> &PageTable {
-        unsafe { &*self.page_table.get() }
+        unsafe { &*self.map_segment.page_table.get() }
     }
     pub fn page_table_arc(&self) -> Arc<SyncUnsafeCell<PageTable>> {
-        self.page_table.clone()
+        self.map_segment.page_table.clone()
     }
     pub(super) fn page_table_mut(&mut self) -> &mut PageTable {
-        unsafe { &mut *self.page_table.get() }
+        unsafe { &mut *self.map_segment.page_table.get() }
     }
     pub unsafe fn using(&self) {
-        local::task_local().page_table = self.page_table.clone();
+        local::task_local().page_table = self.map_segment.page_table.clone();
         self.page_table().using();
     }
     pub fn in_using(&self) -> bool {
         self.page_table().in_using()
     }
-    pub fn map_user_range(
+    fn force_map_delay(&mut self, map_area: UserArea) -> Result<(), SysError> {
+        stack_trace!();
+        self.map_segment
+            .force_push(map_area.range, MapAllHandler::box_new(map_area.perm))
+    }
+    fn force_map_delay_write(
         &mut self,
         map_area: UserArea,
-        data_iter: &mut impl FrameDataIter,
-        allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOOM> {
-        memory_trace!("UserSpace::map_user_range");
-        self.page_table_mut()
-            .map_user_range(&map_area, data_iter, allocator)?;
-        self.text_area.push(map_area);
-        Ok(())
+        data: impl FrameDataIter,
+    ) -> Result<(), SysError> {
+        stack_trace!();
+        let r = map_area.range;
+        self.map_segment
+            .force_push(r.clone(), MapAllHandler::box_new(map_area.perm))?;
+        stack_trace!();
+        self.map_segment.force_write_range(r, data)
     }
     /// (stack, user_sp)
     pub fn stack_alloc(
         &mut self,
         stack_reverse: PageCount,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(StackID, UserAddr4K), UserStackCreateError> {
+    ) -> Result<(StackID, UserAddr4K), SysError> {
         memory_trace!("UserSpace::stack_alloc");
         let stack = self.stacks.alloc(stack_reverse)?;
         let user_area = stack.user_area();
         let info = stack.info();
-        unsafe { &mut *self.page_table.get() }.map_user_range(
-            &user_area,
-            &mut NullFrameDataIter,
-            allocator,
-        )?;
+        // 绕过 stack 借用检查
+        let h = DelayHandler::box_new(user_area.perm);
+        let r = user_area.range.clone();
+        self.map_segment.force_push(r.clone(), h)?;
+        self.map_segment.force_map(r)?;
         stack.consume();
         Ok(info)
     }
-    pub unsafe fn stack_dealloc(&mut self, stack_id: StackID, allocator: &mut impl FrameAllocator) {
+    pub unsafe fn stack_dealloc(&mut self, stack_id: StackID) {
         memory_trace!("UserSpace::stack_dealloc");
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
-        self.page_table_mut()
-            .unmap_user_range(&user_area.valid_area(), allocator);
+        self.map_segment.unmap(user_area.range());
     }
-    pub unsafe fn stack_dealloc_all_except(
-        &mut self,
-        stack_id: StackID,
-        allocator: &mut impl FrameAllocator,
-    ) {
+    pub unsafe fn stack_dealloc_all_except(&mut self, stack_id: StackID) {
         memory_trace!("UserSpace::stack_dealloc_all_except");
         while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
-            self.page_table_mut()
-                .unmap_user_range(&user_area.valid_area(), allocator);
+            self.map_segment.unmap(user_area.range());
         }
     }
-    pub fn heap_resize(&mut self, page_count: PageCount, allocator: &mut impl FrameAllocator) {
+    pub fn heap_resize(&mut self, page_count: PageCount) {
         memory_trace!("UserSpace::heap_resize begin");
         if page_count >= self.heap.size() {
-            self.heap.set_size_bigger(page_count);
+            let map_area = self.heap.set_size_bigger(page_count);
+            self.map_segment
+                .force_push(map_area.range, DelayHandler::box_new(map_area.perm))
+                .unwrap();
         } else {
             let free_area = self.heap.set_size_smaller(page_count);
-            let free_count = self
-                .page_table_mut()
-                .unmap_user_range_lazy(free_area, allocator);
-            self.heap.add_free_count(free_count);
+            self.map_segment.unmap(free_area.range);
         }
         memory_trace!("UserSpace::heap_resize end");
     }
@@ -226,9 +189,13 @@ impl UserSpace {
         elf_data: &[u8],
         stack_reverse: PageCount,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(Self, StackID, UserAddr4K, UserAddr), USpaceCreateError> {
+    ) -> Result<(Self, StackID, UserAddr4K, UserAddr), SysError> {
+        stack_trace!();
         memory_trace!("UserSpace::from_elf 0");
-        let elf_fail = USpaceCreateError::ElfAnalysisFail;
+        let elf_fail = |str| {
+            println!("elf analysis error: {}", str);
+            SysError::EFAULT
+        };
         let mut space = Self::from_global()?;
         let elf = xmas_elf::ElfFile::new(elf_data).map_err(elf_fail)?;
         let elf_header = elf.header;
@@ -258,8 +225,8 @@ impl UserSpace {
                 max_end_4k = map_area.end();
                 let data =
                     &elf.input[ph.offset() as usize..(ph.offset() + ph.file_size()) as usize];
-                let mut slice_iter = SliceFrameDataIter::new(data);
-                space.map_user_range(map_area, &mut slice_iter, allocator)?;
+                let slice_iter = SliceFrameDataIter::new(data);
+                space.force_map_delay_write(map_area, slice_iter)?;
             }
         }
         memory_trace!("UserSpace::from_elf 1");
@@ -267,30 +234,27 @@ impl UserSpace {
         let (stack_id, user_sp) = space.stack_alloc(stack_reverse, allocator)?;
         memory_trace!("UserSpace::from_elf 2");
         // set heap
-        space.heap_resize(PageCount(1), allocator);
+        space.heap_resize(PageCount(1));
 
         let entry_point = elf.header.pt2.entry_point() as usize;
         Ok((space, stack_id, user_sp, entry_point.into()))
     }
-    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOOM> {
+    pub fn fork(&mut self) -> Result<Self, SysError> {
         memory_trace!("UserSpace::fork");
-        let page_table = self.page_table_mut().fork(allocator)?;
-        let text_area = self.text_area.clone();
+        // let page_table = self.page_table_mut().fork(allocator)?;
+        let map_segment = self.map_segment.fork()?;
         let stacks = self.stacks.clone();
         let heap = self.heap.clone();
-        // let oom_fn = USpaceCreateError::from;
-        // let stack_fn = USpaceCreateError::from;
         let ret = Self {
-            page_table: Arc::new(SyncUnsafeCell::new(page_table)),
-            text_area,
+            map_segment,
             stacks,
             heap,
         };
         Ok(ret)
     }
-    pub unsafe fn clear_user_stack_all(&mut self, allocator: &mut impl FrameAllocator) {
+    pub unsafe fn clear_user_stack_all(&mut self) {
         while let Some(stack_id) = self.stacks.get_any_id() {
-            self.stack_dealloc(stack_id, allocator);
+            self.stack_dealloc(stack_id);
         }
     }
     /// return (user_sp, argc, argv)

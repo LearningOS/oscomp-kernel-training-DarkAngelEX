@@ -37,8 +37,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_PROCESS {
             print!("sys_fork {:?} ", self.process.pid());
         }
-        let allocator = &mut frame::defualt_allocator();
-        let new = match self.thread.fork(allocator) {
+        let new = match self.thread.fork() {
             Ok(new) => new,
             Err(_e) => {
                 println!("frame out of memory");
@@ -83,14 +82,13 @@ impl Syscall<'_> {
         };
         let args_size = args.iter().fold(0, |n, s| n + s.len() + 1)
         + (args.len() + 1) * core::mem::size_of::<usize>();
-        let stack_reverse =
-        PageCount((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
+        let stack_reverse = PageCount((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
         let elf_data = inode.read_all().await;
         let allocator = &mut frame::defualt_allocator();
         let (user_space, stack_id, user_sp, entry_point) =
-            UserSpace::from_elf(elf_data.as_slice(), stack_reverse, allocator)
-                .map_err(|_e| SysError::ENOEXEC)?;
+        UserSpace::from_elf(elf_data.as_slice(), stack_reverse, allocator)
+        .map_err(|_e| SysError::ENOEXEC)?;
 
         // TODO: kill other thread and await
         let mut alive = self.alive_lock()?;
@@ -102,7 +100,9 @@ impl Syscall<'_> {
         let (user_sp, argc, argv) = user_space.push_args(args, user_sp.into());
         // reset stack_id
         alive.exec_path = path;
+        stack_trace!();
         alive.user_space = user_space;
+        stack_trace!();
         drop(alive);
         self.thread.inner().stack_id = stack_id;
         let sstatus = self.thread.get_context().user_sstatus;

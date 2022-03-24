@@ -57,16 +57,7 @@ impl UserAreaHandler for MapAllHandler {
         })
     }
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
-        stack_trace!();
-        if range.start >= range.end {
-            return Ok(());
-        }
-        pt.map_user_range(
-            &UserArea::new(range, self.perm()),
-            &mut NullFrameDataIter,
-            &mut frame::defualt_allocator(),
-        )?;
-        Ok(())
+        self.default_map(pt, range)
     }
     fn copy_map(
         &self,

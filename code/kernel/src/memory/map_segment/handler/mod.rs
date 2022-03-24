@@ -3,7 +3,7 @@ use alloc::{boxed::Box, sync::Arc};
 use crate::{
     memory::{
         address::{UserAddr, UserAddr4K},
-        allocator::frame,
+        allocator::frame::{self, iter::NullFrameDataIter},
         page_table::{PTEFlags, PageTableEntry},
         user_space::{AccessType, UserArea},
         PageTable, UserSpace,
@@ -14,7 +14,7 @@ use crate::{
         self,
         allocator::TrackerAllocator,
         range::URange,
-        xasync::{AsyncR, HandlerID, TryR},
+        xasync::{AsyncR, HandlerID, TryR, TryRunFail},
     },
 };
 
@@ -90,6 +90,23 @@ pub trait UserAreaHandler: Send + 'static {
     }
     /// 复制
     fn box_clone(&self) -> Box<dyn UserAreaHandler>;
+    /// 进行映射, 跳过已经分配空间的区域
+    fn default_map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+        stack_trace!();
+        if range.start >= range.end {
+            return Ok(());
+        }
+        let perm = self.perm();
+        let allocator = &mut frame::defualt_allocator();
+        for r in pt.each_pte_iter(range) {
+            let (_addr, pte) = r.map_err(|e| TryRunFail::Error(e.into()))?;
+            if pte.is_valid() {
+                continue;
+            }
+            pte.alloc_by(perm, allocator)?;
+        }
+        Ok(())
+    }
     /// 利用全局内存分配器分配内存，复制src中存在的页
     fn default_copy_map(
         &self,

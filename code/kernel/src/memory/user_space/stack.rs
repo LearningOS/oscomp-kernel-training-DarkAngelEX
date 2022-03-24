@@ -1,9 +1,16 @@
 use alloc::collections::BTreeMap;
 
-use crate::{tools::{allocator::from_usize_allocator::FastCloneUsizeAllocator, error::{TooManyUserStack, FrameOOM}}, config::{USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_SIZE}, memory::{address::{PageCount, UserAddr4K}, page_table::PTEFlags}};
+use crate::{
+    config::{USER_MAX_THREADS, USER_STACK_BEGIN, USER_STACK_SIZE},
+    memory::{
+        address::{PageCount, UserAddr4K},
+        page_table::PTEFlags,
+    },
+    syscall::SysError,
+    tools::{allocator::from_usize_allocator::FastCloneUsizeAllocator, range::URange},
+};
 
 use super::UserArea;
-
 
 #[derive(Debug, Copy, Clone, PartialOrd, Ord, PartialEq, Eq)]
 pub struct StackID(usize);
@@ -20,13 +27,6 @@ struct StackAllocator {
     allocator: FastCloneUsizeAllocator,
 }
 
-impl Drop for StackAllocator {
-    fn drop(&mut self) {
-        let using = self.allocator.using();
-        assert!(using == 0, "StackAllocator: leak {} stack_id.", using);
-    }
-}
-
 impl StackAllocator {
     pub const fn new() -> Self {
         Self {
@@ -36,9 +36,9 @@ impl StackAllocator {
     pub fn stack_max() -> usize {
         USER_MAX_THREADS
     }
-    pub fn alloc(&mut self, stack_reverse: PageCount) -> Result<UsingStack, TooManyUserStack> {
+    pub fn alloc(&mut self, stack_reverse: PageCount) -> Result<UsingStack, SysError> {
         if self.allocator.using() >= Self::stack_max() {
-            return Err(TooManyUserStack);
+            return Err(SysError::ENOBUFS);
         }
         let num = self.allocator.alloc();
         let base = USER_STACK_BEGIN;
@@ -55,18 +55,18 @@ impl StackAllocator {
     }
 }
 
-pub struct UsingStackTracker<'a> {
-    allocator: &'a mut StackSpaceManager,
+pub struct UsingStackTracker {
+    allocator: *mut StackSpaceManager,
     using_stack: UsingStack,
 }
-impl<'a> Drop for UsingStackTracker<'a> {
+impl Drop for UsingStackTracker {
     fn drop(&mut self) {
-        unsafe { self.allocator.dealloc(self.using_stack.stack_id()) }
+        unsafe { (*self.allocator).dealloc(self.using_stack.stack_id()) }
     }
 }
 
-impl<'a> UsingStackTracker<'a> {
-    pub fn new(allocator: &'a mut StackSpaceManager, using_stack: UsingStack) -> Self {
+impl UsingStackTracker {
+    pub fn new(allocator: &mut StackSpaceManager, using_stack: UsingStack) -> Self {
         Self {
             allocator,
             using_stack,
@@ -96,22 +96,6 @@ impl<'a> UsingStackTracker<'a> {
     }
 }
 
-#[derive(Debug)]
-pub enum UserStackCreateError {
-    FrameOOM(FrameOOM),
-    TooManyUserStack(TooManyUserStack),
-}
-impl From<FrameOOM> for UserStackCreateError {
-    fn from(e: FrameOOM) -> Self {
-        Self::FrameOOM(e)
-    }
-}
-impl From<TooManyUserStack> for UserStackCreateError {
-    fn from(e: TooManyUserStack) -> Self {
-        Self::TooManyUserStack(e)
-    }
-}
-
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct UsingStack {
     stack_id: StackID,
@@ -129,6 +113,12 @@ impl UsingStack {
     pub fn stack_id(&self) -> StackID {
         self.stack_id
     }
+    pub fn range(&self) -> URange {
+        URange {
+            start: self.stack_begin,
+            end: self.stack_end,
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -137,11 +127,6 @@ pub struct StackSpaceManager {
     using_stacks: BTreeMap<StackID, UsingStack>,
 }
 
-impl Drop for StackSpaceManager {
-    fn drop(&mut self) {
-        assert!(self.using_stacks.is_empty());
-    }
-}
 impl StackSpaceManager {
     pub const fn new() -> Self {
         Self {
@@ -149,10 +134,7 @@ impl StackSpaceManager {
             using_stacks: BTreeMap::new(),
         }
     }
-    pub fn alloc(
-        &mut self,
-        stack_reverse: PageCount,
-    ) -> Result<UsingStackTracker, TooManyUserStack> {
+    pub fn alloc(&mut self, stack_reverse: PageCount) -> Result<UsingStackTracker, SysError> {
         let using_stack = self.allocator.alloc(stack_reverse)?;
         if let Some(s) = self
             .using_stacks
@@ -184,5 +166,8 @@ impl StackSpaceManager {
     // }
     pub unsafe fn get_any_id(&self) -> Option<StackID> {
         self.using_stacks.first_key_value().map(|(&id, _s)| id)
+    }
+    pub unsafe fn abandon(&mut self) {
+        self.using_stacks.clear();
     }
 }

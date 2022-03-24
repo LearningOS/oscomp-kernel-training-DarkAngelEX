@@ -58,11 +58,11 @@ impl<'a> Iterator for VaildPteIter<'a> {
             // 取出三级页表索引
             let mask = ((1 << 9) - 1) << 12;
             // 加速运行次数最多的内层循环
-            loop {
+            let pte = loop {
                 let idx2 = (cur.into_usize() & mask) >> 12;
                 let pte = next_pte(pte.phy_addr(), idx2);
                 if pte.is_valid() {
-                    break;
+                    break pte;
                 }
                 cur.add_page_assign(PageCount(1));
                 if cur.into_usize() & mask == 0 {
@@ -71,7 +71,7 @@ impl<'a> Iterator for VaildPteIter<'a> {
                 if cur > self.end {
                     break 'outer;
                 }
-            }
+            };
             debug_assert!(pte.is_leaf());
             self.cur = cur.add_one_page();
             return Some((cur, pte));

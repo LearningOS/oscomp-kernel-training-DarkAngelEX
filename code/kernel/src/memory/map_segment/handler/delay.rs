@@ -9,6 +9,8 @@ use crate::{
 use super::{map_all::MapAllHandler, AsyncHandler, HandlerID, UserAreaHandler};
 
 /// 和 UniqueHandler 的唯一区别是 init_map 只映射参数区域
+///
+/// 保证初始化成功
 #[derive(Clone)]
 pub struct DelayHandler {
     inner: MapAllHandler,

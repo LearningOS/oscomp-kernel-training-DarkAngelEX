@@ -17,14 +17,13 @@ use crate::{
         mutex::SpinNoIrqLock as Mutex,
     },
     syscall::{SysError, UniqueSysError},
-    tools::error::FrameOOM,
     xdebug::NeverFail,
 };
 
 use self::{
     children::ChildrenSet,
     fd::FdTable,
-    pid::{pid_alloc, PidHandle},
+    pid::PidHandle,
     thread::{Thread, ThreadGroup},
 };
 
@@ -96,17 +95,16 @@ impl Process {
     pub fn fork(
         self: &Arc<Self>,
         tid: Tid,
-        allocator: &mut impl FrameAllocator,
-    ) -> Result<Arc<Self>, FrameOOM> {
+    ) -> Result<Arc<Self>, SysError> {
         let mut alive_guard = self.alive.lock(place!());
         let alive = alive_guard.as_mut().unwrap();
-        let mut user_space = alive.user_space.fork(allocator)?;
+        let mut user_space = alive.user_space.fork()?;
         let stack_id = alive.threads.map(tid).unwrap().inner().stack_id;
         unsafe {
-            user_space.stack_dealloc_all_except(stack_id, allocator);
+            user_space.stack_dealloc_all_except(stack_id);
         }
         let success_check = NeverFail::new();
-        let new_pid = pid_alloc();
+        let new_pid = pid::pid_alloc();
         let new_alive = AliveProcess {
             user_space,
             cwd: alive.cwd.clone(),

@@ -2,12 +2,15 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::{collections::BTreeMap, sync::Arc};
 
-use crate::{memory::address::UserAddr4K, tools::range::URange};
+use crate::{
+    memory::address::UserAddr4K,
+    tools::{self, range::URange},
+};
 
 pub struct SharedCounter(Arc<AtomicUsize>);
 impl Drop for SharedCounter {
     fn drop(&mut self) {
-        panic!("must consume by SharedManager")
+        panic!("SharedCounter must consume by SharedManager")
     }
 }
 
@@ -59,6 +62,10 @@ impl SCManager {
         debug_assert_ne!(x, 0);
         x == 1
     }
+    /// if map of ua is unique, return Ok(())
+    pub fn remove_ua_result(&mut self, ua: UserAddr4K) -> Result<(), ()> {
+        tools::bool_result(self.remove_ua(ua))
+    }
     /// 引用计数为 1 时释放并返回 true
     pub fn try_remove_unique(&mut self, ua: UserAddr4K) -> bool {
         self.0
@@ -83,9 +90,10 @@ impl SCManager {
     ///
     /// 此函数只在错误回退时使用
     pub fn check_remove_all(&mut self) {
-        while let Some((ua, sc)) = self.0.pop_first() {
+        self.0.iter().for_each(|(ua, sc)| {
             let a = sc.fetch_sub(1, Ordering::Relaxed);
-            assert!(a > 1, "a:{} > 1 ua:{:?}", a, ua);
-        }
+            debug_assert!(a > 1, "a:{} > 1 ua:{:?}", a, ua);
+        });
+        self.0.clear();
     }
 }

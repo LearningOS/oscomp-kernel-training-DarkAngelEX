@@ -1,7 +1,7 @@
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Formatter},
-    ops::{Add, AddAssign, Range, Sub, SubAssign},
+    ops::{Add, AddAssign, Sub, SubAssign},
 };
 
 use crate::{
