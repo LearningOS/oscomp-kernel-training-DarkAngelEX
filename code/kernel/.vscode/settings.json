@@ -1,5 +1,0 @@
-{
-    "disasexpl.associations": {
-        "**/*.rs": "${workspaceFolder}/kernel.S"
-    }
-}

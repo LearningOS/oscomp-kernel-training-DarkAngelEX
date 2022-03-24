@@ -68,9 +68,6 @@ impl EventBus {
     pub fn new() -> Arc<Mutex<Self>> {
         Arc::new(Mutex::new(Self::default()))
     }
-    pub fn is_closed(&self) -> bool {
-        self.closed
-    }
     pub fn close(&mut self) {
         stack_trace!();
         // assert!(!self.closed, "event_bus double closed");

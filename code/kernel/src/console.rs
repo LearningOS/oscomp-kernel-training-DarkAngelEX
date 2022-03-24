@@ -19,8 +19,9 @@ pub fn putchar(c: char) {
 
 #[inline(always)]
 pub fn getchar() -> char {
-    while let Err(_) =
-        ALLOW_GETCHAR.compare_exchange(true, true, Ordering::SeqCst, Ordering::SeqCst)
+    while ALLOW_GETCHAR
+        .compare_exchange(true, true, Ordering::SeqCst, Ordering::SeqCst)
+        .is_err()
     {}
     unsafe { char::from_u32_unchecked(sbi::console_getchar() as u32) }
 }

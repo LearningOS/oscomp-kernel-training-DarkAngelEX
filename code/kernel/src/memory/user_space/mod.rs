@@ -1,4 +1,4 @@
-use core::{mem::MaybeUninit, ops::Range};
+use core::mem::MaybeUninit;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 
@@ -11,6 +11,7 @@ use crate::{
     tools::{
         container::sync_unsafe_cell::SyncUnsafeCell,
         error::{FrameOOM, TooManyUserStack},
+        range::URange,
     },
     user::AutoSum,
 };
@@ -29,19 +30,34 @@ use super::{
     asid, PageTable,
 };
 
-pub mod handler;
 pub mod heap;
 pub mod stack;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct AccessType {
+    write: bool,
+    exec: bool,
+    user: bool,
+}
+impl AccessType {
+    pub fn check(self, flag: PTEFlags) -> Result<(), ()> {
+        ((!self.write || flag.contains(PTEFlags::R))
+            && (!self.exec || flag.contains(PTEFlags::X))
+            && (!self.user || flag.contains(PTEFlags::U)))
+        .then_some(())
+        .ok_or(())
+    }
+}
 
 /// all map to frame.
 #[derive(Debug, Clone)]
 pub struct UserArea {
-    range: Range<UserAddr4K>,
+    range: URange,
     perm: PTEFlags,
 }
 
 impl UserArea {
-    pub fn new(range: Range<UserAddr4K>, perm: PTEFlags) -> Self {
+    pub fn new(range: URange, perm: PTEFlags) -> Self {
         debug_assert!(range.start < range.end);
         Self { range, perm }
     }
@@ -132,7 +148,7 @@ impl UserSpace {
     pub fn page_table_arc(&self) -> Arc<SyncUnsafeCell<PageTable>> {
         self.page_table.clone()
     }
-    fn page_table_mut(&mut self) -> &mut PageTable {
+    pub(super) fn page_table_mut(&mut self) -> &mut PageTable {
         unsafe { &mut *self.page_table.get() }
     }
     pub unsafe fn using(&self) {
@@ -161,15 +177,14 @@ impl UserSpace {
         allocator: &mut impl FrameAllocator,
     ) -> Result<(StackID, UserAddr4K), UserStackCreateError> {
         memory_trace!("UserSpace::stack_alloc");
-        let stack = self
-            .stacks
-            .alloc(stack_reverse)
-            .map_err(UserStackCreateError::from)?;
+        let stack = self.stacks.alloc(stack_reverse)?;
         let user_area = stack.user_area();
         let info = stack.info();
-        unsafe { &mut *self.page_table.get() }
-            .map_user_range(&user_area, &mut NullFrameDataIter, allocator)
-            .map_err(UserStackCreateError::from)?;
+        unsafe { &mut *self.page_table.get() }.map_user_range(
+            &user_area,
+            &mut NullFrameDataIter,
+            allocator,
+        )?;
         stack.consume();
         Ok(info)
     }
@@ -196,7 +211,7 @@ impl UserSpace {
         if page_count >= self.heap.size() {
             self.heap.set_size_bigger(page_count);
         } else {
-            let free_area = &self.heap.set_size_smaller(page_count);
+            let free_area = self.heap.set_size_smaller(page_count);
             let free_count = self
                 .page_table_mut()
                 .unmap_user_range_lazy(free_area, allocator);

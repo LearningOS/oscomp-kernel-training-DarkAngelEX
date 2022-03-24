@@ -3,7 +3,7 @@ use core::marker::PhantomData;
 use crate::tools::{
     container::{
         fast_clone_linked_list::FastCloneLinkedList, never_clone_linked_list::NeverCloneLinkedList,
-        Stack,
+        LeakStack, Stack,
     },
     ForwardWrapper, Wrapper,
 };
@@ -73,24 +73,8 @@ pub struct FromUsizeAllocator<T: FromUsize, R: Wrapper<T>, S: Stack<usize>> {
     _marker: PhantomData<R>,
 }
 
-// macro_rules! from_usize_allocator_const_new_impl {
-//     ($contain: ident) => {
-//         impl<T: FromUsize, R: Wrapper<T>> FromUsizeAllocator<T, R, $contain<usize>> {
-//             pub const fn new(start: usize) -> Self {
-//                 Self {
-//                     iter: FromUsizeIter::new(start),
-//                     recycled: $contain::new(),
-//                     using: 0,
-//                     _marker: PhantomData,
-//                 }
-//             }
-//         }
-//     };
-// }
-
-// from_usize_allocator_const_new_impl!(NeverCloneLinkedList);
-// from_usize_allocator_const_new_impl!(FastCloneLinkedList);
-// from_usize_allocator_const_new_impl!(PopSmallestSet);
+/// FU: FromUsize
+pub type LeakFromUsizeAllocator<T, R> = FromUsizeAllocator<T, R, LeakStack>;
 
 impl<T: FromUsize, R: Wrapper<T>, S: Stack<usize> + ~const Default> const Default
     for FromUsizeAllocator<T, R, S>

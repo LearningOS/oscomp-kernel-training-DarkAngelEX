@@ -2,6 +2,7 @@ pub mod address;
 pub mod allocator;
 pub mod asid;
 mod page_table;
+pub mod map_segment;
 pub mod user_ptr;
 mod user_space;
 

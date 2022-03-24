@@ -30,6 +30,8 @@
 #![feature(const_convert)]
 #![feature(const_for)]
 #![feature(associated_type_bounds)]
+#![feature(let_chains)]
+#![feature(result_option_inspect)]
 
 // #![allow(dead_code)]
 

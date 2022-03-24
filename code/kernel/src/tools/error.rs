@@ -4,8 +4,10 @@ use crate::syscall::{SysError, UniqueSysError};
 
 pub trait Error: Debug {}
 
+#[allow(clippy::upper_case_acronyms)]
 pub trait OOM: Error {}
 
+#[allow(clippy::upper_case_acronyms)]
 #[derive(Debug)]
 pub struct FrameOOM;
 

@@ -1,7 +1,7 @@
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Formatter},
-    ops::{Add, AddAssign, Sub, SubAssign},
+    ops::{Add, AddAssign, Range, Sub, SubAssign},
 };
 
 use crate::{
@@ -464,6 +464,9 @@ impl UserAddr4K {
             a & 0x1ff
         }
         [f(v >> 18), f(v >> 9), f(v)]
+    }
+    pub const fn from_indexes([a, b, c]: [usize; 3]) -> Self {
+        Self((a << 30) | (b << 21) | (c << 12))
     }
     pub const fn null() -> Self {
         unsafe { Self::from_usize(0) }

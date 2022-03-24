@@ -5,6 +5,7 @@ use crate::{
         allocator::frame::FrameAllocator,
         page_table::{FrameDataIter, PTEFlags, PageTable, PageTableEntry, UserArea},
     },
+    syscall::SysError,
     tools::error::FrameOOM,
     xdebug::PRINT_MAP_ALL,
 };
@@ -45,13 +46,94 @@ impl PageTable {
         PageCount(x1 - x0)
     }
 
-    pub fn map_user_addr(
+    pub fn force_map_user(
         &mut self,
         addr: UserAddr4K,
-        perm: PTEFlags,
-        data_iter: &mut impl FrameDataIter,
+        pte_fn: impl FnOnce() -> Result<PageTableEntry, SysError>,
         allocator: &mut impl FrameAllocator,
-    ) -> Result<(), FrameOOM> {
+    ) -> Result<(), SysError> {
+        let pte = self.get_pte_user(addr, allocator)?;
+        assert!(!pte.is_valid(), "remap of {:?}", addr);
+        *pte = pte_fn()?;
+        Ok(())
+    }
+    pub fn force_unmap_user(&mut self, addr: UserAddr4K, pte_fn: impl FnOnce(PageTableEntry)) {
+        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        let x = &addr.indexes();
+        let pte = next_pte(self.root_pa(), x[0]);
+        assert!(pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[1]);
+        assert!(pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[2]);
+        assert!(pte.is_leaf());
+        pte_fn(*pte);
+        *pte = PageTableEntry::empty();
+    }
+    /// 页必须已经被映射
+    pub fn force_convert_user<T>(
+        &mut self,
+        addr: UserAddr4K,
+        pte_fn: impl FnOnce(&mut PageTableEntry) -> T,
+    ) -> T {
+        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        let x = &addr.indexes();
+        let pte = next_pte(self.root_pa(), x[0]);
+        assert!(pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[1]);
+        assert!(pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[2]);
+        assert!(pte.is_leaf());
+        pte_fn(pte)
+    }
+    /// 不处理未映射的页
+    pub fn lazy_convert_user(
+        &mut self,
+        addr: UserAddr4K,
+        pte_fn: impl FnOnce(&mut PageTableEntry),
+    ) {
+        macro_rules! return_or_check {
+            ($pte: ident, $a: expr) => {
+                if !$pte.is_valid() {
+                    return;
+                }
+                debug_assert!($a);
+            };
+        }
+        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        let x = &addr.indexes();
+        let pte = next_pte(self.root_pa(), x[0]);
+        return_or_check!(pte, pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[1]);
+        return_or_check!(pte, pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[2]);
+        return_or_check!(pte, pte.is_leaf());
+        pte_fn(pte);
+    }
+    /// 返回的 pte 一定包含 V 标志位
+    pub fn try_get_pte_user(&mut self, addr: UserAddr4K) -> Option<&mut PageTableEntry> {
+        macro_rules! return_or_check {
+            ($pte: ident, $a: expr) => {
+                if !$pte.is_valid() {
+                    return None;
+                }
+                debug_assert!($a);
+            };
+        }
+        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        let x = &addr.indexes();
+        let pte = next_pte(self.root_pa(), x[0]);
+        return_or_check!(pte, pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[1]);
+        return_or_check!(pte, pte.is_directory());
+        let pte = next_pte(pte.phy_addr(), x[2]);
+        return_or_check!(pte, pte.is_leaf());
+        unsafe { Some(&mut *(pte as *mut _)) }
+    }
+    pub fn get_pte_user(
+        &mut self,
+        addr: UserAddr4K,
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<&mut PageTableEntry, FrameOOM> {
         let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
         stack_trace!();
         let x = &addr.indexes();
@@ -64,25 +146,8 @@ impl PageTable {
             pte.alloc_by(PTEFlags::V, allocator)?;
         }
         let pte = next_pte(pte.phy_addr(), x[2]);
-        assert!(!pte.is_valid(), "remap of {:?}", addr);
-        let par = allocator.alloc()?.consume();
-        // fill zero if return Error
-        let _ = data_iter.write_to(par.as_bytes_array_mut());
-        *pte = PageTableEntry::new(par.into(), perm | PTEFlags::V);
-        Ok(())
+        Ok(pte)
     }
-    pub fn unmap_user_addr(&mut self, addr: UserAddr4K, allocator: &mut impl FrameAllocator) {
-        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
-        let x = &addr.indexes();
-        let pte = next_pte(self.root_pa(), x[0]);
-        assert!(pte.is_directory());
-        let pte = next_pte(pte.phy_addr(), x[1]);
-        assert!(pte.is_directory());
-        let pte = next_pte(pte.phy_addr(), x[2]);
-        assert!(pte.is_leaf());
-        unsafe { pte.dealloc_by(allocator) };
-    }
-
     /// if range have been map will panic.
     ///
     /// return Err if out of memory
@@ -287,7 +352,7 @@ impl PageTable {
             }
             Err(ua) => {
                 let alloc_area = UserArea::new(ubegin..ua, PTEFlags::U);
-                dst.unmap_user_range_lazy(&alloc_area, allocator);
+                dst.unmap_user_range_lazy(alloc_area, allocator);
                 Err(FrameOOM)
             }
         };
@@ -381,9 +446,10 @@ impl PageTable {
     }
     pub fn unmap_user_range_lazy(
         &mut self,
-        map_area: &UserArea,
+        map_area: UserArea,
         allocator: &mut impl FrameAllocator,
     ) -> PageCount {
+        stack_trace!();
         assert!(map_area.perm().contains(PTEFlags::U));
         let ubegin = map_area.begin();
         let uend = map_area.end();

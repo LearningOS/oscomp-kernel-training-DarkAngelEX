@@ -45,7 +45,7 @@ impl FdTable {
         let fd = self.fd_allocator.alloc();
         self.map
             .try_insert(fd, v)
-            .map_err(|_| ())
+            .ok()
             .expect("FdTable double insert same fd");
         fd
     }

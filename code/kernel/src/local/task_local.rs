@@ -15,9 +15,3 @@ pub struct TaskLocal {
     // 进程改变页表时需要同步到这里，更新回OutermostFuture
     pub page_table: Arc<SyncUnsafeCell<PageTable>>,
 }
-
-impl TaskLocal {
-    pub fn always(&mut self) -> &mut AlwaysLocal {
-        &mut self.always_local
-    }
-}

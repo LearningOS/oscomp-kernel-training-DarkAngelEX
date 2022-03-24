@@ -49,7 +49,14 @@ impl LocalNow {
     pub fn always(&mut self, idle: *mut AlwaysLocal) -> &mut AlwaysLocal {
         match self {
             LocalNow::Idle => unsafe { &mut *idle },
-            LocalNow::Task(t) => t.always(),
+            LocalNow::Task(t) => &mut t.always_local,
+        }
+    }
+    #[inline(always)]
+    pub fn always_ref(&self, idle: *const AlwaysLocal) -> &AlwaysLocal {
+        match self {
+            LocalNow::Idle => unsafe { &*idle },
+            LocalNow::Task(t) => &t.always_local,
         }
     }
     #[inline(always)]
@@ -96,7 +103,7 @@ impl HartLocal {
     }
     #[inline(always)]
     pub fn always_ref(&self) -> &AlwaysLocal {
-        unsafe { (*(self as *const _ as *mut Self)).always() }
+        self.local_now.always_ref(&self.always_local)
     }
     pub fn enter_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Idle));

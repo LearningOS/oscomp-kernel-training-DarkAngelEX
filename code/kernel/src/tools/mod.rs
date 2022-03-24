@@ -2,7 +2,6 @@
 
 use core::{
     arch::asm,
-    ops::Range,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -17,6 +16,7 @@ pub mod allocator;
 pub mod container;
 pub mod error;
 pub mod xasync;
+pub mod range;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
     if x {
@@ -94,13 +94,6 @@ pub fn next_instruction_sepc(sepc: usize, ir: u8) -> usize {
 pub fn next_sepc(sepc: usize) -> usize {
     let ir = unsafe { *(sepc as *const u8) };
     next_instruction_sepc(sepc, ir)
-}
-
-/// 限制range 返回值可能出现 start > end
-pub fn range_limit<T: Ord + Copy>(src: Range<T>, area: Range<T>) -> Range<T> {
-    let start = src.start.max(area.start);
-    let end = src.end.min(area.end);
-    Range { start, end }
 }
 
 static BLOCK_0: AtomicUsize = AtomicUsize::new(0);

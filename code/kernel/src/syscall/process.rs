@@ -82,9 +82,9 @@ impl Syscall<'_> {
             (path, args, ())
         };
         let args_size = args.iter().fold(0, |n, s| n + s.len() + 1)
-            + (args.len() + 1) * core::mem::size_of::<usize>();
+        + (args.len() + 1) * core::mem::size_of::<usize>();
         let stack_reverse =
-            PageCount((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
+        PageCount((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
         let elf_data = inode.read_all().await;
         let allocator = &mut frame::defualt_allocator();

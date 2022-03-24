@@ -11,6 +11,20 @@ pub trait Stack<T> {
     fn push(&mut self, data: T);
     fn pop(&mut self) -> Option<T>;
 }
+/// 进来就释放的栈
+#[derive(Clone, Copy)]
+pub struct LeakStack;
+impl<T> Stack<T> for LeakStack {
+    fn push(&mut self, _data: T) {}
+    fn pop(&mut self) -> Option<T> {
+        None
+    }
+}
+impl const Default for LeakStack {
+    fn default() -> Self {
+        Self
+    }
+}
 
 pub fn test() {
     intrusive_linked_list::test::test();

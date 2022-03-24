@@ -6,7 +6,7 @@ use core::{
 use alloc::{string::FromUtf8Error, sync::Arc};
 
 use crate::{
-    process::{thread::Thread, AliveProcess, Process},
+    process::{thread::Thread, AliveProcess, Dead, Process},
     sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
     xdebug::PRINT_SYSCALL_ALL,
@@ -123,10 +123,10 @@ impl<'a> Syscall<'a> {
         &mut self,
         f: impl FnOnce(&mut AliveProcess) -> T,
     ) -> Result<T, UniqueSysError<{ SysError::ESRCH as isize }>> {
-        self.process.alive_then(f).map_err(|e| {
-            self.do_exit = true;
-            e.into()
-        })
+        self.process
+            .alive_then(f)
+            .inspect_err(|_e| self.do_exit = true)
+            .map_err(From::from)
     }
     /// if return Err will set do_exit = true
     #[inline(always)]

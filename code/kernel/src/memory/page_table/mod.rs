@@ -21,6 +21,7 @@ use crate::{
 };
 
 mod map_impl;
+pub mod pte_iter;
 
 static mut KERNEL_GLOBAL: Option<PageTable> = None;
 
@@ -35,9 +36,9 @@ bitflags! {
         const G = 1 << 5; // global mapping
         const A = 1 << 6; // access, set to 1 after r/w/x
         const D = 1 << 7; // dirty, set to 1 after write
-        // RSW 2bit, reserved
     }
 }
+const PTE_SHARED: usize = 1 << 8;
 
 #[derive(Copy, Clone)]
 #[repr(C)]
@@ -53,6 +54,9 @@ impl PageTableEntry {
     }
     pub fn empty() -> Self {
         PageTableEntry { bits: 0 }
+    }
+    pub fn reset(&mut self) {
+        *self = Self::empty();
     }
     /// this function will clear reserved bit in [63:54]
     pub fn phy_addr(&self) -> PhyAddr4K {
@@ -87,6 +91,9 @@ impl PageTableEntry {
     pub fn is_user(&self) -> bool {
         (self.flags() & PTEFlags::U) != PTEFlags::empty()
     }
+    pub fn shared(&self) -> bool {
+        self.bits & PTE_SHARED != 0
+    }
     pub fn rsw_8(&self) -> bool {
         (self.bits & 1usize << 8) != 0
     }
@@ -96,6 +103,36 @@ impl PageTableEntry {
     pub fn reserved_bit(&self) -> usize {
         self.bits & (((1usize << 10) - 1) << 54)
     }
+    pub fn set_flag(&mut self, flag: PTEFlags) {
+        *self = Self::new(self.phy_addr(), flag)
+    }
+    pub fn set_writable(&mut self) {
+        self.bits |= PTEFlags::W.bits() as usize;
+    }
+    pub fn clear_writable(&mut self) {
+        self.bits &= !(PTEFlags::W.bits() as usize);
+    }
+    pub fn set_shared(&mut self) {
+        self.bits |= PTE_SHARED;
+    }
+    pub fn clear_shared(&mut self) {
+        self.bits &= !PTE_SHARED;
+    }
+    pub fn become_shared(&mut self, shared_writable: bool) {
+        debug_assert!(!self.shared());
+        self.set_shared();
+        if !shared_writable {
+            self.clear_writable();
+        }
+    }
+    pub fn become_unique(&mut self, unique_writable: bool) {
+        debug_assert!(self.shared());
+        self.clear_shared();
+        if unique_writable {
+            self.set_writable();
+        }
+    }
+
     pub fn alloc_by(
         &mut self,
         flags: PTEFlags,
@@ -271,16 +308,10 @@ impl PageTable {
     pub fn translate(&self, va: VirAddr4K) -> Option<PageTableEntry> {
         self.find_pte(va).map(|pte| *pte)
     }
-    pub unsafe fn translate_uncheck(&self, va: VirAddr4K) -> PageTableEntry {
-        *self
-            .find_pte(va)
-            .unwrap_or_else(|| panic!("translate_uncheck: invalid pte from {:?}", va))
-    }
     pub fn copy_kernel_from(&mut self, src: &Self) {
         let src = src.root_pa().into_ref().as_pte_array();
         let dst = self.root_pa().into_ref().as_pte_array_mut();
         dst[0..256].copy_from_slice(&src[0..256]);
-        // dst.array_chunks_mut::<256>();
     }
     /// copy kernel segment
     ///
@@ -343,17 +374,6 @@ fn new_kernel_page_table() -> Result<PageTable, FrameOOM> {
         assert!(b % PAGE_SIZE == 0);
         assert!(e % PAGE_SIZE == 0);
         e.checked_sub(b).unwrap()
-    }
-    fn xmap_fn(
-        pt: &mut PageTable,
-        b: usize,
-        e: usize,
-        flags: PTEFlags,
-        pa_fn: impl FnOnce(usize) -> PhyAddrRef4K,
-        allocator: &mut impl FrameAllocator,
-    ) {
-        pt.map_direct_range(get_va(b), pa_fn(b), get_size(b, e), flags, allocator)
-            .unwrap();
     }
     fn xmap_impl_kernel(
         pt: &mut PageTable,
@@ -437,7 +457,7 @@ pub unsafe fn translated_byte_buffer_force(
     while start < end {
         let start_va = VirAddr::from(start);
         let mut va4k = start_va.floor();
-        let par: PhyAddrRef4K = page_table.translate_uncheck(va4k).phy_addr().into(); // unsafe
+        let par: PhyAddrRef4K = page_table.translate(va4k).unwrap().phy_addr().into(); // unsafe
         va4k.step();
         let end_va = VirAddr::from(va4k).min(VirAddr::from(end));
         if end_va.page_offset() == 0 {
