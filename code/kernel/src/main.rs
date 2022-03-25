@@ -33,7 +33,7 @@
 #![feature(let_chains)]
 #![feature(result_option_inspect)]
 
-// #![allow(dead_code)]
+#![allow(dead_code)]
 
 use riscv::register::sstatus;
 

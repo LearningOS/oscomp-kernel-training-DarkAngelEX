@@ -10,6 +10,7 @@ use core::{
 
 use crate::{
     hart::{cpu::hart_id, interrupt},
+    timer,
 };
 
 pub type SpinLock<T> = Mutex<T, Spin>;
@@ -83,16 +84,20 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
             .is_err()
         {
             let mut try_count = 0usize;
+            let start = timer::get_time_ticks();
             // Wait until the lock looks unlocked before retrying
             while self.lock.load(Ordering::Relaxed) {
                 unsafe { &*self.support.as_ptr() }.cpu_relax();
                 try_count += 1;
                 if try_count == 0x10000000 {
+                    let now = timer::get_time_ticks();
+                    let ms = (now - start).into_millisecond();
                     let (cid, tid) = unsafe { *self.user.get() };
-                    let value = unsafe { *(&self.lock as *const _ as *const u8) as usize };
                     panic!(
-                        "Mutex: deadlock detected! try_count > {:#x} in {}\n locked by cpu {} thread {} @ {:?} value {}",
-                        try_count, place, cid, tid, self as *const Self, value
+                        "Mutex: deadlock detected!\n\
+                        - - spend {}ms(try_count>{:#x}) in {}\n\
+                        - - locked by cpu {} thread {} @ {:?}",
+                        ms, try_count, place, cid, tid, self as *const Self
                     );
                 }
             }

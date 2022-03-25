@@ -9,7 +9,7 @@ use bitflags::bitflags;
 use super::{
     address::{PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
     allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
-    asid::{self, AsidInfoTracker},
+    asid::{self, Asid, AsidInfoTracker},
     user_space::UserArea,
 };
 use crate::{
@@ -229,6 +229,9 @@ impl PageTable {
     /// used in AsidManager when update version.
     pub(super) fn change_satp_asid(satp: usize, asid: usize) -> usize {
         (satp & !(0xffff << 44)) | (asid & 0xffff) << 44
+    }
+    pub fn asid(&self) -> Asid {
+        self.asid_tracker.asid()
     }
     unsafe fn set_satp_register_uncheck(&self) {
         csr::set_satp(self.satp())

@@ -6,6 +6,7 @@ use crate::{
     hart::{self, cpu, sfence},
     memory::{
         self,
+        address::UserAddr4K,
         allocator::LocalHeap,
         asid::{Asid, AsidVersion},
     },
@@ -202,4 +203,8 @@ pub fn all_hart_fence_i() {
 
 pub fn all_hart_sfence_vma_asid(asid: Asid) {
     all_hart_fn(|| move || sfence::sfence_vma_asid(asid.into_usize()));
+}
+
+pub fn all_hart_sfence_vma_va_asid(va: UserAddr4K, asid: Asid) {
+    all_hart_fn(|| move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()));
 }

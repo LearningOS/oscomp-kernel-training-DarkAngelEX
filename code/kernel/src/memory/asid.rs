@@ -166,12 +166,7 @@ impl AsidManager {
     }
     pub unsafe fn dealloc(&mut self, asid_info: AsidInfo) {
         if asid_info.version() == self.version {
-            if TLB_SHOT_DOWM_IPML {
-                local::all_hart_sfence_vma_asid(asid_info.asid());
-                self.recycled.push(asid_info.asid())
-            } else {
-                // leak this ASID
-            }
+            self.recycled.push(asid_info.asid());
         }
     }
 }
@@ -183,6 +178,8 @@ pub fn alloc_asid() -> AsidInfoTracker {
 }
 
 pub unsafe fn dealloc_asid(asid_info: AsidInfo) {
+    // 在这里调用降低锁竞争
+    local::all_hart_sfence_vma_asid(asid_info.asid());
     ASID_MANAGER.lock(place!()).dealloc(asid_info)
 }
 

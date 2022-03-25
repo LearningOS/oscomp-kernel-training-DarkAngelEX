@@ -15,11 +15,11 @@ use alloc::{
 use riscv::register::sstatus;
 
 use crate::{
-    memory::{address::PageCount, allocator::frame::FrameAllocator, StackID, UserSpace},
+    memory::{address::PageCount, StackID, UserSpace},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
-    trap::context::UKContext,
+    trap::context::UKContext, local,
 };
 
 use super::{
@@ -91,9 +91,9 @@ pub struct ThreadInner {
 }
 
 impl Thread {
-    pub fn new_initproc(elf_data: &[u8], allocator: &mut impl FrameAllocator) -> Arc<Self> {
+    pub fn new_initproc(elf_data: &[u8]) -> Arc<Self> {
         let (user_space, stack_id, user_sp, entry_point) =
-            UserSpace::from_elf(elf_data, PageCount::from_usize(1), allocator).unwrap();
+            UserSpace::from_elf(elf_data, PageCount::from_usize(1)).unwrap();
         let pid = pid_alloc();
         let tid = Tid::from_usize(pid.get_usize());
         let pgid = AtomicUsize::new(pid.get_usize());
@@ -167,10 +167,14 @@ impl Thread {
             }),
         });
         thread.inner().uk_context.set_user_a0(0);
-        thread
+        let asid = thread
             .process
-            .alive_then(|a| a.threads.push(&thread))
+            .alive_then(|a| {
+                a.threads.push(&thread);
+                a.asid()
+            })
             .unwrap();
+        local::all_hart_sfence_vma_asid(asid);
         Ok(thread)
     }
 }

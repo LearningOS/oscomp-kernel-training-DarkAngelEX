@@ -24,8 +24,8 @@ use self::{
 
 use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
-    allocator::frame::{iter::FrameDataIter, FrameAllocator},
-    asid,
+    allocator::frame::iter::FrameDataIter,
+    asid::{self, Asid},
     map_segment::{handler::AsyncHandler, MapSegment},
     PageTable,
 };
@@ -138,6 +138,9 @@ impl UserSpace {
     pub(super) fn page_table_mut(&mut self) -> &mut PageTable {
         unsafe { &mut *self.map_segment.page_table.get() }
     }
+    pub fn asid(&self) -> Asid {
+        self.page_table().asid()
+    }
     pub unsafe fn using(&self) {
         local::task_local().page_table = self.map_segment.page_table.clone();
         self.page_table().using();
@@ -166,9 +169,10 @@ impl UserSpace {
         &mut self,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>> {
+    ) -> TryR<(UserAddr4K, Asid), Box<dyn AsyncHandler>> {
         stack_trace!();
-        self.map_segment.page_fault(addr, access)
+        self.map_segment.page_fault(addr, access)?;
+        Ok((addr, self.page_table().asid()))
     }
     async fn a_page_fault(&mut self) {
         todo!()
@@ -177,7 +181,6 @@ impl UserSpace {
     pub fn stack_alloc(
         &mut self,
         stack_reverse: PageCount,
-        allocator: &mut impl FrameAllocator,
     ) -> Result<(StackID, UserAddr4K), SysError> {
         memory_trace!("UserSpace::stack_alloc");
         let stack = self.stacks.alloc(stack_reverse)?;
@@ -222,7 +225,6 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-        allocator: &mut impl FrameAllocator,
     ) -> Result<(Self, StackID, UserAddr4K, UserAddr), SysError> {
         stack_trace!();
         memory_trace!("UserSpace::from_elf 0");
@@ -265,7 +267,7 @@ impl UserSpace {
         }
         memory_trace!("UserSpace::from_elf 1");
         // map user stack
-        let (stack_id, user_sp) = space.stack_alloc(stack_reverse, allocator)?;
+        let (stack_id, user_sp) = space.stack_alloc(stack_reverse)?;
         memory_trace!("UserSpace::from_elf 2");
         // set heap
         space.heap_resize(PageCount(1));

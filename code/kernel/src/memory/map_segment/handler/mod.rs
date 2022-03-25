@@ -1,12 +1,11 @@
-use core::pin::Pin;
-
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     memory::{
-        address::{UserAddr, UserAddr4K},
+        address::UserAddr4K,
         allocator::frame,
-        page_table::{PTEFlags, PageTableEntry},
+        asid::Asid,
+        page_table::PTEFlags,
         user_space::{AccessType, UserArea},
         PageTable, UserSpace,
     },
@@ -14,7 +13,6 @@ use crate::{
     syscall::SysError,
     tools::{
         self,
-        allocator::TrackerAllocator,
         range::URange,
         xasync::{AsyncR, HandlerID, TryR, TryRunFail},
     },
@@ -59,6 +57,8 @@ pub trait UserAreaHandler: Send + 'static {
     /// 如果操作失败且返回Async则改为调用 a_map.
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>>;
     /// 从 src 复制 range 到 dst, dst 获得所有权
+    ///
+    /// 保证范围内无有效映射
     fn copy_map(&self, src: &mut PageTable, dst: &mut PageTable, r: URange)
         -> Result<(), SysError>;
     /// 如果操作失败且返回Async则改为调用 a_page_fault.
@@ -124,9 +124,8 @@ pub trait UserAreaHandler: Send + 'static {
             }
             let src = src.unwrap().phy_addr().into_ref().as_bytes_array();
             let dst = dst.get_pte_user(a, allocator)?;
-            if !dst.is_valid() {
-                *dst = PageTableEntry::new(allocator.alloc()?.consume().into(), self.map_perm());
-            }
+            debug_assert!(!dst.is_valid());
+            dst.alloc_by(self.map_perm(), allocator)?;
             dst.phy_addr()
                 .into_ref()
                 .as_bytes_array_mut()
@@ -150,8 +149,12 @@ pub trait UserAreaHandler: Send + 'static {
 
 pub trait AsyncHandler: Send + 'static {
     fn id(&self) -> HandlerID;
-    fn a_map(self: Box<Self>, sh: SpaceHolder, range: URange) -> AsyncR<()>;
-    fn a_page_fault(self: Box<Self>, sh: SpaceHolder, addr: UserAddr4K) -> AsyncR<()>;
+    fn a_map(self: Box<Self>, sh: SpaceHolder, range: URange) -> AsyncR<Asid>;
+    fn a_page_fault(
+        self: Box<Self>,
+        sh: SpaceHolder,
+        addr: UserAddr4K,
+    ) -> AsyncR<(UserAddr4K, Asid)>;
 }
 
 /// 数据获取完毕后才获取锁获取锁

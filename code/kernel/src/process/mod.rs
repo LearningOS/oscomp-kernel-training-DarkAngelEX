@@ -7,10 +7,7 @@ use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 use crate::{
     executor, fs,
-    memory::{
-        allocator::frame::{self, FrameAllocator},
-        UserSpace,
-    },
+    memory::{asid::Asid, UserSpace},
     signal::SignalPack,
     sync::{
         even_bus::{Event, EventBus},
@@ -92,10 +89,7 @@ impl Process {
         }
     }
     // fork and release all thread except tid
-    pub fn fork(
-        self: &Arc<Self>,
-        tid: Tid,
-    ) -> Result<Arc<Self>, SysError> {
+    pub fn fork(self: &Arc<Self>, tid: Tid) -> Result<Arc<Self>, SysError> {
         let mut alive_guard = self.alive.lock(place!());
         let alive = alive_guard.as_mut().unwrap();
         let mut user_space = alive.user_space.fork()?;
@@ -135,6 +129,9 @@ impl Process {
 }
 
 impl AliveProcess {
+    pub fn asid(&self) -> Asid {
+        self.user_space.asid()
+    }
     // return parent
     pub fn clear_all(&mut self, pid: Pid) {
         let this_parent = self.parent.take().and_then(|p| p.upgrade());
@@ -178,10 +175,9 @@ impl AliveProcess {
 
 pub fn init() {
     println!("load initporc");
-    let allocator = &mut frame::defualt_allocator();
     let inode = fs::open_file("initproc", fs::OpenFlags::RDONLY).unwrap();
     let elf_data = executor::block_on(async move { inode.read_all().await });
-    let thread = Thread::new_initproc(elf_data.as_slice(), allocator);
+    let thread = Thread::new_initproc(elf_data.as_slice());
     userloop::spawn(thread);
     println!("spawn initporc");
 }
