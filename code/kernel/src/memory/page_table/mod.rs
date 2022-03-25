@@ -140,25 +140,15 @@ impl PageTableEntry {
     ) -> Result<(), FrameOOM> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
-        pa.as_pte_array_mut()
-            .iter_mut()
-            .for_each(|x| *x = PageTableEntry::empty());
+        pa.as_pte_array_mut().fill(PageTableEntry::empty());
         *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
         Ok(())
-    }
-    #[deprecated = "replace by alloc_by"]
-    pub fn alloc(&mut self, flags: PTEFlags) -> Result<(), FrameOOM> {
-        self.alloc_by(flags, &mut frame::defualt_allocator())
     }
     /// this function will clear V flag.
     pub unsafe fn dealloc_by(&mut self, allocator: &mut impl FrameAllocator) {
         assert!(self.is_valid());
         allocator.dealloc(self.phy_addr().into());
         *self = Self::empty();
-    }
-    #[deprecated = "replace by dealloc_by"]
-    pub unsafe fn dealloc(&mut self) {
-        self.dealloc_by(&mut frame::defualt_allocator())
     }
 }
 

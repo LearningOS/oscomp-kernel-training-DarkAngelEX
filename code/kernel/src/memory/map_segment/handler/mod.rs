@@ -42,6 +42,7 @@ pub trait UserAreaHandler: Send + 'static {
     /// None: 不可共享，使用 copy_map 复制
     fn shared_writable(&self) -> Option<bool> {
         Some(false)
+        // None
     }
     fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
@@ -122,13 +123,13 @@ pub trait UserAreaHandler: Send + 'static {
             if src.is_none() {
                 continue;
             }
-            let src = src.unwrap().phy_addr().into_ref().as_bytes_array();
+            let src = src.unwrap().phy_addr().into_ref().as_usize_array();
             let dst = dst.get_pte_user(a, allocator)?;
             debug_assert!(!dst.is_valid());
             dst.alloc_by(self.map_perm(), allocator)?;
             dst.phy_addr()
                 .into_ref()
-                .as_bytes_array_mut()
+                .as_usize_array_mut()
                 .copy_from_slice(src);
         }
         Ok(())

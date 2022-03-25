@@ -10,7 +10,7 @@ use crate::tools::allocator::from_usize_allocator::FromUsize;
 #[repr(C)]
 pub struct UKContext {
     pub user_rx: [usize; 32],   // 0-31
-    pub user_sepc: UserAddr,    // 32
+    pub user_sepc: usize,       // 32
     pub user_sstatus: Sstatus,  // 33
     pub kernel_sx: [usize; 12], // 34-45
     pub kernel_ra: usize,       // 46
@@ -100,7 +100,7 @@ impl UKContext {
     // }
     /// sepc += 4
     pub fn set_next_instruction(&mut self) {
-        self.user_sepc.add_assign(4);
+        self.user_sepc += 4;
     }
 
     pub fn exec_init(
@@ -113,7 +113,7 @@ impl UKContext {
     ) {
         self.set_user_sp(user_sp.into_usize());
         self.set_argc_argv(argc, argv);
-        self.user_sepc = sepc;
+        self.user_sepc = sepc.into_usize();
         self.user_sstatus = sstatus;
     }
 

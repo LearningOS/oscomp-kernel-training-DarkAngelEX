@@ -95,7 +95,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
                     let (cid, tid) = unsafe { *self.user.get() };
                     panic!(
                         "Mutex: deadlock detected!\n\
-                        - - spend {}ms(try_count>{:#x}) in {}\n\
+                        - - spend {}ms(try_count > {:#x}) in {}\n\
                         - - locked by cpu {} thread {} @ {:?}",
                         ms, try_count, place, cid, tid, self as *const Self
                     );

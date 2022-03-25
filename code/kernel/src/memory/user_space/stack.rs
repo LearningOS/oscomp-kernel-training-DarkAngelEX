@@ -77,10 +77,17 @@ impl UsingStackTracker {
         core::mem::forget(self);
         using_stack
     }
-    pub fn user_area(&self) -> UserArea {
+    pub fn area_init(&self) -> UserArea {
         let using_stack = &self.using_stack;
         UserArea::new(
-            using_stack.stack_end.sub_page(using_stack.alloc_num)..using_stack.stack_end,
+            using_stack.range_init(),
+            PTEFlags::U | PTEFlags::R | PTEFlags::W,
+        )
+    }
+    pub fn area_all(&self) -> UserArea {
+        let using_stack = &self.using_stack;
+        UserArea::new(
+            using_stack.range_all(),
             PTEFlags::U | PTEFlags::R | PTEFlags::W,
         )
     }
@@ -104,18 +111,21 @@ pub struct UsingStack {
     alloc_num: PageCount,    // number of pages allocated
 }
 impl UsingStack {
-    pub fn valid_area(&self) -> UserArea {
-        let ubegin = self.stack_end.sub_page(self.alloc_num);
-        assert!(self.stack_begin <= ubegin);
-        let perm = PTEFlags::U | PTEFlags::R | PTEFlags::W;
-        UserArea::new(ubegin..self.stack_end, perm)
-    }
     pub fn stack_id(&self) -> StackID {
         self.stack_id
     }
-    pub fn range(&self) -> URange {
+    pub fn range_all(&self) -> URange {
         URange {
             start: self.stack_begin,
+            end: self.stack_end,
+        }
+    }
+    pub fn range_init(&self) -> URange {
+        URange {
+            start: self
+                .stack_end
+                .sub_page(self.alloc_num)
+                .max(self.stack_begin),
             end: self.stack_end,
         }
     }

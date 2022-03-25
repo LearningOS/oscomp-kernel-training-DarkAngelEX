@@ -123,9 +123,9 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
     }
     pub fn clear(&mut self, mut release: impl FnMut(V, Range<U>)) {
         stack_trace!();
-        while let Some((n_start, node)) = self.0.pop_first() {
-            release(node.value, n_start..node.end);
-        }
+        core::mem::take(&mut self.0)
+            .into_iter()
+            .for_each(|(n_start, node)| release(node.value, n_start..node.end));
     }
     pub fn retain(&mut self, mut f: impl FnMut(&mut V, Range<U>) -> bool) {
         self.0.retain(|&a, b| f(&mut b.value, a..b.end))

@@ -22,6 +22,7 @@ use self::iter::{UserData4KIter, UserDataMut4KIter};
 pub mod check;
 mod check_impl;
 pub mod iter;
+pub mod trap_handler;
 
 pub struct UserData<T: 'static> {
     data: *const [T],

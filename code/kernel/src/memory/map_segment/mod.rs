@@ -11,6 +11,7 @@ use crate::{
         xasync::{HandlerID, TryR, TryRunFail},
         ForwardWrapper,
     },
+    xdebug::PRINT_PAGE_FAULT,
 };
 
 use self::{
@@ -61,20 +62,32 @@ impl MapSegment {
         sc_manager: &'a mut SCManager,
     ) -> impl FnMut(Box<dyn UserAreaHandler>, URange) + 'a {
         move |h, r: URange| {
-            sc_manager.remove_release(r.clone(), |addr| h.unmap_ua(pt, addr));
-            h.unmap(pt, r);
+            let pt = pt as *mut PageTable;
+            macro_rules! pt {
+                () => {
+                    unsafe { &mut *pt }
+                };
+            }
+            let shared_release = |addr| {
+                let pte = pt!().try_get_pte_user(addr).unwrap();
+                debug_assert!(pte.is_leaf());
+                pte.reset();
+            };
+            let unique_release = |addr| h.unmap_ua(pt!(), addr);
+            sc_manager.remove_release(r.clone(), shared_release, unique_release);
+            h.unmap(pt!(), r);
         }
     }
     /// 释放存在映射的空间
     pub fn unmap(&mut self, r: URange) {
         let sc_manager = &mut self.sc_manager; // stupid borrow checker
-        self.handlers
-            .remove(r, Self::release_impl(pt!(self), sc_manager));
+        let release = Self::release_impl(pt!(self), sc_manager);
+        self.handlers.remove(r, release);
     }
     pub fn clear(&mut self) {
         let sc_manager = &mut self.sc_manager;
-        self.handlers
-            .clear(Self::release_impl(pt!(self), sc_manager));
+        let release = Self::release_impl(pt!(self), sc_manager);
+        self.handlers.clear(release);
         assert!(sc_manager.is_empty());
     }
     pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
@@ -135,9 +148,15 @@ impl MapSegment {
         }
         assert!(pte.shared());
         if self.sc_manager.try_remove_unique(addr) {
+            if PRINT_PAGE_FAULT {
+                println!("this shared page is unique");
+            }
             pte.clear_shared();
             pte.set_writable();
             return Ok(());
+        }
+        if PRINT_PAGE_FAULT {
+            println!("copy to new page");
         }
         let allocator = &mut frame::defualt_allocator();
         let x = allocator
@@ -147,6 +166,9 @@ impl MapSegment {
             .as_usize_array_mut()
             .copy_from_slice(pte.phy_addr().into_ref().as_usize_array());
         if self.sc_manager.remove_ua(addr) {
+            if PRINT_PAGE_FAULT {
+                println!("release old shared page");
+            }
             unsafe { pte.dealloc_by(allocator) };
         }
         *pte = PageTableEntry::new(x.consume().into(), h.map_perm());
@@ -160,7 +182,7 @@ impl MapSegment {
         let src = pt!(self);
         let mut dst = PageTable::from_global(asid::alloc_asid())?;
         let allocator = &mut frame::defualt_allocator();
-        let mut sm = SCManager::new();
+        let mut new_sm = SCManager::new();
 
         let mut err_1 = Ok(());
         for (r, h) in self.handlers.iter() {
@@ -176,13 +198,15 @@ impl MapSegment {
                                 break;
                             }
                         };
+                        debug_assert!(!dst.is_valid());
                         let sc = if !src.shared() {
                             src.become_shared(shared_writable);
-                            self.sc_manager.insert(addr)
+                            self.sc_manager.insert_clone(addr)
                         } else {
+                            debug_assert_eq!(src.writable(), shared_writable);
                             self.sc_manager.clone_ua(addr)
                         };
-                        sm.insert_by(addr, sc);
+                        new_sm.insert_by(addr, sc);
                         *dst = *src;
                     }
                     // roll back inner
@@ -195,7 +219,7 @@ impl MapSegment {
                         if addr == e_addr {
                             break;
                         }
-                        sm.remove_ua_result(addr).unwrap_err();
+                        new_sm.remove_ua_result(addr).unwrap_err();
                         dst.reset();
                         if self.sc_manager.try_remove_unique(addr) {
                             src.try_get_pte_user(addr)
@@ -218,14 +242,14 @@ impl MapSegment {
             let new_ms = MapSegment {
                 page_table: Arc::new(SyncUnsafeCell::new(dst)),
                 handlers: self.handlers.fork(),
-                sc_manager: sm,
+                sc_manager: new_sm,
                 id_allocator: self.id_allocator.clone(),
             };
             return Ok(new_ms);
         }
         // 错误回退
         let (rr, e) = err_1.unwrap_err();
-        sm.check_remove_all();
+        new_sm.check_remove_all();
         for (r, h) in self.handlers.iter() {
             if r == rr {
                 break;

@@ -184,13 +184,13 @@ impl UserSpace {
     ) -> Result<(StackID, UserAddr4K), SysError> {
         memory_trace!("UserSpace::stack_alloc");
         let stack = self.stacks.alloc(stack_reverse)?;
-        let user_area = stack.user_area();
+        let area_all = stack.area_all();
         let info = stack.info();
         // 绕过 stack 借用检查
-        let h = DelayHandler::box_new(user_area.perm);
-        let r = user_area.range.clone();
+        let h = DelayHandler::box_new(area_all.perm);
+        let r = area_all.range.clone();
         self.map_segment.force_push(r.clone(), h)?;
-        self.map_segment.force_map(r)?;
+        self.map_segment.force_map(stack.area_init().range)?;
         stack.consume();
         Ok(info)
     }
@@ -198,12 +198,12 @@ impl UserSpace {
         memory_trace!("UserSpace::stack_dealloc");
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
-        self.map_segment.unmap(user_area.range());
+        self.map_segment.unmap(user_area.range_all());
     }
     pub unsafe fn stack_dealloc_all_except(&mut self, stack_id: StackID) {
         memory_trace!("UserSpace::stack_dealloc_all_except");
         while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
-            self.map_segment.unmap(user_area.range());
+            self.map_segment.unmap(user_area.range_all());
         }
     }
     pub fn heap_resize(&mut self, page_count: PageCount) {

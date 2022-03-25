@@ -27,7 +27,7 @@ board_qemu = []
 
 # https://zhuanlan.zhihu.com/p/476524365
 [profile.dev]
-opt-level = 1
+opt-level = 0
 debug = 2
 debug-assertions = true # 断言标志
 overflow-checks = true  # 算数溢出检测

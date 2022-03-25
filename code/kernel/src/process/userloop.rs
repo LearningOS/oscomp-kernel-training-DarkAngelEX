@@ -1,5 +1,4 @@
 use core::{
-    convert::TryFrom,
     future::Future,
     pin::Pin,
     task::{Context, Poll},
@@ -15,12 +14,10 @@ use crate::{
     executor,
     hart::sfence,
     local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
-    memory::{address::UserAddr, map_segment::handler::SpaceHolder, AccessType},
     process::thread,
     syscall::Syscall,
     timer,
-    tools::xasync::TryRunFail,
-    user::AutoSie,
+    user::{trap_handler, AutoSie},
 };
 
 use super::thread::Thread;
@@ -35,7 +32,8 @@ async fn userloop(thread: Arc<Thread>) {
         let context = thread.as_ref().get_context();
         let auto_sie = AutoSie::new();
         // let mut do_yield = false;
-        if false {
+        if true {
+            // debug
             sfence::sfence_vma_all_global();
         }
         match thread.process.alive_then(|_a| ()) {
@@ -50,11 +48,12 @@ async fn userloop(thread: Arc<Thread>) {
 
             let mut user_fatal_error = || {
                 println!(
-                    "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x}",
+                    "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
                     thread.process.pid(),
                     thread.tid,
                     scause,
                     stval,
+                    context.user_sepc
                 );
                 do_exit = true;
             };
@@ -70,49 +69,10 @@ async fn userloop(thread: Arc<Thread>) {
                     e @ (Exception::InstructionPageFault
                     | Exception::LoadPageFault
                     | Exception::StorePageFault) => {
-                        println!(
-                            "{}{:?} {:?} staval {:#x}{}",
-                            to_yellow!(),
-                            thread.process.pid(),
-                            e,
-                            stval,
-                            reset_color!()
-                        );
-                        let handler = || {
-                            stack_trace!();
-                            let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
-                            let perm = AccessType::from_exception(e)?;
-                            let addr = addr.floor();
-                            return match thread
-                                .process
-                                .alive_then(|a| a.user_space.page_fault(addr, perm))
-                                .map_err(|_| ())?
-                            {
-                                Ok(x) => Ok(Ok(x)),
-                                Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
-                                Err(TryRunFail::Error(_e)) => Err(()),
-                            };
-                        };
-                        match handler() {
-                            Err(()) => user_fatal_error(),
-                            Ok(Ok((addr, asid))) => {
-                                println!("{}", to_green!("success handle exception"));
-                                local::all_hart_sfence_vma_va_asid(addr, asid);
-                            }
-                            Ok(Err((addr, a))) => {
-                                stack_trace!();
-                                let sh = SpaceHolder::new(thread.process.clone());
-                                match a.a_page_fault(sh, addr).await {
-                                    Ok((addr, asid)) => {
-                                        println!(
-                                            "{}",
-                                            to_green!("success handle exception by async")
-                                        );
-                                        local::all_hart_sfence_vma_va_asid(addr, asid);
-                                    }
-                                    Err(_e) => user_fatal_error(),
-                                }
-                            }
+                        if !do_exit {
+                            do_exit =
+                                trap_handler::page_fault(&thread, e, stval, context.user_sepc)
+                                    .await;
                         }
                     }
                     Exception::InstructionMisaligned => todo!(),
