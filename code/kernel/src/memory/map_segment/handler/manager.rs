@@ -67,6 +67,7 @@ impl HandlerManager {
         self.map.get(addr).map(|a| a.as_ref())
     }
     pub fn range_contain(&self, range: URange) -> Option<&dyn UserAreaHandler> {
+        stack_trace!();
         self.map.range_contain(range).map(|a| a.as_ref())
     }
     pub fn range_match(&self, range: URange) -> Option<&dyn UserAreaHandler> {

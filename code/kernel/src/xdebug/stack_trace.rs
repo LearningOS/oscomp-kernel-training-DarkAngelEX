@@ -134,7 +134,4 @@ impl StackTrace {
             info.show(i)
         }
     }
-    pub fn ptr_usize(self: &mut Pin<&mut Self>) -> usize {
-        &mut **self as *mut _ as usize
-    }
 }

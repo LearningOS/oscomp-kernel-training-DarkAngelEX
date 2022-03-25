@@ -2,7 +2,7 @@
 
 pub const PRINT_MAP_ALL: bool = false;
 
-pub const CLOSE_ALL_DEBUG: bool = true;
+// pub const CLOSE_ALL_DEBUG: bool = true;
 
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = false;
@@ -20,6 +20,10 @@ pub const CLOSE_LOCAL_HEAP: bool = false;
 
 pub const FRAME_DEALLOC_OVERWRITE: bool = true;
 pub const HEAP_DEALLOC_OVERWRITE: bool = true;
+
+pub const FRAME_RELEASE_CHECK: bool = false;
+pub const HEAP_RELEASE_CHECK: bool = false;
+pub const HEAP_PROTECT: bool = false;
 
 pub const CLOSE_TIME_INTERRUPT: bool = false;
 

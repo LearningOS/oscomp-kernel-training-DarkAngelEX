@@ -127,9 +127,6 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
             .into_iter()
             .for_each(|(n_start, node)| release(node.value, n_start..node.end));
     }
-    pub fn retain(&mut self, mut f: impl FnMut(&mut V, Range<U>) -> bool) {
-        self.0.retain(|&a, b| f(&mut b.value, a..b.end))
-    }
     /// f return (A, B)
     ///
     /// if A is Some will set current into A, else do nothing.

@@ -2,6 +2,7 @@
 
 pub mod global;
 pub mod iter;
+pub mod detector;
 
 use crate::{
     memory::address::PhyAddrRef4K,

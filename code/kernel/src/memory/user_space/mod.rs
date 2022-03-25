@@ -111,8 +111,8 @@ unsafe impl Sync for UserSpace {}
 impl Drop for UserSpace {
     fn drop(&mut self) {
         stack_trace!();
-        let allocator = &mut frame::defualt_allocator();
         self.map_segment.clear();
+        let allocator = &mut frame::defualt_allocator();
         self.page_table_mut().free_user_directory_all(allocator);
     }
 }

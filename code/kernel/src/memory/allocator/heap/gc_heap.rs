@@ -171,8 +171,8 @@ impl DelayGCHeap {
         Ok(ret_list)
     }
     pub fn dealloc_list(&mut self, list: IntrusiveLinkedList, layout: Layout) {
-        list.size_check().unwrap();
         let (size, class) = super::layout_info(layout);
+        list.size_check().unwrap();
         let n = list.len();
         // Merge free buddy lists
         let mut current_class = class;

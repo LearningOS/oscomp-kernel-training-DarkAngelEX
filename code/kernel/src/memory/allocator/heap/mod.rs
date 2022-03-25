@@ -13,6 +13,7 @@ use crate::{
 };
 
 mod delay_gc_list;
+pub mod detector;
 mod gc_heap;
 pub mod local_heap;
 
@@ -22,6 +23,8 @@ struct GlobalHeap {
 
 unsafe impl GlobalAlloc for GlobalHeap {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
+        let pl = layout;
+        let layout = detector::detect_layout(layout);
         let ret = if !CLOSE_LOCAL_HEAP {
             local::hart_local()
                 .local_heap
@@ -38,10 +41,11 @@ unsafe impl GlobalAlloc for GlobalHeap {
                 ),
             }
         };
-        ret
+        detector::alloc_run(ret, pl)
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
+        let (ptr, layout) = detector::dealloc_run(ptr, layout);
         if HEAP_DEALLOC_OVERWRITE {
             let arr = core::slice::from_raw_parts_mut(ptr, layout.size());
             arr.fill(0xf0);

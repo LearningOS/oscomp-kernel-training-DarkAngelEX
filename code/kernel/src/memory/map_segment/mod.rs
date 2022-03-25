@@ -99,6 +99,7 @@ impl MapSegment {
         stack_trace!();
         let pt = pt!(self);
         let h = self.handlers.range_contain(r.clone()).unwrap();
+        stack_trace!();
         h.map(pt, r).map_err(|e| match e {
             TryRunFail::Async(_a) => panic!(),
             TryRunFail::Error(e) => e,
@@ -159,9 +160,7 @@ impl MapSegment {
             println!("copy to new page");
         }
         let allocator = &mut frame::defualt_allocator();
-        let x = allocator
-            .alloc()
-            .map_err(|_e| TryRunFail::Error(SysError::EFAULT))?;
+        let x = allocator.alloc()?;
         x.ptr()
             .as_usize_array_mut()
             .copy_from_slice(pte.phy_addr().into_ref().as_usize_array());

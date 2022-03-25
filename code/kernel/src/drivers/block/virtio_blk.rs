@@ -54,7 +54,7 @@ pub extern "C" fn virtio_dma_alloc(pages: PageCount) -> PhyAddr4K {
 #[no_mangle]
 pub extern "C" fn virtio_dma_dealloc(mut pa: PhyAddr4K, pages: usize) -> i32 {
     for _ in 0..pages {
-        unsafe { frame::global::dealloc_dpa(pa) };
+        unsafe { frame::global::dealloc(pa.into()) };
         pa = pa.add_one_page();
     }
     0

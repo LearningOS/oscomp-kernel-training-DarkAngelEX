@@ -98,7 +98,7 @@ where
 
 pub fn run_until_idle() {
     while let Some(task) = TASK_QUEUE.fetch() {
-        // println!("fetch task success");
+        stack_trace!();
         task.run();
     }
 }

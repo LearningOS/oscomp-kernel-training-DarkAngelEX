@@ -32,10 +32,7 @@
 #![feature(associated_type_bounds)]
 #![feature(let_chains)]
 #![feature(result_option_inspect)]
-
 #![allow(dead_code)]
-
-use riscv::register::sstatus;
 
 extern crate alloc;
 extern crate async_task;
@@ -76,6 +73,8 @@ mod syscall;
 mod timer;
 mod trap;
 mod user;
+
+use riscv::register::sstatus;
 
 ///
 /// This function will be called by rust_main() in hart/mod.rs
