@@ -73,6 +73,9 @@ impl HandlerManager {
         self.map
             .find_free_range(range, n.0, |a, n| a.add_page(PageCount(n)))
     }
+    pub fn free_range_check(&self, range: URange) -> Result<(), ()> {
+        self.map.free_range_check(range)
+    }
     /// 内部值使用 box_clone 复制
     pub fn fork(&mut self) -> Self {
         Self {

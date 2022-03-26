@@ -47,7 +47,7 @@ pub trait UserAreaHandler: Send + 'static {
     fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
     }
-    /// 新加入管理器时将调用此函数 保证范围内无映射
+    /// 新加入管理器时将调用此函数 保证范围内无映射 此函数是唯一标记 &mut 的函数
     ///
     /// 必须设置正确的id
     fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError>;
@@ -134,12 +134,12 @@ pub trait UserAreaHandler: Send + 'static {
         }
         Ok(())
     }
-    /// 释放页表中存在映射的空间
+    /// 所有权释放页表中存在映射的空间
     fn default_unmap(&self, pt: &mut PageTable, range: URange) {
         stack_trace!();
         pt.unmap_user_range_lazy(self.user_area(range), &mut frame::defualt_allocator());
     }
-    /// 释放页表中存在映射的空间
+    /// 所有权释放页表中存在映射的空间
     fn default_unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K) {
         stack_trace!();
         let pte = pt.try_get_pte_user(addr).unwrap();

@@ -10,6 +10,8 @@ struct Node<U, V> {
 /// [start, end) -> value
 ///
 /// 保证区间不重合 否则panic
+///
+/// 禁止区间长度为0
 pub struct RangeMap<U: Ord + Copy, V>(BTreeMap<U, Node<U, V>>);
 
 impl<U: Ord + Copy, V> RangeMap<U, V> {
@@ -55,6 +57,21 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         }
         debug_assert!(offset(start, n) <= end);
         Some(start..offset(start, n))
+    }
+    /// if is free, return Ok(())
+    pub fn free_range_check(&self, Range { start, end }: Range<U>) -> Result<(), ()> {
+        if start >= end {
+            return Err(());
+        }
+        if let Some((_, node)) = self.0.range(..start).next_back() {
+            if node.end > start {
+                return Err(());
+            }
+        }
+        if self.0.range(start..end).next().is_some() {
+            return Err(());
+        }
+        Ok(())
     }
     /// range 处于返回值对应的 range 内
     pub fn range_contain(&self, range: Range<U>) -> Option<&V> {

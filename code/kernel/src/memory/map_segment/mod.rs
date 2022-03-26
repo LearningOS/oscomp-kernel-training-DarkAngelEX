@@ -56,6 +56,10 @@ impl MapSegment {
     pub fn find_free_range(&self, range: URange, n: PageCount) -> Option<URange> {
         self.handlers.find_free_range(range, n)
     }
+    /// 检查区间是否是空闲的 如果 start >= end 将返回 Err(())
+    pub fn free_range_check(&self, range: URange) -> Result<(), ()> {
+        self.handlers.free_range_check(range)
+    }
     /// 范围必须不存在映射 否则 panic
     ///
     /// 返回初始化结果 失败则撤销映射
@@ -114,6 +118,8 @@ impl MapSegment {
         })
     }
     /// 此函数可以向只读映射写入数据 但不能修改只读共享页
+    ///
+    /// TODO: 使用 copy_map获取只读共享页所有权
     pub fn force_write_range(
         &self,
         r: URange,
