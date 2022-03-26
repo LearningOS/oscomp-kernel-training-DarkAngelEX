@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
 use crate::{
-    memory::address::UserAddr4K,
+    memory::address::{PageCount, UserAddr4K},
     tools::{container::range_map::RangeMap, range::URange},
 };
 
@@ -51,11 +51,7 @@ impl HandlerManager {
             release,
         );
     }
-    pub fn remove(
-        &mut self,
-        range: URange,
-        release: impl FnMut(Box<dyn UserAreaHandler>, URange),
-    ) {
+    pub fn remove(&mut self, range: URange, release: impl FnMut(Box<dyn UserAreaHandler>, URange)) {
         self.map.remove(
             range,
             |a, b, r| a.split_l(b, r),
@@ -72,6 +68,10 @@ impl HandlerManager {
     }
     pub fn range_match(&self, range: URange) -> Option<&dyn UserAreaHandler> {
         self.map.range_match(range).map(|a| a.as_ref())
+    }
+    pub fn find_free_range(&self, range: URange, n: PageCount) -> Option<URange> {
+        self.map
+            .find_free_range(range, n.0, |a, n| a.add_page(PageCount(n)))
     }
     /// 内部值使用 box_clone 复制
     pub fn fork(&mut self) -> Self {

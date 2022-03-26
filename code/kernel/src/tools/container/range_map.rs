@@ -34,6 +34,28 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         }
         None
     }
+    pub fn find_free_range(
+        &self,
+        Range { mut start, end }: Range<U>,
+        n: usize,
+        mut offset: impl FnMut(U, usize) -> U,
+    ) -> Option<Range<U>> {
+        if offset(start, n) > end {
+            return None;
+        }
+        if let Some((_, node)) = self.0.range(..start).next_back() {
+            debug_assert!(offset(node.end, n) <= end);
+            start = start.max(node.end);
+        }
+        for (_, node) in self.0.range(start..offset(start, n)) {
+            if offset(node.end, n) > end {
+                return None;
+            }
+            start = node.end;
+        }
+        debug_assert!(offset(start, n) <= end);
+        Some(start..offset(start, n))
+    }
     /// range 处于返回值对应的 range 内
     pub fn range_contain(&self, range: Range<U>) -> Option<&V> {
         let (_, Node { end, value }) = self.0.range(..=range.start).next_back()?;

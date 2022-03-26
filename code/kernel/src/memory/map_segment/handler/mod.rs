@@ -14,7 +14,7 @@ use crate::{
     tools::{
         self,
         range::URange,
-        xasync::{AsyncR, HandlerID, TryR, TryRunFail},
+        xasync::{AsyncR, HandlerID, TryR},
     },
 };
 
@@ -37,7 +37,7 @@ pub trait UserAreaHandler: Send + 'static {
     }
     /// 共享分配写标志 当 unique_writable 为 false 时不可返回 true
     ///
-    /// Some(x): 可共享，x为共享后的写标志位
+    /// Some(x): 可共享，x为共享后的写标志位 由页面管理器代理共享与释放
     ///
     /// None: 不可共享，使用 copy_map 复制
     fn shared_writable(&self) -> Option<bool> {
@@ -102,7 +102,7 @@ pub trait UserAreaHandler: Send + 'static {
         let perm = self.perm();
         let allocator = &mut frame::defualt_allocator();
         for r in pt.each_pte_iter(range) {
-            let (_addr, pte) = r.map_err(|e| TryRunFail::Error(e.into()))?;
+            let (_addr, pte) = r?;
             if pte.is_valid() {
                 continue;
             }

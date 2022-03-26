@@ -19,12 +19,16 @@ use self::{
     sc_manager::SCManager,
 };
 
-use super::{address::UserAddr4K, allocator::frame::iter::FrameDataIter, AccessType, PageTable};
+use super::{
+    address::{PageCount, UserAddr4K},
+    allocator::frame::iter::FrameDataIter,
+    AccessType, PageTable,
+};
 
 pub mod handler;
 mod sc_manager;
 
-type HandlerAllocator = LeakFromUsizeAllocator<HandlerID, ForwardWrapper>;
+type HandlerIDAllocator = LeakFromUsizeAllocator<HandlerID, ForwardWrapper>;
 
 macro_rules! pt {
     ($self: ident) => {
@@ -36,7 +40,7 @@ pub struct MapSegment {
     pub page_table: Arc<SyncUnsafeCell<PageTable>>,
     handlers: HandlerManager,
     sc_manager: SCManager,
-    id_allocator: HandlerAllocator,
+    id_allocator: HandlerIDAllocator,
 }
 
 impl MapSegment {
@@ -45,8 +49,12 @@ impl MapSegment {
             page_table,
             handlers: HandlerManager::new(),
             sc_manager: SCManager::new(),
-            id_allocator: HandlerAllocator::default(),
+            id_allocator: HandlerIDAllocator::default(),
         }
+    }
+    /// 查找 range 内第一个空闲的 URange
+    pub fn find_free_range(&self, range: URange, n: PageCount) -> Option<URange> {
+        self.handlers.find_free_range(range, n)
     }
     /// 范围必须不存在映射 否则 panic
     ///
