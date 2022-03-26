@@ -20,7 +20,7 @@ pub fn alloc_run(ptr: *mut u8, layout: Layout) -> *mut u8 {
             if HEAP_RELEASE_CHECK {
                 *ptr = 100;
             }
-            ptr.offset(layout.align().max(xsize()) as isize)
+            ptr.add(layout.align().max(xsize()))
         }
     } else {
         ptr
@@ -29,7 +29,7 @@ pub fn alloc_run(ptr: *mut u8, layout: Layout) -> *mut u8 {
 pub fn dealloc_run(ptr: *mut u8, layout: Layout) -> (*mut u8, Layout) {
     if HEAP_RELEASE_CHECK || HEAP_PROTECT {
         unsafe {
-            let ptr = ptr.offset(-(layout.align().max(xsize()) as isize));
+            let ptr = ptr.sub(layout.align().max(xsize()));
             if HEAP_RELEASE_CHECK {
                 assert_eq!(*ptr, 100);
             }

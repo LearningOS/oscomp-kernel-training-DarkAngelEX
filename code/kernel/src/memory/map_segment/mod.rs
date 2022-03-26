@@ -228,7 +228,7 @@ impl MapSegment {
                         Err(x) => x,
                     };
                     // error happen
-                    for (addr, dst) in dst.valid_pte_iter(r.clone()) {
+                    for (addr, dst) in dst.valid_pte_iter(r) {
                         if addr == e_addr {
                             break;
                         }

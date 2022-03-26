@@ -27,8 +27,6 @@ async fn userloop(thread: Arc<Thread>) {
     loop {
         local::handle_current_local();
 
-        let mut do_exit = false;
-
         let context = thread.as_ref().get_context();
         let auto_sie = AutoSie::new();
         // let mut do_yield = false;
@@ -38,88 +36,83 @@ async fn userloop(thread: Arc<Thread>) {
         }
         match thread.process.alive_then(|_a| ()) {
             Ok(_x) => context.run_user(),
-            Err(_e) => do_exit = true,
+            Err(_e) => break,
         };
-        if !do_exit {
-            let scause = scause::read().cause();
-            let stval = stval::read();
 
-            drop(auto_sie);
+        let scause = scause::read().cause();
+        let stval = stval::read();
 
-            let mut user_fatal_error = || {
-                println!(
-                    "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
-                    thread.process.pid(),
-                    thread.tid,
-                    scause,
-                    stval,
-                    context.user_sepc
-                );
-                do_exit = true;
-            };
+        drop(auto_sie);
 
-            match scause {
-                scause::Trap::Exception(e) => match e {
-                    Exception::UserEnvCall => {
-                        // println!("enter syscall");
-                        do_exit = Syscall::new(context, &thread, &thread.process)
-                            .syscall()
-                            .await;
+        let mut do_exit = false;
+        let mut user_fatal_error = || {
+            println!(
+                "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
+                thread.process.pid(),
+                thread.tid,
+                scause,
+                stval,
+                context.user_sepc
+            );
+            do_exit = true;
+        };
+
+        match scause {
+            scause::Trap::Exception(e) => match e {
+                Exception::UserEnvCall => {
+                    // println!("enter syscall");
+                    do_exit = Syscall::new(context, &thread, &thread.process)
+                        .syscall()
+                        .await;
+                }
+                e @ (Exception::InstructionPageFault
+                | Exception::LoadPageFault
+                | Exception::StorePageFault) => {
+                    do_exit = trap_handler::page_fault(&thread, e, stval, context.user_sepc).await;
+                }
+                Exception::InstructionMisaligned => todo!(),
+                Exception::InstructionFault => user_fatal_error(),
+                Exception::IllegalInstruction => user_fatal_error(),
+                Exception::Breakpoint => todo!(),
+                Exception::LoadFault => todo!(),
+                Exception::StoreMisaligned => todo!(),
+                Exception::StoreFault => todo!(),
+                Exception::VirtualSupervisorEnvCall => todo!(),
+                Exception::InstructionGuestPageFault => todo!(),
+                Exception::LoadGuestPageFault => todo!(),
+                Exception::VirtualInstruction => todo!(),
+                Exception::StoreGuestPageFault => todo!(),
+                Exception::Unknown => todo!(),
+            },
+            scause::Trap::Interrupt(i) => match i {
+                Interrupt::UserSoft => todo!(),
+                Interrupt::VirtualSupervisorSoft => todo!(),
+                Interrupt::SupervisorSoft => todo!(),
+                Interrupt::UserTimer => todo!(),
+                Interrupt::VirtualSupervisorTimer => todo!(),
+                Interrupt::SupervisorTimer => {
+                    timer::tick();
+                    if !do_exit {
+                        thread::yield_now().await;
                     }
-                    e @ (Exception::InstructionPageFault
-                    | Exception::LoadPageFault
-                    | Exception::StorePageFault) => {
-                        if !do_exit {
-                            do_exit =
-                                trap_handler::page_fault(&thread, e, stval, context.user_sepc)
-                                    .await;
-                        }
-                    }
-                    Exception::InstructionMisaligned => todo!(),
-                    Exception::InstructionFault => user_fatal_error(),
-                    Exception::IllegalInstruction => user_fatal_error(),
-                    Exception::Breakpoint => todo!(),
-                    Exception::LoadFault => todo!(),
-                    Exception::StoreMisaligned => todo!(),
-                    Exception::StoreFault => todo!(),
-                    Exception::VirtualSupervisorEnvCall => todo!(),
-                    Exception::InstructionGuestPageFault => todo!(),
-                    Exception::LoadGuestPageFault => todo!(),
-                    Exception::VirtualInstruction => todo!(),
-                    Exception::StoreGuestPageFault => todo!(),
-                    Exception::Unknown => todo!(),
-                },
-                scause::Trap::Interrupt(i) => match i {
-                    Interrupt::UserSoft => todo!(),
-                    Interrupt::VirtualSupervisorSoft => todo!(),
-                    Interrupt::SupervisorSoft => todo!(),
-                    Interrupt::UserTimer => todo!(),
-                    Interrupt::VirtualSupervisorTimer => todo!(),
-                    Interrupt::SupervisorTimer => {
-                        timer::tick();
-                        if !do_exit {
-                            thread::yield_now().await;
-                        }
-                    }
-                    Interrupt::UserExternal => todo!(),
-                    Interrupt::VirtualSupervisorExternal => todo!(),
-                    Interrupt::SupervisorExternal => todo!(),
-                    Interrupt::Unknown => todo!(),
-                },
-            }
+                }
+                Interrupt::UserExternal => todo!(),
+                Interrupt::VirtualSupervisorExternal => todo!(),
+                Interrupt::SupervisorExternal => todo!(),
+                Interrupt::Unknown => todo!(),
+            },
         }
         if do_exit {
-            let mut lock = thread.process.alive.lock(place!());
-            if let Some(alive) = &mut *lock {
-                // TODO: just last thread exit do this.
-                println!("[kernel]proc:{:?} abort", thread.process.pid());
-                alive.clear_all(thread.process.pid());
-            }
             break;
         }
         // if do_yield {
         //     thread::yield_now().await;
         // }
+    }
+    if let Some(alive) = &mut *thread.process.alive.lock(place!()) {
+        // TODO: just last thread exit do this.
+        println!("[kernel]proc:{:?} abort", thread.process.pid());
+        alive.clear_all(thread.process.pid());
     }
 }
 

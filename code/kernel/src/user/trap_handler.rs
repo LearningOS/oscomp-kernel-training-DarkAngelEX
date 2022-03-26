@@ -42,7 +42,7 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
         let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
         let perm = AccessType::from_exception(e).unwrap();
         let addr = addr.floor();
-        return match thread
+        match thread
             .process
             .alive_then(|a| a.user_space.page_fault(addr, perm))
             .map_err(|_| ())?
@@ -50,7 +50,7 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             Ok(x) => Ok(Ok(x)),
             Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
             Err(TryRunFail::Error(_e)) => Err(()),
-        };
+        }
     };
     match handle() {
         Err(()) => user_fatal_error(),

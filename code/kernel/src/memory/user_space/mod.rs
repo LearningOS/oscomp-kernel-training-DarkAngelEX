@@ -188,8 +188,7 @@ impl UserSpace {
         let info = stack.info();
         // 绕过 stack 借用检查
         let h = DelayHandler::box_new(area_all.perm);
-        let r = area_all.range.clone();
-        self.map_segment.force_push(r.clone(), h)?;
+        self.map_segment.force_push(area_all.range, h)?;
         self.map_segment.force_map(stack.area_init().range)?;
         stack.consume();
         Ok(info)
