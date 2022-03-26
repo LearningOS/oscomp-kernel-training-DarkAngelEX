@@ -65,7 +65,7 @@ unsafe impl GlobalAlloc for GlobalHeap {
 
 impl GlobalHeap {
     // (used, allocated, total)
-    pub fn info(&self) -> (usize, usize, usize) {
+    pub fn info(&self) -> (usize, usize) {
         self.heap.lock(place!()).info()
     }
     pub fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, ()> {

@@ -9,7 +9,6 @@ type SortBuffer = [usize; SORT_BUFFER_SIZE];
 
 pub struct DelayGCHeap {
     free_list: [DelayGCList; 32],
-    used: usize,      // 用户认为正在使用的空间大小
     allocated: usize, // 分配器分配的内存大小 比used更大
     total: usize,     // 分配器管理的全部内存
     sort_buffer: *mut SortBuffer,
@@ -23,15 +22,14 @@ impl DelayGCHeap {
         const LIST: DelayGCList = DelayGCList::new();
         Self {
             free_list: [LIST; 32],
-            used: 0,
             allocated: 0,
             total: 0,
             sort_buffer: core::ptr::null_mut(),
         }
     }
     // (used, allocated, total)
-    pub fn info(&self) -> (usize, usize, usize) {
-        (self.used, self.allocated, self.total)
+    pub fn info(&self) -> (usize, usize) {
+        (self.allocated, self.total)
     }
     pub fn init(&mut self, start: usize, size: usize) {
         unsafe {
@@ -87,7 +85,6 @@ impl DelayGCHeap {
                     }
                 }
                 let result = self.free_list[class].pop().unwrap();
-                self.used += layout.size();
                 self.allocated += size;
                 return Ok(result.cast());
             }
@@ -165,7 +162,6 @@ impl DelayGCHeap {
             ));
             unsafe { self.add_to_heap(page_mid, page_end, false) };
         }
-        self.used += layout.size() * n;
         self.allocated += size * n;
         ret_list.size_check().unwrap();
         Ok(ret_list)
@@ -191,7 +187,6 @@ impl DelayGCHeap {
             }
             current_class += 1;
         }
-        self.used -= layout.size() * n;
         self.allocated -= size * n;
     }
 }

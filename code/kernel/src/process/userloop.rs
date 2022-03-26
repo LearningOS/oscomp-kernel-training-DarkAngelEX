@@ -32,7 +32,7 @@ async fn userloop(thread: Arc<Thread>) {
         let context = thread.as_ref().get_context();
         let auto_sie = AutoSie::new();
         // let mut do_yield = false;
-        if true {
+        if false {
             // debug
             sfence::sfence_vma_all_global();
         }
