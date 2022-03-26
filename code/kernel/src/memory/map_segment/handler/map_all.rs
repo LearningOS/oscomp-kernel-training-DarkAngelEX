@@ -78,14 +78,11 @@ impl UserAreaHandler for MapAllHandler {
         access
             .check(self.perm)
             .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;
-        let alloc = &mut frame::defualt_allocator();
         pt.force_map_user(
             addr,
             || {
-                Ok(PageTableEntry::new(
-                    alloc.alloc()?.consume().into(),
-                    self.map_perm(),
-                ))
+                let pa = frame::defualt_allocator().alloc()?.consume();
+                Ok(PageTableEntry::new(pa.into(), self.map_perm()))
             },
             &mut frame::defualt_allocator(),
         )?;

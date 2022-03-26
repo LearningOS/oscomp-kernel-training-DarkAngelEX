@@ -17,7 +17,7 @@ const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_
 impl<'a> Syscall<'a> {
     pub fn sys_dup(&mut self) -> SysResult {
         stack_trace!();
-        let fd: usize = self.cx.parameter1();
+        let fd: usize = self.cx.para1();
         let fd = Fd::from_usize(fd);
         let new = self
             .alive_then(move |a| a.fd_table.dup(fd))?
@@ -30,7 +30,7 @@ impl<'a> Syscall<'a> {
             println!("sys_read");
         }
         let (fd, write_only_buffer) = {
-            let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.parameter3();
+            let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.para3();
             let write_only_buffer = UserCheck::new()
                 .translated_user_writable_slice(buf, len)
                 .await?;
@@ -50,7 +50,7 @@ impl<'a> Syscall<'a> {
             println!("sys_write");
         }
         let (fd, read_only_buffer) = {
-            let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.parameter3();
+            let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.para3();
             let read_only_buffer = UserCheck::new()
                 .translated_user_readonly_slice(buf, len)
                 .await?;
@@ -71,7 +71,7 @@ impl<'a> Syscall<'a> {
             println!("sys_open");
         }
         let (path, flags) = {
-            let (path, flags): (UserReadPtr<u8>, u32) = self.cx.parameter2();
+            let (path, flags): (UserReadPtr<u8>, u32) = self.cx.para2();
             let path = UserCheck::new()
                 .translated_user_array_zero_end(path)
                 .await?
@@ -88,7 +88,7 @@ impl<'a> Syscall<'a> {
         if PRINT_SYSCALL_FS {
             println!("sys_close");
         }
-        let fd = self.cx.parameter1();
+        let fd = self.cx.para1();
         let fd = Fd::new(fd);
         let file = self
             .alive_then(move |a| a.fd_table.remove(fd))?
@@ -98,7 +98,7 @@ impl<'a> Syscall<'a> {
     }
     pub async fn sys_pipe(&mut self) -> SysResult {
         stack_trace!();
-        let pipe: UserWritePtr<usize> = self.cx.parameter1();
+        let pipe: UserWritePtr<usize> = self.cx.para1();
         let write_to = UserCheck::new()
             .translated_user_writable_slice(pipe, 2)
             .await?;

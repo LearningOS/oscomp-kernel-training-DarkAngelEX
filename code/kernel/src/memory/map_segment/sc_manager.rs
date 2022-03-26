@@ -72,12 +72,14 @@ impl SCManager {
     ///
     /// 移除成功时返回 true
     pub fn try_remove_unique(&mut self, ua: UserAddr4K) -> bool {
-        self.0
-            .get(&ua)
-            .unwrap()
-            .compare_exchange(1, 0, Ordering::Relaxed, Ordering::Relaxed)
-            .map(|_| self.0.remove(&ua).unwrap())
-            .is_ok()
+        let a = self.0.get(&ua).unwrap();
+        // 观测到引用计数为 1 时一定是拥有所有权的, 不需要原子操作
+        if a.load(Ordering::Relaxed) == 1 {
+            a.store(0, Ordering::Relaxed);
+            self.0.remove(&ua).unwrap();
+            return true;
+        }
+        return false;
     }
     /// 移除范围内存在的每一个计数器, 并调用对应释放函数
     pub fn remove_release(

@@ -61,6 +61,22 @@ impl<T: FromUsize> UsizeForward for T {
     }
 }
 
+macro_rules! para_impl {
+    ($fn_name: ident, $T:tt) => {
+        pub fn $fn_name<$T: UsizeForward>(&self) -> $T {
+            $T::usize_forward(self.user_rx[10])
+        }
+    };
+    ($fn_name: ident, $($T:tt),*) => {
+        #[allow(dead_code)]
+        pub fn $fn_name<$($T: UsizeForward,)*>(&self) -> ($($T,)*)
+        {
+            let mut i = 0..;
+            ($($T::usize_forward(self.user_rx[10 + i.next().unwrap()]),)*)
+        }
+    };
+}
+
 impl UKContext {
     pub unsafe fn any() -> Box<Self> {
         Box::new_uninit().assume_init()
@@ -78,22 +94,14 @@ impl UKContext {
         self.user_rx[10] = argc;
         self.user_rx[11] = argv;
     }
-    pub fn parameter1<T: UsizeForward>(&self) -> T {
-        T::usize_forward(self.user_rx[10])
-    }
-    pub fn parameter2<A: UsizeForward, B: UsizeForward>(&self) -> (A, B) {
-        (
-            A::usize_forward(self.user_rx[10]),
-            B::usize_forward(self.user_rx[11]),
-        )
-    }
-    pub fn parameter3<A: UsizeForward, B: UsizeForward, C: UsizeForward>(&self) -> (A, B, C) {
-        (
-            A::usize_forward(self.user_rx[10]),
-            B::usize_forward(self.user_rx[11]),
-            C::usize_forward(self.user_rx[12]),
-        )
-    }
+    para_impl!(para1, A);
+    para_impl!(para2, A, B);
+    para_impl!(para3, A, B, C);
+    para_impl!(para4, A, B, C, D);
+    para_impl!(para5, A, B, C, D, E);
+    para_impl!(para6, A, B, C, D, E, F);
+    para_impl!(para7, A, B, C, D, E, F, G);
+
     // pub fn syscall_parameter<const N: usize>(&self) -> &[usize; N] {
     //     let rx = &self.user_rx;
     //     rx.rsplit_array_ref::<22>().1.split_array_ref().0

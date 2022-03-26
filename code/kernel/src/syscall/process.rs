@@ -60,7 +60,7 @@ impl Syscall<'_> {
                 UserReadPtr<u8>,
                 UserReadPtr<UserReadPtr<u8>>,
                 UserReadPtr<UserReadPtr<u8>>,
-            ) = self.cx.parameter3();
+            ) = self.cx.para3();
             let user_check = UserCheck::new();
             let path = String::from_utf8(
                 user_check
@@ -113,7 +113,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_waitpid(&mut self) -> SysResult {
         stack_trace!();
-        let (pid, exit_code_ptr): (isize, UserWritePtr<i32>) = self.cx.parameter2();
+        let (pid, exit_code_ptr): (isize, UserWritePtr<i32>) = self.cx.para2();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_waitpid {:?} <- {}", self.process.pid(), pid);
         }
@@ -189,7 +189,7 @@ impl Syscall<'_> {
             println!("sys_exit {:?}", self.process.pid());
         }
         self.do_exit = true;
-        let exit_code: i32 = self.cx.parameter1();
+        let exit_code: i32 = self.cx.para1();
         self.process.event_bus.lock(place!()).close();
         let mut lock = self.process.alive.lock(place!());
         let alive = match lock.as_mut() {
@@ -209,7 +209,7 @@ impl Syscall<'_> {
         Ok(0)
     }
     pub async fn sys_sleep(&mut self) -> SysResult {
-        let millisecond: usize = self.cx.parameter1();
+        let millisecond: usize = self.cx.para1();
         let time_now = timer::get_time_ticks();
         let deadline = time_now + TimeTicks::from_millisecond(millisecond);
         let future = SleepFuture {
@@ -220,7 +220,7 @@ impl Syscall<'_> {
     }
     pub fn sys_kill(&mut self) -> SysResult {
         stack_trace!();
-        let (pid, _signal): (isize, u32) = self.cx.parameter2();
+        let (pid, _signal): (isize, u32) = self.cx.para2();
         enum Target {
             Pid(Pid),     // > 0
             AllInGroup,   // == 0
