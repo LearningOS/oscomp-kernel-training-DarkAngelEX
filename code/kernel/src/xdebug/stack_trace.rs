@@ -1,4 +1,4 @@
-use core::{fmt::Display, pin::Pin};
+use core::fmt::Display;
 
 use alloc::{string::String, vec::Vec};
 

@@ -32,7 +32,7 @@
 #![feature(associated_type_bounds)]
 #![feature(let_chains)]
 #![feature(result_option_inspect)]
-#![allow(dead_code)]
+// #![allow(dead_code)]
 
 extern crate alloc;
 extern crate async_task;

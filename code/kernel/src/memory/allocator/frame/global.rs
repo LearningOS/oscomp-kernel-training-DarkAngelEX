@@ -206,9 +206,9 @@ pub fn init_frame_allocator() {
         PhyAddrRef::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
     );
 }
-pub fn size() -> usize {
-    FRAME_ALLOCATOR.lock(place!()).size()
-}
+// pub fn size() -> usize {
+//     FRAME_ALLOCATOR.lock(place!()).size()
+// }
 
 pub fn alloc() -> Result<FrameTracker, FrameOOM> {
     let v = FRAME_ALLOCATOR

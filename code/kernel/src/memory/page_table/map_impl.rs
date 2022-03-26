@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::{
     config::PAGE_SIZE,
     memory::{

@@ -16,8 +16,6 @@ const MAX_ASID: usize = 1usize << ASID_BIT;
 const ASID_MASK: usize = MAX_ASID - 1;
 const ASID_VERSION_MASK: usize = !ASID_MASK;
 
-const TLB_SHOT_DOWM_IPML: bool = true;
-
 /// raw asid, assume self & ASID_MASK == self
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Asid(usize);

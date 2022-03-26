@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 
 use super::{
-    address::{PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
+    address::{PhyAddr4K, PhyAddrRef4K, StepByOne, VirAddr, VirAddr4K},
     allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
     asid::{self, Asid, AsidInfoTracker},
     user_space::UserArea,
@@ -195,21 +195,23 @@ impl PageTable {
     pub fn from_global(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOOM> {
         memory_trace!("PageTable::from_global");
         let phy_ptr = frame::global::alloc()?.consume();
-        let arr = phy_ptr.as_pte_array_mut();
-        let src = unsafe { KERNEL_GLOBAL.as_ref().unwrap() }
-            .root_pa()
-            .into_ref()
-            .as_pte_array();
-        arr[256..].copy_from_slice(&src[256..]);
-        arr[..256]
-            .iter_mut()
-            .for_each(|pte| *pte = PageTableEntry::empty());
+        unsafe {
+            KERNEL_GLOBAL
+                .as_ref()
+                .unwrap()
+                .write_kernel_init_to(phy_ptr.as_pte_array_mut());
+        }
         let asid = asid_tracker.asid().into_usize();
         let phy_ptr: PhyAddr4K = phy_ptr.into();
         Ok(PageTable {
             asid_tracker,
             satp: AtomicUsize::new(8usize << 60 | (asid & 0xffff) << 44 | phy_ptr.ppn()),
         })
+    }
+    pub fn write_kernel_init_to(&self, dst: &mut [PageTableEntry; 512]) {
+        let src = self.root_pa().into_ref().as_pte_array();
+        dst[256..].copy_from_slice(&src[256..]);
+        dst[..256].iter_mut().for_each(|pte| pte.reset());
     }
     fn satp(&self) -> usize {
         self.satp.load(Ordering::Relaxed)
@@ -302,27 +304,6 @@ impl PageTable {
     }
     pub fn translate(&self, va: VirAddr4K) -> Option<PageTableEntry> {
         self.find_pte(va).map(|pte| *pte)
-    }
-    pub fn copy_kernel_from(&mut self, src: &Self) {
-        let src = src.root_pa().into_ref().as_pte_array();
-        let dst = self.root_pa().into_ref().as_pte_array_mut();
-        dst[0..256].copy_from_slice(&src[0..256]);
-    }
-    /// copy kernel segment
-    ///
-    /// alloc new space for user
-    pub fn fork(&mut self, allocator: &mut impl FrameAllocator) -> Result<Self, FrameOOM> {
-        memory_trace!("PageTable::fork begin");
-        let mut pt = Self::from_global(asid::alloc_asid())?;
-        // println!("PageTable::fork {:#x}", self as *const Self as usize);
-        Self::copy_user_range_lazy(
-            &mut pt,
-            self,
-            &UserArea::new(UserAddr4K::null()..UserAddr4K::user_max(), PTEFlags::U),
-            allocator,
-        )?;
-        memory_trace!("PageTable::fork end");
-        Ok(pt)
     }
 }
 
@@ -441,6 +422,7 @@ fn new_kernel_page_table() -> Result<PageTable, FrameOOM> {
     Ok(page_table)
 }
 
+#[allow(dead_code)]
 pub unsafe fn translated_byte_buffer_force(
     page_table: &PageTable,
     ptr: *const u8,

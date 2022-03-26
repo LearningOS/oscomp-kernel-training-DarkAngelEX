@@ -108,6 +108,7 @@ pub struct UserDataMut<T: 'static> {
 unsafe impl<T: 'static> Send for UserDataMut<T> {}
 unsafe impl<T: 'static> Sync for UserDataMut<T> {}
 
+#[allow(dead_code)]
 impl<T> UserDataMut<T> {
     pub fn new(data: *mut [T]) -> Self {
         Self { data }
@@ -134,6 +135,7 @@ impl<T> UserDataMut<T> {
     }
 }
 
+#[allow(dead_code)]
 impl UserDataMut<u8> {
     /// return an read only iterator containing a 4KB buffer.
     ///
@@ -149,6 +151,7 @@ impl UserDataMut<u8> {
     }
 }
 
+#[allow(dead_code)]
 impl<T: Clone + 'static> UserDataMut<T> {
     /// after to_vec the data will no longer need space_guard.
     pub fn to_vec(&self) -> Vec<T> {

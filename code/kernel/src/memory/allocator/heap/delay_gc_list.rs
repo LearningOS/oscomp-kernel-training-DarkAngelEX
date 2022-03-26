@@ -32,17 +32,21 @@ impl DelayGCList {
     pub fn pop(&mut self) -> Option<NonNull<usize>> {
         self.list.pop()
     }
-    pub fn collection_force(&mut self, align: usize) -> Option<IntrusiveLinkedList> {
-        let list = self.list.collection(align);
-        self.collection_size = self.list.len() * 2;
-        list.empty_forward()
-    }
     fn should_colloection(&self) -> bool {
         self.list.len() >= self.collection_size || self.run_count >= self.collection_size
     }
     fn collection_reset(&mut self, reset_min: usize) {
         self.collection_size = reset_min.max(self.list.len() * 2);
         self.run_count = 0;
+    }
+    pub fn collection_force(
+        &mut self,
+        align: usize,
+        reset_min: usize,
+    ) -> Option<IntrusiveLinkedList> {
+        let list = self.list.collection(align);
+        self.collection_reset(reset_min);
+        list.empty_forward()
     }
     pub fn maybe_collection(
         &mut self,
@@ -55,8 +59,6 @@ impl DelayGCList {
         if stop || !self.should_colloection() {
             return None;
         }
-        let list = self.list.collection(align_log2);
-        self.collection_reset(reset_min);
-        list.empty_forward()
+        self.collection_force(align_log2, reset_min)
     }
 }
