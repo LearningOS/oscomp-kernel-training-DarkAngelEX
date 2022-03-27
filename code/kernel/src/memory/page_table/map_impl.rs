@@ -47,7 +47,7 @@ impl PageTable {
         let x1 = get_num(end) + 1;
         PageCount(x1 - x0)
     }
-
+    /// addr 必须未被映射
     pub fn force_map_user(
         &mut self,
         addr: UserAddr4K,

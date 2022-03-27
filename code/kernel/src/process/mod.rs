@@ -2,6 +2,7 @@ use alloc::{
     collections::LinkedList,
     string::String,
     sync::{Arc, Weak},
+    vec::Vec,
 };
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
@@ -53,6 +54,7 @@ pub struct AliveProcess {
     pub user_space: UserSpace,
     pub cwd: String,
     pub exec_path: String,
+    pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
@@ -103,6 +105,7 @@ impl Process {
             user_space,
             cwd: alive.cwd.clone(),
             exec_path: alive.exec_path.clone(),
+            envp: alive.envp.clone(),
             parent: Some(Arc::downgrade(self)),
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(new_pid.get_usize() + 1),
@@ -174,10 +177,17 @@ impl AliveProcess {
 }
 
 pub fn init() {
-    println!("load initporc");
-    let inode = fs::open_file("initproc", fs::OpenFlags::RDONLY).unwrap();
+    // let initproc = "initproc";
+    let initproc = "busybox";
+    println!("load initporc: {}", initproc);
+    let inode = fs::open_file(initproc, fs::OpenFlags::RDONLY).unwrap();
     let elf_data = executor::block_on(async move { inode.read_all().await });
-    let thread = Thread::new_initproc(elf_data.as_slice());
+    let args = Vec::new();
+    let envp = Vec::new();
+    let auxv = Vec::new();
+
+    // args.push(String::from(initproc));
+    let thread = Thread::new_initproc(elf_data.as_slice(), args, envp, auxv);
     userloop::spawn(thread);
     println!("spawn initporc");
 }

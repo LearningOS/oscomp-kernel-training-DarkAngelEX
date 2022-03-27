@@ -326,6 +326,9 @@ impl UserAddr {
     pub fn add_assign(&mut self, num: usize) {
         self.0 += num
     }
+    pub fn sub_assign(&mut self, num: usize) {
+        self.0 -= num
+    }
     pub unsafe fn as_ptr<T>(self) -> &'static T {
         &*(self.0 as *const T)
     }

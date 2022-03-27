@@ -26,6 +26,7 @@ use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
     allocator::frame::iter::FrameDataIter,
     asid::{self, Asid},
+    auxv::AuxHeader,
     map_segment::{handler::AsyncHandler, MapSegment},
     PageTable,
 };
@@ -142,7 +143,10 @@ impl UserSpace {
         self.page_table().asid()
     }
     pub unsafe fn using(&self) {
-        local::task_local().page_table = self.map_segment.page_table.clone();
+        local::task_local().page_table = self.page_table_arc();
+        self.raw_using();
+    }
+    pub unsafe fn raw_using(&self) {
         self.page_table().using();
     }
     pub fn in_using(&self) -> bool {
@@ -245,21 +249,28 @@ impl UserSpace {
                 let end_va: UserAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
                 let mut perm = PTEFlags::U;
                 let ph_flags = ph.flags();
+                let (mut r, mut w, mut x) = (0, 0, 0);
                 if ph_flags.is_read() {
                     perm |= PTEFlags::R;
+                    r = 1;
                 }
                 if ph_flags.is_write() {
                     perm |= PTEFlags::W;
+                    w = 1;
                 }
                 if ph_flags.is_execute() {
                     perm |= PTEFlags::X;
+                    x = 1;
                 }
-                assert!(start_va.is_4k_align());
+                if false {
+                    println!("{:?} -> {:?} rwx:{}{}{}", start_va, end_va, r, w, x);
+                }
+                // assert!(start_va.is_4k_align(), "{:?}", start_va);
                 assert!(start_va.floor() >= max_end_4k);
                 let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
                 max_end_4k = map_area.end();
-                let data =
-                    &elf.input[ph.offset() as usize..(ph.offset() + ph.file_size()) as usize];
+                let data = &elf.input[ph.offset() as usize - start_va.page_offset()
+                    ..(ph.offset() + ph.file_size()) as usize];
                 let slice_iter = SliceFrameDataIter::new(data);
                 space.force_map_delay_write(map_area, slice_iter)?;
             }
@@ -292,32 +303,128 @@ impl UserSpace {
             self.stack_dealloc(stack_id);
         }
     }
-    /// return (user_sp, argc, argv)
-    pub fn push_args(&self, args: Vec<String>, sp: UserAddr) -> (UserAddr, usize, usize) {
+    /// return (user_sp, argc, argv, envp)
+    ///
+    /// sp  ->  argc
+    ///         argv[0]
+    ///         argv[1]
+    ///         ...
+    ///         argv[n] = NULL
+    ///
+    ///         envp[0]
+    ///         envp[1]
+    ///         ...
+    ///         envp[n] = NULL
+    ///
+    ///         auxv[0]
+    ///         auxv[1]
+    ///         ...
+    ///         auxv[n] = NULL
+    ///
+    ///         (padding 16 bytes)
+    ///
+    ///         rand bytes (16 bytes)
+    ///
+    ///         String identifying platform = "RISC-V64"
+    ///
+    ///         argv[]...
+    ///         envp[]...
+    ///     stack bottom
+    pub fn push_args(
+        &self,
+        sp: UserAddr,
+        args: &Vec<String>,
+        envp: &Vec<String>,
+        auxv: &Vec<AuxHeader>,
+    ) -> (UserAddr, usize, usize, usize) {
+        fn size_of_usize() -> usize {
+            core::mem::size_of::<usize>()
+        }
         fn get_slice<T>(sp: usize, len: usize) -> &'static mut [T] {
             unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sp as *mut T, len) }
         }
         fn set_zero<T>(sp: usize) {
             unsafe { *(sp as *mut T) = MaybeUninit::zeroed().assume_init() };
         }
-        assert!(self.in_using());
-        let _auto_sum = AutoSum::new();
-        let mut sp = sp.into_usize();
-        sp -= core::mem::size_of::<usize>();
-        set_zero::<usize>(sp);
-        sp -= args.len() * core::mem::size_of::<usize>();
-        let args_base = get_slice(sp, args.len());
-        for (i, s) in args.iter().enumerate() {
-            let len = s.len();
-            sp -= 1;
-            set_zero::<u8>(sp);
-            sp -= len;
-            args_base[i] = sp;
-            get_slice(sp, len).copy_from_slice(s.as_bytes());
+        fn xwrite<T>(sp: usize, v: T) {
+            unsafe { (sp as *mut T).write(v) };
         }
-        sp -= sp % core::mem::size_of::<usize>();
+        fn usize_align(sp: usize) -> usize {
+            sp & -(size_of_usize() as isize) as usize
+        }
+        fn align16(sp: usize) -> usize {
+            sp & -16isize as usize
+        }
+        fn write_str_skip(sp: usize, s: &str) -> usize {
+            sp - (s.len() + 1)
+        }
+        fn write_str(sp: usize, s: &str) {
+            get_slice(sp, s.len()).copy_from_slice(s.as_bytes());
+            set_zero::<u8>(sp + s.len());
+        }
+        fn write_strings_skip(sp: usize, strs: &Vec<String>) -> (usize, usize) {
+            let sp = sp - strs.iter().fold(0, |a, s| a + s.len() + 1);
+            (sp, strs.len() + 1)
+        }
+        fn write_strings(mut sp: usize, strs: &Vec<String>, ptrs: &mut [usize]) {
+            debug_assert_eq!(strs.len() + 1, ptrs.len());
+            ptrs[strs.len()] = 0;
+            for (s, p) in strs.iter().zip(ptrs) {
+                *p = sp;
+                get_slice(sp, s.len()).copy_from_slice(s.as_bytes());
+                sp += s.len();
+                set_zero::<u8>(sp);
+                sp += 1;
+            }
+        }
+        fn write_auxv(mut sp: usize, auxv: &Vec<AuxHeader>) -> usize {
+            let len = auxv.len();
+            set_zero::<AuxHeader>(sp);
+            let step = 2 * size_of_usize();
+            sp -= (len + 1) * step;
+            let dst = get_slice(sp, len);
+            for (src, dst) in auxv.iter().zip(dst) {
+                src.write_to(dst);
+            }
+            sp
+        }
+
+        debug_assert!(self.in_using());
+
+        let _auto_sum = AutoSum::new();
+
+        let mut sp = sp.into_usize();
+        sp = usize_align(sp);
+        sp -= core::mem::size_of::<usize>();
+
+        let (sp, envp_len) = write_strings_skip(sp, envp);
+        let envp_ptr = sp;
+
+        let (sp, args_len) = write_strings_skip(sp, args);
+        let args_ptr = sp;
+
+        let mut sp = sp;
+        let platform = "RISC-V64";
+        sp = write_str_skip(sp, platform);
+        sp = align16(sp);
+        write_str(sp, platform);
+
+        sp = write_auxv(sp, auxv);
+
+        sp -= envp_len * size_of_usize();
+        write_strings(envp_ptr, envp, get_slice(sp, envp_len));
+        let envp = sp;
+
+        sp -= args_len * size_of_usize();
+        write_strings(args_ptr, args, get_slice(sp, args_len));
+        let argv = sp;
+
+        sp -= size_of_usize();
+        let argc = args_len - 1;
+        xwrite(sp, argc);
+
         let sp = unsafe { UserAddr::from_usize(sp) };
-        (sp, args_base.len(), args_base.as_ptr() as usize)
+        (sp, argc, argv, envp)
     }
 }
 

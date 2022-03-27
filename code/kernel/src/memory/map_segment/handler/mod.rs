@@ -83,10 +83,14 @@ pub trait UserAreaHandler: Send + 'static {
     ///
     /// 调用后页表必须移除映射
     fn unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K);
+    /// 以 addr 为界切除 all 左侧, 即返回 all.start..addr, 自身变为 addr..all.end
+    ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
     fn split_l(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
         self.box_clone()
     }
+    /// 以 addr 为界切除 all 右侧, 即返回 addr..all.end, 自身变为 all.start..addr
+    ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
     fn split_r(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
         self.box_clone()

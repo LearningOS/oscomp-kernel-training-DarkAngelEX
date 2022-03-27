@@ -77,6 +77,30 @@ macro_rules! para_impl {
     };
 }
 
+macro_rules! cx_into_impl {
+    ($src: ty, $($T:tt),*) => {
+        impl<$($T: UsizeForward,)*> From<$src> for ($($T,)*) {
+            fn from(cx: $src) -> Self {
+                let mut i = 0..;
+                ($($T::usize_forward(cx.user_rx[10 + i.next().unwrap()]),)*)
+            }
+        }
+    };
+}
+
+cx_into_impl!(&UKContext, A, B);
+cx_into_impl!(&UKContext, A, B, C);
+cx_into_impl!(&UKContext, A, B, C, D);
+cx_into_impl!(&UKContext, A, B, C, D, E);
+cx_into_impl!(&UKContext, A, B, C, D, E, F);
+cx_into_impl!(&UKContext, A, B, C, D, E, F, G);
+cx_into_impl!(&mut UKContext, A, B);
+cx_into_impl!(&mut UKContext, A, B, C);
+cx_into_impl!(&mut UKContext, A, B, C, D);
+cx_into_impl!(&mut UKContext, A, B, C, D, E);
+cx_into_impl!(&mut UKContext, A, B, C, D, E, F);
+cx_into_impl!(&mut UKContext, A, B, C, D, E, F, G);
+
 impl UKContext {
     pub unsafe fn any() -> Box<Self> {
         Box::new_uninit().assume_init()
@@ -90,9 +114,10 @@ impl UKContext {
     pub fn set_user_a0(&mut self, a0: usize) {
         self.user_rx[10] = a0;
     }
-    pub fn set_argc_argv(&mut self, argc: usize, argv: usize) {
+    pub fn set_argc_argv_envp(&mut self, argc: usize, argv: usize, envp: usize) {
         self.user_rx[10] = argc;
         self.user_rx[11] = argv;
+        self.user_rx[12] = envp;
     }
     para_impl!(para1, A);
     para_impl!(para2, A, B);
@@ -118,9 +143,10 @@ impl UKContext {
         sstatus: Sstatus,
         argc: usize,
         argv: usize,
+        envp: usize,
     ) {
         self.set_user_sp(user_sp.into_usize());
-        self.set_argc_argv(argc, argv);
+        self.set_argc_argv_envp(argc, argv, envp);
         self.user_sepc = sepc.into_usize();
         self.user_sstatus = sstatus;
     }

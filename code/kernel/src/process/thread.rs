@@ -11,15 +11,17 @@ use alloc::{
     collections::{BTreeMap, LinkedList},
     string::String,
     sync::{Arc, Weak},
+    vec::Vec,
 };
 use riscv::register::sstatus;
 
 use crate::{
-    memory::{address::PageCount, StackID, UserSpace},
+    local,
+    memory::{self, address::PageCount, StackID, UserSpace, auxv::AuxHeader},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
-    trap::context::UKContext, local,
+    trap::context::UKContext,
 };
 
 use super::{
@@ -91,9 +93,19 @@ pub struct ThreadInner {
 }
 
 impl Thread {
-    pub fn new_initproc(elf_data: &[u8]) -> Arc<Self> {
+    pub fn new_initproc(
+        elf_data: &[u8],
+        args: Vec<String>,
+        envp: Vec<String>,
+        auxv: Vec<AuxHeader>,
+    ) -> Arc<Self> {
         let (user_space, stack_id, user_sp, entry_point) =
             UserSpace::from_elf(elf_data, PageCount::from_usize(1)).unwrap();
+        unsafe { user_space.raw_using() };
+        let (user_sp, argc, argv, xenvp) =
+            user_space.push_args(user_sp.into(), &args, &envp, &auxv);
+        memory::set_satp_by_global();
+        drop(args);
         let pid = pid_alloc();
         let tid = Tid::from_usize(pid.get_usize());
         let pgid = AtomicUsize::new(pid.get_usize());
@@ -105,6 +117,7 @@ impl Thread {
                 user_space,
                 cwd: String::new(),
                 exec_path: String::new(),
+                envp,
                 parent: None,
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(tid.to_usize() + 1),
@@ -121,13 +134,13 @@ impl Thread {
                 uk_context: unsafe { UKContext::any() },
             }),
         };
-        let (argc, argv) = (0, 0);
         thread.inner.get_mut().uk_context.exec_init(
-            user_sp.into(),
+            user_sp,
             entry_point,
             sstatus::read(),
             argc,
             argv,
+            xenvp,
         );
         let ptr = Arc::new(thread);
         process

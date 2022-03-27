@@ -64,7 +64,8 @@ $(KERNEL_BIN): kernel
 fs-img: $(APPS)
 	@cd ../user && make build
 	@rm -f $(FS_IMG)
-	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/ -o ../user/target/riscv64gc-unknown-none-elf/release/
+	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64gc-unknown-none-elf/release/
 
 $(APPS):
 

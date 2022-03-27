@@ -14,9 +14,10 @@ use crate::{
     executor,
     hart::sfence,
     local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
-    process::thread,
+    process::{thread, Pid},
     syscall::Syscall,
     timer,
+    tools::allocator::from_usize_allocator::FromUsize,
     user::{trap_handler, AutoSie},
 };
 
@@ -108,6 +109,9 @@ async fn userloop(thread: Arc<Thread>) {
         // if do_yield {
         //     thread::yield_now().await;
         // }
+    }
+    if thread.process.pid() == Pid::from_usize(0) {
+        panic!("initproc exit");
     }
     if let Some(alive) = &mut *thread.process.alive.lock(place!()) {
         // TODO: just last thread exit do this.

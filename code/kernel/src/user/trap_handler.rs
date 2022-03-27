@@ -25,6 +25,15 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             stval,
             sepc
         );
+        if stval != sepc {
+            print!("error IR: ");
+            let _sum = crate::user::AutoSum::new();
+            for i in 0..8 {
+                let p = sepc + i;
+                print!("{:0>2x} ", unsafe { *(p as *const u8) });
+            }
+            println!();
+        }
         do_exit = true;
     };
     if PRINT_PAGE_FAULT {

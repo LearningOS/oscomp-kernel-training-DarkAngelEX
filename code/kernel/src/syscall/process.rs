@@ -95,7 +95,10 @@ impl Syscall<'_> {
         }
         let check = NeverFail::new();
         unsafe { user_space.using() };
-        let (user_sp, argc, argv) = user_space.push_args(args, user_sp.into());
+        let auxv = Vec::new();
+        let (user_sp, argc, argv, envp) =
+            user_space.push_args(user_sp.into(), &args, &alive.envp, &auxv);
+        drop(args);
         // reset stack_id
         alive.exec_path = path;
         stack_trace!();
@@ -106,7 +109,7 @@ impl Syscall<'_> {
         let sstatus = self.thread.get_context().user_sstatus;
         self.thread
             .get_context()
-            .exec_init(user_sp, entry_point, sstatus, argc, argv);
+            .exec_init(user_sp, entry_point, sstatus, argc, argv, envp);
         local::all_hart_fence_i();
         check.assume_success();
         Ok(argc)

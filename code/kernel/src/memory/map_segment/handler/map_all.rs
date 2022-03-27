@@ -78,6 +78,7 @@ impl UserAreaHandler for MapAllHandler {
         access
             .check(self.perm)
             .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;
+        // 可能同时进入的另一个线程已经处理了这个页错误
         pt.force_map_user(
             addr,
             || {
