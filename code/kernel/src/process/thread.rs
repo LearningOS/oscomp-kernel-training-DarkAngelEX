@@ -17,9 +17,7 @@ use riscv::register::sstatus;
 
 use crate::{
     local,
-    memory::{
-        self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace,
-    },
+    memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
@@ -27,7 +25,8 @@ use crate::{
 };
 
 use super::{
-    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, AliveProcess, Process, Tid,
+    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, AliveProcess, CloneFlag,
+    Process, Tid,
 };
 
 pub struct ThreadGroup {
@@ -97,11 +96,7 @@ pub struct ThreadInner {
 }
 
 impl Thread {
-    pub fn new_initproc(
-        elf_data: &[u8],
-        args: Vec<String>,
-        envp: Vec<String>,
-    ) -> Arc<Self> {
+    pub fn new_initproc(elf_data: &[u8], args: Vec<String>, envp: Vec<String>) -> Arc<Self> {
         let reverse_stack = PageCount::from_usize(2);
         let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data, reverse_stack).unwrap();
@@ -167,22 +162,38 @@ impl Thread {
 
     pub fn clone_impl(
         &self,
-        copy_set_ctid: bool,
-        copy_clear_ctid: bool,
+        flag: CloneFlag,
+        new_sp: usize,
+        _parent_tidptr: UserInOutPtr<u32>,
+        child_tidptr: UserInOutPtr<u32>,
     ) -> Result<Arc<Self>, SysError> {
         let new_process = self.process.fork(self.tid)?;
         let inner = self.inner();
+
+        let set_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_SETTID) {
+            child_tidptr
+        } else {
+            UserInOutPtr::null()
+        };
+        let clear_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_CLEARTID) {
+            child_tidptr
+        } else {
+            UserInOutPtr::null()
+        };
 
         let thread = Arc::new(Self {
             tid: self.tid,
             process: new_process,
             inner: UnsafeCell::new(ThreadInner {
                 stack_id: inner.stack_id,
-                set_child_tid: inner.set_child_tid,
-                clear_child_tid: inner.clear_child_tid,
+                set_child_tid,
+                clear_child_tid,
                 uk_context: inner.uk_context.fork(),
             }),
         });
+        if new_sp != 0 {
+            thread.inner().uk_context.set_user_sp(new_sp);
+        }
         thread.inner().uk_context.set_user_a0(0);
         let asid = thread
             .process

@@ -111,4 +111,11 @@ impl<'a> Syscall<'a> {
         write_to.access_mut().copy_from_slice(&[rfd, wfd]);
         Ok(0)
     }
+    pub fn sys_ioctl(&mut self) -> SysResult {
+        stack_trace!();
+        let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
+        self.alive_then(|a| a.fd_table.get(Fd::new(fd)).cloned())?
+            .ok_or(SysError::ENFILE)?
+            .ioctl(cmd, arg)
+    }
 }

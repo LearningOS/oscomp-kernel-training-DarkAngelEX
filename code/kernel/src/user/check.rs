@@ -72,6 +72,9 @@ impl UserCheck {
         &self,
         ptr: UserReadPtr<UserReadPtr<T>>,
     ) -> Result<Vec<UserData<T>>, UniqueSysError<{ SysError::EFAULT as isize }>> {
+        if ptr.is_null() {
+            return Ok(Vec::new());
+        }
         let arr_1d = self.translated_user_array_zero_end(ptr).await?;
         let mut ret = Vec::new();
         for &arr_2d in &*arr_1d.access() {

@@ -15,7 +15,7 @@ use crate::{
         mutex::SpinNoIrqLock as Mutex,
     },
     syscall::{SysError, UniqueSysError},
-    xdebug::NeverFail,
+    xdebug::NeverFail, tools::allocator::from_usize_allocator::FromUsize,
 };
 
 use self::{
@@ -33,6 +33,14 @@ pub mod thread;
 pub mod tid;
 pub mod userloop;
 pub use {pid::Pid, tid::Tid};
+
+bitflags! {
+    pub struct CloneFlag: u32 {
+        const SIGCHLD = 17;
+        const CLONE_CHILD_CLEARTID = 0x00200000;
+        const CLONE_CHILD_SETTID = 0x01000000;
+    }
+}
 
 pub struct Process {
     pid: PidHandle,
@@ -178,7 +186,7 @@ impl AliveProcess {
 
 pub fn init() {
     // let initproc = "initproc";
-    let initproc = "busybox";
+    let initproc = "initproc";
     println!("load initporc: {}", initproc);
     let inode = fs::open_file(initproc, fs::OpenFlags::RDONLY).unwrap();
     let elf_data = executor::block_on(async move { inode.read_all().await });

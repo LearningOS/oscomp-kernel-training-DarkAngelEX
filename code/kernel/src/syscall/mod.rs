@@ -18,18 +18,21 @@ mod thread;
 mod time;
 
 const SYSCALL_DUP: usize = 24;
+const SYSCALL_IOCTL: usize = 29;
 const SYSCALL_OPEN: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_EXIT_GROUP: usize = 94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
 const SYSCALL_SLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
+const SYSCALL_GETUID: usize = 174;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_WAITPID: usize = 260;
@@ -76,18 +79,21 @@ impl<'a> Syscall<'a> {
         self.cx.set_next_instruction();
         let result: SysResult = match self.cx.a7() {
             SYSCALL_DUP => self.sys_dup(),
+            SYSCALL_IOCTL => self.sys_ioctl(),
             SYSCALL_OPEN => self.sys_open().await,
             SYSCALL_CLOSE => self.sys_close(),
             SYSCALL_PIPE => self.sys_pipe().await,
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
             SYSCALL_EXIT => self.sys_exit(),
+            SYSCALL_EXIT_GROUP => self.sys_exit_group(),
             SYSCALL_SET_TID_ADDRESS => self.sys_set_tid_address(),
             SYSCALL_SLEEP => self.sys_sleep().await,
             SYSCALL_YIELD => self.sys_yield().await,
             SYSCALL_KILL => self.sys_kill(),
             SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
+            SYSCALL_GETUID => self.sys_getuid(),
             SYSCALL_CLONE => self.sys_clone(),
             SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_WAITPID => self.sys_waitpid().await,

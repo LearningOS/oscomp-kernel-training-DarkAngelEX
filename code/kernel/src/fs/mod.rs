@@ -9,8 +9,9 @@ pub use self::{
 use alloc::sync::Arc;
 
 use crate::{
-    syscall::SysError,
-    user::{UserData, UserDataMut}, tools::xasync::Async,
+    syscall::{SysError, SysResult},
+    tools::xasync::Async,
+    user::{UserData, UserDataMut},
 };
 
 pub type AsyncFile = Async<Result<usize, SysError>>;
@@ -19,6 +20,9 @@ pub trait File: Send + Sync + 'static {
     fn writable(&self) -> bool;
     fn read(self: Arc<Self>, write_only: UserDataMut<u8>) -> AsyncFile;
     fn write(self: Arc<Self>, read_only: UserData<u8>) -> AsyncFile;
+    fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
+        Ok(0)
+    }
 }
 
 pub fn init() {

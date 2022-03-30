@@ -15,7 +15,7 @@ use crate::{
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
-    process::{proc_table, thread, userloop, Pid},
+    process::{proc_table, thread, userloop, CloneFlag, Pid},
     sync::{
         even_bus::{self, Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
@@ -30,27 +30,26 @@ use super::{SysError, SysResult, Syscall};
 
 const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
-bitflags! {
-    pub struct CloneFlag: u32 {
-        const CHILD_CLEARTID = 1 << 0;
-    }
-}
-
 impl Syscall<'_> {
     pub fn sys_clone(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             print!("sys_clone {:?} ", self.process.pid());
         }
-        let (flag, newsp, parent_tidptr, child_tidptr, tls_val): (
+        let (flag, newsp, parent_tidptr, child_tidptr, _tls_val): (
             u32,
-            u32,
+            usize,
             UserInOutPtr<u32>,
             UserInOutPtr<u32>,
             u32,
         ) = self.cx.into();
-        todo!();
-        let new = match self.thread.clone_impl(false, false) {
+
+        // println!("{}clone: {:#x}{}", to_yellow!(), flag, reset_color!());
+        let flag = CloneFlag::from_bits(flag).ok_or(SysError::EINVAL)?;
+        let new = match self
+            .thread
+            .clone_impl(flag, newsp, parent_tidptr, child_tidptr)
+        {
             Ok(new) => new,
             Err(_e) => {
                 println!("frame out of memory");
@@ -69,35 +68,33 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exec {:?}", self.process.pid());
         }
-        let (path, args, envp) = {
-            let (path, args, envp): (
-                UserReadPtr<u8>,
-                UserReadPtr<UserReadPtr<u8>>,
-                UserReadPtr<UserReadPtr<u8>>,
-            ) = self.cx.para3();
-            let user_check = UserCheck::new();
-            let path = String::from_utf8(
-                user_check
-                    .translated_user_array_zero_end(path)
-                    .await?
-                    .to_vec(),
-            )?;
-            let args: Vec<String> = user_check
-                .translated_user_2d_array_zero_end(args)
+        let (path, args, envp): (
+            UserReadPtr<u8>,
+            UserReadPtr<UserReadPtr<u8>>,
+            UserReadPtr<UserReadPtr<u8>>,
+        ) = self.cx.para3();
+        let user_check = UserCheck::new();
+        let path = String::from_utf8(
+            user_check
+                .translated_user_array_zero_end(path)
                 .await?
-                .into_iter()
-                .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
-                .collect();
-            // println!("args ptr: {:#x}", args as usize);
-            // let args = Vec::new();
-            let envp = user_check
-                .translated_user_2d_array_zero_end(envp)
-                .await?
-                .into_iter()
-                .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
-                .collect::<Vec<String>>();
-            (path, args, envp)
-        };
+                .to_vec(),
+        )?;
+        let args: Vec<String> = user_check
+            .translated_user_2d_array_zero_end(args)
+            .await?
+            .into_iter()
+            .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
+            .collect();
+        // println!("args ptr: {:#x}", args as usize);
+        // let args = Vec::new();
+        let envp = user_check
+            .translated_user_2d_array_zero_end(envp)
+            .await?
+            .into_iter()
+            .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
+            .collect::<Vec<String>>();
+            
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
@@ -210,11 +207,23 @@ impl Syscall<'_> {
         }
         Ok(self.process.pid().into_usize())
     }
+    pub fn sys_getuid(&mut self) -> SysResult {
+        stack_trace!();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_getuid");
+        }
+        Ok(0)
+    }
     pub fn sys_exit(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exit {:?}", self.process.pid());
         }
+        debug_assert!(
+            self.process.pid() != Pid::from_usize(0),
+            "{}",
+            to_red!("initproc exit")
+        );
         self.do_exit = true;
         let exit_code: i32 = self.cx.para1();
         self.process.event_bus.lock(place!()).close();
@@ -229,6 +238,9 @@ impl Syscall<'_> {
         alive.clear_all(self.process.pid());
         *lock = None;
         Ok(0)
+    }
+    pub fn sys_exit_group(&mut self) -> SysResult {
+        self.sys_exit()
     }
     pub async fn sys_yield(&mut self) -> SysResult {
         stack_trace!();

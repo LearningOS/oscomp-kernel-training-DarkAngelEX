@@ -12,7 +12,7 @@ pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie
 pub const PRINT_DROP_TCB: bool = false;
 
-pub const PRINT_PAGE_FAULT: bool = true;
+pub const PRINT_PAGE_FAULT: bool = false;
 
 pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;
