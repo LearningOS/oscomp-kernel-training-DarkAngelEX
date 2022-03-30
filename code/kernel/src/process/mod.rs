@@ -1,6 +1,6 @@
 use alloc::{
     collections::LinkedList,
-    string::String,
+    string::{String, ToString},
     sync::{Arc, Weak},
     vec::Vec,
 };
@@ -182,12 +182,10 @@ pub fn init() {
     println!("load initporc: {}", initproc);
     let inode = fs::open_file(initproc, fs::OpenFlags::RDONLY).unwrap();
     let elf_data = executor::block_on(async move { inode.read_all().await });
-    let args = Vec::new();
+    let mut args = Vec::new();
+    args.push(initproc.to_string());
     let envp = Vec::new();
-    let auxv = Vec::new();
-
-    // args.push(String::from(initproc));
-    let thread = Thread::new_initproc(elf_data.as_slice(), args, envp, auxv);
+    let thread = Thread::new_initproc(elf_data.as_slice(), args, envp);
     userloop::spawn(thread);
     println!("spawn initporc");
 }

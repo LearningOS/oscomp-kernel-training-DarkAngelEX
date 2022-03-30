@@ -15,8 +15,8 @@ pub mod color;
 pub mod allocator;
 pub mod container;
 pub mod error;
-pub mod xasync;
 pub mod range;
+pub mod xasync;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
     if x {

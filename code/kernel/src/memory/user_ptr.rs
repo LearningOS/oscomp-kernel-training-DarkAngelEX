@@ -38,6 +38,12 @@ unsafe impl<T: Clone + Copy + 'static, P: Policy> Send for UserPtr<T, P> {}
 unsafe impl<T: Clone + Copy + 'static, P: Policy> Sync for UserPtr<T, P> {}
 
 impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
+    pub fn null() -> Self {
+        Self {
+            ptr: core::ptr::null_mut(),
+            _mark: PhantomData,
+        }
+    }
     pub fn from_usize(a: usize) -> Self {
         Self {
             ptr: a as *mut _,

@@ -61,7 +61,7 @@ async fn userloop(thread: Arc<Thread>) {
         match scause {
             scause::Trap::Exception(e) => match e {
                 Exception::UserEnvCall => {
-                    // println!("enter syscall");
+                    println!("enter syscall {}", context.a7());
                     do_exit = Syscall::new(context, &thread, &thread.process)
                         .syscall()
                         .await;

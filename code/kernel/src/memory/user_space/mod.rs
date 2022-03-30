@@ -4,9 +4,12 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use riscv::register::scause::Exception;
 
 use crate::{
+    config::PAGE_SIZE,
     local,
     memory::{
+        address::{VirAddr, VirAddr4K},
         allocator::frame::{self, iter::SliceFrameDataIter},
+        auxv::AT_PHDR,
         map_segment::handler::{delay::DelayHandler, map_all::MapAllHandler},
         page_table::PTEFlags,
     },
@@ -228,7 +231,7 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-    ) -> Result<(Self, StackID, UserAddr4K, UserAddr), SysError> {
+    ) -> Result<(Self, StackID, UserAddr4K, UserAddr, Vec<AuxHeader>), SysError> {
         stack_trace!();
         memory_trace!("UserSpace::from_elf 0");
         let elf_fail = |str| {
@@ -236,17 +239,24 @@ impl UserSpace {
             SysError::EFAULT
         };
         let mut space = Self::from_global()?;
+
         let elf = xmas_elf::ElfFile::new(elf_data).map_err(elf_fail)?;
         let elf_header = elf.header;
         let magic = elf_header.pt1.magic;
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
+
+        let mut head_va = 0;
         let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+
         for i in 0..ph_count {
             let ph = elf.program_header(i).map_err(elf_fail)?;
             if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
                 let start_va: UserAddr = (ph.virtual_addr() as usize).into();
                 let end_va: UserAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+                if start_va.is_4k_align() {
+                    head_va = start_va.into_usize();
+                }
                 let mut perm = PTEFlags::U;
                 let ph_flags = ph.flags();
                 let (mut r, mut w, mut x) = (0, 0, 0);
@@ -275,15 +285,27 @@ impl UserSpace {
                 space.force_map_delay_write(map_area, slice_iter)?;
             }
         }
-        memory_trace!("UserSpace::from_elf 1");
+
+        let mut auxv = AuxHeader::generate(
+            elf_header.pt2.ph_entry_size() as usize,
+            ph_count as usize,
+            elf_header.pt2.ph_entry_size() as usize,
+        );
+        // Get ph_head addr for auxv
+        let ph_head_addr = head_va + elf.header.pt2.ph_offset() as usize;
+        auxv.push(AuxHeader {
+            aux_type: AT_PHDR,
+            value: ph_head_addr as usize,
+        });
+        stack_trace!();
         // map user stack
         let (stack_id, user_sp) = space.stack_alloc(stack_reverse)?;
-        memory_trace!("UserSpace::from_elf 2");
+        stack_trace!();
         // set heap
         space.heap_resize(PageCount(1));
 
         let entry_point = elf.header.pt2.entry_point() as usize;
-        Ok((space, stack_id, user_sp, entry_point.into()))
+        Ok((space, stack_id, user_sp, entry_point.into(), auxv))
     }
     pub fn fork(&mut self) -> Result<Self, SysError> {
         memory_trace!("UserSpace::fork");
@@ -304,6 +326,8 @@ impl UserSpace {
         }
     }
     /// return (user_sp, argc, argv, envp)
+    ///
+    /// from https://www.cnblogs.com/likaiming/p/11193697.html
     ///
     /// sp  ->  argc
     ///         argv[0]
@@ -327,15 +351,19 @@ impl UserSpace {
     ///
     ///         String identifying platform = "RISC-V64"
     ///
+    ///         (random stack offset for safety)
+    ///
     ///         argv[]...
     ///         envp[]...
     ///     stack bottom
+    ///
     pub fn push_args(
         &self,
-        sp: UserAddr,
-        args: &Vec<String>,
-        envp: &Vec<String>,
-        auxv: &Vec<AuxHeader>,
+        sp: UserAddr4K,
+        args: &[String],
+        envp: &[String],
+        auxv: &[AuxHeader],
+        reverse: PageCount,
     ) -> (UserAddr, usize, usize, usize) {
         fn size_of_usize() -> usize {
             core::mem::size_of::<usize>()
@@ -343,10 +371,10 @@ impl UserSpace {
         fn get_slice<T>(sp: usize, len: usize) -> &'static mut [T] {
             unsafe { &mut *core::ptr::slice_from_raw_parts_mut(sp as *mut T, len) }
         }
-        fn set_zero<T>(sp: usize) {
+        fn set_zero<T>(sp: usize, _r: &[T]) {
             unsafe { *(sp as *mut T) = MaybeUninit::zeroed().assume_init() };
         }
-        fn xwrite<T>(sp: usize, v: T) {
+        fn write_v<T>(sp: usize, v: T) {
             unsafe { (sp as *mut T).write(v) };
         }
         fn usize_align(sp: usize) -> usize {
@@ -359,40 +387,43 @@ impl UserSpace {
             sp - (s.len() + 1)
         }
         fn write_str(sp: usize, s: &str) {
-            get_slice(sp, s.len()).copy_from_slice(s.as_bytes());
-            set_zero::<u8>(sp + s.len());
+            let bytes = s.as_bytes();
+            get_slice(sp, s.len()).copy_from_slice(bytes);
+            set_zero(sp + s.len(), bytes);
         }
-        fn write_strings_skip(sp: usize, strs: &Vec<String>) -> (usize, usize) {
+        fn write_strings_skip(sp: usize, strs: &[String]) -> (usize, usize) {
             let sp = sp - strs.iter().fold(0, |a, s| a + s.len() + 1);
             (sp, strs.len() + 1)
         }
-        fn write_strings(mut sp: usize, strs: &Vec<String>, ptrs: &mut [usize]) {
+        fn write_strings(mut sp: usize, strs: &[String], ptrs: &mut [usize]) {
             debug_assert_eq!(strs.len() + 1, ptrs.len());
             ptrs[strs.len()] = 0;
             for (s, p) in strs.iter().zip(ptrs) {
                 *p = sp;
-                get_slice(sp, s.len()).copy_from_slice(s.as_bytes());
+                let bytes = s.as_bytes();
+                get_slice(sp, s.len()).copy_from_slice(bytes);
                 sp += s.len();
-                set_zero::<u8>(sp);
+                set_zero(sp, bytes);
                 sp += 1;
             }
         }
-        fn write_auxv(mut sp: usize, auxv: &Vec<AuxHeader>) -> usize {
+        fn write_auxv_skip(sp: usize, auxv: &[AuxHeader]) -> usize {
+            sp - (auxv.len() + 1) * 2 * size_of_usize()
+        }
+        fn write_auxv(mut sp: usize, auxv: &[AuxHeader]) {
             let len = auxv.len();
-            set_zero::<AuxHeader>(sp);
+            set_zero(sp, auxv);
             let step = 2 * size_of_usize();
             sp -= (len + 1) * step;
             let dst = get_slice(sp, len);
             for (src, dst) in auxv.iter().zip(dst) {
                 src.write_to(dst);
             }
-            sp
         }
 
         debug_assert!(self.in_using());
 
-        let _auto_sum = AutoSum::new();
-
+        let sp_top = sp;
         let mut sp = sp.into_usize();
         sp = usize_align(sp);
         sp -= core::mem::size_of::<usize>();
@@ -403,28 +434,59 @@ impl UserSpace {
         let (sp, args_len) = write_strings_skip(sp, args);
         let args_ptr = sp;
 
+        let rand = 0;
+        let sp = sp - rand % PAGE_SIZE;
+
         let mut sp = sp;
         let platform = "RISC-V64";
         sp = write_str_skip(sp, platform);
         sp = align16(sp);
-        write_str(sp, platform);
+        let plat_ptr = sp;
 
-        sp = write_auxv(sp, auxv);
+        sp = write_auxv_skip(sp, auxv);
+        let auxv_ptr = sp;
 
         sp -= envp_len * size_of_usize();
-        write_strings(envp_ptr, envp, get_slice(sp, envp_len));
-        let envp = sp;
+        let r_envp = sp;
 
         sp -= args_len * size_of_usize();
-        write_strings(args_ptr, args, get_slice(sp, args_len));
-        let argv = sp;
+        let r_argv = sp;
 
         sp -= size_of_usize();
-        let argc = args_len - 1;
-        xwrite(sp, argc);
+        let argc_ptr = sp;
 
         let sp = unsafe { UserAddr::from_usize(sp) };
-        (sp, argc, argv, envp)
+
+        debug_assert!(sp.ceil() <= sp_top);
+        debug_assert!(sp_top.sub_page(reverse) <= sp.floor());
+
+        // 直接在用户虚拟地址上操作
+        let _auto_sum = AutoSum::new();
+
+        write_str(plat_ptr, platform);
+        write_auxv(auxv_ptr, auxv);
+        write_strings(envp_ptr, envp, get_slice(r_envp, envp_len));
+        write_strings(args_ptr, args, get_slice(r_argv, args_len));
+        write_v(argc_ptr, args_len - 1);
+
+        (sp, args_len - 1, r_argv, r_envp)
+    }
+    pub fn push_args_size(args: &[String], envp: &[String]) -> PageCount {
+        fn xsum<T>(strs: &[T], mut f: impl FnMut(&T) -> usize) -> usize {
+            strs.iter().fold(0, move |x, v| x + f(v))
+        }
+        let mut size = 0;
+        size += 8;
+        size += (args.len() + 1) * core::mem::size_of::<usize>();
+        size += (envp.len() + 1) * core::mem::size_of::<usize>();
+        size += AuxHeader::reverse();
+        size += 16 * 2;
+        size += "RISC-V64".len() + 1;
+        size += 16;
+        size += PAGE_SIZE; // (random_stack)
+        size += xsum(args, |s| s.len() + 1);
+        size += xsum(envp, |s| s.len() + 1);
+        PageCount::page_ceil(size)
     }
 }
 

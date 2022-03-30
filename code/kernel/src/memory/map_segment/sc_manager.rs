@@ -79,7 +79,7 @@ impl SCManager {
             self.0.remove(&ua).unwrap();
             return true;
         }
-        return false;
+        false
     }
     /// 移除范围内存在的每一个计数器, 并调用对应释放函数
     pub fn remove_release(

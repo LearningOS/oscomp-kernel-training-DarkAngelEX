@@ -17,7 +17,9 @@ use riscv::register::sstatus;
 
 use crate::{
     local,
-    memory::{self, address::PageCount, StackID, UserSpace, auxv::AuxHeader},
+    memory::{
+        self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace,
+    },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
@@ -89,6 +91,8 @@ unsafe impl Sync for Thread {}
 
 pub struct ThreadInner {
     pub stack_id: StackID,
+    pub set_child_tid: UserInOutPtr<u32>,
+    pub clear_child_tid: UserInOutPtr<u32>,
     uk_context: Box<UKContext>,
 }
 
@@ -97,13 +101,13 @@ impl Thread {
         elf_data: &[u8],
         args: Vec<String>,
         envp: Vec<String>,
-        auxv: Vec<AuxHeader>,
     ) -> Arc<Self> {
-        let (user_space, stack_id, user_sp, entry_point) =
-            UserSpace::from_elf(elf_data, PageCount::from_usize(1)).unwrap();
+        let reverse_stack = PageCount::from_usize(2);
+        let (user_space, stack_id, user_sp, entry_point, auxv) =
+            UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };
         let (user_sp, argc, argv, xenvp) =
-            user_space.push_args(user_sp.into(), &args, &envp, &auxv);
+            user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
         drop(args);
         let pid = pid_alloc();
@@ -131,6 +135,8 @@ impl Thread {
             process: process.clone(),
             inner: UnsafeCell::new(ThreadInner {
                 stack_id,
+                set_child_tid: UserInOutPtr::null(),
+                clear_child_tid: UserInOutPtr::null(),
                 uk_context: unsafe { UKContext::any() },
             }),
         };
@@ -150,16 +156,6 @@ impl Thread {
         unsafe { proc_table::set_initproc(process) };
         ptr
     }
-    pub fn from_process(process: Arc<Process>, tid: Tid, stack_id: StackID) -> Self {
-        Self {
-            tid,
-            process,
-            inner: UnsafeCell::new(ThreadInner {
-                stack_id,
-                uk_context: unsafe { UKContext::any() },
-            }),
-        }
-    }
     #[allow(clippy::mut_from_ref)]
     pub fn inner(&self) -> &mut ThreadInner {
         unsafe { &mut *self.inner.get() }
@@ -169,14 +165,22 @@ impl Thread {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
 
-    pub fn fork(&self) -> Result<Arc<Self>, SysError> {
+    pub fn clone_impl(
+        &self,
+        copy_set_ctid: bool,
+        copy_clear_ctid: bool,
+    ) -> Result<Arc<Self>, SysError> {
         let new_process = self.process.fork(self.tid)?;
+        let inner = self.inner();
+
         let thread = Arc::new(Self {
             tid: self.tid,
             process: new_process,
             inner: UnsafeCell::new(ThreadInner {
-                stack_id: self.inner().stack_id,
-                uk_context: self.inner().uk_context.fork(),
+                stack_id: inner.stack_id,
+                set_child_tid: inner.set_child_tid,
+                clear_child_tid: inner.clear_child_tid,
+                uk_context: inner.uk_context.fork(),
             }),
         });
         thread.inner().uk_context.set_user_a0(0);

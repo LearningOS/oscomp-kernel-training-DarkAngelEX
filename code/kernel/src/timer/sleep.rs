@@ -49,9 +49,8 @@ impl SleepQueue {
     pub fn push(&mut self, ticks: TimeTicks, waker: Waker) {
         self.queue.push(TimerCondVar::new(ticks, waker))
     }
-    pub fn check_timer(&mut self) {
+    pub fn check_timer(&mut self, current: TimeTicks) {
         stack_trace!();
-        let current = get_time_ticks();
         while let Some(v) = self.queue.peek() {
             if v.expire_ticks <= current {
                 self.queue.pop().unwrap().waker.wake();
@@ -78,5 +77,10 @@ pub fn timer_push_task(ticks: TimeTicks, waker: Waker) {
 
 pub fn check_timer() {
     stack_trace!();
-    SLEEP_QUEUE.lock(place!()).as_mut().unwrap().check_timer();
+    let current = get_time_ticks();
+    SLEEP_QUEUE
+        .lock(place!())
+        .as_mut()
+        .unwrap()
+        .check_timer(current);
 }

@@ -25,6 +25,11 @@ impl FromUsize for usize {
 #[macro_export]
 macro_rules! from_usize_impl {
     ($ty_name: ident) => {
+        impl From<usize> for $ty_name {
+            fn from(num: usize) -> Self {
+                Self(num)
+            }
+        }
         impl crate::tools::allocator::from_usize_allocator::FromUsize for $ty_name {
             fn from_usize(num: usize) -> Self {
                 Self(num)

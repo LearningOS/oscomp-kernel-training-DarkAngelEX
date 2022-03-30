@@ -199,7 +199,7 @@ pub fn asid_test() {
         unsafe { *va.as_ref() }
     }
 
-    println!("[FTL OS]asid test.");
+    println!("[FTL OS]asid test");
     let mut space_1 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let mut space_2 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let va4k: VirAddr4K = unsafe { VirAddr4K::from_usize(0x1000) };
@@ -230,4 +230,5 @@ pub fn asid_test() {
         space_1.unmap_par(va4k, pa1);
         space_2.unmap_par(va4k, pa2);
     }
+    println!("    asid test pass");
 }

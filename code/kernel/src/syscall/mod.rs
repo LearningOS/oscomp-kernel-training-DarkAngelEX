@@ -24,14 +24,16 @@ const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
 const SYSCALL_EXIT: usize = 93;
+const SYSCALL_SET_TID_ADDRESS: usize = 96;
 const SYSCALL_SLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
-const SYSCALL_FORK: usize = 220;
+const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_WAITPID: usize = 260;
+
 const SYSCALL_THREAD_CREATE: usize = 1000;
 const SYSCALL_GETTID: usize = 1001;
 const SYSCALL_WAITTID: usize = 1002;
@@ -48,9 +50,7 @@ const SYSCALL_CONDVAR_WAIT: usize = 1032;
 pub struct Syscall<'a> {
     cx: &'a mut UKContext,
     thread: &'a Thread,
-    // thread_arc: &'a Arc<Thread>,
     process: &'a Process,
-    // process_arc: &'a Arc<Process>,
     do_exit: bool,
 }
 
@@ -73,7 +73,6 @@ impl<'a> Syscall<'a> {
     #[inline(always)]
     pub async fn syscall(&mut self) -> bool {
         stack_trace!();
-        memory_trace!("syscall entry");
         self.cx.set_next_instruction();
         let result: SysResult = match self.cx.a7() {
             SYSCALL_DUP => self.sys_dup(),
@@ -83,14 +82,16 @@ impl<'a> Syscall<'a> {
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
             SYSCALL_EXIT => self.sys_exit(),
+            SYSCALL_SET_TID_ADDRESS => self.sys_set_tid_address(),
             SYSCALL_SLEEP => self.sys_sleep().await,
             SYSCALL_YIELD => self.sys_yield().await,
             SYSCALL_KILL => self.sys_kill(),
             SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
-            SYSCALL_FORK => self.sys_fork(),
+            SYSCALL_CLONE => self.sys_clone(),
             SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_WAITPID => self.sys_waitpid().await,
+
             SYSCALL_THREAD_CREATE => self.sys_thread_create(),
             SYSCALL_GETTID => todo!(),
             SYSCALL_WAITTID => todo!(),

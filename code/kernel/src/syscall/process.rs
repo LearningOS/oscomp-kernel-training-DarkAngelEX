@@ -12,7 +12,7 @@ use crate::{
     memory::{
         self,
         address::PageCount,
-        user_ptr::{UserReadPtr, UserWritePtr},
+        user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
     process::{proc_table, thread, userloop, Pid},
@@ -30,13 +30,27 @@ use super::{SysError, SysResult, Syscall};
 
 const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
+bitflags! {
+    pub struct CloneFlag: u32 {
+        const CHILD_CLEARTID = 1 << 0;
+    }
+}
+
 impl Syscall<'_> {
-    pub fn sys_fork(&mut self) -> SysResult {
+    pub fn sys_clone(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
-            print!("sys_fork {:?} ", self.process.pid());
+            print!("sys_clone {:?} ", self.process.pid());
         }
-        let new = match self.thread.fork() {
+        let (flag, newsp, parent_tidptr, child_tidptr, tls_val): (
+            u32,
+            u32,
+            UserInOutPtr<u32>,
+            UserInOutPtr<u32>,
+            u32,
+        ) = self.cx.into();
+        todo!();
+        let new = match self.thread.clone_impl(false, false) {
             Ok(new) => new,
             Err(_e) => {
                 println!("frame out of memory");
@@ -55,8 +69,8 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exec {:?}", self.process.pid());
         }
-        let (path, args, _envp) = {
-            let (path, args, _envp): (
+        let (path, args, envp) = {
+            let (path, args, envp): (
                 UserReadPtr<u8>,
                 UserReadPtr<UserReadPtr<u8>>,
                 UserReadPtr<UserReadPtr<u8>>,
@@ -76,15 +90,19 @@ impl Syscall<'_> {
                 .collect();
             // println!("args ptr: {:#x}", args as usize);
             // let args = Vec::new();
-            // let envp = user::translated_user_2d_array_zero_end(envp)?;
-            (path, args, ())
+            let envp = user_check
+                .translated_user_2d_array_zero_end(envp)
+                .await?
+                .into_iter()
+                .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
+                .collect::<Vec<String>>();
+            (path, args, envp)
         };
-        let args_size = args.iter().fold(0, |n, s| n + s.len() + 1)
-            + (args.len() + 1) * core::mem::size_of::<usize>();
-        let stack_reverse = PageCount((args_size + PAGE_SIZE - 1 + USER_STACK_RESERVE) / PAGE_SIZE);
+        let args_size = UserSpace::push_args_size(&args, &envp);
+        let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
         let elf_data = inode.read_all().await;
-        let (user_space, stack_id, user_sp, entry_point) =
+        let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
                 .map_err(|_e| SysError::ENOEXEC)?;
 
@@ -95,9 +113,9 @@ impl Syscall<'_> {
         }
         let check = NeverFail::new();
         unsafe { user_space.using() };
-        let auxv = Vec::new();
         let (user_sp, argc, argv, envp) =
-            user_space.push_args(user_sp.into(), &args, &alive.envp, &auxv);
+            user_space.push_args(user_sp.into(), &args, &alive.envp, &auxv, args_size);
+        drop(auxv);
         drop(args);
         // reset stack_id
         alive.exec_path = path;
@@ -178,6 +196,12 @@ impl Syscall<'_> {
             }
             // check then
         }
+    }
+    pub fn sys_set_tid_address(&mut self) -> SysResult {
+        stack_trace!();
+        let set_child_tid: UserInOutPtr<u32> = self.cx.para1();
+        self.thread.inner().set_child_tid = set_child_tid;
+        Ok(self.thread.tid.to_usize())
     }
     pub fn sys_getpid(&mut self) -> SysResult {
         stack_trace!();

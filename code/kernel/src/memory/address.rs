@@ -486,6 +486,12 @@ impl PageCount {
     pub const fn byte_space(self) -> usize {
         self.0 * PAGE_SIZE
     }
+    pub const fn page_floor(a: usize) -> Self {
+        Self(a / PAGE_SIZE)
+    }
+    pub const fn page_ceil(a: usize) -> Self {
+        Self((a + PAGE_SIZE - 1) / PAGE_SIZE)
+    }
 }
 
 impl Add for PageCount {
