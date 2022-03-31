@@ -138,7 +138,7 @@ impl Debug for PageCount {
 
 macro_rules! impl_from_usize {
     ($name: ident, $v: ident, $body: stmt, $check_fn: stmt) => {
-        impl From<usize> for $name {
+        impl const From<usize> for $name {
             fn from($v: usize) -> Self {
                 $check_fn
                 $body
@@ -150,21 +150,12 @@ macro_rules! impl_from_usize {
 // impl_from_usize!(VirAddr, v, Self(v & ((1 << VA_WIDTH_SV39) - 1)));
 // impl_from_usize!(PhyAddr, v, Self(v & ((1 << PA_WIDTH_SV39) - 1)));
 impl_from_usize!(VirAddr, v, Self(v), ());
-impl_from_usize!(
-    PhyAddr,
-    v,
-    Self(v),
-    debug_assert!(v < DIRECT_MAP_SIZE, "into PhyAddrRef error: {}", v)
-);
+impl_from_usize!(PhyAddr, v, Self(v), debug_assert!(v < DIRECT_MAP_SIZE));
 impl_from_usize!(
     PhyAddrRef,
     v,
     Self(v),
-    debug_assert!(
-        v - DIRECT_MAP_OFFSET < DIRECT_MAP_SIZE,
-        "into PhyAddr error: {:x}",
-        v
-    )
+    debug_assert!(v - DIRECT_MAP_OFFSET < DIRECT_MAP_SIZE)
 );
 impl_from_usize!(UserAddr, v, Self(v), ());
 
@@ -455,6 +446,15 @@ impl UserAddr4K {
     /// the answer is in the return value!
     pub const fn add_page(self, n: PageCount) -> Self {
         Self(self.0 + n.byte_space())
+    }
+    #[must_use = "the answer is in the return value!"]
+    /// the answer is in the return value!
+    pub const fn add_page_checked(self, n: PageCount) -> Result<Self, OutOfUserRange> {
+        let v = Self(self.0 + n.byte_space());
+        if v.valid().is_err() {
+            return Err(OutOfUserRange);
+        }
+        Ok(v)
     }
     #[must_use = "the answer is in the return value!"]
     /// the answer is in the return value!

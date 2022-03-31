@@ -2,7 +2,7 @@ use core::arch::global_asm;
 
 use riscv::register::{
     scause::{self, Exception, Scause},
-    sepc, stvec,
+    sepc, stval, stvec,
     utvec::TrapMode,
 };
 
@@ -140,7 +140,9 @@ unsafe fn set_error_handle() {
 #[no_mangle]
 fn try_access_user_error_debug() {
     let cause = scause::read().cause();
-    println!("cause {:?} sepc {:#x}", cause, sepc::read());
+    let stval = stval::read();
+    let sepc = sepc::read();
+    println!("cause {:?} stval {:#x} sepc {:#x}", cause, stval, sepc);
     match cause {
         scause::Trap::Exception(Exception::LoadPageFault | Exception::StorePageFault) => (),
         // if handle this must save all register!!!

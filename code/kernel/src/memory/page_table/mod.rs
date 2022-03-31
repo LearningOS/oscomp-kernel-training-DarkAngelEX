@@ -72,12 +72,12 @@ impl PageTableEntry {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
     }
     pub fn is_directory(&self) -> bool {
-        self.is_valid()
-            && (self.flags() & (PTEFlags::R | PTEFlags::W | PTEFlags::X)) == PTEFlags::empty()
+        let mask = PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U;
+        self.is_valid() && (self.flags() & mask) == PTEFlags::empty()
     }
     pub fn is_leaf(&self) -> bool {
-        self.is_valid()
-            && (self.flags() & (PTEFlags::R | PTEFlags::W | PTEFlags::X)) != PTEFlags::empty()
+        let mask = PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U;
+        self.is_valid() && (self.flags() & mask) != PTEFlags::empty()
     }
     pub fn readable(&self) -> bool {
         (self.flags() & PTEFlags::R) != PTEFlags::empty()
@@ -103,8 +103,10 @@ impl PageTableEntry {
     pub fn reserved_bit(&self) -> usize {
         self.bits & (((1usize << 10) - 1) << 54)
     }
-    pub fn set_flag(&mut self, flag: PTEFlags) {
-        *self = Self::new(self.phy_addr(), flag)
+    pub fn set_rwx(&mut self, flag: PTEFlags) {
+        let mask = (PTEFlags::R | PTEFlags::R | PTEFlags::X).bits() as usize;
+        let flag = flag.bits() as usize & mask;
+        self.bits = (self.bits & !mask) | flag;
     }
     pub fn set_writable(&mut self) {
         self.bits |= PTEFlags::W.bits() as usize;

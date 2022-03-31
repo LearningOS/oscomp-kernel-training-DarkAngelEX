@@ -13,10 +13,10 @@ use crate::{
 };
 
 mod fs;
+mod mmap;
 mod process;
 mod thread;
 mod time;
-mod mmap;
 
 const SYSCALL_DUP: usize = 24;
 const SYSCALL_IOCTL: usize = 29;
@@ -38,6 +38,7 @@ const SYSCALL_BRK: usize = 214;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
+const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAITPID: usize = 260;
 
 const SYSCALL_THREAD_CREATE: usize = 1000;
@@ -101,6 +102,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_CLONE => self.sys_clone(),
             SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_MMAP => self.sys_mmap(),
+            SYSCALL_MPROTECT => self.sys_mprotect(),
             SYSCALL_WAITPID => self.sys_waitpid().await,
 
             SYSCALL_THREAD_CREATE => self.sys_thread_create(),

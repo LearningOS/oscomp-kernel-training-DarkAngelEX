@@ -22,7 +22,7 @@ use self::{
 use super::{
     address::{PageCount, UserAddr4K},
     allocator::frame::iter::FrameDataIter,
-    AccessType, PageTable,
+    AccessType, PTEFlags, PageTable,
 };
 
 pub mod handler;
@@ -187,9 +187,74 @@ impl MapSegment {
         *pte = PageTableEntry::new(x.consume().into(), h.map_perm());
         Ok(())
     }
+    /// 必须区间内全部内存页都存在, 否则操作失败
+    ///
+    /// 唯一页 / 永久共享页: 修改页表标志位和段标志位
+    ///
+    /// COW 共享页: 不修改页表 只修改段标志位
+    pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> Result<(), SysError> {
+        // 1. 检查区间与max标志位
+        // 2. 边缘切割
+        // 3. 修改段内标志位
+        let (sr, sh) = self.handlers.get_rv(r.start).ok_or(SysError::EFAULT)?;
+        sh.new_perm_check(perm).map_err(|_| SysError::EACCES)?;
+        let mut cur_end = sr.end;
+        for (r, h) in self.handlers.range(r.clone()) {
+            if r.start == sr.start {
+                continue;
+            }
+            if r.start != cur_end {
+                return Err(SysError::EFAULT);
+            }
+            h.new_perm_check(perm).map_err(|_| SysError::EACCES)?;
+            cur_end = r.end;
+        }
+        if cur_end < r.end {
+            return Err(SysError::EFAULT);
+        }
+        let pt = pt!(self);
+        let mut modify_fn = move |h: &mut dyn UserAreaHandler, r| {
+            h.modify_perm(perm);
+            if h.shared_always() {
+                for (_addr, pte) in pt.valid_pte_iter(r) {
+                    pte.set_rwx(perm);
+                }
+            } else {
+                for (_addr, pte) in pt.valid_pte_iter(r) {
+                    if !pte.shared() {
+                        pte.set_rwx(perm);
+                    }
+                }
+            }
+        };
+        if sr.start != r.start {
+            self.handlers
+                .split_at_run(r.start, |_, _| (), &mut modify_fn)
+        } else {
+            let (r, h) = self.handlers.get_rv_mut(r.start).unwrap();
+            modify_fn(h, r);
+        }
+        let mut split_end = false;
+        for (xr, h) in self.handlers.range_mut(r.clone()) {
+            if xr.start == sr.start {
+                continue;
+            }
+            if xr.end > r.end {
+                split_end = true;
+                break;
+            }
+            modify_fn(h, xr);
+        }
+        if split_end {
+            self.handlers.split_at_run(r.end, modify_fn, |_, _| ())
+        }
+        Ok(())
+    }
     /// 共享优化 fork
     ///
     /// 发生错误时回退到执行前的状态
+    ///
+    /// 将写标志位设置为 may_shared()
     pub fn fork(&mut self) -> Result<Self, SysError> {
         stack_trace!();
         let src = pt!(self);
@@ -199,7 +264,7 @@ impl MapSegment {
 
         let mut err_1 = Ok(());
         for (r, h) in self.handlers.iter() {
-            match h.shared_writable() {
+            match h.may_shared() {
                 Some(shared_writable) => {
                     let mut err_2 = Ok(());
                     for (addr, src) in src.valid_pte_iter(r.clone()) {
@@ -267,7 +332,7 @@ impl MapSegment {
             if r == rr {
                 break;
             }
-            match h.shared_writable() {
+            match h.may_shared() {
                 Some(_) => {
                     for (addr, pte) in dst.valid_pte_iter(r.clone()) {
                         assert!(pte.shared());

@@ -59,8 +59,31 @@ impl HandlerManager {
             release,
         )
     }
+    // 位置必须位于某个段中间, 否则panic
+    pub fn split_at_run(
+        &mut self,
+        p: UserAddr4K,
+        l_run: impl FnOnce(&mut dyn UserAreaHandler, URange),
+        r_run: impl FnOnce(&mut dyn UserAreaHandler, URange),
+    ) {
+        self.map.split_at_run(
+            p,
+            |a, p, r| a.split_r(p, r),
+            |h, r| l_run(h.as_mut(), r),
+            |h, r| r_run(h.as_mut(), r),
+        )
+    }
     pub fn get(&self, addr: UserAddr4K) -> Option<&dyn UserAreaHandler> {
         self.map.get(addr).map(|a| a.as_ref())
+    }
+    pub fn get_mut(&mut self, addr: UserAddr4K) -> Option<&mut dyn UserAreaHandler> {
+        self.map.get_mut(addr).map(|a| a.as_mut())
+    }
+    pub fn get_rv(&self, addr: UserAddr4K) -> Option<(URange, &dyn UserAreaHandler)> {
+        self.map.get_rv(addr).map(|(r, a)| (r, a.as_ref()))
+    }
+    pub fn get_rv_mut(&mut self, addr: UserAddr4K) -> Option<(URange, &mut dyn UserAreaHandler)> {
+        self.map.get_rv_mut(addr).map(|(r, a)| (r, a.as_mut()))
     }
     pub fn range_contain(&self, range: URange) -> Option<&dyn UserAreaHandler> {
         stack_trace!();
@@ -87,5 +110,16 @@ impl HandlerManager {
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (URange, &mut dyn UserAreaHandler)> {
         self.map.iter_mut().map(|(a, b)| (a, b.as_mut()))
+    }
+    // maybe not contain first segment
+    pub fn range(&self, r: URange) -> impl Iterator<Item = (URange, &dyn UserAreaHandler)> {
+        self.map.range(r).map(|(a, b)| (a, b.as_ref()))
+    }
+    // maybe not contain first segment
+    pub fn range_mut(
+        &mut self,
+        r: URange,
+    ) -> impl Iterator<Item = (URange, &mut dyn UserAreaHandler)> {
+        self.map.range_mut(r).map(|(a, b)| (a, b.as_mut()))
     }
 }

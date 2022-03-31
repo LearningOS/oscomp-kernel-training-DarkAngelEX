@@ -64,8 +64,15 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
         }
         Some(self.ptr)
     }
+    /// return None if UserAddr == nullptr
     pub fn as_uptr(self) -> Option<UserAddr> {
         self.as_ptr().and_then(|a| UserAddr::try_from(a).ok())
+    }
+    /// may return nullptr
+    ///
+    /// return None only if self not in user space
+    pub fn as_uptr_nullable(self) -> Option<UserAddr> {
+        UserAddr::try_from(self.raw_ptr()).ok()
     }
     pub fn offset(self, count: isize) -> Self {
         Self {

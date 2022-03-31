@@ -40,15 +40,6 @@ pub unsafe fn set_kernel_default_trap() {
     stvec::write(__kernel_default_vector as usize, TrapMode::Vectored);
 }
 
-// #[inline(always)]
-// pub unsafe fn close_kernel_trap() {
-//     fn loop_forever() -> ! {
-//         println!("entry loop_forever");
-//         loop {}
-//     }
-//     stvec::write(loop_forever as usize, TrapMode::Direct);
-// }
-
 #[inline(always)]
 unsafe fn set_user_trap_entry() {
     extern "C" {
@@ -60,7 +51,5 @@ unsafe fn set_user_trap_entry() {
 
 #[inline(always)]
 pub fn enable_timer_interrupt() {
-    unsafe {
-        sie::set_stimer();
-    }
+    unsafe { sie::set_stimer() };
 }

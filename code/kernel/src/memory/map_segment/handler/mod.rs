@@ -13,8 +13,9 @@ use crate::{
     syscall::SysError,
     tools::{
         self,
+        allocator::TrackerAllocator,
         range::URange,
-        xasync::{AsyncR, HandlerID, TryR, TryRunFail}, allocator::TrackerAllocator,
+        xasync::{AsyncR, HandlerID, TryR, TryRunFail},
     },
 };
 
@@ -36,14 +37,21 @@ pub trait UserAreaHandler: Send + 'static {
     fn unique_writable(&self) -> bool {
         self.perm().contains(PTEFlags::W)
     }
-    /// 共享分配写标志 当 unique_writable 为 false 时不可返回 true
-    ///
-    /// Some(x): 可共享，x为共享后的写标志位 由页面管理器代理共享与释放
-    ///
-    /// None: 不可共享，使用 copy_map 复制
-    fn shared_writable(&self) -> Option<bool> {
-        Some(false)
-        // None
+    fn using_cow(&self) -> bool {
+        true
+    }
+    fn shared_always(&self) -> bool {
+        false
+    }
+    /// return shared_writable
+    fn may_shared(&self) -> Option<bool> {
+        if self.shared_always() {
+            Some(self.unique_writable())
+        } else if self.using_cow() {
+            Some(false)
+        } else {
+            None
+        }
     }
     fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
@@ -52,6 +60,18 @@ pub trait UserAreaHandler: Send + 'static {
     ///
     /// 必须设置正确的id
     fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError>;
+    /// 此项初始化后禁止修改
+    fn max_perm(&self) -> PTEFlags {
+        PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U
+    }
+    /// 此函数无需重写
+    fn new_perm_check(&self, perm: PTEFlags) -> Result<(), ()> {
+        tools::bool_result(perm & self.map_perm() == perm)
+    }
+    /// 修改整个段的perm 段管理器在调用此函数之前会调用 new_perm_check 进行检查
+    ///
+    /// 不能有未映射的页面
+    fn modify_perm(&mut self, perm: PTEFlags);
     /// map range范围内的全部地址，必须跳过已经分配的区域
     ///
     /// try_xx user_space获得页表所有权，进程一定是有效的
@@ -105,10 +125,6 @@ pub trait UserAreaHandler: Send + 'static {
             return Ok(());
         }
         let perm = self.perm();
-        // skip Guard Page
-        if perm.is_empty() {
-            return Ok(());
-        }
         let allocator = &mut frame::defualt_allocator();
         for r in pt.each_pte_iter(range) {
             let (_addr, pte) = r?;

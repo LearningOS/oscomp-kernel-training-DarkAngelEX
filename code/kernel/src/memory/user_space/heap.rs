@@ -44,6 +44,9 @@ impl HeapManager {
         oper: impl FnOnce(UserArea, bool) -> Result<(), SysError>,
     ) -> Result<(), SysError> {
         let cur_end = self.brk_end;
+        if brk < self.brk_base {
+            return Err(SysError::EINVAL);
+        }
         if brk == cur_end {
             return Ok(());
         }

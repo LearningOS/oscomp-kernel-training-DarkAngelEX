@@ -56,6 +56,9 @@ impl UserAreaHandler for MapAllHandler {
             TryRunFail::Error(e) => e,
         })
     }
+    fn modify_perm(&mut self, perm: PTEFlags) {
+        self.perm = perm;
+    }
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         self.default_map(pt, range)
     }

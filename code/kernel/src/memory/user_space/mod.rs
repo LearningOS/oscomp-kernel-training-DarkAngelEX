@@ -214,6 +214,9 @@ impl UserSpace {
             self.map_segment.unmap(user_area.range_all());
         }
     }
+    pub fn get_brk(&self) -> UserAddr4K {
+        self.heap.brk_end()
+    }
     pub fn reset_brk(&mut self, new_brk: UserAddr4K) -> Result<(), SysError> {
         let ms = &mut self.map_segment;
         self.heap.set_brk(new_brk, move |r, f| {
@@ -222,7 +225,8 @@ impl UserSpace {
             } else {
                 Ok(ms.unmap(r.range))
             }
-        })
+        })?;
+        Ok(())
     }
     pub fn heap_init(&mut self, base: UserAddr4K, init_size: PageCount) {
         let map_area = self.heap.init(base, init_size);

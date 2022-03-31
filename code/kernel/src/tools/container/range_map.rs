@@ -36,6 +36,27 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         }
         None
     }
+    pub fn get_mut(&mut self, key: U) -> Option<&mut V> {
+        let (_, Node { end, value }) = self.0.range_mut(..=key).next_back()?;
+        if *end > key {
+            return Some(value);
+        }
+        None
+    }
+    pub fn get_rv(&self, key: U) -> Option<(Range<U>, &V)> {
+        let (&start, Node { end, value }) = self.0.range(..=key).next_back()?;
+        if *end > key {
+            return Some((start..*end, value));
+        }
+        None
+    }
+    pub fn get_rv_mut(&mut self, key: U) -> Option<(Range<U>, &mut V)> {
+        let (&start, Node { end, value }) = self.0.range_mut(..=key).next_back()?;
+        if *end > key {
+            return Some((start..*end, value));
+        }
+        None
+    }
     pub fn find_free_range(
         &self,
         Range { mut start, end }: Range<U>,
@@ -160,6 +181,26 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         self.remove(r, split_l, split_r, release);
         self.0.try_insert(start, Node { end, value }).ok().unwrap();
     }
+    /// 按顺序调用三个函数
+    pub fn split_at_run(
+        &mut self,
+        p: U,
+        split_r: impl FnOnce(&mut V, U, Range<U>) -> V,
+        l_run: impl FnOnce(&mut V, Range<U>),
+        r_run: impl FnOnce(&mut V, Range<U>),
+    ) {
+        let (&start, Node { end, value }) = self.0.range_mut(..=p).next_back().unwrap();
+        let xend = *end;
+        *end = p;
+        let mut xvalue = split_r(value, p, start..xend);
+        l_run(value, start..p);
+        r_run(&mut xvalue, p..xend);
+        let node = Node {
+            end: p,
+            value: xvalue,
+        };
+        self.0.try_insert(p, node).ok().unwrap();
+    }
     pub fn clear(&mut self, mut release: impl FnMut(V, Range<U>)) {
         stack_trace!();
         core::mem::take(&mut self.0)
@@ -207,19 +248,27 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
     }
     pub fn iter(&self) -> impl Iterator<Item = (Range<U>, &V)> {
         self.0.iter().map(|(&s, n)| {
-            let r = Range {
-                start: s,
-                end: n.end,
-            };
+            let r = s..n.end;
             (r, &n.value)
         })
     }
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (Range<U>, &mut V)> {
         self.0.iter_mut().map(|(&s, n)| {
-            let r = Range {
-                start: s,
-                end: n.end,
-            };
+            let r = s..n.end;
+            (r, &mut n.value)
+        })
+    }
+    /// return start in r
+    pub fn range(&self, r: Range<U>) -> impl Iterator<Item = (Range<U>, &V)> {
+        self.0.range(r).map(|(&s, n)| {
+            let r = s..n.end;
+            (r, &n.value)
+        })
+    }
+    /// return start in r
+    pub fn range_mut(&mut self, r: Range<U>) -> impl Iterator<Item = (Range<U>, &mut V)> {
+        self.0.range_mut(r).map(|(&s, n)| {
+            let r = s..n.end;
             (r, &mut n.value)
         })
     }

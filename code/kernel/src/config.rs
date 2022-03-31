@@ -9,6 +9,8 @@ pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 4
 /// 0x8_0000 = 512KB
 pub const KERNEL_HEAP_SIZE: usize = 0x80_0000; // 2MB
 
+use crate::{memory::address::UserAddr, tools::range::URange};
+
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12
 #[deprecated]
@@ -68,5 +70,8 @@ pub const USER_MAX_THREADS: usize = (USER_STACK_END - USER_STACK_BEGIN) / USER_S
 /// 128GB
 pub const USER_MMAP_BEGIN: usize = 0x20_0000_0000;
 pub const USER_MMAP_END: usize = 0x40_0000_0000;
+
+pub const USER_MMAP_RANGE: URange =
+    UserAddr::from(USER_MMAP_BEGIN).floor()..UserAddr::from(USER_MMAP_END).ceil();
 
 pub const USER_END: usize = 0x40_0000_0000;

@@ -284,10 +284,19 @@ impl Syscall<'_> {
         }
     }
     pub fn sys_brk(&mut self) -> SysResult {
+        stack_trace!();
         let brk: usize = self.cx.para1();
-        let brk = UserAddr::try_from(brk as *const ())?.ceil();
-        self.alive_then(|a| a.user_space.reset_brk(brk))??;
-        Ok(0)
+        println!("sys_brk: {:#x}", brk);
+        let brk = if brk == 0 {
+            let brk = self.alive_then(|a| a.user_space.get_brk())?;
+            brk
+        } else {
+            let brk = UserAddr::try_from(brk as *const ())?.ceil();
+            self.alive_then(|a| a.user_space.reset_brk(brk))??;
+            brk
+        };
+        println!("    -> {:#x}", brk.into_usize());
+        Ok(brk.into_usize())
     }
 }
 

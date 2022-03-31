@@ -36,6 +36,9 @@ impl UserAreaHandler for DelayHandler {
         self.inner.set_id(id);
         Ok(())
     }
+    fn modify_perm(&mut self, perm: PTEFlags) {
+        self.inner.modify_perm(perm)
+    }
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
         self.inner.map(pt, range)

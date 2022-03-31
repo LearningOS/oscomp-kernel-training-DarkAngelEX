@@ -42,12 +42,30 @@ impl UserAreaHandler for MmapHandler {
     fn perm(&self) -> PTEFlags {
         self.perm
     }
-    fn shared_writable(&self) -> Option<bool> {
-        Some(self.unique_writable() && self.shared)
+    fn shared_always(&self) -> bool {
+        self.shared
     }
-    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError> {
+    fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> Result<(), SysError> {
         self.id = Some(id);
         Ok(())
+    }
+    fn max_perm(&self) -> PTEFlags {
+        match &self.file {
+            None => PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U,
+            Some(f) => {
+                let mut perm = PTEFlags::U;
+                if f.readable() {
+                    perm |= PTEFlags::R | PTEFlags::X;
+                }
+                if f.writable() {
+                    perm |= PTEFlags::W;
+                }
+                perm
+            }
+        }
+    }
+    fn modify_perm(&mut self, perm: PTEFlags) {
+        self.perm = perm;
     }
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         match self.file {
