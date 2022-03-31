@@ -5,7 +5,7 @@ use crate::{
         address::UserAddr4K,
         allocator::frame,
         asid::Asid,
-        page_table::PTEFlags,
+        page_table::{PTEFlags, PageTableEntry},
         user_space::{AccessType, UserArea},
         PageTable, UserSpace,
     },
@@ -14,13 +14,14 @@ use crate::{
     tools::{
         self,
         range::URange,
-        xasync::{AsyncR, HandlerID, TryR},
+        xasync::{AsyncR, HandlerID, TryR, TryRunFail}, allocator::TrackerAllocator,
     },
 };
 
 pub mod delay;
 pub mod manager;
 pub mod map_all;
+pub mod mmap;
 
 pub trait UserAreaHandler: Send + 'static {
     fn id(&self) -> HandlerID;
@@ -136,6 +137,27 @@ pub trait UserAreaHandler: Send + 'static {
                 .as_usize_array_mut()
                 .copy_from_slice(src);
         }
+        Ok(())
+    }
+    fn default_page_fault(
+        &self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        access: AccessType,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
+        stack_trace!();
+        access
+            .check(self.perm())
+            .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;
+        // 可能同时进入的另一个线程已经处理了这个页错误
+        pt.force_map_user(
+            addr,
+            || {
+                let pa = frame::defualt_allocator().alloc()?.consume();
+                Ok(PageTableEntry::new(pa.into(), self.map_perm()))
+            },
+            &mut frame::defualt_allocator(),
+        )?;
         Ok(())
     }
     /// 所有权释放页表中存在映射的空间

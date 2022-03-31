@@ -32,6 +32,9 @@
 #![feature(associated_type_bounds)]
 #![feature(let_chains)]
 #![feature(result_option_inspect)]
+#![feature(half_open_range_patterns)]
+#![feature(exclusive_range_pattern)]
+
 // #![allow(dead_code)]
 
 extern crate alloc;

@@ -16,6 +16,7 @@ mod fs;
 mod process;
 mod thread;
 mod time;
+mod mmap;
 
 const SYSCALL_DUP: usize = 24;
 const SYSCALL_IOCTL: usize = 29;
@@ -33,8 +34,10 @@ const SYSCALL_KILL: usize = 129;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETUID: usize = 174;
+const SYSCALL_BRK: usize = 214;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
+const SYSCALL_MMAP: usize = 222;
 const SYSCALL_WAITPID: usize = 260;
 
 const SYSCALL_THREAD_CREATE: usize = 1000;
@@ -94,8 +97,10 @@ impl<'a> Syscall<'a> {
             SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETUID => self.sys_getuid(),
+            SYSCALL_BRK => self.sys_brk(),
             SYSCALL_CLONE => self.sys_clone(),
             SYSCALL_EXEC => self.sys_exec().await,
+            SYSCALL_MMAP => self.sys_mmap(),
             SYSCALL_WAITPID => self.sys_waitpid().await,
 
             SYSCALL_THREAD_CREATE => self.sys_thread_create(),

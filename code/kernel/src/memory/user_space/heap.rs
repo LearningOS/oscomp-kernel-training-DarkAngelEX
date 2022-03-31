@@ -1,12 +1,17 @@
-use crate::memory::{
-    address::{PageCount, UserAddr4K},
-    page_table::PTEFlags,
-    user_space::UserArea,
+use crate::{
+    memory::{
+        address::{PageCount, UserAddr4K},
+        page_table::PTEFlags,
+        user_space::UserArea,
+    },
+    syscall::{SysError, SysResult},
+    tools::range::URange,
 };
 
 #[derive(Debug, Clone)]
 pub struct HeapManager {
-    heap_size: PageCount,
+    brk_end: UserAddr4K,
+    brk_base: UserAddr4K,
 }
 impl Drop for HeapManager {
     fn drop(&mut self) {}
@@ -14,30 +19,42 @@ impl Drop for HeapManager {
 impl HeapManager {
     pub fn new() -> Self {
         Self {
-            heap_size: PageCount(0),
+            brk_end: UserAddr4K::null(),
+            brk_base: UserAddr4K::null(),
         }
     }
     pub fn size(&self) -> PageCount {
-        self.heap_size
+        self.brk_end.offset_to(self.brk_base)
     }
-    pub fn set_size_bigger(&mut self, new: PageCount) -> UserArea {
-        let old = self.heap_size;
-        assert!(new >= old);
-        let perm = PTEFlags::U | PTEFlags::R | PTEFlags::W;
-        let ubegin = UserAddr4K::heap_offset(old);
-        let uend = UserAddr4K::heap_offset(new);
-        let area = UserArea::new(ubegin..uend, perm);
-        self.heap_size = new;
-        area
+    pub fn init(&mut self, base: UserAddr4K, init_size: PageCount) -> UserArea {
+        self.brk_base = base;
+        self.brk_end = base.add_page(init_size);
+        UserArea {
+            range: self.brk_base..self.brk_end,
+            perm: PTEFlags::R | PTEFlags::W | PTEFlags::U,
+        }
     }
-    pub fn set_size_smaller(&mut self, new: PageCount) -> UserArea {
-        let old = self.heap_size;
-        assert!(new <= old);
-        let perm = PTEFlags::U | PTEFlags::R | PTEFlags::W;
-        let ubegin = UserAddr4K::heap_offset(new);
-        let uend = UserAddr4K::heap_offset(old);
-        let area = UserArea::new(ubegin..uend, perm);
-        self.heap_size = new;
-        area
+    pub fn brk_end(&self) -> UserAddr4K {
+        self.brk_end
+    }
+    /// bool: is increase
+    pub fn set_brk(
+        &mut self,
+        brk: UserAddr4K,
+        oper: impl FnOnce(UserArea, bool) -> Result<(), SysError>,
+    ) -> Result<(), SysError> {
+        let cur_end = self.brk_end;
+        if brk == cur_end {
+            return Ok(());
+        }
+        if brk < cur_end {
+            // unmap
+            oper(UserArea::new_urw(brk.max(self.brk_base)..cur_end), false)?;
+        } else {
+            // map
+            oper(UserArea::new_urw(cur_end..brk), true)?;
+        }
+        self.brk_end = brk;
+        Ok(())
     }
 }

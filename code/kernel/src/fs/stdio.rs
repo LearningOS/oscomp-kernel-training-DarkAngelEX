@@ -21,6 +21,9 @@ impl File for Stdin {
     fn writable(&self) -> bool {
         false
     }
+    fn can_mmap(&self) -> bool {
+        false
+    }
     fn read(self: Arc<Self>, buf: UserDataMut<u8>) -> AsyncFile {
         Box::pin(async move {
             let len = buf.len();

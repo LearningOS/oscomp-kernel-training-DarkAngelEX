@@ -1,4 +1,5 @@
 use core::{
+    convert::TryFrom,
     future::Future,
     sync::atomic::Ordering,
     task::{Context, Poll},
@@ -11,7 +12,7 @@ use crate::{
     fs, local,
     memory::{
         self,
-        address::PageCount,
+        address::{PageCount, UserAddr},
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
@@ -94,7 +95,7 @@ impl Syscall<'_> {
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
             .collect::<Vec<String>>();
-            
+
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
@@ -281,6 +282,12 @@ impl Syscall<'_> {
             Target::All => todo!(),
             Target::Group(_) => todo!(),
         }
+    }
+    pub fn sys_brk(&mut self) -> SysResult {
+        let brk: usize = self.cx.para1();
+        let brk = UserAddr::try_from(brk as *const ())?.ceil();
+        self.alive_then(|a| a.user_space.reset_brk(brk))??;
+        Ok(0)
     }
 }
 

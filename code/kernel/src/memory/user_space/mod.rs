@@ -7,7 +7,6 @@ use crate::{
     config::PAGE_SIZE,
     local,
     memory::{
-        address::{VirAddr, VirAddr4K},
         allocator::frame::{self, iter::SliceFrameDataIter},
         auxv::AT_PHDR,
         map_segment::handler::{delay::DelayHandler, map_all::MapAllHandler},
@@ -85,6 +84,9 @@ impl UserArea {
         debug_assert!(range.start < range.end);
         Self { range, perm }
     }
+    pub fn new_urw(range: URange) -> Self {
+        Self::new(range, PTEFlags::U | PTEFlags::R | PTEFlags::W)
+    }
     pub fn begin(&self) -> UserAddr4K {
         self.range.start
     }
@@ -103,7 +105,7 @@ impl UserArea {
 ///
 /// shared between threads, necessary synchronizations operations are required
 pub struct UserSpace {
-    map_segment: MapSegment,
+    pub map_segment: MapSegment,
     stacks: StackSpaceManager,
     heap: HeapManager,
     // mmap_size: usize,
@@ -189,7 +191,7 @@ impl UserSpace {
         &mut self,
         stack_reverse: PageCount,
     ) -> Result<(StackID, UserAddr4K), SysError> {
-        memory_trace!("UserSpace::stack_alloc");
+        stack_trace!();
         let stack = self.stacks.alloc(stack_reverse)?;
         let area_all = stack.area_all();
         let info = stack.info();
@@ -201,29 +203,45 @@ impl UserSpace {
         Ok(info)
     }
     pub unsafe fn stack_dealloc(&mut self, stack_id: StackID) {
-        memory_trace!("UserSpace::stack_dealloc");
+        stack_trace!();
         let user_area = self.stacks.pop_stack_by_id(stack_id);
         self.stacks.dealloc(stack_id);
         self.map_segment.unmap(user_area.range_all());
     }
     pub unsafe fn stack_dealloc_all_except(&mut self, stack_id: StackID) {
-        memory_trace!("UserSpace::stack_dealloc_all_except");
+        stack_trace!();
         while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
             self.map_segment.unmap(user_area.range_all());
         }
     }
+    pub fn reset_brk(&mut self, new_brk: UserAddr4K) -> Result<(), SysError> {
+        let ms = &mut self.map_segment;
+        self.heap.set_brk(new_brk, move |r, f| {
+            if f {
+                ms.force_push(r.range, DelayHandler::box_new(r.perm))
+            } else {
+                Ok(ms.unmap(r.range))
+            }
+        })
+    }
+    pub fn heap_init(&mut self, base: UserAddr4K, init_size: PageCount) {
+        let map_area = self.heap.init(base, init_size);
+        self.map_segment
+            .force_push(map_area.range, DelayHandler::box_new(map_area.perm))
+            .unwrap();
+    }
     pub fn heap_resize(&mut self, page_count: PageCount) {
-        memory_trace!("UserSpace::heap_resize begin");
-        if page_count >= self.heap.size() {
-            let map_area = self.heap.set_size_bigger(page_count);
-            self.map_segment
-                .force_push(map_area.range, DelayHandler::box_new(map_area.perm))
-                .unwrap();
-        } else {
-            let free_area = self.heap.set_size_smaller(page_count);
-            self.map_segment.unmap(free_area.range);
-        }
-        memory_trace!("UserSpace::heap_resize end");
+        stack_trace!();
+        todo!()
+        // if page_count >= self.heap.size() {
+        //     let map_area = self.heap.set_size_bigger(page_count);
+        //     self.map_segment
+        //         .force_push(map_area.range, DelayHandler::box_new(map_area.perm))
+        //         .unwrap();
+        // } else {
+        //     let free_area = self.heap.set_size_smaller(page_count);
+        //     self.map_segment.unmap(free_area.range);
+        // }
     }
     /// return (space, stack_id, user_sp, entry_point)
     ///
@@ -233,7 +251,6 @@ impl UserSpace {
         stack_reverse: PageCount,
     ) -> Result<(Self, StackID, UserAddr4K, UserAddr, Vec<AuxHeader>), SysError> {
         stack_trace!();
-        memory_trace!("UserSpace::from_elf 0");
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
             SysError::EFAULT
@@ -302,7 +319,7 @@ impl UserSpace {
         let (stack_id, user_sp) = space.stack_alloc(stack_reverse)?;
         stack_trace!();
         // set heap
-        space.heap_resize(PageCount(1));
+        space.heap_init(max_end_4k, PageCount(1));
 
         let entry_point = elf.header.pt2.entry_point() as usize;
         Ok((space, stack_id, user_sp, entry_point.into(), auxv))

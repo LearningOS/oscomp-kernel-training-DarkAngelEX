@@ -123,6 +123,9 @@ impl File for OSInode {
     fn writable(&self) -> bool {
         self.writable
     }
+    fn can_mmap(&self) -> bool {
+        true
+    }
     fn read(self: Arc<Self>, buf: UserDataMut<u8>) -> AsyncFile {
         let mut inner = self.inner.lock(place!());
         let mut total_read_size = 0usize;

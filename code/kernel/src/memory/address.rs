@@ -194,6 +194,13 @@ macro_rules! impl_addr_4K_common {
                 self.page_offset() == 0
             }
         }
+        impl $x4K_name {
+            /// return self - other
+            pub const fn offset_to(self, other: Self) -> PageCount {
+                debug_assert!(self.0 >= other.0);
+                PageCount((self.0 - other.0) / PAGE_SIZE)
+            }
+        }
         impl From<$name> for $x4K_name {
             fn from(v: $name) -> Self {
                 v.floor()
@@ -427,6 +434,9 @@ impl UserAddr4K {
     pub const fn from_usize_check(n: usize) -> Self {
         assert!(n % PAGE_SIZE == 0 && n <= USER_END);
         Self(n)
+    }
+    pub const fn valid(self) -> Result<(), ()> {
+        tools::bool_result(self.0 <= USER_END)
     }
     pub const fn heap_offset(n: PageCount) -> Self {
         Self(USER_HEAP_BEGIN + n.byte_space())

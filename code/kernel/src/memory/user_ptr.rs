@@ -1,8 +1,10 @@
 //! 这个模块用来绕过裸指针的异步 Send 检查
 #![allow(dead_code)]
-use core::marker::PhantomData;
+use core::{convert::TryFrom, marker::PhantomData};
 
 use crate::config::USER_END;
+
+use super::address::UserAddr;
 
 pub trait Policy: Clone + Copy + 'static {}
 
@@ -61,6 +63,9 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
             return None;
         }
         Some(self.ptr)
+    }
+    pub fn as_uptr(self) -> Option<UserAddr> {
+        self.as_ptr().and_then(|a| UserAddr::try_from(a).ok())
     }
     pub fn offset(self, count: isize) -> Self {
         Self {
