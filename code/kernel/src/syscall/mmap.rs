@@ -19,7 +19,7 @@ impl Syscall<'_> {
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =
             self.cx.into();
 
-        if PRINT_SYSCALL_MMAP || true{
+        if PRINT_SYSCALL_MMAP || true {
             let addr = addr.as_usize();
             println!(
                 "sys_mmap addr:{:#x} len:{} prot:{:#x} flags:{:#x} fd:{:?} offset:{}",
@@ -41,24 +41,17 @@ impl Syscall<'_> {
             _ => return Err(SysError::EINVAL),
         };
 
-        let perm = if !prot.contains(MmapProt::NONE) {
-            let mut perm = PTEFlags::empty();
-            if prot.contains(MmapProt::WRITE) {
-                perm.insert(PTEFlags::W);
-            }
-            if prot.contains(MmapProt::READ) {
-                perm.insert(PTEFlags::R);
-            }
-            if prot.contains(MmapProt::EXEC) {
-                perm.insert(PTEFlags::X);
-            }
-            if perm.is_empty() {
-                return Err(SysError::EINVAL);
-            }
-            Some(perm)
-        } else {
-            None
-        };
+        let mut perm = PTEFlags::empty();
+        if prot.contains(MmapProt::WRITE) {
+            perm.insert(PTEFlags::W);
+        }
+        if prot.contains(MmapProt::READ) {
+            perm.insert(PTEFlags::R);
+        }
+        if prot.contains(MmapProt::EXEC) {
+            perm.insert(PTEFlags::X);
+        }
+
         let mut alive = self.alive_lock()?;
         let file = if !flags.contains(MmapFlags::ANONYMOUS) {
             let file = alive.fd_table.get(fd).ok_or(SysError::ENFILE)?;
@@ -90,11 +83,6 @@ impl Syscall<'_> {
         };
         let addr = range.start.into_usize();
         // MmapProt::NONE
-        if perm.is_none() {
-            manager.unmap(range);
-            return Ok(addr);
-        }
-        let perm = perm.unwrap();
         let handler = MmapHandler::box_new(file, offset, perm, shared);
         manager.replace(range, handler)?;
         return Ok(addr);

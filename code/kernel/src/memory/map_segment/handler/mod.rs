@@ -105,6 +105,10 @@ pub trait UserAreaHandler: Send + 'static {
             return Ok(());
         }
         let perm = self.perm();
+        // skip Guard Page
+        if perm.is_empty() {
+            return Ok(());
+        }
         let allocator = &mut frame::defualt_allocator();
         for r in pt.each_pte_iter(range) {
             let (_addr, pte) = r?;
