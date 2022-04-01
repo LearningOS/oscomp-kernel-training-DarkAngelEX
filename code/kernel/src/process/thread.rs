@@ -19,6 +19,7 @@ use crate::{
     hart::floating,
     local,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
+    signal::SignalSet,
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
@@ -93,6 +94,7 @@ pub struct ThreadInner {
     pub stack_id: StackID,
     pub set_child_tid: UserInOutPtr<u32>,
     pub clear_child_tid: UserInOutPtr<u32>,
+    pub signal_mask: SignalSet,
     uk_context: Box<UKContext>,
 }
 
@@ -133,6 +135,7 @@ impl Thread {
                 stack_id,
                 set_child_tid: UserInOutPtr::null(),
                 clear_child_tid: UserInOutPtr::null(),
+                signal_mask: SignalSet::empty(),
                 uk_context: unsafe { UKContext::any() },
             }),
         };
@@ -182,7 +185,7 @@ impl Thread {
         } else {
             UserInOutPtr::null()
         };
-
+        let signal_mask = inner.signal_mask;
         let thread = Arc::new(Self {
             tid: self.tid,
             process: new_process,
@@ -190,6 +193,7 @@ impl Thread {
                 stack_id: inner.stack_id,
                 set_child_tid,
                 clear_child_tid,
+                signal_mask,
                 uk_context: inner.uk_context.fork(),
             }),
         });

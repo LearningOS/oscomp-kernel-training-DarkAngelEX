@@ -15,6 +15,7 @@ use crate::{
 mod fs;
 mod mmap;
 mod process;
+mod signal;
 mod thread;
 mod time;
 
@@ -31,6 +32,8 @@ const SYSCALL_SET_TID_ADDRESS: usize = 96;
 const SYSCALL_SLEEP: usize = 101;
 const SYSCALL_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
+const SYSCALL_RT_SIGACTION: usize = 134;
+const SYSCALL_RT_SIGPROCMASK: usize = 135;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETUID: usize = 174;
@@ -41,6 +44,7 @@ const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAITPID: usize = 260;
 
+// rCore-tutorial
 const SYSCALL_THREAD_CREATE: usize = 1000;
 const SYSCALL_GETTID: usize = 1001;
 const SYSCALL_WAITTID: usize = 1002;
@@ -95,6 +99,8 @@ impl<'a> Syscall<'a> {
             SYSCALL_SLEEP => self.sys_sleep().await,
             SYSCALL_YIELD => self.sys_yield().await,
             SYSCALL_KILL => self.sys_kill(),
+            SYSCALL_RT_SIGACTION => self.sys_rt_sigaction().await,
+            SYSCALL_RT_SIGPROCMASK => self.sys_rt_sigprocmask().await,
             SYSCALL_GET_TIME => self.sys_gettime(),
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETUID => self.sys_getuid(),

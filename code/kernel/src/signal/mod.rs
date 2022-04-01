@@ -1,6 +1,7 @@
 use alloc::{collections::LinkedList, sync::Arc};
 
 use crate::{
+    memory::address::UserAddr,
     process::{Dead, Process},
     sync::even_bus::Event,
 };
@@ -40,7 +41,7 @@ pub enum StardardSignal {
 }
 
 bitflags! {
-    pub struct StardardSignalSet: u32 {
+    pub struct StdSignalSet: u32 {
         const SIGHUP    = 1 <<  1;   // 用户终端连接结束
         const SIGINT    = 1 <<  2;   // 程序终止 可能是Ctrl+C
         const SIGQUIT   = 1 <<  3;   // 类似SIGINT Ctrl+\
@@ -74,14 +75,62 @@ bitflags! {
     }
 }
 
+#[derive(Clone, Copy)]
+pub struct SignalSet {
+    set: [u32; 2],
+}
+impl SignalSet {
+    pub const fn empty() -> Self {
+        Self { set: [0; _] }
+    }
+    pub fn write_to(&self, dst: &mut [u32]) {
+        for (dst, &src) in dst.iter_mut().zip(&self.set) {
+            *dst = src;
+        }
+    }
+    fn clear_ignore(&mut self) {
+        self.set[0] &= !(StdSignalSet::SIGKILL | StdSignalSet::SIGSTOP).bits();
+    }
+    pub fn set_bit(&mut self, src: &[u32]) {
+        for (&src, dst) in src.iter().zip(&mut self.set) {
+            *dst |= src;
+        }
+        self.clear_ignore();
+    }
+    pub fn clear_bit(&mut self, src: &[u32]) {
+        for (&src, dst) in src.iter().zip(&mut self.set) {
+            *dst &= !src;
+        }
+        self.clear_ignore();
+    }
+    pub fn set(&mut self, src: &[u32]) {
+        for (&src, dst) in src.iter().zip(&mut self.set) {
+            *dst = src;
+        }
+        self.clear_ignore();
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub union SigActionUnion {
+    handler: UserAddr,   // (u32) -> ()
+    sigaction: UserAddr, // (u32, *siginfo_t, *()) -> ()
+}
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SigAction {
+    union: SigActionUnion,
+    mask: StdSignalSet, //
+    flags: u32,         //
+    restorer: UserAddr, // () -> ()
+}
+
 pub struct SignalPack {
     signal: StardardSignal,
 }
 
-pub fn send_signal(
-    process: Arc<Process>,
-    signal_set: StardardSignalSet,
-) -> Result<(), Dead> {
+pub fn send_signal(process: Arc<Process>, signal_set: StdSignalSet) -> Result<(), Dead> {
     let mut signal_queue = LinkedList::new();
     for i in 1..31u8 {
         if signal_set.bits() & (1 << i) != 0 {

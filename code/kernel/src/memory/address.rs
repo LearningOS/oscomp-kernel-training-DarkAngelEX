@@ -172,6 +172,9 @@ impl_usize_from!(PageCount, v, v.0);
 macro_rules! impl_addr_4K_common {
     ($name: ident, $x4K_name: ident) => {
         impl $name {
+            pub const fn is_null(self) -> bool {
+                self.0 == 0
+            }
             pub const fn floor(self) -> $x4K_name {
                 $x4K_name(self.0 & !(PAGE_SIZE - 1))
             }
