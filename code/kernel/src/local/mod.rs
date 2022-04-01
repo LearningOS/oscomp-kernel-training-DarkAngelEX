@@ -3,7 +3,7 @@ use riscv::register::sstatus;
 
 use crate::{
     config::PAGE_SIZE,
-    hart::{self, cpu, sfence},
+    hart::{self, cpu, floating, sfence},
     memory::{
         self,
         address::UserAddr4K,
@@ -125,6 +125,8 @@ impl HartLocal {
     pub fn leave_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Task(_)));
         assert!(matches!(task, LocalNow::Idle));
+        // save floating register
+        floating::switch_out(&mut self.task().thread.get_context().user_fx);
         let new = task.always(&mut self.always_local);
         let old = self.always();
         if old.sie_cur() == 0 {

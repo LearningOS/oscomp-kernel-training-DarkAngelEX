@@ -70,9 +70,13 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
             debug_assert!(offset(node.end, n) <= end);
             start = start.max(node.end);
         }
-        for (_, node) in self.0.range(start..offset(start, n)) {
-            if offset(node.end, n) > end {
+        for (&n_start, node) in self.0.range(start..end) {
+            let xend = offset(node.end, n);
+            if xend > end {
                 return None;
+            }
+            if xend <= n_start {
+                break;
             }
             start = node.end;
         }

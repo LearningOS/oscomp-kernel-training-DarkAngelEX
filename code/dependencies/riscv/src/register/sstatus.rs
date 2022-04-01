@@ -69,6 +69,10 @@ impl Sstatus {
             _ => unreachable!(),
         }
     }
+    pub fn set_fs(&mut self, fs: FS) {
+        let v: u8 = unsafe { core::mem::transmute(fs) };
+        self.bits.set_bits(13..15, v as usize);
+    }
 
     /// The status of additional user-mode extensions
     /// and associated state

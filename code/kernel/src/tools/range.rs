@@ -14,7 +14,7 @@ pub fn range_null<T: Ord + Copy>(src: Range<T>) -> Range<T> {
     let start = src.start;
     Range { start, end: start }
 }
-pub fn range_check<T: Ord + Copy>(outer: &Range<T>, inner: &Range<T>) -> Result<(), ()> {
+pub fn range_check<T: Ord + Copy>(outer: Range<T>, inner: Range<T>) -> Result<(), ()> {
     (outer.start <= inner.start && inner.start < inner.end && inner.end <= outer.end)
         .then_some(())
         .ok_or(())

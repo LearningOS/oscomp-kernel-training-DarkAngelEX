@@ -4,8 +4,8 @@ use riscv::register::{scause, sepc, sstatus, stval};
 
 use crate::{
     hart::{self, cpu},
-    local,
-    xdebug::trace, tools,
+    local, tools,
+    xdebug::trace,
 };
 
 #[no_mangle]
@@ -28,11 +28,14 @@ pub fn kernel_default_exception() {
     match exception {
         scause::Exception::InstructionMisaligned => todo!(),
         scause::Exception::InstructionFault => todo!(),
-        scause::Exception::IllegalInstruction => todo!(),
+        scause::Exception::IllegalInstruction => {
+            println!("illiegal IR of sepc: {:#x}", sepc);
+            todo!();
+        }
         scause::Exception::Breakpoint => {
             println!("breakpoint of sepc: {:#x}", sepc);
             sepc = tools::next_sepc(sepc);
-        },
+        }
         scause::Exception::LoadFault => fatal_exception_error(),
         scause::Exception::StoreMisaligned => fatal_exception_error(),
         scause::Exception::StoreFault => fatal_exception_error(),

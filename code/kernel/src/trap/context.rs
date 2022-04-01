@@ -1,12 +1,19 @@
 use alloc::boxed::Box;
+use riscv::register::fcsr::FCSR;
+use riscv::register::sstatus::FS;
 
-use crate::memory::{
-    address::UserAddr,
-    user_ptr::{Policy, UserPtr},
-};
+use crate::hart::floating;
 use crate::riscv::register::sstatus::Sstatus;
 use crate::tools::allocator::from_usize_allocator::FromUsize;
+use crate::{
+    hart::floating::FLOAT_ENABLE,
+    memory::{
+        address::UserAddr,
+        user_ptr::{Policy, UserPtr},
+    },
+};
 
+/// user-kernel context
 #[repr(C)]
 pub struct UKContext {
     pub user_rx: [usize; 32],   // 0-31
@@ -16,6 +23,17 @@ pub struct UKContext {
     pub kernel_ra: usize,       // 46
     pub kernel_sp: usize,       // 47
     pub kernel_tp: usize,       // 48
+    pub user_fx: FloatContext,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FloatContext {
+    pub fx: [f64; 32],
+    pub fcsr: FCSR,    // 32bit
+    // because of repr(C), use u8 instead of bool
+    pub need_save: u8, // become 1 when dirty, run save when switch context
+    pub need_load: u8, // become 1 when switch context, run load when into user
 }
 
 pub trait UsizeForward {
@@ -141,6 +159,7 @@ impl UKContext {
         user_sp: UserAddr,
         sepc: UserAddr,
         sstatus: Sstatus,
+        fcsr: FCSR,
         argc: usize,
         argv: usize,
         envp: usize,
@@ -149,6 +168,7 @@ impl UKContext {
         self.set_argc_argv_envp(argc, argv, envp);
         self.user_sepc = sepc.into_usize();
         self.user_sstatus = sstatus;
+        self.user_fx.fcsr = fcsr;
     }
 
     pub fn fork(&self) -> Box<Self> {
@@ -156,9 +176,29 @@ impl UKContext {
         new.user_rx = self.user_rx;
         new.user_sepc = self.user_sepc;
         new.user_sstatus = self.user_sstatus;
+        if FLOAT_ENABLE {
+            new.user_fx = self.user_fx;
+            new.user_fx.need_load = 1;
+        }
         new
     }
     pub fn run_user(&mut self) {
-        super::run_user(self)
+        match FLOAT_ENABLE {
+            true => unsafe {
+                floating::load_fx(&mut self.user_fx);
+                self.user_sstatus.set_fs(FS::Clean);
+                super::run_user(self);
+                floating::store_fx_mark(&mut self.user_fx, &mut self.user_sstatus);
+            },
+            false => {
+                super::run_user(self);
+            }
+        }
+    }
+}
+
+impl FloatContext {
+    pub unsafe fn any() -> Self {
+        core::mem::MaybeUninit::uninit().assume_init()
     }
 }

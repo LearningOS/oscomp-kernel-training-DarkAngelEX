@@ -15,6 +15,7 @@ pub mod csr;
 pub mod interrupt;
 pub mod sbi;
 pub mod sfence;
+pub mod floating;
 
 global_asm!(include_str!("./boot/entry64.asm"));
 
@@ -91,6 +92,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     timer::init();
     executor::init();
     trap::init();
+    floating::init();
     fs::init();
     process::init();
     user::test();
@@ -114,6 +116,7 @@ fn others_main(hartid: usize) -> ! {
     sfence::sfence_vma_all_global();
     sfence::fence_i();
     unsafe { trap::set_kernel_default_trap() };
+    floating::other_init();
     // local::init();
     tools::multi_thread_test(hartid);
     if !CLOSE_TIME_INTERRUPT {

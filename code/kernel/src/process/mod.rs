@@ -15,7 +15,7 @@ use crate::{
         mutex::SpinNoIrqLock as Mutex,
     },
     syscall::{SysError, UniqueSysError},
-    xdebug::NeverFail, tools::allocator::from_usize_allocator::FromUsize,
+    xdebug::NeverFail,
 };
 
 use self::{

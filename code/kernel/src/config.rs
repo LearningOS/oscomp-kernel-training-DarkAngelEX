@@ -67,11 +67,15 @@ pub const USER_HEAP_END: usize = 0x10_0000_0000;
 pub const USER_STACK_BEGIN: usize = 0x10_0000_0000;
 pub const USER_STACK_END: usize = 0x20_0000_0000;
 pub const USER_MAX_THREADS: usize = (USER_STACK_END - USER_STACK_BEGIN) / USER_STACK_SIZE;
-/// 128GB
-pub const USER_MMAP_BEGIN: usize = 0x20_0000_0000;
-pub const USER_MMAP_END: usize = 0x40_0000_0000;
+/// full range of user
+pub const USER_MMAP_BEGIN: usize = USER_DATA_BEGIN;
+pub const USER_MMAP_SEARCH: usize = 0x20_0000_0000;
+pub const USER_MMAP_END: usize = USER_END;
 
 pub const USER_MMAP_RANGE: URange =
     UserAddr::from(USER_MMAP_BEGIN).floor()..UserAddr::from(USER_MMAP_END).ceil();
+
+pub const USER_MMAP_SEARCH_RANGE: URange =
+    UserAddr::from(USER_MMAP_SEARCH).floor()..UserAddr::from(USER_MMAP_END).ceil();
 
 pub const USER_END: usize = 0x40_0000_0000;

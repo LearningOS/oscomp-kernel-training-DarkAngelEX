@@ -3,6 +3,7 @@
 use bit_field::BitField;
 
 /// Floating-point control and status register
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FCSR {
     bits: u32,

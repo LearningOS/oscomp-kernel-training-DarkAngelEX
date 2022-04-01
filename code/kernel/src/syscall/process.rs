@@ -122,10 +122,12 @@ impl Syscall<'_> {
         stack_trace!();
         drop(alive);
         self.thread.inner().stack_id = stack_id;
-        let sstatus = self.thread.get_context().user_sstatus;
+        let cx = self.thread.get_context();
+        let sstatus = cx.user_sstatus;
+        let fcsr = cx.user_fx.fcsr;
         self.thread
             .get_context()
-            .exec_init(user_sp, entry_point, sstatus, argc, argv, envp);
+            .exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
         local::all_hart_fence_i();
         check.assume_success();
         Ok(argc)

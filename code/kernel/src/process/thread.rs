@@ -16,6 +16,7 @@ use alloc::{
 use riscv::register::sstatus;
 
 use crate::{
+    hart::floating,
     local,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
@@ -139,6 +140,7 @@ impl Thread {
             user_sp,
             entry_point,
             sstatus::read(),
+            floating::default_fcsr(),
             argc,
             argv,
             xenvp,

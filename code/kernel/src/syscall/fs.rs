@@ -98,6 +98,7 @@ impl<'a> Syscall<'a> {
     }
     pub async fn sys_pipe(&mut self) -> SysResult {
         stack_trace!();
+        // println!("sys_pipe");
         let pipe: UserWritePtr<usize> = self.cx.para1();
         let write_to = UserCheck::new()
             .translated_user_writable_slice(pipe, 2)

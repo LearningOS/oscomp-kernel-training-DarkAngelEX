@@ -293,8 +293,8 @@ impl UserSpace {
                     perm |= PTEFlags::X;
                     x = 1;
                 }
-                if false {
-                    println!("{:?} -> {:?} rwx:{}{}{}", start_va, end_va, r, w, x);
+                if true {
+                    println!("    {:?} -> {:?} rwx:{}{}{} file_size:{:#x}", start_va, end_va, r, w, x, ph.file_size());
                 }
                 // assert!(start_va.is_4k_align(), "{:?}", start_va);
                 assert!(start_va.floor() >= max_end_4k);

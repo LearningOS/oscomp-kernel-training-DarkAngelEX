@@ -1,4 +1,4 @@
-use crate::config::{PAGE_SIZE, USER_MMAP_RANGE};
+use crate::config::{PAGE_SIZE, USER_MMAP_RANGE, USER_MMAP_SEARCH_RANGE};
 use crate::memory::address::PageCount;
 use crate::memory::map_segment::handler::mmap::MmapHandler;
 use crate::memory::user_ptr::UserInOutPtr;
@@ -53,13 +53,18 @@ impl Syscall<'_> {
             None
         };
         let manager = &mut alive.user_space.map_segment;
-        let limit = USER_MMAP_RANGE;
         let range = match addr.nonnull() {
             Some(ptr) => {
                 let start = ptr.as_uptr().ok_or(SysError::EFAULT)?.floor();
                 let end = start.add_page(page_count);
                 end.valid().map_err(|_| SysError::EFAULT)?;
-                tools::range::range_check(&limit, &(start..end)).map_err(|_| SysError::EFAULT)?;
+                tools::range::range_check(USER_MMAP_RANGE, start..end)
+                    .map_err(|_| SysError::EFAULT)?;
+                if !flags.contains(MmapFlags::FIXED) {
+                    manager
+                        .free_range_check(start..end)
+                        .map_err(|_| SysError::EFAULT)?;
+                }
                 start..end
             }
             None => {
@@ -67,14 +72,13 @@ impl Syscall<'_> {
                     return Err(SysError::EFAULT);
                 }
                 manager
-                    .find_free_range(limit, page_count)
+                    .find_free_range(USER_MMAP_SEARCH_RANGE, page_count)
                     .ok_or(SysError::ENOMEM)?
             }
         };
-        println!("mmap 0");
         let addr = range.start.into_usize();
         let perm = prot.into_perm();
-        // MmapProt::NONE
+
         let handler = MmapHandler::box_new(file, offset, perm, shared);
         manager.replace(range, handler)?;
         let asid = alive.asid();

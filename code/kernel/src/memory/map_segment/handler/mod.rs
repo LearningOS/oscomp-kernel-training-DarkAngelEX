@@ -174,6 +174,7 @@ pub trait UserAreaHandler: Send + 'static {
             addr,
             || {
                 let pa = frame::defualt_allocator().alloc()?.consume();
+                pa.as_bytes_array_mut().fill(0);
                 Ok(PageTableEntry::new(pa.into(), self.map_perm()))
             },
             &mut frame::defualt_allocator(),
