@@ -19,9 +19,11 @@ mod signal;
 mod thread;
 mod time;
 
-const SYSCALL_DUP: usize = 24;
+const SYSCALL_GETCWD: usize = 17;
+const SYSCALL_DUP: usize = 23;
+const SYSCALL_DUP3: usize = 24;
 const SYSCALL_IOCTL: usize = 29;
-const SYSCALL_OPEN: usize = 56;
+const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
@@ -86,9 +88,11 @@ impl<'a> Syscall<'a> {
         stack_trace!();
         self.cx.set_next_instruction();
         let result: SysResult = match self.cx.a7() {
+            SYSCALL_GETCWD => self.getcwd().await,
             SYSCALL_DUP => self.sys_dup(),
+            SYSCALL_DUP3 => self.sys_dup3(),
             SYSCALL_IOCTL => self.sys_ioctl(),
-            SYSCALL_OPEN => self.sys_open().await,
+            SYSCALL_OPENAT => self.sys_openat().await,
             SYSCALL_CLOSE => self.sys_close(),
             SYSCALL_PIPE => self.sys_pipe().await,
             SYSCALL_READ => self.sys_read().await,

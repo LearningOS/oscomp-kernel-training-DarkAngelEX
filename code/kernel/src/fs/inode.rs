@@ -1,4 +1,4 @@
-use super::{AsyncFile, File};
+use super::{AsyncFile, File, OpenFlags};
 use crate::{
     drivers::BLOCK_DEVICE,
     memory::allocator::frame,
@@ -22,7 +22,8 @@ pub struct OSInodeInner {
 }
 
 impl OSInode {
-    pub fn new(readable: bool, writable: bool, inode: Arc<Inode>) -> Self {
+    /// parameter: (readable, writable), inode
+    pub fn new((readable, writable): (bool, bool), inode: Arc<Inode>) -> Self {
         Self {
             readable,
             writable,
@@ -68,51 +69,31 @@ pub fn list_apps() {
     println!("**************/");
 }
 
-bitflags! {
-    pub struct OpenFlags: u32 {
-        const RDONLY = 0;
-        const WRONLY = 1 << 0;
-        const RDWR = 1 << 1;
-        const CREATE = 1 << 9;
-        const TRUNC = 1 << 10;
-    }
-}
-
-impl OpenFlags {
-    /// Do not check validity for simplicity
-    /// Return (readable, writable)
-    pub fn read_write(&self) -> (bool, bool) {
-        if self.is_empty() {
-            (true, false)
-        } else if self.contains(Self::WRONLY) {
-            (false, true)
-        } else {
-            (true, true)
-        }
-    }
-}
-
-pub fn open_file(name: &str, flags: OpenFlags) -> Option<Arc<OSInode>> {
-    let (readable, writable) = flags.read_write();
+pub fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<OSInode>, SysError> {
+    let rw = flags.read_write()?;
     let root_inode = root_inode();
-    if flags.contains(OpenFlags::CREATE) {
+    if flags.contains(OpenFlags::CREAT) {
         if let Some(inode) = root_inode.find(name) {
             // clear size
             inode.clear();
-            Some(Arc::new(OSInode::new(readable, writable, inode)))
+            Ok(Arc::new(OSInode::new(rw, inode)))
         } else {
             // create file
             root_inode
                 .create(name)
-                .map(|inode| Arc::new(OSInode::new(readable, writable, inode)))
+                .map(|inode| Arc::new(OSInode::new(rw, inode)))
+                .ok_or(SysError::ENFILE)
         }
     } else {
-        root_inode.find(name).map(|inode| {
-            if flags.contains(OpenFlags::TRUNC) {
-                inode.clear();
-            }
-            Arc::new(OSInode::new(readable, writable, inode))
-        })
+        root_inode
+            .find(name)
+            .map(|inode| {
+                if flags.contains(OpenFlags::TRUNC) {
+                    inode.clear();
+                }
+                Arc::new(OSInode::new(rw, inode))
+            })
+            .ok_or(SysError::ENFILE)
     }
 }
 

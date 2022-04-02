@@ -98,7 +98,7 @@ impl Syscall<'_> {
 
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
-        let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).ok_or(SysError::ENFILE)?;
+        let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY)?;
         let elf_data = inode.read_all().await;
         let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -116,10 +116,10 @@ impl Syscall<'_> {
         drop(auxv);
         drop(args);
         // reset stack_id
+        alive.fd_table.exec_run();
         alive.exec_path = path;
-        stack_trace!();
         alive.user_space = user_space;
-        stack_trace!();
+        alive.cwd = String::new();
         drop(alive);
         self.thread.inner().stack_id = stack_id;
         let cx = self.thread.get_context();

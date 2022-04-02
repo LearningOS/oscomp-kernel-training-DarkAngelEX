@@ -35,6 +35,7 @@
 #![feature(half_open_range_patterns)]
 #![feature(exclusive_range_pattern)]
 #![feature(riscv_target_feature)]
+#![feature(slice_ptr_get)]
 
 // #![allow(dead_code)]
 

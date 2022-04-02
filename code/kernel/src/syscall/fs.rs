@@ -1,7 +1,7 @@
 use alloc::string::String;
 
 use crate::{
-    fs::{self, pipe},
+    fs::{self, pipe, OpenFlags},
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::SysError,
@@ -14,15 +14,52 @@ use super::{SysResult, Syscall};
 
 const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
+const AT_FDCWD: isize = -100;
+
 impl<'a> Syscall<'a> {
+    pub async fn getcwd(&mut self) -> SysResult {
+        let (buf_in, len): (UserWritePtr<u8>, usize) = self.cx.into();
+        if buf_in.is_null() {
+            return Err(SysError::EINVAL);
+        }
+        let buf = UserCheck::new()
+            .translated_user_writable_slice(buf_in, len)
+            .await?;
+        let lock = self.alive_lock()?;
+        let cwd = &lock.cwd;
+        if buf.len() <= cwd.len() {
+            return Err(SysError::ERANGE);
+        }
+        let mut buf = buf.access_mut();
+        buf[0..cwd.len()].copy_from_slice(cwd.as_bytes());
+        buf[cwd.len()] = 0;
+        return Ok(buf_in.as_usize());
+    }
     pub fn sys_dup(&mut self) -> SysResult {
         stack_trace!();
         let fd: usize = self.cx.para1();
         let fd = Fd::from_usize(fd);
         let new = self
             .alive_then(move |a| a.fd_table.dup(fd))?
-            .ok_or(SysError::ENFILE)?;
+            .ok_or(SysError::EBADF)?;
         Ok(new.to_usize())
+    }
+    pub fn sys_dup3(&mut self) -> SysResult {
+        stack_trace!();
+        let (old_fd, new_fd, flags): (Fd, Fd, u32) = self.cx.into();
+        if PRINT_SYSCALL_FS || true {
+            println!("sys_dup3 old{:?} new{:?} flags{:#x}", old_fd, new_fd, flags);
+        }
+        let flags = OpenFlags::from_bits(flags).unwrap();
+        let flags_set = OpenFlags::CLOEXEC;
+        if !(flags & !flags_set).is_empty() {
+            panic!();
+            // return Err(SysError::EINVAL);
+        }
+        new_fd.in_range()?;
+        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
+        self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, close_on_exec))??;
+        Ok(new_fd.to_usize())
     }
     pub async fn sys_read(&mut self) -> SysResult {
         stack_trace!();
@@ -65,23 +102,31 @@ impl<'a> Syscall<'a> {
         let ret = file.write(read_only_buffer).await;
         ret
     }
-    pub async fn sys_open(&mut self) -> SysResult {
+    pub async fn sys_openat(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_open");
         }
-        let (path, flags) = {
-            let (path, flags): (UserReadPtr<u8>, u32) = self.cx.para2();
-            let path = UserCheck::new()
-                .translated_user_array_zero_end(path)
-                .await?
-                .to_vec();
-            (String::from_utf8(path)?, flags)
-        };
-        let inode = fs::open_file(path.as_str(), fs::OpenFlags::from_bits(flags).unwrap())
-            .ok_or(SysError::ENFILE)?;
-        let fd = self.alive_then(move |a| a.fd_table.insert(inode))?;
-        Ok(fd.to_usize())
+        let (fd, path, flags, _mode): (isize, UserReadPtr<u8>, u32, u32) = self.cx.into();
+        let path = UserCheck::new()
+            .translated_user_array_zero_end(path)
+            .await?
+            .to_vec();
+        let path = String::from_utf8(path)?;
+        let flags = fs::OpenFlags::from_bits(flags).unwrap();
+        let inode = fs::open_file(path.as_str(), flags)?;
+        let close_on_exec = false;
+
+        let mut alive = self.alive_lock()?;
+        if fd == AT_FDCWD {
+            let fd = alive.fd_table.insert(inode, close_on_exec);
+            Ok(fd.to_usize())
+        } else {
+            let fd = Fd::new(fd as usize);
+            fd.in_range()?;
+            alive.fd_table.set_insert(fd, inode, close_on_exec);
+            Ok(fd.to_usize())
+        }
     }
     pub fn sys_close(&mut self) -> SysResult {
         stack_trace!();
@@ -105,8 +150,8 @@ impl<'a> Syscall<'a> {
             .await?;
         let (reader, writer) = pipe::make_pipe()?;
         let (rfd, wfd) = self.alive_then(move |a| {
-            let rfd = a.fd_table.insert(reader).to_usize();
-            let wfd = a.fd_table.insert(writer).to_usize();
+            let rfd = a.fd_table.insert(reader, false).to_usize();
+            let wfd = a.fd_table.insert(writer, false).to_usize();
             (rfd, wfd)
         })?;
         write_to.access_mut().copy_from_slice(&[rfd, wfd]);

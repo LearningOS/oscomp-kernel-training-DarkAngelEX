@@ -25,11 +25,22 @@ bitflags! {
 impl Syscall<'_> {
     /// 仅修改当前线程 mask 等价于 pthread_sigmask
     pub async fn sys_rt_sigprocmask(&mut self) -> SysResult {
-        let (how, newset, oldset, s_size): (usize, UserReadPtr<u32>, UserWritePtr<u32>, usize) =
+        stack_trace!();
+        // s_size is bytes
+        let (how, newset, oldset, s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
             self.cx.into();
+        if true {
+            println!(
+                "sys_rt_sigprocmask how:{:#x} newset:{:#x} oldset:{:#x} s_size:{}",
+                how,
+                newset.as_usize(),
+                oldset.as_usize(),
+                s_size
+            );
+        }
         match s_size {
             0 => return Ok(0),
-            3.. => return Err(SysError::EINVAL),
+            9.. => return Err(SysError::EINVAL),
             _ => (),
         }
         let user_check = UserCheck::new();
@@ -39,12 +50,13 @@ impl Syscall<'_> {
         let newset = user_check
             .translated_user_readonly_slice(newset, s_size)
             .await?;
+        let newset = &*newset.access();
         let sig_mask = &mut self.thread.inner().signal_mask;
         let old = *sig_mask;
         match how {
-            SIG_BLOCK => sig_mask.set_bit(&*newset.access()),
-            SIG_UNBLOCK => sig_mask.clear_bit(&*newset.access()),
-            SIG_SETMASK => sig_mask.set(&*newset.access()),
+            SIG_BLOCK => sig_mask.set_bit(newset),
+            SIG_UNBLOCK => sig_mask.clear_bit(newset),
+            SIG_SETMASK => sig_mask.set(newset),
             _ => return Err(SysError::EINVAL),
         }
         if let Some(oldset) = oldset.nonnull_mut() {
@@ -56,8 +68,11 @@ impl Syscall<'_> {
         Ok(0)
     }
     pub async fn sys_rt_sigaction(&mut self) -> SysResult {
-        let (sig, new_act, old_act, s_size): (usize, UserReadPtr<u32>, UserWritePtr<u32>, usize) =
+        let (sig, _new_act, _old_act, _s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
             self.cx.into();
+        if sig >= 32 {
+            return Err(SysError::EINVAL);
+        }
         todo!()
     }
 }

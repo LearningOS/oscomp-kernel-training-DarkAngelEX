@@ -23,6 +23,7 @@ pub enum StardardSignal {
     SIGPIPE = 13,
     SIGALRM = 14,
     SIGTERM = 15,
+
     SIGCHLD = 17,
     SIGCONT = 18,
     SIGSTOP = 19,
@@ -57,6 +58,7 @@ bitflags! {
         const SIGPIPE   = 1 << 13;   // 管道破裂，没有读管道
         const SIGALRM   = 1 << 14;   // 时钟定时信号
         const SIGTERM   = 1 << 15;   // 程序结束信号，用来要求程序自己正常退出
+
         const SIGCHLD   = 1 << 17;   // 子进程结束时父进程收到这个信号
         const SIGCONT   = 1 << 18;   // 让停止的进程继续执行，不能阻塞 例如重新显示提示符
         const SIGSTOP   = 1 << 19;   // 暂停进程 不能阻塞或忽略
@@ -75,38 +77,57 @@ bitflags! {
     }
 }
 
+impl StdSignalSet {
+    pub fn from_bytes(a: &[u8]) -> Self {
+        let mut r = StdSignalSet::empty();
+        for (i, &v) in a.iter().take(4).enumerate() {
+            r.bits |= (v as u32) << (i * 8);
+        }
+        r
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct SignalSet {
-    set: [u32; 2],
+    set: StdSignalSet,
 }
 impl SignalSet {
     pub const fn empty() -> Self {
-        Self { set: [0; _] }
+        Self {
+            set: StdSignalSet::empty(),
+        }
     }
-    pub fn write_to(&self, dst: &mut [u32]) {
-        for (dst, &src) in dst.iter_mut().zip(&self.set) {
+    pub fn as_bytes(&self) -> [u8; 4] {
+        let mut s = [0; 4];
+        for (i, b) in s.iter_mut().enumerate() {
+            *b = (self.set.bits() >> i * 8) as u8;
+        }
+        s
+    }
+    pub fn write_to(&self, dst: &mut [u8]) {
+        for (dst, src) in dst.iter_mut().zip(self.as_bytes()) {
             *dst = src;
         }
+    }
+    fn set_sigs(&mut self, sigs: StdSignalSet) {
+        self.set |= sigs;
+    }
+    fn clear_sigs(&mut self, sigs: StdSignalSet) {
+        self.set &= !sigs;
     }
     fn clear_ignore(&mut self) {
-        self.set[0] &= !(StdSignalSet::SIGKILL | StdSignalSet::SIGSTOP).bits();
+        self.clear_sigs(StdSignalSet::SIGKILL | StdSignalSet::SIGSTOP);
     }
-    pub fn set_bit(&mut self, src: &[u32]) {
-        for (&src, dst) in src.iter().zip(&mut self.set) {
-            *dst |= src;
-        }
+    pub fn set_bit(&mut self, src: &[u8]) {
+        self.set_sigs(StdSignalSet::from_bytes(src));
         self.clear_ignore();
     }
-    pub fn clear_bit(&mut self, src: &[u32]) {
-        for (&src, dst) in src.iter().zip(&mut self.set) {
-            *dst &= !src;
-        }
+    pub fn clear_bit(&mut self, src: &[u8]) {
+        self.clear_sigs(StdSignalSet::from_bytes(src));
         self.clear_ignore();
     }
-    pub fn set(&mut self, src: &[u32]) {
-        for (&src, dst) in src.iter().zip(&mut self.set) {
-            *dst = src;
-        }
+    pub fn set(&mut self, src: &[u8]) {
+        self.set = StdSignalSet::from_bytes(src);
         self.clear_ignore();
     }
 }

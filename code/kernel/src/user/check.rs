@@ -67,7 +67,20 @@ impl UserCheck {
         let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len) };
         Ok(UserData::new(slice))
     }
-
+    /// return a slice witch len == 1
+    pub async fn translated_user_readonly_value<T: UserType>(
+        &self,
+        ptr: UserReadPtr<T>,
+    ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
+        self.translated_user_readonly_slice(ptr, 1).await
+    }
+    /// return a slice witch len == 1
+    pub async fn translated_user_writable_value<T: UserType>(
+        &self,
+        ptr: UserWritePtr<T>,
+    ) -> Result<UserDataMut<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
+        self.translated_user_writable_slice(ptr, 1).await
+    }
     pub async fn translated_user_2d_array_zero_end<T: UserType>(
         &self,
         ptr: UserReadPtr<UserReadPtr<T>>,
@@ -88,7 +101,7 @@ impl UserCheck {
         ptr: UserReadPtr<T>,
         len: usize,
     ) -> Result<UserData<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
-        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
+        if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(UniqueSysError);
         }
         let ubegin = UserAddr::try_from(ptr)?;
@@ -111,7 +124,7 @@ impl UserCheck {
         ptr: UserWritePtr<T>,
         len: usize,
     ) -> Result<UserDataMut<T>, UniqueSysError<{ SysError::EFAULT as isize }>> {
-        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
+        if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(UniqueSysError);
         }
         let ubegin = UserAddr::try_from(ptr)?;

@@ -107,6 +107,7 @@ impl Thread {
         let (user_sp, argc, argv, xenvp) =
             user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
+        let cwd = String::new();
         drop(args);
         let pid = pid_alloc();
         let tid = Tid::from_usize(pid.get_usize());
@@ -117,7 +118,7 @@ impl Thread {
             event_bus: EventBus::new(),
             alive: Mutex::new(Some(AliveProcess {
                 user_space,
-                cwd: String::new(),
+                cwd,
                 exec_path: String::new(),
                 envp,
                 parent: None,

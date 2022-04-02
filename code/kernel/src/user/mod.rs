@@ -101,6 +101,11 @@ impl<T: Clone + 'static> UserData<T> {
     pub fn to_vec(&self) -> Vec<T> {
         self.access().to_vec()
     }
+    pub fn load(&self) -> T {
+        debug_assert_eq!(self.data.len(), 1);
+        let _sum = AutoSum::new();
+        unsafe { (*self.data)[0].clone() }
+    }
 }
 
 pub struct UserDataMut<T: 'static> {
@@ -158,6 +163,16 @@ impl<T: Clone + 'static> UserDataMut<T> {
     /// after to_vec the data will no longer need space_guard.
     pub fn to_vec(&self) -> Vec<T> {
         self.access().to_vec()
+    }
+    pub fn load(&self) -> T {
+        debug_assert_eq!(self.data.len(), 1);
+        let _sum = AutoSum::new();
+        unsafe { (*self.data)[0].clone() }
+    }
+    pub fn store(&self, v: T) {
+        debug_assert_eq!(self.data.len(), 1);
+        let _sum = AutoSum::new();
+        unsafe { (*self.data)[0] = v }
     }
 }
 

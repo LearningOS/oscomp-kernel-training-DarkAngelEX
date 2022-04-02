@@ -52,6 +52,9 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
             _mark: PhantomData,
         }
     }
+    pub fn is_null(self) -> bool {
+        self.ptr.is_null()
+    }
     pub fn as_usize(self) -> usize {
         self.ptr as usize
     }
