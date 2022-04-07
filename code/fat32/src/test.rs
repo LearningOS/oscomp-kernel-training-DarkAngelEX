@@ -26,7 +26,7 @@ pub async fn test(device: impl BlockDevice) {
     println!();
 
     let mut nameset = NameSet::new(&bpb);
-    nameset.load(&bpb, CID(0), &device).await;
+    nameset.load(&bpb, CID(2), &device).await;
     nameset.show(0);
 
     println!("test end!");

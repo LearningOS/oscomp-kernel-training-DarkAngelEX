@@ -26,7 +26,7 @@ pub struct Mutex<T: ?Sized, S: MutexSupport> {
     data: UnsafeCell<T>,              // actual data
 }
 
-pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
+struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
     mutex: &'a Mutex<T, S>,
     support_guard: S::GuardData,
 }
@@ -132,7 +132,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     ///
     /// ```
     #[inline(always)]
-    pub fn lock(&self, place: &'static str) -> MutexGuard<T, S> {
+    pub fn lock(&self, place: &'static str) -> impl DerefMut<Target = T> + '_ {
         let support_guard = S::before_lock();
 
         self.ensure_support();
@@ -149,7 +149,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     }
 
     /// lock using busy waiting
-    pub fn busy_lock(&self) -> MutexGuard<T, S> {
+    pub fn busy_lock(&self) -> impl DerefMut<Target = T> + '_ {
         loop {
             if let Some(x) = self.try_lock() {
                 break x;
@@ -194,7 +194,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
 
     /// Tries to lock the mutex. If it is already locked, it will return None. Otherwise it returns
     /// a guard within Some.
-    pub fn try_lock(&self) -> Option<MutexGuard<T, S>> {
+    pub fn try_lock(&self) -> Option<impl DerefMut<Target = T> + '_> {
         let support_guard = S::before_lock();
         if self
             .lock

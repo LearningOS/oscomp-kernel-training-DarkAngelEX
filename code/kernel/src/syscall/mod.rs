@@ -7,7 +7,6 @@ use alloc::{string::FromUtf8Error, sync::Arc};
 
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
-    sync::mutex::{MutexGuard, SpinNoIrq},
     trap::context::UKContext,
     xdebug::PRINT_SYSCALL_ALL,
 };
@@ -156,7 +155,10 @@ impl<'a> Syscall<'a> {
     #[inline(always)]
     pub fn alive_lock(
         &mut self,
-    ) -> Result<AliveGurad<'_>, UniqueSysError<{ SysError::ESRCH as isize }>> {
+    ) -> Result<
+        impl DerefMut<Target = AliveProcess> + 'a,
+        UniqueSysError<{ SysError::ESRCH as isize }>,
+    > {
         let lock = self.process.alive.lock(place!());
         if lock.is_none() {
             self.do_exit = true;
@@ -166,14 +168,15 @@ impl<'a> Syscall<'a> {
     }
 }
 
-pub struct AliveGurad<'a>(MutexGuard<'a, Option<AliveProcess>, SpinNoIrq>);
-impl Deref for AliveGurad<'_> {
+trait DAP = DerefMut<Target = Option<AliveProcess>>;
+struct AliveGurad<M: DAP>(M);
+impl<M: DAP> Deref for AliveGurad<M> {
     type Target = AliveProcess;
     fn deref(&self) -> &Self::Target {
         unsafe { self.0.as_ref().unwrap_unchecked() }
     }
 }
-impl DerefMut for AliveGurad<'_> {
+impl<M: DAP> DerefMut for AliveGurad<M> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { self.0.as_mut().unwrap_unchecked() }
     }

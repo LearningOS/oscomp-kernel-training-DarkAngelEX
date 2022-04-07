@@ -104,7 +104,8 @@ impl RawBPB {
         self.data_sector_num = self.data_cluster_num * self.sector_per_cluster as usize;
     }
     pub fn cid_transform(&self, cid: CID) -> SID {
-        SID(self.data_sector_start.0 + cid.0 * self.sector_per_cluster as u32)
+        debug_assert!(cid.0 >= 2);
+        SID(self.data_sector_start.0 + cid.0 * self.sector_per_cluster as u32 - 2)
     }
 }
 

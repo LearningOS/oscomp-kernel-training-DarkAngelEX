@@ -1,4 +1,4 @@
-/// 逻辑扇区号
+/// 扇区号
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SID(pub u32);
 /// 簇号

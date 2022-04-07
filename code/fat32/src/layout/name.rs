@@ -109,11 +109,11 @@ impl RawLongName {
         let mut t = [0; 13];
         self.store_name(&mut t);
         let mut n = 0;
-        for (dst, src) in buf.iter_mut().zip(t) {
-            if src == 0 {
+        for c in char::decode_utf16(t).map(|c| c.unwrap()) {
+            if c == '\0' {
                 break;
             }
-            unsafe { *dst = char::from_u32_unchecked(src as u32) };
+            buf[n] = c;
             n += 1;
         }
         &buf[..n]
@@ -193,9 +193,9 @@ impl NameSet {
                 Some(name) => match name {
                     Name::Short(name) => {
                         let mut buf = [0; 12];
-                        let str = core::str::from_utf8(name.get_name(&mut buf)).unwrap();
+                        let str =
+                            unsafe { core::str::from_utf8_unchecked(name.get_name(&mut buf)) };
                         println!("{:3}     s:{}", i, str);
-
                     }
                     Name::Long(name) => {
                         use alloc::string::String;

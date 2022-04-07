@@ -27,6 +27,7 @@ impl FatList {
             size: 0,
         }
     }
+    /// 加载第 n 个副本
     pub async fn load(&mut self, bpb: &RawBPB, n: usize, device: &impl BlockDevice) {
         assert!(n < bpb.fat_num as usize);
         self.start = SID(bpb.fat_sector_start.0 as u32 + bpb.sector_per_fat * n as u32);
@@ -42,6 +43,10 @@ impl FatList {
                 self.free.push(cid);
             }
         }
+    }
+    /// 同步到每一个FAT
+    pub async fn sync_all(&mut self, bpb: &RawBPB, device: &impl BlockDevice) {
+        todo!()
     }
     pub fn show(&self, mut n: usize) {
         if n == 0 {

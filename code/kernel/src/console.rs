@@ -1,7 +1,10 @@
 #![allow(dead_code)]
+use alloc::boxed::Box;
+
 use crate::{hart::sbi, place};
 
-use crate::sync::mutex::{MutexGuard, SpinNoIrq, SpinNoIrqLock};
+use crate::sync::mutex::SpinNoIrqLock;
+use core::ops::DerefMut;
 use core::{
     fmt::{self, Write},
     sync::atomic::{AtomicBool, Ordering},
@@ -18,7 +21,7 @@ pub fn putchar(c: char) {
     sbi::console_putchar(c as usize);
 }
 
-static mut GLOBAL_LOCK_HLOD: Option<MutexGuard<Stdout, SpinNoIrq>> = None;
+static mut GLOBAL_LOCK_HLOD: Option<Box<dyn DerefMut<Target = Stdout>>> = None;
 
 #[no_mangle]
 pub extern "C" fn global_console_lock() {
@@ -26,7 +29,7 @@ pub extern "C" fn global_console_lock() {
         unsafe {
             let lock = WRITE_MUTEX.lock(place!());
             assert!(GLOBAL_LOCK_HLOD.is_none());
-            GLOBAL_LOCK_HLOD = Some(lock);
+            GLOBAL_LOCK_HLOD = Some(Box::new(lock));
         };
     }
 }
