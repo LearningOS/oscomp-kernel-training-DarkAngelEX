@@ -1,3 +1,6 @@
+#![feature(new_uninit)]
+#![feature(const_btree_new)]
+
 #![no_std]
 
 extern crate alloc;
@@ -12,6 +15,4 @@ mod layout;
 pub mod test;
 mod tools;
 
-pub use block_dev::{AsyncRet, LogicBlockDevice};
-
-pub const BLOCK_SZ: usize = 512;
+pub use block_dev::{AsyncRet, BlockDevice};
