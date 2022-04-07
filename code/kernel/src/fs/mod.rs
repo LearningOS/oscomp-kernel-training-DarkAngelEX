@@ -8,7 +8,6 @@ pub use self::{
     inode::{list_apps, open_file, OSInode},
     stdio::{Stdin, Stdout},
 };
-use alloc::sync::Arc;
 
 use crate::{
     syscall::{SysError, SysResult, UniqueSysError},
@@ -23,7 +22,7 @@ bitflags! {
         const WRONLY    = 00000001;
         const RDWR      = 00000002;
         const CREAT     = 00000100; // 不存在则创建
-        const EXCL      = 00000200; // 
+        const EXCL      = 00000200; //
         const NOCTTY    = 00000400; //
         const TRUNC     = 00001000; // 文件清空 ultra os is 2000 ???
         const APPEND    = 00002000;
@@ -55,7 +54,7 @@ impl OpenFlags {
     }
 }
 
-pub type AsyncFile = Async<Result<usize, SysError>>;
+pub type AsyncFile<'a> = Async<'a, Result<usize, SysError>>;
 pub trait File: Send + Sync + 'static {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
@@ -68,14 +67,14 @@ pub trait File: Send + Sync + 'static {
     fn can_write_offset(&self) -> bool {
         false
     }
-    fn read_at(self: Arc<Self>, _offset: usize, _write_only: UserDataMut<u8>) -> AsyncFile {
+    fn read_at(&self, _offset: usize, _write_only: UserDataMut<u8>) -> AsyncFile {
         unimplemented!()
     }
-    fn write_at(self: Arc<Self>, _offset: usize, _read_only: UserData<u8>) -> AsyncFile {
+    fn write_at(&self, _offset: usize, _read_only: UserData<u8>) -> AsyncFile {
         unimplemented!()
     }
-    fn read(self: Arc<Self>, write_only: UserDataMut<u8>) -> AsyncFile;
-    fn write(self: Arc<Self>, read_only: UserData<u8>) -> AsyncFile;
+    fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile;
+    fn write(&self, read_only: UserData<u8>) -> AsyncFile;
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
         Ok(0)
     }

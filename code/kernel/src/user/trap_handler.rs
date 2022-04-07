@@ -72,6 +72,7 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
         Ok(Err((addr, a))) => {
             stack_trace!();
             let sh = SpaceHolder::new(thread.process.clone());
+            let a = &*a;
             match a.a_page_fault(sh, addr).await {
                 Ok((addr, asid)) => {
                     if PRINT_PAGE_FAULT {

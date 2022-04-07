@@ -290,8 +290,7 @@ impl Syscall<'_> {
         let brk: usize = self.cx.para1();
         println!("sys_brk: {:#x}", brk);
         let brk = if brk == 0 {
-            let brk = self.alive_then(|a| a.user_space.get_brk())?;
-            brk
+            self.alive_then(|a| a.user_space.get_brk())?
         } else {
             let brk = UserAddr::try_from(brk as *const ())?.ceil();
             self.alive_then(|a| a.user_space.reset_brk(brk))??;

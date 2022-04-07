@@ -61,6 +61,32 @@ impl Drop for StackTracker {
     }
 }
 
+#[no_mangle]
+pub extern "C" fn global_xedbug_stack_push(
+    msg_ptr: *const u8,
+    msg_len: usize,
+    file_ptr: *const u8,
+    file_len: usize,
+    line: u32,
+) {
+    if STACK_TRACE {
+        use core::slice::from_raw_parts;
+        use core::str::from_utf8_unchecked;
+        unsafe {
+            let msg = from_utf8_unchecked(from_raw_parts(msg_ptr, msg_len));
+            let file = from_utf8_unchecked(from_raw_parts(file_ptr, file_len));
+            let info = StackInfo::new(XInfo::Str(msg), file, line);
+            local::always_local().stack_trace.push(info);
+        }
+    }
+}
+#[no_mangle]
+pub extern "C" fn global_xedbug_stack_pop() {
+    if STACK_TRACE {
+        local::always_local().stack_trace.pop();
+    }
+}
+
 pub enum XInfo {
     None,
     Str(&'static str),

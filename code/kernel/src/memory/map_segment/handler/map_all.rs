@@ -1,16 +1,9 @@
 use alloc::boxed::Box;
 
 use crate::{
-    memory::{
-        address::UserAddr4K,
-        allocator::frame,
-        page_table::{PTEFlags, PageTableEntry},
-        user_space::AccessType,
-        PageTable,
-    },
+    memory::{address::UserAddr4K, page_table::PTEFlags, user_space::AccessType, PageTable},
     syscall::SysError,
     tools::{
-        allocator::TrackerAllocator,
         range::URange,
         xasync::{TryR, TryRunFail},
     },

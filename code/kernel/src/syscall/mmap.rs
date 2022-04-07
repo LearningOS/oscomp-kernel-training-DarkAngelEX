@@ -87,7 +87,7 @@ impl Syscall<'_> {
         if PRINT_THIS {
             println!("    -> {:#x}", addr);
         }
-        return Ok(addr);
+        Ok(addr)
     }
     pub fn sys_mprotect(&mut self) -> SysResult {
         stack_trace!();

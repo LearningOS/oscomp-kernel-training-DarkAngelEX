@@ -104,7 +104,7 @@ impl PageTableEntry {
         self.bits & (((1usize << 10) - 1) << 54)
     }
     pub fn set_rwx(&mut self, flag: PTEFlags) {
-        let mask = (PTEFlags::R | PTEFlags::R | PTEFlags::X).bits() as usize;
+        let mask = (PTEFlags::R | PTEFlags::W | PTEFlags::X).bits() as usize;
         let flag = flag.bits() as usize & mask;
         self.bits = (self.bits & !mask) | flag;
     }

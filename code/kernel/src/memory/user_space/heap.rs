@@ -4,8 +4,7 @@ use crate::{
         page_table::PTEFlags,
         user_space::UserArea,
     },
-    syscall::{SysError, SysResult},
-    tools::range::URange,
+    syscall::SysError,
 };
 
 #[derive(Debug, Clone)]

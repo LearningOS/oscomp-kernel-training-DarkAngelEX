@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, sync::Arc};
+use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
 use crate::{
@@ -24,7 +24,7 @@ impl File for Stdin {
     fn can_mmap(&self) -> bool {
         false
     }
-    fn read(self: Arc<Self>, buf: UserDataMut<u8>) -> AsyncFile {
+    fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
         Box::pin(async move {
             let len = buf.len();
             for i in 0..len {
@@ -44,7 +44,7 @@ impl File for Stdin {
             Ok(len)
         })
     }
-    fn write(self: Arc<Self>, _buf: UserData<u8>) -> AsyncFile {
+    fn write(&self, _buf: UserData<u8>) -> AsyncFile {
         panic!("Cannot write to stdin!");
     }
 }
@@ -56,16 +56,16 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read(self: Arc<Self>, _buf: UserDataMut<u8>) -> AsyncFile {
+    fn read(&self, _buf: UserDataMut<u8>) -> AsyncFile {
         panic!("Cannot read from stdout!");
     }
-    fn write(self: Arc<Self>, buf: UserData<u8>) -> AsyncFile {
+    fn write(&self, buf: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
             // print!("!");
             let lock = STDOUT_MUTEX.lock().await;
             // print!("<");
             let str = buf.access();
-            print_unlock!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
+            print_unlocked!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
             let len = buf.len();
             drop(lock);
             // print!(">");

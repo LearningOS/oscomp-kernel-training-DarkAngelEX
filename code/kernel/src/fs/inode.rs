@@ -107,7 +107,7 @@ impl File for OSInode {
     fn can_mmap(&self) -> bool {
         true
     }
-    fn read(self: Arc<Self>, buf: UserDataMut<u8>) -> AsyncFile {
+    fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
         let mut inner = self.inner.lock(place!());
         let mut total_read_size = 0usize;
         let buffer = match frame::global::alloc() {
@@ -124,7 +124,7 @@ impl File for OSInode {
         }
         Box::pin(async move { Ok(total_read_size) })
     }
-    fn write(self: Arc<Self>, buf: UserData<u8>) -> AsyncFile {
+    fn write(&self, buf: UserData<u8>) -> AsyncFile {
         let mut inner = self.inner.lock(place!());
         let mut total_write_size = 0usize;
         let buffer = match frame::global::alloc() {

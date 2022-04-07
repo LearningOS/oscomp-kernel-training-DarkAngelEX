@@ -36,6 +36,7 @@
 #![feature(exclusive_range_pattern)]
 #![feature(riscv_target_feature)]
 #![feature(slice_ptr_get)]
+#![feature(maybe_uninit_as_bytes)]
 
 // #![allow(dead_code)]
 

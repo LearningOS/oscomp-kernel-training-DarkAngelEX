@@ -1,6 +1,7 @@
+#![allow(dead_code)]
 use crate::{hart::sbi, place};
 
-use crate::sync::mutex::SpinNoIrqLock;
+use crate::sync::mutex::{MutexGuard, SpinNoIrq, SpinNoIrqLock};
 use core::{
     fmt::{self, Write},
     sync::atomic::{AtomicBool, Ordering},
@@ -15,6 +16,32 @@ struct Stdout;
 #[inline(always)]
 pub fn putchar(c: char) {
     sbi::console_putchar(c as usize);
+}
+
+static mut GLOBAL_LOCK_HLOD: Option<MutexGuard<Stdout, SpinNoIrq>> = None;
+
+#[no_mangle]
+pub extern "C" fn global_console_lock() {
+    if OUTPUT_LOCK {
+        unsafe {
+            let lock = WRITE_MUTEX.lock(place!());
+            assert!(GLOBAL_LOCK_HLOD.is_none());
+            GLOBAL_LOCK_HLOD = Some(lock);
+        };
+    }
+}
+#[no_mangle]
+pub extern "C" fn global_console_putchar(c: usize) {
+    sbi::console_putchar(c);
+}
+#[no_mangle]
+pub extern "C" fn global_console_unlock() {
+    if OUTPUT_LOCK {
+        unsafe {
+            let lock = GLOBAL_LOCK_HLOD.take().unwrap();
+            drop(lock);
+        }
+    }
 }
 
 #[inline(always)]
@@ -56,7 +83,7 @@ pub fn print(args: fmt::Arguments) {
     }
 }
 
-pub fn print_unlock(args: fmt::Arguments) {
+pub fn print_unlocked(args: fmt::Arguments) {
     Stdout.write_fmt(args).unwrap()
 }
 
@@ -78,8 +105,8 @@ macro_rules! println {
 }
 
 #[macro_export]
-macro_rules! print_unlock {
+macro_rules! print_unlocked {
     ($fmt: literal $(, $($arg: tt)+)?) => {
-        $crate::console::print_unlock(format_args!($fmt $(, $($arg)+)?));
+        $crate::console::print_unlocked(format_args!($fmt $(, $($arg)+)?));
     }
 }

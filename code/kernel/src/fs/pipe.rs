@@ -137,7 +137,7 @@ impl File for PipeReader {
     fn writable(&self) -> bool {
         false
     }
-    fn read(self: Arc<Self>, write_only: UserDataMut<u8>) -> AsyncFile {
+    fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile {
         Box::pin(async move {
             if write_only.len() == 0 {
                 return Ok(0);
@@ -153,7 +153,7 @@ impl File for PipeReader {
             .await
         })
     }
-    fn write(self: Arc<Self>, _read_only: UserData<u8>) -> AsyncFile {
+    fn write(&self, _read_only: UserData<u8>) -> AsyncFile {
         panic!("write to PipeReader");
     }
 }
@@ -183,10 +183,10 @@ impl File for PipeWriter {
     fn writable(&self) -> bool {
         true
     }
-    fn read(self: Arc<Self>, _write_only: UserDataMut<u8>) -> AsyncFile {
+    fn read(&self, _write_only: UserDataMut<u8>) -> AsyncFile {
         panic!("read from PipeWriter");
     }
-    fn write(self: Arc<Self>, read_only: UserData<u8>) -> AsyncFile {
+    fn write(&self, read_only: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
             if read_only.len() == 0 {
                 return Ok(0);

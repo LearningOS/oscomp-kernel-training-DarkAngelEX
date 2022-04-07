@@ -1,0 +1,14 @@
+cd ./img_test
+touch aaa.
+touch bbb
+touch .bbb
+touch .ccccc
+touch d.dddd
+touch EEE
+touch noext
+touch short.txt
+touch looooooong12
+touch loooooooong13
+touch looooooooong14
+touch 12345678901234567890123456
+cd ..

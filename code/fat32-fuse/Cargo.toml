@@ -1,0 +1,13 @@
+[package]
+name = "fat32-fuse"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+fat32 = { path = "../fat32" }
+async-std = "1.11.0"
+
+[profile.dev]
+opt-level = 1

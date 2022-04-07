@@ -195,11 +195,11 @@ pub trait UserAreaHandler: Send + 'static {
     }
 }
 
-pub trait AsyncHandler: Send + 'static {
+pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
-    fn a_map(self: Box<Self>, sh: SpaceHolder, range: URange) -> AsyncR<Asid>;
+    fn a_map(&self, sh: SpaceHolder, range: URange) -> AsyncR<Asid>;
     fn a_page_fault(
-        self: Box<Self>,
+        &self,
         sh: SpaceHolder,
         addr: UserAddr4K,
     ) -> AsyncR<(UserAddr4K, Asid)>;

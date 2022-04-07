@@ -1,7 +1,7 @@
 use core::arch::asm;
 
-const SYSCALL_DUP: usize = 24;
-const SYSCALL_OPEN: usize = 56;
+const SYSCALL_DUP: usize = 23;
+const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE: usize = 59;
 const SYSCALL_READ: usize = 63;
@@ -28,24 +28,25 @@ const SYSCALL_CONDVAR_CREATE: usize = 1030;
 const SYSCALL_CONDVAR_SIGNAL: usize = 1031;
 const SYSCALL_CONDVAR_WAIT: usize = 1032;
 
-#[inline(never)]
+#[inline]
 fn syscall<const N: usize>(id: usize, args: [usize; N]) -> isize {
     let ret: isize;
     unsafe {
         // let x = core::mem::MaybeUninit::uninit().assume_init();
-        let x = 0;
-        let a = match *args.as_slice() {
-            [] => (x, x, x),
-            [a0] => (a0, x, x),
-            [a0, a1] => (a0, a1, x),
-            [a0, a1, a2] => (a0, a1, a2),
-            _ => panic!("to many args! input: {:?}", args),
-        };
+        if args.len() > 7 {
+            panic!("to many args! input: {:?}", args);
+        }
+        let mut a = [0; 7];
+        a[0..args.len()].copy_from_slice(&args);
         asm!(
             "ecall",
-            inlateout("a0") a.0 => ret,
-            in("a1") a.1,
-            in("a2") a.2,
+            inlateout("a0") a[0] => ret,
+            in("a1") a[1],
+            in("a2") a[2],
+            in("a3") a[3],
+            in("a4") a[4],
+            in("a5") a[5],
+            in("a6") a[6],
             in("a7") id
         );
     }
@@ -57,7 +58,11 @@ pub fn sys_dup(fd: usize) -> isize {
 }
 
 pub fn sys_open(path: &str, flags: u32) -> isize {
-    syscall(SYSCALL_OPEN, [path.as_ptr() as usize, flags as usize])
+    let fd = -100isize as usize;
+    syscall(
+        SYSCALL_OPENAT,
+        [fd as usize, path.as_ptr() as usize, flags as usize],
+    )
 }
 
 pub fn sys_close(fd: usize) -> isize {

@@ -1,3 +1,5 @@
+use core::mem::MaybeUninit;
+
 use alloc::boxed::Box;
 use riscv::register::fcsr::FCSR;
 use riscv::register::sstatus::FS;
@@ -121,7 +123,9 @@ cx_into_impl!(&mut UKContext, A, B, C, D, E, F, G);
 
 impl UKContext {
     pub unsafe fn any() -> Box<Self> {
-        Box::new_uninit().assume_init()
+        let mut v = Box::new_uninit();
+        v.as_bytes_mut().fill(MaybeUninit::new(0));
+        v.assume_init()
     }
     pub fn a7(&self) -> usize {
         self.user_rx[17]
@@ -194,11 +198,5 @@ impl UKContext {
                 super::run_user(self);
             }
         }
-    }
-}
-
-impl FloatContext {
-    pub unsafe fn any() -> Self {
-        core::mem::MaybeUninit::uninit().assume_init()
     }
 }
