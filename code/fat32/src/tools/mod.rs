@@ -6,22 +6,54 @@ pub struct SID(pub u32);
 pub struct CID(pub u32);
 
 impl CID {
+    pub fn set_free(&mut self) {
+        self.0 = 0;
+    }
+    pub fn set_next(&mut self, next: CID) {
+        debug_assert!(next.is_next());
+        self.0 = next.0;
+    }
     pub fn is_free(self) -> bool {
-        self.0 == 0
+        matches!(self.status(), ClStatus::Free)
+    }
+    pub fn is_using(self) -> bool {
+        self.is_next() || self.is_last()
     }
     pub fn is_last(self) -> bool {
-        self.0 >= 0x0FFFFFF8
+        matches!(self.status(), ClStatus::Last)
     }
     pub fn is_bad(self) -> bool {
-        self.0 == 0x0FFFFFF7
+        matches!(self.status(), ClStatus::Bad)
+    }
+    pub fn is_next(self) -> bool {
+        matches!(self.status(), ClStatus::Next(_))
     }
     /// 保证self不为0
     pub fn next(self) -> Option<CID> {
-        if self.0 < 0x0FFFFFF7 {
-            return Some(self);
+        match self.status() {
+            ClStatus::Next(cid) => Some(cid),
+            _ => None,
         }
-        None
     }
+    pub fn status(self) -> ClStatus {
+        match self.0 {
+            0x0 => ClStatus::Free,
+            0x1 => ClStatus::Reverse,
+            0x2..0x0FFFFFF0 => ClStatus::Next(self),
+            0x0FFFFFF0..0x0FFFFFF7 => ClStatus::Reverse,
+            0x0FFFFFF7 => ClStatus::Bad,
+            0x0FFFFFF8..0x10000000 => ClStatus::Last,
+            v => panic!("error CID:{:#x}", v),
+        }
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClStatus {
+    Free,
+    Reverse,
+    Next(CID),
+    Bad,
+    Last,
 }
 
 pub fn to_bytes_slice<T: Copy>(s: &[T]) -> &[u8] {

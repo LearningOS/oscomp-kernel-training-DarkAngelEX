@@ -9,15 +9,12 @@ use crate::{
 pub async fn test(device: impl BlockDevice) {
     stack_trace!();
     println!("test start!");
-    let mut buf = unsafe { Box::new_uninit_slice(device.sector_bytes()).assume_init() };
-    device.read_block(0, &mut buf).await.unwrap();
     let mut bpb = RawBPB::zeroed();
-    bpb.raw_load(&buf);
+    bpb.load(&device).await;
     println!("{}\n", bpb);
 
     let mut fsinfo = RawFsInfo::zeroed();
-    device.read_block(1, &mut buf).await.unwrap();
-    fsinfo.raw_load(&buf);
+    fsinfo.load(&device).await;
     println!("{}\n", fsinfo);
 
     let mut fat_list = FatList::empty();

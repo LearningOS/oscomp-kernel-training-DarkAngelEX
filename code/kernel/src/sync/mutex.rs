@@ -3,13 +3,13 @@
 use core::{
     cell::UnsafeCell,
     fmt,
-    mem::MaybeUninit,
+    marker::PhantomData,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicBool, AtomicU8, Ordering},
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use crate::{
-    hart::{cpu::hart_id, interrupt},
+    hart::{cpu, interrupt},
     timer,
 };
 
@@ -18,12 +18,10 @@ pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
 // pub type SleepLock<T> = Mutex<T, Condvar>;
 
 pub struct Mutex<T: ?Sized, S: MutexSupport> {
-    pub lock: AtomicBool,
-    _unused: usize,
-    support: MaybeUninit<S>,
-    support_initialization: AtomicU8, // 0 = uninitialized, 1 = initializing, 2 = initialized
+    lock: AtomicBool,
     user: UnsafeCell<(usize, usize)>, // (cid, tid)
-    data: UnsafeCell<T>,              // actual data
+    _marker: PhantomData<S>,
+    data: UnsafeCell<T>, // actual data
 }
 
 struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
@@ -58,10 +56,8 @@ impl<T, S: MutexSupport> Mutex<T, S> {
     pub const fn new(user_data: T) -> Mutex<T, S> {
         Mutex {
             lock: AtomicBool::new(false),
-            _unused: 0,
             data: UnsafeCell::new(user_data),
-            support: MaybeUninit::uninit(),
-            support_initialization: AtomicU8::new(0),
+            _marker: PhantomData,
             user: UnsafeCell::new((0, 0)),
         }
     }
@@ -87,7 +83,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
             let start = timer::get_time_ticks();
             // Wait until the lock looks unlocked before retrying
             while self.lock.load(Ordering::Relaxed) {
-                unsafe { &*self.support.as_ptr() }.cpu_relax();
+                core::hint::spin_loop();
                 try_count += 1;
                 if try_count == 0x10000000 {
                     let now = timer::get_time_ticks();
@@ -102,7 +98,7 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
                 }
             }
         }
-        let cid = hart_id();
+        let cid = cpu::hart_id();
         //let tid = processor().tid_option().unwrap_or(0);
         let tid = 0;
         unsafe { self.user.get().write((cid, tid)) };
@@ -134,9 +130,6 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     #[inline(always)]
     pub fn lock(&self, place: &'static str) -> impl DerefMut<Target = T> + '_ {
         let support_guard = S::before_lock();
-
-        self.ensure_support();
-
         self.obtain_lock(place);
         MutexGuard {
             mutex: self,
@@ -155,29 +148,6 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
                 break x;
             }
             //yield_now();
-        }
-    }
-
-    #[inline(always)]
-    pub fn ensure_support(&self) {
-        let initialization = self.support_initialization.load(Ordering::Relaxed);
-        if initialization == 2 {
-            return;
-        };
-        if initialization == 1
-            || self
-                .support_initialization
-                .compare_exchange(0, 1, Ordering::Acquire, Ordering::Relaxed)
-                .is_err()
-        {
-            // Wait for another thread to initialize
-            while self.support_initialization.load(Ordering::Acquire) == 1 {
-                core::hint::spin_loop();
-            }
-        } else {
-            // My turn to initialize
-            (unsafe { core::ptr::write(self.support.as_ptr() as *mut _, S::new()) });
-            self.support_initialization.store(2, Ordering::Release);
         }
     }
 
@@ -211,20 +181,16 @@ impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
     }
 }
 
-impl<T: ?Sized + fmt::Debug, S: MutexSupport + fmt::Debug> fmt::Debug for Mutex<T, S> {
+impl<T: ?Sized + fmt::Debug, S: MutexSupport> fmt::Debug for Mutex<T, S> {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match self.try_lock() {
-            Some(guard) => write!(
-                f,
-                "Mutex {{ data: {:?}, support: {:?} }}",
-                &*guard, self.support
-            ),
-            None => write!(f, "Mutex {{ <locked>, support: {:?} }}", self.support),
+            Some(guard) => write!(f, "Mutex {{ data: {:?} }}", &*guard),
+            None => write!(f, "Mutex {{ <locked> }}"),
         }
     }
 }
 
-impl<T: ?Sized + Default, S: MutexSupport> Default for Mutex<T, S> {
+impl<T: ?Sized + ~const Default, S: MutexSupport> const Default for Mutex<T, S> {
     fn default() -> Mutex<T, S> {
         Mutex::new(Default::default())
     }
@@ -248,20 +214,17 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for MutexGuard<'a, T, S> {
     fn drop(&mut self) {
         unsafe { self.mutex.user.get().write((127, 127)) };
         self.mutex.lock.store(false, Ordering::Release);
-        unsafe { &*self.mutex.support.as_ptr() }.after_unlock();
+        S::after_unlock(&mut self.support_guard);
     }
 }
 
 /// Low-level support for mutex
 pub trait MutexSupport {
     type GuardData;
-    fn new() -> Self;
-    /// Called when failing to acquire the lock
-    fn cpu_relax(&self);
     /// Called before lock() & try_lock()
     fn before_lock() -> Self::GuardData;
     /// Called when MutexGuard dropping
-    fn after_unlock(&self);
+    fn after_unlock(_: &mut Self::GuardData);
 }
 
 /// Spin lock
@@ -270,15 +233,8 @@ pub struct Spin;
 
 impl MutexSupport for Spin {
     type GuardData = ();
-
-    fn new() -> Self {
-        Spin
-    }
-    fn cpu_relax(&self) {
-        core::hint::spin_loop();
-    }
     fn before_lock() -> Self::GuardData {}
-    fn after_unlock(&self) {}
+    fn after_unlock(_: &mut Self::GuardData) {}
 }
 
 /// Spin & no-interrupt lock
@@ -302,32 +258,12 @@ impl FlagsGuard {
 
 impl MutexSupport for SpinNoIrq {
     type GuardData = FlagsGuard;
-    fn new() -> Self {
-        Self
-    }
-    fn cpu_relax(&self) {
-        core::hint::spin_loop();
-    }
     #[inline(always)]
     fn before_lock() -> Self::GuardData {
         FlagsGuard::no_irq_region()
     }
-    fn after_unlock(&self) {}
+    fn after_unlock(_: &mut Self::GuardData) {}
 }
-// impl MutexSupport for SpinNoIrq {
-//     type GuardData = AutoSie;
-//     fn new() -> Self {
-//         Self
-//     }
-//     fn cpu_relax(&self) {
-//         core::hint::spin_loop();
-//     }
-//     #[inline(always)]
-//     fn before_lock() -> Self::GuardData {
-//         AutoSie::new()
-//     }
-//     fn after_unlock(&self) {}
-// }
 
 // impl MutexSupport for Condvar {
 //     type GuardData = ();

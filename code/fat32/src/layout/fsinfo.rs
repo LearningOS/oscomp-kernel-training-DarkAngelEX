@@ -21,7 +21,7 @@ impl RawFsInfo {
     pub fn zeroed() -> Self {
         unsafe { MaybeUninit::zeroed().assume_init() }
     }
-    pub async fn load(&mut self, device: impl BlockDevice) {
+    pub async fn load(&mut self, device: &impl BlockDevice) {
         let mut buf: Box<[u8]> =
             unsafe { Box::new_uninit_slice(device.sector_bytes()).assume_init() };
         device

@@ -4,6 +4,7 @@
 #![feature(const_trait_impl)]
 #![feature(negative_impls)]
 #![feature(nonzero_ops)]
+#![feature(exclusive_range_pattern)]
 
 #![no_std]
 
