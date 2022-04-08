@@ -11,7 +11,7 @@ create: clean
 	mkfs.vfat -s 8 -F 32 $(IMG_PATH)
 
 init: create
-	sudo mount -t vfat -o user,umask=000 --source $(IMG_PATH) --target $(DIR_PATH)
+	sudo mount -t vfat -o user,umask=000,utf8=1 --source $(IMG_PATH) --target $(DIR_PATH)
 	@cd $(DIR_PATH) && \
 	mkdir dir0 && \
 	touch dir0/a && \
