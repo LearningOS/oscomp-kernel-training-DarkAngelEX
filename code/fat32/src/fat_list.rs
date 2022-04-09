@@ -28,7 +28,7 @@ impl FatList {
         }
     }
     /// 加载第 n 个副本
-    pub async fn load(&mut self, bpb: &RawBPB, n: usize, device: &impl BlockDevice) {
+    pub async fn load(&mut self, bpb: &RawBPB, n: usize, device: &dyn BlockDevice) {
         assert!(n < bpb.fat_num as usize);
         self.start = SID(bpb.fat_sector_start.0 as u32 + bpb.sector_per_fat * n as u32);
         self.size = bpb.data_cluster_num;
@@ -45,7 +45,7 @@ impl FatList {
         }
     }
     /// 同步到每一个FAT
-    pub async fn sync_all(&mut self, bpb: &RawBPB, device: &impl BlockDevice) {
+    pub async fn sync_all(&mut self, bpb: &RawBPB, device: &dyn BlockDevice) {
         todo!()
     }
     pub fn show(&self, mut n: usize) {

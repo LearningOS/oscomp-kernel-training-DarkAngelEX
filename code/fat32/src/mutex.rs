@@ -5,20 +5,21 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-pub type SpinLock<T> = Mutex<T, Spin>;
-
 pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
     mutex: &'a Mutex<T, S>,
     support_guard: S::GuardData,
 }
-impl<'a, T: ?Sized, S: MutexSupport> !Sync for MutexGuard<'a, T, S> {}
 impl<'a, T: ?Sized, S: MutexSupport> !Send for MutexGuard<'a, T, S> {}
+impl<'a, T: ?Sized, S: MutexSupport> !Sync for MutexGuard<'a, T, S> {}
 
 pub struct Mutex<T: ?Sized, S: MutexSupport> {
     lock: AtomicBool,
     _marker: PhantomData<S>,
     data: UnsafeCell<T>,
 }
+
+unsafe impl<T: ?Sized, S: MutexSupport> Send for Mutex<T, S> {}
+unsafe impl<T: ?Sized, S: MutexSupport> Sync for Mutex<T, S> {}
 
 impl<T, S: MutexSupport> Mutex<T, S> {
     pub const fn new(data: T) -> Self {
@@ -27,6 +28,9 @@ impl<T, S: MutexSupport> Mutex<T, S> {
             data: UnsafeCell::new(data),
             _marker: PhantomData,
         }
+    }
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
     }
     pub fn lock(&self) -> MutexGuard<'_, T, S> {
         let support_guard = S::before_lock();

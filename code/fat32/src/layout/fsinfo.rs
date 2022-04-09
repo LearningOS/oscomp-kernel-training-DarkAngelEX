@@ -18,16 +18,14 @@ pub struct RawFsInfo {
 }
 
 impl RawFsInfo {
-    pub fn zeroed() -> Self {
+    pub const fn zeroed() -> Self {
         unsafe { MaybeUninit::zeroed().assume_init() }
     }
-    pub async fn load(&mut self, device: &impl BlockDevice) {
+    pub async fn load(&mut self, device: &dyn BlockDevice) {
         let mut buf: Box<[u8]> =
             unsafe { Box::new_uninit_slice(device.sector_bytes()).assume_init() };
-        device
-            .read_block(device.sector_bpb() + 1, &mut buf)
-            .await
-            .unwrap();
+        let sector = device.sector_bpb() + 1;
+        device.read_block(sector, &mut buf).await.unwrap();
         self.raw_load(&buf);
     }
     pub fn raw_load(&mut self, src: &[u8]) {

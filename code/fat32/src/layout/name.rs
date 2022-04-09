@@ -176,7 +176,7 @@ impl NameSet {
             names: unsafe { Box::new_zeroed_slice(bpb.cluster_bytes / size).assume_init() },
         }
     }
-    pub async fn load(&mut self, bpb: &RawBPB, cid: CID, device: &impl BlockDevice) {
+    pub async fn load(&mut self, bpb: &RawBPB, cid: CID, device: &dyn BlockDevice) {
         let sid = bpb.cid_transform(cid);
         let buf = tools::to_bytes_slice_mut(&mut self.names);
         device.read_block(sid.0 as usize, buf).await.unwrap();

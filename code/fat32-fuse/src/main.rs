@@ -79,5 +79,5 @@ fn main() {
 async fn a_main(path: &str) {
     let file = File::open(path).await.unwrap();
     let file = BlockFile::new(file);
-    fat32::test::test(file).await;
+    fat32::xtest::test(file).await;
 }
