@@ -4,6 +4,8 @@ use alloc::boxed::Box;
 
 use crate::{tools, BlockDevice};
 
+use super::bpb::RawBPB;
+
 /// 处于FAT32保留区
 ///
 /// 通常位于逻辑扇区1
@@ -21,10 +23,10 @@ impl RawFsInfo {
     pub const fn zeroed() -> Self {
         unsafe { MaybeUninit::zeroed().assume_init() }
     }
-    pub async fn load(&mut self, device: &dyn BlockDevice) {
+    pub async fn load(&mut self, bpb: &RawBPB, device: &dyn BlockDevice) {
         let mut buf: Box<[u8]> =
             unsafe { Box::new_uninit_slice(device.sector_bytes()).assume_init() };
-        let sector = device.sector_bpb() + 1;
+        let sector = device.sector_bpb() + bpb.info_cluster_id as usize;
         device.read_block(sector, &mut buf).await.unwrap();
         self.raw_load(&buf);
     }

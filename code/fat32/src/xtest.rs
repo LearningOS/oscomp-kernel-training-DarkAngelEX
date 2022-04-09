@@ -18,7 +18,7 @@ async fn info_test(device: &dyn BlockDevice) {
     println!("{}\n", bpb);
 
     let mut fsinfo = RawFsInfo::zeroed();
-    fsinfo.load(device).await;
+    fsinfo.load(&bpb, device).await;
     println!("{}\n", fsinfo);
 
     let mut fat_list = FatList::empty();

@@ -10,6 +10,8 @@
 #![feature(map_try_insert)]
 #![feature(bool_to_option)]
 #![feature(const_maybe_uninit_zeroed)]
+#![feature(int_log)]
+#![feature(map_first_last)]
 
 extern crate alloc;
 
@@ -17,8 +19,9 @@ extern crate alloc;
 mod console;
 #[macro_use]
 mod xdebug;
+mod block_cache;
 mod block_dev;
-mod cache;
+pub mod block_sync;
 mod fat_list;
 mod layout;
 mod manager;
@@ -27,6 +30,7 @@ mod sleep_mutex;
 mod tools;
 pub mod xtest;
 pub use block_dev::{AsyncRet, BlockDevice};
+pub use manager::Fat32Manager;
 
 pub trait FsSystem {
     fn new(max_cache: usize) -> Self;

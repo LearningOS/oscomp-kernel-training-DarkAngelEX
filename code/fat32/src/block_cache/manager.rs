@@ -1,6 +1,6 @@
 use alloc::collections::BTreeMap;
 
-use crate::{cache::buffer::Buffer, layout::bpb::RawBPB, mutex::MutexSupport, tools::CID};
+use crate::{block_cache::buffer::Buffer, layout::bpb::RawBPB, mutex::MutexSupport, tools::CID};
 
 use super::{AccessID, Cache, CacheRef};
 
@@ -36,7 +36,7 @@ impl<S: MutexSupport> CacheManager<S> {
         if let Some(cache) = self.caches.get_mut(&cid) {
             // 存在缓存块 更新访问ID
             let new_id = self.alloc_id.next();
-            let old_id = unsafe { cache.update_id(new_id) };
+            let old_id = cache.update_id(new_id);
             self.access_sequence.remove(&old_id).unwrap();
             self.access_sequence.try_insert(new_id, cache).unwrap();
             return Ok(cache.get_cache_ref());

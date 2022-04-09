@@ -13,6 +13,9 @@ impl CID {
         debug_assert!(next.is_next());
         self.0 = next.0;
     }
+    pub fn set_last(&mut self) {
+        self.0 = 0x0FFFFFFF;
+    }
     pub fn is_free(self) -> bool {
         matches!(self.status(), ClStatus::Free)
     }

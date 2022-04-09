@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 pub const STACK_TRACE: bool = true;
 
 #[macro_export]

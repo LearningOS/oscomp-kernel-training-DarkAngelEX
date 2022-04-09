@@ -1,3 +1,4 @@
+#![allow(dead_code)]
 use core::{
     cell::UnsafeCell,
     marker::PhantomData,
@@ -5,7 +6,7 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
+pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a Mutex<T, S>,
     support_guard: S::GuardData,
 }
@@ -29,6 +30,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
             _marker: PhantomData,
         }
     }
+    /// rust中&mut意味着无其他引用 可以安全地获得内部引用
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
@@ -42,6 +44,7 @@ impl<T, S: MutexSupport> Mutex<T, S> {
             let mut cnt = 0;
             while self.lock.load(Ordering::Relaxed) {
                 core::hint::spin_loop();
+                // 时间约为1s
                 if cnt == 0x10000000 {
                     panic!("dead lock");
                 }
@@ -76,7 +79,7 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for MutexGuard<'a, T, S> {
     }
 }
 
-pub trait MutexSupport {
+pub trait MutexSupport: 'static {
     type GuardData;
     fn before_lock() -> Self::GuardData;
     fn after_lock(v: &Self::GuardData);

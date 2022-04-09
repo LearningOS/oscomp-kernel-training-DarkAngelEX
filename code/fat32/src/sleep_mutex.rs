@@ -19,7 +19,7 @@ pub struct RwSleepMutex<T, S: MutexSupport> {
 unsafe impl<T, S: MutexSupport> Sync for RwSleepMutex<T, S> {}
 unsafe impl<T, S: MutexSupport> Send for RwSleepMutex<T, S> {}
 
-pub struct SleepMutexGuard<'a, T, S: MutexSupport, const UNIQUE: bool> {
+struct SleepMutexGuard<'a, T, S: MutexSupport, const UNIQUE: bool> {
     mutex: &'a RwSleepMutex<T, S>,
 }
 
@@ -33,17 +33,19 @@ impl<T, S: MutexSupport> RwSleepMutex<T, S> {
             data: UnsafeCell::new(user_data),
         }
     }
+    /// rust中&mut意味着无其他引用 可以安全地获得内部引用
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
+    }
     /// 睡眠锁将交替解锁共享任务和排他任务 不保证共享锁和排他锁的解锁顺序
     pub async fn shared_lock(&self) -> impl Deref<Target = T> + Send + Sync + '_ {
-        type SharedSleepMutexFuture<'a, T, S> = SleepMutexFuture<'a, T, S, false>;
-        SharedSleepMutexFuture::new(self).await
+        SleepMutexFuture::<'_, T, S, false> { mutex: self, id: 0 }.await
     }
     /// 睡眠锁将交替解锁共享任务和排他任务 不保证共享锁和排他锁的解锁顺序
     ///
     /// 对排他锁的解锁严格按照提交顺序进行
     pub async fn unique_lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
-        type UniqueSleepMutexFuture<'a, T, S> = SleepMutexFuture<'a, T, S, true>;
-        UniqueSleepMutexFuture::new(self).await
+        SleepMutexFuture::<'_, T, S, true> { mutex: self, id: 0 }.await
     }
 }
 impl<'a, T, S: MutexSupport, const UNIQUE: bool> Deref for SleepMutexGuard<'a, T, S, UNIQUE> {
@@ -76,12 +78,6 @@ impl<'a, T, S: MutexSupport, const UNIQUE: bool> Drop for SleepMutexGuard<'a, T,
 struct SleepMutexFuture<'a, T, S: MutexSupport, const UNIQUE: bool> {
     mutex: &'a RwSleepMutex<T, S>,
     id: usize, // 0 means need alloc then.
-}
-
-impl<'a, T, S: MutexSupport, const UNIQUE: bool> SleepMutexFuture<'a, T, S, UNIQUE> {
-    pub fn new(mutex: &'a RwSleepMutex<T, S>) -> Self {
-        SleepMutexFuture { mutex, id: 0 }
-    }
 }
 
 impl<'a, T, S: MutexSupport, const UNIQUE: bool> Future for SleepMutexFuture<'a, T, S, UNIQUE> {
@@ -123,7 +119,7 @@ struct RwSleepMutexSupport {
 }
 
 impl RwSleepMutexSupport {
-    pub const fn new() -> Self {
+    const fn new() -> Self {
         RwSleepMutexSupport {
             shared: LinkedList::new(),
             unique: LinkedList::new(),
@@ -131,7 +127,8 @@ impl RwSleepMutexSupport {
             id_alloc: 1,
         }
     }
-    pub fn after_unique_lock(&mut self) -> LinkedList<(usize, Waker)> {
+    /// 解锁后再发射队列提高效率
+    fn after_unique_lock(&mut self) -> LinkedList<(usize, Waker)> {
         debug_assert!(matches!(self.slot, Slot::Locked));
         // 发射全部共享任务
         if let Some((id, _)) = self.shared.back() {
@@ -151,7 +148,7 @@ impl RwSleepMutexSupport {
         };
         return LinkedList::new();
     }
-    pub fn after_shared_lock(&mut self) -> Option<Waker> {
+    fn after_shared_lock(&mut self) -> Option<Waker> {
         match &mut self.slot {
             Slot::Shared(_, num) | Slot::SharedPending(_, num) => {
                 let old = *num;
@@ -238,7 +235,7 @@ impl RwSleepMutexSupport {
             }
         }
     }
-    pub fn shared_lock(&mut self, rid: &mut usize, waker_fn: impl FnOnce() -> Waker) -> bool {
+    fn shared_lock(&mut self, rid: &mut usize, waker_fn: impl FnOnce() -> Waker) -> bool {
         if self.try_alloc_id(rid) {
             return self.shared_lock_first(*rid, waker_fn);
         }
@@ -254,7 +251,7 @@ impl RwSleepMutexSupport {
             Slot::Locked | Slot::Unique(_) => false,
         }
     }
-    pub fn unique_lock(&mut self, rid: &mut usize, waker_fn: impl FnOnce() -> Waker) -> bool {
+    fn unique_lock(&mut self, rid: &mut usize, waker_fn: impl FnOnce() -> Waker) -> bool {
         if self.try_alloc_id(rid) {
             return self.unique_lock_first(*rid, waker_fn);
         }

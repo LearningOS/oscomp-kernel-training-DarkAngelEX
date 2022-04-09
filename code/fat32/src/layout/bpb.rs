@@ -26,8 +26,8 @@ pub struct RawBPB {
     pub sector_per_fat: u32,        // 每FAT使用扇区数 FAT32使用
     extended_flag: u16,             // 扩展标志
     version: u16,                   // 文件系统版本
-    root_cluster_id: u32,           // 根目录簇号 通常为2
-    info_cluster_id: u16,           // 文件系统信息扇区号 通常为1
+    pub root_cluster_id: u32,       // 根目录簇号 通常为2
+    pub info_cluster_id: u16,       // 文件系统信息扇区号 通常为1
     buckup_cluster_id: u16,         // 备份引导扇区 通常为6
     reversed_0: [u8; 12],           // 0
     physical_drive_num: u8,         // 物理驱动器号 软盘为0x00, 硬盘为0x80
@@ -38,6 +38,7 @@ pub struct RawBPB {
     system_id: [u8; 8],             // "FAT32"
 
     // 此部分为加载后自行计算
+    pub sector_bytes_log2: u32,  // 每扇区字节数的log2
     pub cluster_bytes: usize,    // 每簇字节数
     pub fat_sector_start: SID,   // FAT表开始扇区号
     pub data_sector_start: SID,  // 数据区开始扇区号
@@ -92,6 +93,7 @@ impl RawBPB {
         load!(self.volume_label);
         load!(self.system_id);
         debug_assert_eq!(offset, 0x5A);
+        self.sector_bytes_log2 = self.sector_bytes.log2();
         self.cluster_bytes = self.sector_bytes as usize * self.sector_per_cluster as usize;
         self.fat_sector_start = SID(self.sector_hidden + self.sector_reserved as u32);
         self.data_sector_start =
