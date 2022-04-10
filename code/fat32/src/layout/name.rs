@@ -7,28 +7,42 @@ use crate::{
 
 use super::bpb::RawBPB;
 
+bitflags! {
+    pub struct Attr: u8 {
+        const READ_ONLY = 1 << 0; // 只读
+        const HIDDEN    = 1 << 1; // 隐藏
+        const SYSTEM    = 1 << 2; // 系统
+        const VOLUME_ID = 1 << 3; // 卷标
+        const DIRECTORY = 1 << 4; // 目录
+        const ARCHIVE   = 1 << 5; // 归档
+    }
+}
+
 /// 文件名不足8则填充0x20 子目录扩展名填充0x20
 ///
 /// 被删除后name[0]变为0xE5
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawShortName {
-    name: [u8; 8],
-    ext: [u8; 3],
-    attributes: u8, // 只读 隐藏 系统 卷标 子目录 归档
-    reversed: u8,
-    create_ms: u8,    // 创建文件时间 单位为10ms
-    create_hms: u16,  // [hour|minutes|seconds/2]=[5|6|5]
-    create_date: u16, // [year-1980|mount|day]=[7|4|5]
-    access_date: u16, // [year-1980|mount|day]=[7|4|5]
-    cluster_h16: u16, // 文件起始簇号的高16位
-    modify_hms: u16,  // [hour|minutes|seconds/2]=[5|6|5]
-    modify_date: u16, // [year-1980|mount|day]=[7|4|5]
-    cluster_l16: u16, // 文件起始簇号的低16位
-    file_bytes: u32,  // 文件字节数
+    pub name: [u8; 8],
+    pub ext: [u8; 3],
+    pub attributes: Attr, // 只读 隐藏 系统 卷标 目录 归档
+    pub reversed: u8,
+    pub create_ms: u8,    // 创建文件时间 单位为10ms
+    pub create_hms: u16,  // [hour|minutes|seconds/2]=[5|6|5]
+    pub create_date: u16, // [year-1980|mount|day]=[7|4|5]
+    pub access_date: u16, // [year-1980|mount|day]=[7|4|5]
+    pub cluster_h16: u16, // 文件起始簇号的高16位
+    pub modify_hms: u16,  // [hour|minutes|seconds/2]=[5|6|5]
+    pub modify_date: u16, // [year-1980|mount|day]=[7|4|5]
+    pub cluster_l16: u16, // 文件起始簇号的低16位
+    pub file_bytes: u32,  // 文件字节数
 }
 
 impl RawShortName {
+    pub const fn zeroed() -> Self {
+        unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
+    }
     pub fn get_name<'a>(&self, buf: &'a mut [u8; 12]) -> &'a [u8] {
         let mut n = 0;
         for &ch in &self.name {
@@ -50,7 +64,6 @@ impl RawShortName {
             buf[n] = ch;
             n += 1;
         }
-
         &buf[0..n]
     }
 }
@@ -65,23 +78,26 @@ impl RawShortName {
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
 pub struct RawLongName {
-    order: u8,      // [0|last|reverse|order]=[1|1|1|5] max order = 31 start = 1
-    p1: [u16; 5],   // 5 unicode char
-    attributes: u8, // always 0x0F for long name entry
-    entry_type: u8, // always 0x0
-    checksum: u8,   // 短文件名校验值
-    p2: [u16; 6],   // 6 unicode char
-    zero2: [u8; 2], // always 0x0
-    p3: [u16; 2],   // 2 unicode char
+    order: u8,        // [0|last|reverse|order]=[1|1|1|5] max order = 31 start = 1
+    p1: [u16; 5],     // 5 unicode char
+    attributes: Attr, // always 0x0F for long name entry
+    entry_type: u8,   // always 0x0
+    checksum: u8,     // 短文件名校验值
+    p2: [u16; 6],     // 6 unicode char
+    zero2: [u8; 2],   // always 0x0
+    p3: [u16; 2],     // 2 unicode char
 }
 
 impl RawLongName {
     pub fn is_last(&self) -> bool {
-        self.attributes & 0x40 != 0
+        self.order & 0x40 != 0
     }
     pub fn order_num(&self) -> usize {
-        debug_assert!(self.order & 0x1F != 0);
-        (self.order & 0x1F) as usize
+        debug_assert!(self.order & 0b11111 != 0);
+        (self.order & 0b11111) as usize
+    }
+    pub fn set(&mut self, name: &[u16; 13], order: usize, last: bool) {
+        todo!()
     }
     pub fn store_name(&self, dst: &mut [u16; 13]) {
         for i in 0..5 {
@@ -133,29 +149,47 @@ pub enum Name<'a> {
 }
 
 impl RawName {
-    pub fn empty() -> Self {
+    pub fn alloc_init(&mut self) {
+        unsafe { self.short.name[0] = 0x00 };
+    }
+    pub fn cluster_init(buf: &mut [RawName]) {
+        buf.iter_mut().for_each(|a| a.alloc_init())
+    }
+    pub fn set_long(&mut self, name: &[u16; 13], order: usize, last: bool) {
+        unsafe {
+            self.long.set(name, order, last);
+        }
+    }
+    pub fn set_short(&mut self, short: &RawShortName) {
+        unsafe {
+            self.short = *short;
+        }
+    }
+    pub fn zeroed() -> Self {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     pub fn is_long(&self) -> bool {
-        unsafe { self.long.attributes == 0x0F }
+        self.attributes().bits() == 0x0F
+    }
+    pub fn attributes(&self) -> Attr {
+        unsafe { self.short.attributes }
+    }
+    pub fn is_free(&self) -> bool {
+        unsafe { [0x00, 0xE5].contains(&self.long.order) }
     }
     /// 如果此项为空闲项, 返回None
     pub fn get(&self) -> Option<Name> {
-        unsafe {
-            let order = self.long.order;
-            if [0x00, 0xE5].contains(&order) {
-                return None;
-            }
-            Some(self.vaild_get())
+        if self.is_free() {
+            return None;
         }
+        Some(self.vaild_get())
     }
     pub fn vaild_get(&self) -> Name {
         unsafe {
             debug_assert!(![0x00, 0xE5].contains(&self.long.order));
-
             if self.is_long() {
-                debug_assert!(self.long.order & 0xA0 == 0);
-                debug_assert!(self.long.order & 0x1F != 0);
+                debug_assert!(self.long.order & 0b1010_0000 == 0);
+                debug_assert!(self.long.order & 0b0001_1111 != 0);
                 Name::Long(&self.long)
             } else {
                 Name::Short(&self.short)

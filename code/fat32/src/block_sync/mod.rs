@@ -1,116 +1,91 @@
-pub mod sync_loop;
-
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, BTreeSet, LinkedList},
+    collections::{BTreeMap, BTreeSet},
     sync::Arc,
 };
 use core::{future::Future, pin::Pin};
 
-use crate::{
-    mutex::{Mutex, MutexSupport},
-    tools::SID,
-};
+use crate::{mutex::SpinMutex, tools::SID, xerror::SysError};
 
-pub struct SyncTask(Pin<Box<dyn Future<Output = Result<(), ()>> + Send + 'static>>);
+pub struct SyncTask(Pin<Box<dyn Future<Output = Result<(), SysError>> + Send + 'static>>);
 
 impl SyncTask {
-    pub fn new(task: impl Future<Output = Result<(), ()>> + Send + 'static) -> Self {
+    pub fn new(task: impl Future<Output = Result<(), SysError>> + Send + 'static) -> Self {
         Self(Box::pin(task))
     }
-    pub async fn run(self) -> Result<(), ()> {
+    pub async fn run(self) -> Result<(), SysError> {
         self.0.await
     }
 }
 
-/// 此管理器仅负责磁盘块同步 不要向此管理器提交读磁盘task! (读任务由进程task进行)
+/// 此管理器仅负责磁盘块同步 不要向此管理器提交读磁盘task!
 ///
-/// 对一个扇区的新task将覆盖旧task 因此读task将覆盖写task
+/// 当一个扇区的写任务未结束时, 再次获得写请求时不会立刻发送任务 保证一个扇区不会同时运行在多个任务中
+///
+/// 对一个扇区的新task将覆盖旧task
 ///
 /// 为了确保顺序的绝对正确, 应该在持有扇区锁的情况下加入此任务
 ///
-/// 保证一个扇区不会同时运行在多个任务中
+/// 此管理器发送任务的过程中不需要再次获取扇区锁
 pub struct SyncManager {
-    closed: bool,
-    tasks_running: BTreeSet<SID>,
-    tasks_pending: BTreeMap<SID, SyncTask>,
-    tasks_ready: BTreeMap<SID, SyncTask>,
-    current: SID,
+    running: BTreeSet<SID>,
+    pending: BTreeMap<SID, SyncTask>,
+    spawn_handler: Option<Box<dyn FnMut(SyncTask)>>,
 }
 
 impl SyncManager {
     pub const fn new() -> Self {
         Self {
-            closed: false,
-            tasks_running: BTreeSet::new(),
-            tasks_pending: BTreeMap::new(),
-            tasks_ready: BTreeMap::new(),
-            current: SID(0),
+            running: BTreeSet::new(),
+            pending: BTreeMap::new(),
+            spawn_handler: None,
         }
     }
-    pub fn close(&mut self) {
-        self.closed = true;
+    /// 任务将在未来执行完成
+    pub fn no_pending(&self) -> bool {
+        self.pending.is_empty()
     }
-    pub fn closed(&self) -> bool {
-        self.closed
+    /// 所有写请求都执行完成
+    pub fn idle(&self) -> bool {
+        self.pending.is_empty() && self.running.is_empty()
     }
-    pub fn no_task_will_running(&self) -> bool {
-        self.tasks_pending.is_empty() && self.tasks_ready.is_empty()
-    }
-    pub fn no_task(&self) -> bool {
-        self.tasks_pending.is_empty()
-            && self.tasks_ready.is_empty()
-            && self.tasks_running.is_empty()
-    }
-    pub fn insert(&mut self, sid: SID, task: SyncTask) {
-        assert!(!self.closed);
-        if self.tasks_running.contains(&sid) {
-            let _ = self.tasks_pending.insert(sid, task);
+    pub fn insert(this: &Arc<SpinMutex<Self>>, sid: SID, task: SyncTask) {
+        let mut lock = this.lock();
+        if lock.running.contains(&sid) {
+            let _ = lock.pending.insert(sid, task);
         } else {
-            let _ = self.tasks_ready.insert(sid, task);
+            lock.running.insert(sid);
+            let callback_task = Self::task_add_callback(this.clone(), sid, task);
+            lock.spawn_handler.as_mut().unwrap()(callback_task);
         }
     }
-    pub fn insert_list(&mut self, list: LinkedList<(SID, SyncTask)>) {
-        assert!(!self.closed);
-        for (sid, task) in list.into_iter() {
-            self.insert(sid, task);
+    pub fn insert_iter(this: &Arc<SpinMutex<Self>>, iter: impl Iterator<Item = (SID, SyncTask)>) {
+        let mut lock = this.lock();
+        for (sid, task) in iter {
+            if lock.running.contains(&sid) {
+                let _ = lock.pending.insert(sid, task);
+            } else {
+                lock.running.insert(sid);
+                let callback_task = Self::task_add_callback(this.clone(), sid, task);
+                lock.spawn_handler.as_mut().unwrap()(callback_task);
+            }
         }
     }
-    pub fn fetch<S: MutexSupport>(this: &Arc<Mutex<Self, S>>) -> Option<SyncTask> {
-        let ptr = this.clone();
-        this.lock().fetch_impl(
-            move |a, id| a.task_call_back(id),
-            move |f, id| f(&mut *ptr.lock(), id),
-        )
-    }
-    fn fetch_impl<F1, F2>(&mut self, callback: F1, self_run: F2) -> Option<SyncTask>
-    where
-        F1: FnOnce(&mut Self, SID) + Send + 'static,
-        F2: FnOnce(F1, SID) + Send + 'static,
-    {
-        if self.tasks_ready.is_empty() {
-            return None;
-        }
-        let (id, task) = if let Some((&id, _)) = self.tasks_ready.range(self.current..).next() {
-            self.current = SID(id.0 + 1);
-            (id, self.tasks_ready.remove(&id).unwrap())
-        } else {
-            let (id, task) = self.tasks_ready.pop_first().unwrap();
-            self.current = SID(id.0 + 1);
-            (id, task)
-        };
-        Some(SyncTask::new(async move {
+    fn task_add_callback(this: Arc<SpinMutex<Self>>, sid: SID, task: SyncTask) -> SyncTask {
+        SyncTask::new(async move {
             let ret = task.run().await;
-            self_run(callback, id);
+            Self::call_back(this, sid);
             ret
-        }))
+        })
     }
-    fn task_call_back(&mut self, sid: SID) {
-        if !self.tasks_running.remove(&sid) {
+    fn call_back(this: Arc<SpinMutex<Self>>, sid: SID) {
+        let mut lock = this.lock();
+        if !lock.running.remove(&sid) {
             panic!();
         }
-        if let Some(task) = self.tasks_pending.remove(&sid) {
-            self.tasks_ready.try_insert(sid, task).ok().unwrap();
+        if let Some(task) = lock.pending.remove(&sid) {
+            let callback_task = Self::task_add_callback(this.clone(), sid, task);
+            lock.spawn_handler.as_mut().unwrap()(callback_task);
         }
     }
 }

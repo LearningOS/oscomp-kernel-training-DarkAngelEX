@@ -6,6 +6,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+pub type SpinMutex<S> = Mutex<S, Spin>;
+
 pub struct MutexGuard<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a Mutex<T, S>,
     support_guard: S::GuardData,

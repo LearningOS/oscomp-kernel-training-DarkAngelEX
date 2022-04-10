@@ -41,4 +41,12 @@ extern "C" {
         line: u32,
     );
     fn global_xedbug_stack_pop();
+    fn global_xedbug_get_sie() -> u8;
+}
+
+pub fn assert_sie_closed() {
+    stack_trace!();
+    unsafe {
+        assert!(global_xedbug_get_sie() == 0);
+    }
 }

@@ -1,15 +1,27 @@
+use alloc::sync::Arc;
+
 use crate::{
+    access::AccessPath,
     fat_list::FatList,
     layout::{bpb::RawBPB, fsinfo::RawFsInfo, name::NameSet},
     tools::CID,
-    BlockDevice,
+    BlockDevice, Fat32Manager,
 };
 
 pub async fn test(device: impl BlockDevice) {
     stack_trace!();
     println!("test start!");
-    info_test(&device).await;
+    let device = Arc::new(device);
+    info_test(&*device).await;
+    system_test(device.clone()).await;
     println!("test end!");
+}
+
+async fn system_test(device: Arc<dyn BlockDevice>) {
+    let mut fat32 = Fat32Manager::new(100);
+    fat32.init(device).await;
+    let path = AccessPath::new();
+    let root = fat32.access(&path).await.unwrap();
 }
 
 async fn info_test(device: &dyn BlockDevice) {

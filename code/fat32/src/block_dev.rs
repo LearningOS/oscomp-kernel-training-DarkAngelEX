@@ -2,9 +2,11 @@ use core::{future::Future, pin::Pin};
 
 use alloc::boxed::Box;
 
+use crate::xerror::SysError;
+
 pub type Async<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
-pub type AsyncRet<'a> = Async<'a, Result<(), ()>>;
+pub type AsyncRet<'a> = Async<'a, Result<(), SysError>>;
 
 /// buf的长度必须为sector_bytes的倍数
 pub trait BlockDevice: Send + Sync + 'static {

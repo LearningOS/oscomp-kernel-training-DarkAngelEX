@@ -8,6 +8,11 @@ pub extern "C" fn global_console_lock() {}
 pub extern "C" fn global_console_unlock() {}
 
 #[no_mangle]
+pub extern "C" fn global_xedbug_get_sie() -> u8 {
+    0
+}
+
+#[no_mangle]
 pub extern "C" fn global_xedbug_stack_push(
     msg_ptr: *const u8,
     msg_len: usize,

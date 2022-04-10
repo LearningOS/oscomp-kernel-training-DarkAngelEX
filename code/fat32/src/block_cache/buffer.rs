@@ -2,12 +2,15 @@ use core::ops::Deref;
 
 use alloc::{boxed::Box, sync::Arc};
 
+use crate::{tools, xerror::SysError};
+
 /// 用于无阻塞写IO
 ///
 /// 当Shared引用计数为1时尝试写可以无复制地转换为Unique
 ///
 /// 引用计数不为1时会分配内存并复制
 pub enum Buffer {
+    // None, // allow delay alloc memory
     Unique(Box<[u8]>),
     Shared(SharedBuffer),
 }
@@ -25,11 +28,9 @@ impl Deref for SharedBuffer {
 }
 
 impl Buffer {
-    pub fn new(size: usize) -> Result<Self, ()> {
+    pub fn new(size: usize) -> Result<Self, SysError> {
         unsafe {
-            let ptr = Box::try_new_uninit_slice(size)
-                .map_err(|_| ())?
-                .assume_init();
+            let ptr = Box::try_new_uninit_slice(size)?.assume_init();
             Ok(Self::Unique(ptr))
         }
     }
@@ -46,13 +47,19 @@ impl Buffer {
             ret
         }
     }
-    pub fn access_ro(&self) -> &[u8] {
+    pub fn access_ro<T: Copy>(&self) -> &[T] {
+        tools::from_bytes_slice(self.access_ro_u8())
+    }
+    pub fn access_ro_u8(&self) -> &[u8] {
         match self {
             Buffer::Unique(ptr) => ptr,
             Buffer::Shared(ptr) => ptr,
         }
     }
-    pub fn access_rw(&mut self) -> Result<&mut [u8], ()> {
+    pub fn access_rw<T: Copy>(&mut self) -> Result<&mut [T], SysError> {
+        Ok(tools::from_bytes_slice_mut(self.access_rw_u8()?))
+    }
+    pub fn access_rw_u8(&mut self) -> Result<&mut [u8], SysError> {
         match self {
             Buffer::Unique(ptr) => Ok(ptr),
             Buffer::Shared(SharedBuffer(ptr)) => {
@@ -63,11 +70,7 @@ impl Buffer {
                     unsafe { core::ptr::write(self, Buffer::Unique(new)) };
                 } else {
                     // 分配空间
-                    let mut new = unsafe {
-                        Box::try_new_uninit_slice(ptr.len())
-                            .map_err(|_| ())?
-                            .assume_init()
-                    };
+                    let mut new = unsafe { Box::try_new_uninit_slice(ptr.len())?.assume_init() };
                     new.copy_from_slice(ptr);
                     *self = Buffer::Unique(new);
                 }

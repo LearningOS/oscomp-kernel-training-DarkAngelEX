@@ -4,6 +4,8 @@ pub const PRINT_MAP_ALL: bool = false;
 
 // pub const CLOSE_ALL_DEBUG: bool = true;
 
+use riscv::register::sstatus;
+
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = true;
 pub const PRINT_SYSCALL_ALL: bool = false;
@@ -66,4 +68,9 @@ impl NeverFail {
     pub fn assume_success(self) {
         core::mem::forget(self)
     }
+}
+
+#[no_mangle]
+pub extern "C" fn global_xedbug_get_sie() -> u8 {
+    sstatus::read().sie() as u8
 }

@@ -12,13 +12,21 @@
 #![feature(const_maybe_uninit_zeroed)]
 #![feature(int_log)]
 #![feature(map_first_last)]
+#![feature(type_alias_impl_trait)]
+#![feature(async_iterator)]
+#![feature(generic_associated_types)]
+#![feature(try_trait_v2)]
+#![feature(control_flow_enum)]
 
+#[macro_use]
+extern crate bitflags;
 extern crate alloc;
 
 #[macro_use]
 mod console;
 #[macro_use]
 mod xdebug;
+pub mod access;
 mod block_cache;
 mod block_dev;
 pub mod block_sync;
@@ -28,6 +36,7 @@ mod manager;
 mod mutex;
 mod sleep_mutex;
 mod tools;
+pub mod xerror;
 pub mod xtest;
 pub use block_dev::{AsyncRet, BlockDevice};
 pub use manager::Fat32Manager;

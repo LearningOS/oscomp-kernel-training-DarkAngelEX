@@ -4,6 +4,7 @@ use crate::{
     block_sync::SyncTask,
     layout::bpb::RawBPB,
     tools::{self, CID, SID},
+    xerror::SysError,
     BlockDevice,
 };
 
@@ -43,6 +44,10 @@ impl FatList {
             }
         }
     }
+    pub fn get_next(&self, cid: CID) -> CID {
+        assert!(cid.is_next());
+        self.list[cid.0 as usize]
+    }
     /// 表中某个簇号的偏移量
     fn get_offset_of_cid(bpb: &RawBPB, cid: CID) -> usize {
         cid.0 as usize >> (bpb.sector_bytes_log2 - core::mem::size_of::<u32>().log2())
@@ -58,24 +63,24 @@ impl FatList {
             let _ = self.dirty.insert(offset);
         }
     }
-    pub fn alloc_block(&mut self, bpb: &RawBPB) -> Option<CID> {
-        let cid = self.free.pop()?;
+    pub fn alloc_block(&mut self, bpb: &RawBPB) -> Result<CID, SysError> {
+        let cid = self.free.pop().ok_or(SysError::ENOSPC)?;
         let target = &mut self.list[cid.0 as usize];
         debug_assert!(target.is_free());
         target.set_last();
         self.set_dirty(bpb, &[cid]);
-        Some(cid)
+        Ok(cid)
     }
-    pub fn alloc_block_after(&mut self, bpb: &RawBPB, cid: CID) -> Option<CID> {
+    pub fn alloc_block_after(&mut self, bpb: &RawBPB, cid: CID) -> Result<CID, SysError> {
         let dst = &mut self.list[cid.0 as usize];
         debug_assert!(dst.is_last());
-        let new_cid = self.free.pop()?;
+        let new_cid = self.free.pop().ok_or(SysError::ENOSPC)?;
         dst.set_next(new_cid);
         let new = &mut self.list[new_cid.0 as usize];
         debug_assert!(new.is_free());
         new.set_last();
         self.set_dirty(bpb, &[cid, new_cid]);
-        Some(new_cid)
+        Ok(new_cid)
     }
     fn synctask_generate(
         list: &[CID],
@@ -83,12 +88,9 @@ impl FatList {
         offset: usize,
         bpb: &RawBPB,
         device: &Arc<dyn BlockDevice>,
-    ) -> Result<(SID, SyncTask), ()> {
-        let mut buffer = unsafe {
-            Box::try_new_uninit_slice(bpb.sector_bytes as usize)
-                .map_err(|_| ())?
-                .assume_init()
-        };
+    ) -> Result<(SID, SyncTask), SysError> {
+        let mut buffer =
+            unsafe { Box::try_new_uninit_slice(bpb.sector_bytes as usize)?.assume_init() };
         buffer.copy_from_slice(Self::get_buffer_of_sector(list, bpb, offset));
         let device = device.clone();
         let sid = SID(start.0 + offset as u32);
@@ -106,7 +108,7 @@ impl FatList {
         bpb: &RawBPB,
         starts: &[SID],
         device: &Arc<dyn BlockDevice>,
-    ) -> Result<Vec<(SID, SyncTask)>, ()> {
+    ) -> Result<Vec<(SID, SyncTask)>, SysError> {
         let mut tasks = Vec::new();
         for &start in starts {
             for &offset in &self.dirty {
@@ -125,7 +127,7 @@ impl FatList {
         bpb: &RawBPB,
         starts: &[SID],
         device: &Arc<dyn BlockDevice>,
-    ) -> Result<Vec<(SID, SyncTask)>, ()> {
+    ) -> Result<Vec<(SID, SyncTask)>, SysError> {
         let mut tasks = Vec::new();
         let offset = match self.dirty.first() {
             Some(&offset) => offset,

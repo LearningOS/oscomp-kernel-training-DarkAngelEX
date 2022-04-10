@@ -6,22 +6,56 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     block_sync::SyncTask,
-    mutex::MutexSupport,
+    layout::bpb::RawBPB,
+    mutex::Spin,
     sleep_mutex::RwSleepMutex,
-    tools::{CID, SID},
+    tools::{self, CID, SID},
+    xerror::SysError,
     BlockDevice,
 };
 
 use self::buffer::Buffer;
 
 pub enum CacheStatus {
-    None,  // 需要从磁盘读入数据
-    Clean, // 和磁盘数据一致或已提交同步任务
-    Dirty, // 需要发送同步请求 只有引用计数为0才会同步
+    // 需要从磁盘读入数据
+    None,
+    // 使用Init函数加载数据, 而不是从磁盘读取数据
+    Init(Box<dyn FnOnce(&mut [u8])>),
+    // 和磁盘数据一致或已提交同步任务
+    Clean,
+    // 需要发送同步请求 只有引用计数为0才会同步
+    Dirty,
+}
+
+impl CacheStatus {
+    pub fn need_load(&self) -> bool {
+        matches!(self, Self::None)
+    }
+    pub fn need_init(&self) -> bool {
+        matches!(self, Self::Init(_))
+    }
+    pub fn can_read_now(&self) -> bool {
+        match self {
+            Self::None => false,
+            Self::Init(_) => false,
+            Self::Clean => true,
+            Self::Dirty => true,
+        }
+    }
+    /// take init_fn and leave Dirty
+    pub fn take_init_fn(&mut self) -> Option<Box<dyn FnOnce(&mut [u8])>> {
+        if !self.need_init() {
+            return None;
+        }
+        if let Self::Init(f) = core::mem::replace(self, CacheStatus::Dirty) {
+            return Some(f);
+        }
+        unreachable!()
+    }
 }
 
 /// 此ID保证递增且不会到达上界
@@ -40,14 +74,14 @@ impl AccessID {
 /// 缓存一个簇
 ///
 /// 使用 S:MutexSupport 泛型参数是为了能在内核中关中断
-pub struct Cache<S: MutexSupport> {
+pub struct Cache {
     cid: CID,
     access_id: AccessID,
     ref_count: AtomicUsize,
-    inner: RwSleepMutex<CacheInner, S>,
+    inner: RwSleepMutex<CacheInner, Spin>,
 }
 
-impl<S: MutexSupport> Cache<S> {
+impl Cache {
     pub fn new(buffer: Buffer) -> Self {
         Self {
             cid: CID(0),
@@ -64,45 +98,72 @@ impl<S: MutexSupport> Cache<S> {
         self.cid = cid;
         self.access_id = access_id;
     }
+    pub fn set_init_fn(&mut self, init: impl FnOnce(&mut [u8]) + 'static) {
+        assert!(self.no_owner());
+        self.inner.get_mut().state = CacheStatus::Init(Box::new(init));
+    }
     /// 以只读打开一个缓存块 允许多个进程同时访问
-    pub async fn get_ro(
+    pub async fn get_ro<T: Copy, V>(
         &self,
-        op: impl FnOnce(&[u8]) -> Result<(), ()>,
-        transform: impl FnOnce(CID) -> SID,
+        op: impl FnOnce(&[T]) -> V,
+        bpb: &RawBPB,
         device: &dyn BlockDevice,
-    ) -> Result<(), ()> {
+    ) -> Result<V, SysError> {
         stack_trace!();
         if let Some(buffer) = self.inner.shared_lock().await.try_buffer_ro() {
-            return op(buffer);
+            return Ok(op(buffer));
         }
         self.inner
             .unique_lock()
             .await
-            .load_if_need(transform(self.cid), device)
+            .load_if_need(bpb.cid_transform(self.cid), device)
             .await?;
-        op(self.inner.shared_lock().await.try_buffer_ro().unwrap())
+        Ok(op(self.inner.shared_lock().await.try_buffer_ro().unwrap()))
     }
     /// 以读写模式打开一个缓存块
-    pub async fn get_rw(
+    pub async fn get_rw<T: Copy, V>(
         &self,
-        op: impl FnOnce(&mut [u8]) -> Result<(), ()>,
-        transform: impl FnOnce(CID) -> SID,
+        op: impl FnOnce(&mut [T]) -> V,
+        bpb: &RawBPB,
         device: &dyn BlockDevice,
-    ) -> Result<(), ()> {
+    ) -> Result<V, SysError> {
         stack_trace!();
         let mut lock = self.inner.unique_lock().await;
         if let Some(buffer) = lock.try_buffer_rw()? {
-            return op(buffer);
+            return Ok(op(buffer));
         }
-        lock.load_if_need(transform(self.cid), device).await?;
-        op(lock.try_buffer_rw().unwrap().unwrap())
+        lock.load_if_need(bpb.cid_transform(self.cid), device)
+            .await?;
+        Ok(op(lock.try_buffer_rw().unwrap().unwrap()))
     }
-    /// 使用此函数获取的值将初始化为0 缓存块不存在也不会向磁盘发送申请
-    pub async fn get_rw_zeroed(
+    /// 当op返回true时将调用apply函数
+    pub async fn get_apply<T: Copy, V, A>(
         &self,
-        f: impl FnOnce(&mut [u8]) -> Result<(), ()>,
-    ) -> Result<(), ()> {
-        f(self.inner.unique_lock().await.get_buffer_rw_zeroed()?)
+        op: impl FnOnce(&[T]) -> V,
+        tran: impl FnOnce(&V) -> Option<A>,
+        apply: impl FnOnce(A, &mut [T]),
+        bpb: &RawBPB,
+        device: &dyn BlockDevice,
+    ) -> Result<V, SysError> {
+        stack_trace!();
+        let mut lock = self.inner.unique_lock().await;
+        if let Some(buffer) = unsafe { lock.try_buffer_rw_no_dirty()? } {
+            let v = op(buffer);
+            if let Some(a) = tran(&v) {
+                apply(a, buffer);
+                lock.set_dirty();
+            }
+            return Ok(v);
+        }
+        lock.load_if_need(bpb.cid_transform(self.cid), device)
+            .await?;
+        let buffer = unsafe { lock.try_buffer_rw_no_dirty().unwrap().unwrap() };
+        let v = op(buffer);
+        if let Some(a) = tran(&v) {
+            apply(a, buffer);
+            lock.set_dirty();
+        }
+        return Ok(v);
     }
     /// 更新访问时间, 返回旧的值用于manager中更新顺序
     ///
@@ -114,7 +175,7 @@ impl<S: MutexSupport> Cache<S> {
     pub fn no_owner(&self) -> bool {
         self.ref_count.load(Ordering::Relaxed) == 0
     }
-    pub fn get_cache_ref(&self) -> CacheRef<S> {
+    pub fn get_cache_ref(&self) -> CacheRef {
         self.ref_count.fetch_add(1, Ordering::Relaxed);
         CacheRef::new(self)
     }
@@ -138,39 +199,63 @@ impl CacheInner {
         }
     }
     /// 如果数据未加载则返回None
-    pub fn try_buffer_ro(&self) -> Option<&[u8]> {
-        match self.state {
-            CacheStatus::None => None,
-            _ => Some(self.buffer.access_ro()),
+    pub fn try_buffer_ro<T: Copy>(&self) -> Option<&[T]> {
+        match &self.state {
+            CacheStatus::None | CacheStatus::Init(_) => None,
+            CacheStatus::Clean | CacheStatus::Dirty => Some(self.buffer.access_ro()),
         }
     }
     /// 如果数据未加载则从device加载数据
-    pub fn try_buffer_rw(&mut self) -> Result<Option<&mut [u8]>, ()> {
-        if matches!(self.state, CacheStatus::None) {
+    pub fn try_buffer_rw<T: Copy>(&mut self) -> Result<Option<&mut [T]>, SysError> {
+        if self.state.need_load() {
             return Ok(None);
         }
         let buffer = self.buffer.access_rw()?;
+        if let Some(f) = self.state.take_init_fn() {
+            f(tools::to_bytes_slice_mut(buffer));
+        }
         self.state = CacheStatus::Dirty;
         Ok(Some(buffer))
     }
-    /// Err means out of memory
-    pub fn get_buffer_rw_zeroed(&mut self) -> Result<&mut [u8], ()> {
+    /// 此函数和set_dirty配对
+    pub unsafe fn try_buffer_rw_no_dirty<T: Copy>(&mut self) -> Result<Option<&mut [T]>, SysError> {
+        if self.state.need_load() {
+            return Ok(None);
+        }
         let buffer = self.buffer.access_rw()?;
-        buffer.fill(0);
-        Ok(buffer)
+        if let Some(f) = self.state.take_init_fn() {
+            f(tools::to_bytes_slice_mut(buffer));
+        }
+        Ok(Some(buffer))
     }
-    pub async fn load_if_need(&mut self, sid: SID, device: &dyn BlockDevice) -> Result<(), ()> {
-        if !matches!(self.state, CacheStatus::None) {
+    pub fn set_dirty(&mut self) {
+        debug_assert!(self.state.can_read_now());
+        self.state = CacheStatus::Dirty;
+    }
+    pub async fn load_if_need(
+        &mut self,
+        sid: SID,
+        device: &dyn BlockDevice,
+    ) -> Result<(), SysError> {
+        if self.state.can_read_now() {
             return Ok(());
         }
         stack_trace!();
         let buffer = self.buffer.access_rw()?;
+        if let Some(init_fn) = self.state.take_init_fn() {
+            init_fn(buffer);
+            return Ok(());
+        }
         device.read_block(sid.0 as usize, buffer).await?;
         self.state = CacheStatus::Clean;
         Ok(())
     }
     /// 阻塞在睡眠锁中
-    pub async fn store_if_need(&mut self, sid: SID, device: &dyn BlockDevice) -> Result<(), ()> {
+    pub async fn store_if_need(
+        &mut self,
+        sid: SID,
+        device: &dyn BlockDevice,
+    ) -> Result<(), SysError> {
         if !matches!(self.state, CacheStatus::Dirty) {
             return Ok(());
         }
@@ -201,23 +286,23 @@ impl CacheInner {
     }
 }
 
-pub struct CacheRef<S: MutexSupport> {
-    cache: *const Cache<S>,
+pub struct CacheRef {
+    cache: *const Cache,
 }
-impl<S: MutexSupport> CacheRef<S> {
-    pub fn new(cache: *const Cache<S>) -> Self {
+impl CacheRef {
+    pub fn new(cache: *const Cache) -> Self {
         Self { cache }
     }
 }
 
-impl<S: MutexSupport> Deref for CacheRef<S> {
-    type Target = Cache<S>;
+impl Deref for CacheRef {
+    type Target = Cache;
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.cache }
     }
 }
 
-impl<S: MutexSupport> Drop for CacheRef<S> {
+impl Drop for CacheRef {
     fn drop(&mut self) {
         unsafe {
             let prev = (*self.cache).ref_count.fetch_sub(1, Ordering::Relaxed);
@@ -226,7 +311,7 @@ impl<S: MutexSupport> Drop for CacheRef<S> {
     }
 }
 
-impl<S: MutexSupport> Clone for CacheRef<S> {
+impl Clone for CacheRef {
     fn clone(&self) -> Self {
         self.ref_count.fetch_add(1, Ordering::Relaxed);
         Self { cache: self.cache }

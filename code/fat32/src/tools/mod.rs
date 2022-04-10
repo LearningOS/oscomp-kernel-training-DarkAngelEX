@@ -1,3 +1,5 @@
+pub mod xasync;
+
 /// 扇区号
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct SID(pub u32);
@@ -69,6 +71,27 @@ pub fn to_bytes_slice_mut<T: Copy>(s: &mut [T]) -> &mut [u8] {
     unsafe {
         let len = s.len() * core::mem::size_of::<T>();
         &mut *core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut u8, len)
+    }
+}
+
+pub fn from_bytes_slice<T: Copy>(s: &[u8]) -> &[T] {
+    unsafe {
+        if cfg!(debug_assert) {
+            let (a, _b, c) = s.align_to::<T>();
+            assert!(a.is_empty() && c.is_empty());
+        }
+        let len = s.len() / core::mem::size_of::<T>();
+        &*core::slice::from_raw_parts(s.as_ptr() as *const T, len)
+    }
+}
+pub fn from_bytes_slice_mut<T: Copy>(s: &mut [u8]) -> &mut [T] {
+    unsafe {
+        if cfg!(debug_assert) {
+            let (a, _b, c) = s.align_to::<T>();
+            assert!(a.is_empty() && c.is_empty());
+        }
+        let len = s.len() / core::mem::size_of::<T>();
+        &mut *core::slice::from_raw_parts_mut(s.as_mut_ptr() as *mut T, len)
     }
 }
 

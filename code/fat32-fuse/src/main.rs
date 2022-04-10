@@ -13,7 +13,7 @@ extern crate async_std;
 extern crate clap;
 extern crate fat32;
 
-use fat32::{AsyncRet, BlockDevice};
+use fat32::{xerror::SysError, AsyncRet, BlockDevice};
 
 struct BlockFile {
     file: Mutex<File>,
@@ -41,8 +41,8 @@ impl BlockDevice for BlockFile {
                 (block_id * self.sector_bytes()) as u64,
             ))
             .await
-            .map_err(|_e| ())?;
-            file.read(buf).await.map_err(|_e| ())?;
+            .map_err(|_e| SysError::EIO)?;
+            file.read(buf).await.map_err(|_e| SysError::EIO)?;
             Ok(())
         })
     }
@@ -55,8 +55,8 @@ impl BlockDevice for BlockFile {
                 (block_id * self.sector_bytes()) as u64,
             ))
             .await
-            .map_err(|_e| ())?;
-            file.write(buf).await.map_err(|_e| ())?;
+            .map_err(|_e| SysError::EIO)?;
+            file.write(buf).await.map_err(|_e| SysError::EIO)?;
             Ok(())
         })
     }
