@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
 use crate::{
-    tools::{self, CID},
+    tools::{self, Align8, CID},
     BlockDevice,
 };
 
@@ -43,6 +43,9 @@ impl RawShortName {
     pub const fn zeroed() -> Self {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
+    pub fn raw_name(&self) -> ([u8; 8], [u8; 3]) {
+        (self.name, self.ext)
+    }
     pub fn get_name<'a>(&self, buf: &'a mut [u8; 12]) -> &'a [u8] {
         let mut n = 0;
         for &ch in &self.name {
@@ -65,6 +68,56 @@ impl RawShortName {
             n += 1;
         }
         &buf[0..n]
+    }
+    pub fn checksum(&self) -> u8 {
+        todo!()
+    }
+    pub fn cid(&self) -> CID {
+        CID((self.cluster_h16 as u32) << 16 | self.cluster_l16 as u32)
+    }
+    pub fn set_cluster(&mut self, cid: CID) {
+        self.cluster_h16 = (cid.0 >> 16) as u16;
+        self.cluster_l16 = cid.0 as u16;
+    }
+    // -> (hms, date)
+    fn time_tran(
+        (year, mount, day): (usize, usize, usize),
+        (hour, min, sec): (usize, usize, usize),
+    ) -> (u16, u16) {
+        let year = year - 1980;
+        let sec = sec / 2;
+        debug_assert!(year < 1 << 7);
+        debug_assert!(mount <= 12);
+        debug_assert!(day <= 31);
+        debug_assert!(hour < 24);
+        debug_assert!(min < 60);
+        debug_assert!(sec < 30);
+        let hms = hour << 11 | min << 5 | sec;
+        let date = year << 9 | mount << 5 | day;
+        (hms as u16, date as u16)
+    }
+    pub fn set_create_time(
+        &mut self,
+        ymd: (usize, usize, usize),
+        hms: (usize, usize, usize),
+        ms: usize,
+    ) {
+        stack_trace!();
+        assert!(ms <= 200);
+        let (hms, date) = Self::time_tran(ymd, hms);
+        self.create_ms = ms as u8;
+        self.create_hms = hms;
+        self.create_date = date;
+    }
+    pub fn set_access_date(&mut self, ymd: (usize, usize, usize)) {
+        let (_, date) = Self::time_tran(ymd, (0, 0, 0));
+        self.access_date = date;
+    }
+    pub fn set_modify_time(&mut self, ymd: (usize, usize, usize), hms: (usize, usize, usize)) {
+        stack_trace!();
+        let (hms, date) = Self::time_tran(ymd, hms);
+        self.modify_hms = hms;
+        self.modify_date = date;
     }
 }
 
@@ -96,8 +149,14 @@ impl RawLongName {
         debug_assert!(self.order & 0b11111 != 0);
         (self.order & 0b11111) as usize
     }
-    pub fn set(&mut self, name: &[u16; 13], order: usize, last: bool) {
-        todo!()
+    pub fn set(&mut self, name: &[u16; 13], order: usize, last: bool, checksum: u8) {
+        debug_assert!(order < 32);
+        self.load_name(name);
+        self.order = ((last as u8) << 7) | (order as u8);
+        self.attributes = Attr::from_bits_truncate(0x0f);
+        self.entry_type = 0;
+        self.checksum = checksum;
+        self.zero2 = [0; 2];
     }
     pub fn store_name(&self, dst: &mut [u16; 13]) {
         for i in 0..5 {
@@ -136,7 +195,7 @@ impl RawLongName {
     }
 }
 
-#[repr(C)]
+#[repr(C, align(32))]
 #[derive(Clone, Copy)]
 pub union RawName {
     short: RawShortName,
@@ -144,8 +203,8 @@ pub union RawName {
 }
 
 pub enum Name<'a> {
-    Short(&'a RawShortName),
-    Long(&'a RawLongName),
+    Short(&'a Align8<RawShortName>),
+    Long(&'a Align8<RawLongName>),
 }
 
 impl RawName {
@@ -155,15 +214,13 @@ impl RawName {
     pub fn cluster_init(buf: &mut [RawName]) {
         buf.iter_mut().for_each(|a| a.alloc_init())
     }
-    pub fn set_long(&mut self, name: &[u16; 13], order: usize, last: bool) {
+    pub fn set_long(&mut self, name: &[u16; 13], order: usize, last: bool, checksum: u8) {
         unsafe {
-            self.long.set(name, order, last);
+            self.long.set(name, order, last, checksum);
         }
     }
     pub fn set_short(&mut self, short: &RawShortName) {
-        unsafe {
-            self.short = *short;
-        }
+        self.short = *short;
     }
     pub fn zeroed() -> Self {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
@@ -190,9 +247,9 @@ impl RawName {
             if self.is_long() {
                 debug_assert!(self.long.order & 0b1010_0000 == 0);
                 debug_assert!(self.long.order & 0b0001_1111 != 0);
-                Name::Long(&self.long)
+                Name::Long(core::mem::transmute(&self.long))
             } else {
-                Name::Short(&self.short)
+                Name::Short(core::mem::transmute(&self.short))
             }
         }
     }

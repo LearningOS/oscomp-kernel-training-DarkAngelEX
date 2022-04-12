@@ -1,3 +1,5 @@
+use core::ops::{Deref, DerefMut};
+
 pub mod xasync;
 
 /// 扇区号
@@ -112,4 +114,26 @@ pub fn store_fn<T: Copy>(src: &T, dst: &mut [u8], offset: &mut usize) {
         core::ptr::copy_nonoverlapping(src as *const _ as *const u8, &mut dst[*offset], count);
         *offset += count;
     };
+}
+
+#[repr(align(8))]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Align8<T>(pub T);
+
+impl<T> Align8<T> {
+    pub fn take(a: Align8<T>) -> T {
+        a.0
+    }
+}
+
+impl<T> Deref for Align8<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T> DerefMut for Align8<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
 }

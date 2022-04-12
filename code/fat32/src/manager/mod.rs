@@ -5,6 +5,7 @@ use crate::{
     block_cache::{manager::CacheManager, CacheRef},
     block_sync::SyncManager,
     fat_list::FatList,
+    inode::manager::InodeManager,
     layout::{bpb::RawBPB, fsinfo::RawFsInfo},
     mutex::SpinMutex,
     tools::{CID, SID},
@@ -24,6 +25,7 @@ pub struct Fat32Manager {
 pub struct ManagerInner {
     pub list: FatList,
     pub caches: CacheManager,
+    pub inodes: InodeManager,
 }
 
 impl ManagerInner {
@@ -40,6 +42,7 @@ impl Fat32Manager {
             inner: SpinMutex::new(ManagerInner {
                 list: FatList::empty(),
                 caches: CacheManager::new(max_cache),
+                inodes: InodeManager::new(),
             }),
             sync_manager: None,
             device: None,
@@ -49,7 +52,9 @@ impl Fat32Manager {
         assert_sie_closed();
         self.bpb.load(&*device).await;
         self.fsinfo.load(&self.bpb, &*device).await;
-        self.inner.get_mut().list.load(&self.bpb, 0, &*device).await;
+        let inner = self.inner.get_mut();
+        inner.list.load(&self.bpb, 0, &*device).await;
+        inner.inodes.init();
         self.sync_manager = Some(Arc::new(SpinMutex::new(SyncManager::new())));
         self.device = Some(device);
     }
@@ -97,7 +102,6 @@ impl Fat32Manager {
     async fn walk_path(&self, path: &AccessPath) -> Result<Fat32Dir, SysError> {
         let root_cid = self.root_cid();
         let cur_dir = Fat32Dir::new(root_cid);
-
         todo!()
     }
 }

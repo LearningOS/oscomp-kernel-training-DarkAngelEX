@@ -16,9 +16,9 @@ pub enum FileTy {
 
 pub struct AccessPath {
     pub path: LinkedList<String>, // 指向一个存在的目录 如果为空则为根目录
-    pub name: String,
-    pub access: Access,
-    pub file_ty: Option<FileTy>,
+    pub name: String,             // 要操作的对象名
+    pub access: Access,           // 访问标志
+    pub file_ty: Option<FileTy>,  // 文件类型
 }
 
 impl AccessPath {

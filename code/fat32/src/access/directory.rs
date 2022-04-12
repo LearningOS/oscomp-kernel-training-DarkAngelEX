@@ -10,7 +10,7 @@ use crate::{
     },
     manager::ManagerInner,
     mutex::SpinMutex,
-    tools::{xasync::AsyncIter, CID},
+    tools::{xasync::AsyncIter, Align8, CID},
     xerror::SysError,
     BlockDevice,
 };
@@ -27,6 +27,7 @@ impl Fat32Dir {
         }
     }
     /// 以只读模式访问块获取每一个目录项
+    #[deprecated = "replace by raw_try_fold"]
     pub fn entry_iter<'a>(
         &'a mut self,
         mi: &'a SpinMutex<ManagerInner>,
@@ -119,7 +120,7 @@ impl Fat32Dir {
                 Ok(c) => c?,
             };
         }
-        ControlFlow::Continue(accum)
+        try { accum }
     }
 
     /// 此函数在迭代过程中将自动分配磁盘空间 新的空间将使每个项的首字节变成0x00
@@ -139,7 +140,7 @@ impl Fat32Dir {
         while let Some(r) = iter.next() {
             let cache = match r {
                 Ok(cache) => cache,
-                Err(e) => ControlFlow::Break(Err(e))?,
+                Err(e) => return ControlFlow::Break(Err(e)),
             };
             let cid = cache.cid();
             let op = |buf: &[RawName]| {
@@ -149,14 +150,14 @@ impl Fat32Dir {
             };
             accum = match cache.get_ro(op, bpb, device).await {
                 Ok(r) => r?,
-                Err(e) => ControlFlow::Break(Err(e))?,
+                Err(e) => return ControlFlow::Break(Err(e)),
             };
         }
         unreachable!()
     }
     /// 此函数在迭代过程中将自动分配磁盘空间 新的空间将使每个项的首字节变成0x00
     ///
-    /// 控制流操作成功时将使用allpy函数对对应块进行操作 此时不释放睡眠锁
+    /// 控制流操作成功时将使用allpy函数对对应块进行操作 不释放睡眠锁
     pub async fn raw_try_fold_alloc_allpy<'a, B, A: 'static>(
         &'a mut self,
         mi: &'a SpinMutex<ManagerInner>,
@@ -191,17 +192,19 @@ impl Fat32Dir {
                 Err(e) => ControlFlow::Break(Err(e))?,
             };
         }
+        // 此迭代器永远不会返回None
         unreachable!()
     }
     /// 以只读模式遍历每一个文件项 自动加载长文件名并转变编码为utf-8 String
+    #[deprecated = "replace by name_try_fold"]
     pub fn name_iter<'a>(
         &'a mut self,
         mi: &'a SpinMutex<ManagerInner>,
         bpb: &'a RawBPB,
         device: &'a dyn BlockDevice,
     ) -> impl AsyncIter<Result<DirName, SysError>> + 'a {
+        #[allow(deprecated)]
         let iter = self.entry_iter(mi, bpb, device);
-
         return NameIter { iter };
 
         struct NameIter<It: AsyncIter<Result<(RawName, (CID, usize)), SysError>>> {
@@ -263,29 +266,23 @@ impl Fat32Dir {
                 bpb,
                 device,
                 (init, &mut builder),
-                |(accum, builder), raw, _cid| {
-                    match raw.get() {
-                        None => {
+                |(accum, builder), raw, _cid| match raw.get() {
+                    None => {
+                        builder.clear();
+                        try { (accum, builder) }
+                    }
+                    Some(Name::Long(long)) => {
+                        builder.push_long(long);
+                        try { (accum, builder) }
+                    }
+                    Some(Name::Short(s)) => match f(accum, DirName::build_new(&builder, s)) {
+                        ControlFlow::Continue(a) => {
                             builder.clear();
-                            return ControlFlow::Continue((accum, builder));
+                            try { (a, builder) }
                         }
-                        Some(Name::Long(long)) => {
-                            builder.push_long(long);
-                            return ControlFlow::Continue((accum, builder));
-                        }
-                        Some(Name::Short(s)) => {
-                            return match f(accum, DirName::build_new(&builder, s)) {
-                                ControlFlow::Continue(a) => {
-                                    builder.clear();
-                                    ControlFlow::Continue((a, builder))
-                                }
-                                ControlFlow::Break(b) => match b {
-                                    Ok(a) => ControlFlow::Break(Ok((a, builder))),
-                                    Err(e) => ControlFlow::Break(Err(e)),
-                                },
-                            }
-                        }
-                    };
+                        ControlFlow::Break(Ok(a)) => ControlFlow::Break(Ok((a, builder))),
+                        ControlFlow::Break(Err(e)) => ControlFlow::Break(Err(e)),
+                    },
                 },
             )
             .await;
@@ -308,6 +305,7 @@ impl Fat32Dir {
         let long = str_to_utf16(long);
         let num = long.len() + 1;
         let num_cluster = bpb.cluster_bytes / core::mem::size_of::<RawName>();
+        let checksum = short.checksum();
         #[derive(Clone, Copy)]
         struct State {
             cid: CID,   // 开始项簇号
@@ -319,12 +317,14 @@ impl Fat32Dir {
             off: 0,
             cnt: 0,
         };
+
         let ret = self
             .raw_try_fold_alloc_allpy(
                 mi,
                 bpb,
                 device,
                 &mut init,
+                // 找到一个簇内的连续空位
                 |s, raw, cid, off| {
                     if !raw.is_free() || off + num > num_cluster {
                         s.cnt = 0;
@@ -340,10 +340,12 @@ impl Fat32Dir {
                     }
                     ControlFlow::Continue(s)
                 },
+                // control_flow -> state
                 |a| match a {
                     ControlFlow::Break(Ok(s)) => Some(**s),
                     _ => None,
                 },
+                // 写入
                 move |a: State, buf| {
                     let long_num = num - 1;
                     for (i, (dst, src)) in buf[a.off..a.off + long_num]
@@ -352,7 +354,7 @@ impl Fat32Dir {
                         .zip(long.iter())
                         .enumerate()
                     {
-                        dst.set_long(src, i + 1, i + 1 == long_num);
+                        dst.set_long(src, i + 1, i + 1 == long_num, checksum);
                     }
                     buf[num - 1].set_short(short);
                 },
@@ -363,6 +365,36 @@ impl Fat32Dir {
             ControlFlow::Break(r) => r?,
         };
         Ok(())
+    }
+    // long为正常顺序
+    pub async fn search_file(
+        &mut self,
+        file_name: &str,
+        mi: &SpinMutex<ManagerInner>,
+        bpb: &RawBPB,
+        device: &dyn BlockDevice,
+    ) -> Result<Option<Align8<RawShortName>>, SysError> {
+        macro_rules! do_impl {
+            ($match_fn: expr) => {{
+                let f = move |_, name| {
+                    if $match_fn(&name) {
+                        ControlFlow::Break(Ok(Some(name.short)))?;
+                    }
+                    try { None }
+                };
+                match self.name_try_fold(mi, bpb, device, None, f).await {
+                    ControlFlow::Continue(_) => Ok(None),
+                    ControlFlow::Break(b) => b,
+                }
+            }};
+        }
+        if let Some(short) = str_to_just_short(file_name) {
+            let match_fn = |name: &DirName| name.short.raw_name() == short;
+            do_impl!(match_fn)
+        } else {
+            let match_fn = |name: &DirName| name.long.as_str() == file_name;
+            do_impl!(match_fn)
+        }
     }
 }
 
@@ -403,6 +435,7 @@ impl LongNameBuilder {
     }
 }
 
+/// 长文件名反序 最后一项在前
 fn utf16_to_string<'a>(src: impl DoubleEndedIterator<Item = &'a [u16; 13]>) -> String {
     let u16_iter = src
         .rev()
@@ -413,7 +446,11 @@ fn utf16_to_string<'a>(src: impl DoubleEndedIterator<Item = &'a [u16; 13]>) -> S
         .map(|r| r.unwrap_or(core::char::REPLACEMENT_CHARACTER))
         .collect()
 }
-
+/// 只有字符串能只变为短文件名时返回Some
+fn str_to_just_short(_src: &str) -> Option<([u8; 8], [u8; 3])> {
+    todo!()
+}
+/// 正常顺序
 fn str_to_utf16(src: &str) -> Vec<[u16; 13]> {
     if src.is_empty() {
         return Vec::new();
@@ -438,11 +475,11 @@ fn str_to_utf16(src: &str) -> Vec<[u16; 13]> {
 
 pub struct DirName {
     pub long: String,
-    pub short: RawShortName,
+    pub short: Align8<RawShortName>,
 }
 
 impl DirName {
-    fn build_new(builder: &LongNameBuilder, short: &RawShortName) -> Self {
+    fn build_new(builder: &LongNameBuilder, short: &Align8<RawShortName>) -> Self {
         Self {
             long: builder.decode_utf16(),
             short: *short,

@@ -17,6 +17,7 @@
 #![feature(generic_associated_types)]
 #![feature(try_trait_v2)]
 #![feature(control_flow_enum)]
+#![feature(try_blocks)]
 
 #[macro_use]
 extern crate bitflags;
@@ -38,6 +39,7 @@ mod sleep_mutex;
 mod tools;
 pub mod xerror;
 pub mod xtest;
+pub mod inode;
 pub use block_dev::{AsyncRet, BlockDevice};
 pub use manager::Fat32Manager;
 

@@ -147,23 +147,20 @@ impl Cache {
     ) -> Result<V, SysError> {
         stack_trace!();
         let mut lock = self.inner.unique_lock().await;
-        if let Some(buffer) = unsafe { lock.try_buffer_rw_no_dirty()? } {
-            let v = op(buffer);
-            if let Some(a) = tran(&v) {
-                apply(a, buffer);
-                lock.set_dirty();
+        let buffer = match unsafe { lock.try_buffer_rw_no_dirty()? } {
+            Some(buffer) => buffer,
+            None => {
+                let sid = bpb.cid_transform(self.cid);
+                lock.load_if_need(sid, device).await?;
+                unsafe { lock.try_buffer_rw_no_dirty().unwrap().unwrap() }
             }
-            return Ok(v);
-        }
-        lock.load_if_need(bpb.cid_transform(self.cid), device)
-            .await?;
-        let buffer = unsafe { lock.try_buffer_rw_no_dirty().unwrap().unwrap() };
+        };
         let v = op(buffer);
         if let Some(a) = tran(&v) {
             apply(a, buffer);
             lock.set_dirty();
         }
-        return Ok(v);
+        Ok(v)
     }
     /// 更新访问时间, 返回旧的值用于manager中更新顺序
     ///
