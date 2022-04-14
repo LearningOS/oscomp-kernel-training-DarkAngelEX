@@ -9,27 +9,27 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
-use crate::mutex::{Mutex, MutexSupport};
+use super::spin_mutex::SpinMutex;
 
-pub struct RwSleepMutex<T, S: MutexSupport> {
-    inner: Mutex<RwSleepMutexSupport, S>,
+pub struct RwSleepMutex<T> {
+    inner: SpinMutex<RwSleepMutexSupport>,
     data: UnsafeCell<T>, // actual data
 }
 
-unsafe impl<T, S: MutexSupport> Sync for RwSleepMutex<T, S> {}
-unsafe impl<T, S: MutexSupport> Send for RwSleepMutex<T, S> {}
+unsafe impl<T> Sync for RwSleepMutex<T> {}
+unsafe impl<T> Send for RwSleepMutex<T> {}
 
-struct SleepMutexGuard<'a, T, S: MutexSupport, const UNIQUE: bool> {
-    mutex: &'a RwSleepMutex<T, S>,
+struct RwSleepMutexGuard<'a, T, const UNIQUE: bool> {
+    mutex: &'a RwSleepMutex<T>,
 }
 
-unsafe impl<'a, T, S: MutexSupport, const UNIQUE: bool> Sync for SleepMutexGuard<'a, T, S, UNIQUE> {}
-unsafe impl<'a, T, S: MutexSupport, const UNIQUE: bool> Send for SleepMutexGuard<'a, T, S, UNIQUE> {}
+unsafe impl<'a, T, const UNIQUE: bool> Sync for RwSleepMutexGuard<'a, T, UNIQUE> {}
+unsafe impl<'a, T, const UNIQUE: bool> Send for RwSleepMutexGuard<'a, T, UNIQUE> {}
 
-impl<T, S: MutexSupport> RwSleepMutex<T, S> {
+impl<T> RwSleepMutex<T> {
     pub const fn new(user_data: T) -> Self {
         Self {
-            inner: Mutex::new(RwSleepMutexSupport::new()),
+            inner: SpinMutex::new(RwSleepMutexSupport::new()),
             data: UnsafeCell::new(user_data),
         }
     }
@@ -39,28 +39,28 @@ impl<T, S: MutexSupport> RwSleepMutex<T, S> {
     }
     /// 睡眠锁将交替解锁共享任务和排他任务 不保证共享锁和排他锁的解锁顺序
     pub async fn shared_lock(&self) -> impl Deref<Target = T> + Send + Sync + '_ {
-        SleepMutexFuture::<'_, T, S, false> { mutex: self, id: 0 }.await
+        RwSleepMutexFuture::<'_, T, false> { mutex: self, id: 0 }.await
     }
     /// 睡眠锁将交替解锁共享任务和排他任务 不保证共享锁和排他锁的解锁顺序
     ///
     /// 对排他锁的解锁严格按照提交顺序进行
     pub async fn unique_lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
-        SleepMutexFuture::<'_, T, S, true> { mutex: self, id: 0 }.await
+        RwSleepMutexFuture::<'_, T, true> { mutex: self, id: 0 }.await
     }
 }
-impl<'a, T, S: MutexSupport, const UNIQUE: bool> Deref for SleepMutexGuard<'a, T, S, UNIQUE> {
+impl<'a, T, const UNIQUE: bool> Deref for RwSleepMutexGuard<'a, T, UNIQUE> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         unsafe { &*self.mutex.data.get() }
     }
 }
-impl<'a, T, S: MutexSupport, const UNIQUE: bool> DerefMut for SleepMutexGuard<'a, T, S, UNIQUE> {
+impl<'a, T, const UNIQUE: bool> DerefMut for RwSleepMutexGuard<'a, T, UNIQUE> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         unsafe { &mut *self.mutex.data.get() }
     }
 }
 
-impl<'a, T, S: MutexSupport, const UNIQUE: bool> Drop for SleepMutexGuard<'a, T, S, UNIQUE> {
+impl<'a, T, const UNIQUE: bool> Drop for RwSleepMutexGuard<'a, T, UNIQUE> {
     fn drop(&mut self) {
         stack_trace!();
         if UNIQUE {
@@ -75,13 +75,13 @@ impl<'a, T, S: MutexSupport, const UNIQUE: bool> Drop for SleepMutexGuard<'a, T,
     }
 }
 
-struct SleepMutexFuture<'a, T, S: MutexSupport, const UNIQUE: bool> {
-    mutex: &'a RwSleepMutex<T, S>,
+struct RwSleepMutexFuture<'a, T, const UNIQUE: bool> {
+    mutex: &'a RwSleepMutex<T>,
     id: usize, // 0 means need alloc then.
 }
 
-impl<'a, T, S: MutexSupport, const UNIQUE: bool> Future for SleepMutexFuture<'a, T, S, UNIQUE> {
-    type Output = SleepMutexGuard<'a, T, S, UNIQUE>;
+impl<'a, T, const UNIQUE: bool> Future for RwSleepMutexFuture<'a, T, UNIQUE> {
+    type Output = RwSleepMutexGuard<'a, T, UNIQUE>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         stack_trace!();
@@ -91,7 +91,7 @@ impl<'a, T, S: MutexSupport, const UNIQUE: bool> Future for SleepMutexFuture<'a,
             true => mutex.unique_lock(&mut self.id, || cx.waker().clone()),
             false => mutex.shared_lock(&mut self.id, || cx.waker().clone()),
         } {
-            true => Poll::Ready(SleepMutexGuard { mutex: self.mutex }),
+            true => Poll::Ready(RwSleepMutexGuard { mutex: self.mutex }),
             false => Poll::Pending,
         }
     }

@@ -19,6 +19,8 @@ pub struct CacheManager {
 
 impl CacheManager {
     pub const fn new(max_cache: usize) -> Self {
+        // BTreeMap移动会改变元素位置, access_sequence使用的指针方法会爆炸!
+        todo!();
         Self {
             access_sequence: BTreeMap::new(),
             caches: BTreeMap::new(),

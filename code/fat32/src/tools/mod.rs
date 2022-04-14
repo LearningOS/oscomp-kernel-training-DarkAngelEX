@@ -1,4 +1,9 @@
-use core::ops::{Deref, DerefMut};
+use core::{
+    convert::Infallible,
+    marker::PhantomData,
+    ops::{Deref, DerefMut},
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 pub mod xasync;
 
@@ -10,6 +15,12 @@ pub struct SID(pub u32);
 pub struct CID(pub u32);
 
 impl CID {
+    pub fn last() -> CID {
+        CID(0x0FFFFFFF)
+    }
+    pub fn free() -> CID {
+        CID(0x0)
+    }
     pub fn set_free(&mut self) {
         self.0 = 0;
     }
@@ -136,4 +147,73 @@ impl<T> DerefMut for Align8<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
+}
+
+/// access id, used in LRU
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct AID(pub usize);
+/// midify id, used in sync
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MID(pub usize);
+
+pub struct AtomicAID(AtomicUsize);
+pub struct AtomicMID(AtomicUsize);
+
+impl AID {
+    pub fn is_zero(self) -> bool {
+        self.0 == 0
+    }
+    pub fn step(&mut self) -> Self {
+        let prev = *self;
+        self.0 += 1;
+        prev
+    }
+}
+
+impl AtomicAID {
+    pub fn new(aid: AID) -> Self {
+        Self(AtomicUsize::new(aid.0))
+    }
+    pub fn load(&self) -> AID {
+        AID(self.0.load(Ordering::Relaxed))
+    }
+    pub fn store(&self, aid: AID) {
+        self.0.store(aid.0, Ordering::Relaxed)
+    }
+}
+impl AtomicMID {
+    pub fn new(aid: AID) -> Self {
+        Self(AtomicUsize::new(aid.0))
+    }
+    pub fn load(&self) -> AID {
+        AID(self.0.load(Ordering::Relaxed))
+    }
+    pub fn store(&self, aid: AID) {
+        self.0.store(aid.0, Ordering::Relaxed)
+    }
+}
+
+pub struct AIDAllocator<T>(AtomicUsize, PhantomData<T>);
+
+impl<T> AIDAllocator<T> {
+    pub const fn new() -> Self {
+        Self(AtomicUsize::new(0), PhantomData)
+    }
+    pub fn alloc(&self) -> AID {
+        AID(self.0.fetch_add(1, Ordering::Relaxed))
+    }
+}
+pub struct MIDAllocator<T>(AtomicUsize, PhantomData<T>);
+
+impl<T> MIDAllocator<T> {
+    pub const fn new() -> Self {
+        Self(AtomicUsize::new(0), PhantomData)
+    }
+    pub fn alloc(&self) -> AID {
+        AID(self.0.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+pub fn err_break<B, E>(e: Result<Infallible, E>) -> Result<B, E> {
+    Err(e.err().unwrap())
 }

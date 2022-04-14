@@ -9,7 +9,7 @@ use crate::{
         name::{Attr, Name, RawLongName, RawName, RawShortName},
     },
     manager::ManagerInner,
-    mutex::SpinMutex,
+    mutex::spin_mutex::SpinMutex,
     tools::{xasync::AsyncIter, Align8, CID},
     xerror::SysError,
     BlockDevice,

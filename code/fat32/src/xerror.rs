@@ -1,4 +1,4 @@
-use core::{alloc::AllocError, fmt};
+use core::{alloc::AllocError, fmt, ops::ControlFlow};
 
 #[allow(dead_code, clippy::upper_case_acronyms)]
 #[repr(isize)]
@@ -124,5 +124,11 @@ impl fmt::Display for SysError {
 impl From<AllocError> for SysError {
     fn from(_: AllocError) -> Self {
         Self::ENOMEM
+    }
+}
+
+impl<B> From<SysError> for ControlFlow<Result<B, SysError>, B> {
+    fn from(e: SysError) -> Self {
+        ControlFlow::Break(Err(e))
     }
 }

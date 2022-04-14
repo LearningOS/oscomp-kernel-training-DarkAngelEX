@@ -5,7 +5,7 @@ use alloc::{
 };
 use core::{future::Future, pin::Pin};
 
-use crate::{mutex::SpinMutex, tools::SID, xerror::SysError};
+use crate::{mutex::spin_mutex::SpinMutex, tools::SID, xerror::SysError};
 
 pub struct SyncTask(Pin<Box<dyn Future<Output = Result<(), SysError>> + Send + 'static>>);
 

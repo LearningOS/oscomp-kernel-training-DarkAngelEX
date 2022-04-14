@@ -11,8 +11,7 @@ use alloc::{boxed::Box, sync::Arc};
 use crate::{
     block_sync::SyncTask,
     layout::bpb::RawBPB,
-    mutex::Spin,
-    sleep_mutex::RwSleepMutex,
+    mutex::{ rw_sleep_mutex::RwSleepMutex},
     tools::{self, CID, SID},
     xerror::SysError,
     BlockDevice,
@@ -78,7 +77,7 @@ pub struct Cache {
     cid: CID,
     access_id: AccessID,
     ref_count: AtomicUsize,
-    inner: RwSleepMutex<CacheInner, Spin>,
+    inner: RwSleepMutex<CacheInner>,
 }
 
 impl Cache {

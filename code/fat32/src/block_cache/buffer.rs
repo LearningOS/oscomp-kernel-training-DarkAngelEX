@@ -28,9 +28,9 @@ impl Deref for SharedBuffer {
 }
 
 impl Buffer {
-    pub fn new(size: usize) -> Result<Self, SysError> {
+    pub fn new(bytes: usize) -> Result<Self, SysError> {
         unsafe {
-            let ptr = Box::try_new_uninit_slice(size)?.assume_init();
+            let ptr = Box::try_new_uninit_slice(bytes)?.assume_init();
             Ok(Self::Unique(ptr))
         }
     }
@@ -66,6 +66,7 @@ impl Buffer {
                 if Arc::strong_count(ptr) == 1 {
                     // 将Shared强转成Unique
                     let ptr = unsafe { core::ptr::read(ptr) };
+                    // unwrap的保证是buffer不存在weak指针
                     let new: Box<[u8]> = Arc::try_unwrap(ptr).unwrap();
                     unsafe { core::ptr::write(self, Buffer::Unique(new)) };
                 } else {

@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::{
-    block_cache::CacheRef, layout::bpb::RawBPB, manager::ManagerInner, mutex::SpinMutex,
+    block_cache::CacheRef, layout::bpb::RawBPB, manager::ManagerInner, mutex::spin_mutex::SpinMutex,
     tools::CID, xerror::SysError,
 };
 
@@ -51,7 +51,8 @@ impl Fat32Common {
                 let mut mi = self.mi.lock();
                 match mi.caches.get_cache(&self.bpb, cid) {
                     Ok(cache) => {
-                        self.cid = mi.list.get_next(cid);
+                        // self.cid = mi.list.get_next(cid);
+                        todo!();
                         Some(Ok(cache))
                     }
                     Err(e) => {
@@ -94,45 +95,49 @@ impl Fat32Common {
         impl<'a, T: Copy, F: FnOnce(&mut [T]) + Copy + 'static> Iterator for ClusterAllocIter<'a, T, F> {
             type Item = Result<CacheRef, SysError>;
             fn next(&mut self) -> Option<Self::Item> {
-                let mut mi = self.mi.lock();
-                let (list, caches) = mi.list_caches();
-                let cid = self.nxt;
-                if !cid.is_next() {
-                    // 分配新的块
-                    debug_assert!(self.cur.is_next());
-                    let mut need_clean = false;
-                    let new = {
-                        self.nxt = list.get_next(self.cur);
-                        if self.nxt.is_last() {
-                            need_clean = true;
-                            match list.alloc_block_after(self.bpb, self.cur) {
-                                Ok(cid) => cid,
-                                Err(e) => return Some(Err(e)),
-                            }
-                        } else {
-                            let cid = self.nxt;
-                            self.nxt = list.get_next(cid);
-                            cid
-                        }
-                    };
-                    let ret = match need_clean {
-                        true => caches.get_cache_init(self.bpb, cid, self.init_fn),
-                        false => caches.get_cache(self.bpb, new),
-                    };
-                    return Some(ret);
-                }
-                let cache = caches.get_cache(&self.bpb, cid);
-                // release cache_manager before lock list
-                match cache {
-                    Ok(cache) => {
-                        self.nxt = list.get_next(cid);
-                        Some(Ok(cache))
-                    }
-                    Err(e) => {
-                        self.nxt.set_last();
-                        Some(Err(e))
-                    }
-                }
+                todo!()
+                // let mut mi = self.mi.lock();
+                // let (list, caches) = mi.list_caches();
+                // let cid = self.nxt;
+                // if !cid.is_next() {
+                //     // 分配新的块
+                //     debug_assert!(self.cur.is_next());
+                //     let mut need_clean = false;
+                //     let new = {
+                //         // self.nxt = list.get_next(self.cur);
+                //         todo!();
+                //         if self.nxt.is_last() {
+                //             need_clean = true;
+                //             match list.alloc_block_after(self.bpb, self.cur) {
+                //                 Ok(cid) => cid,
+                //                 Err(e) => return Some(Err(e)),
+                //             }
+                //         } else {
+                //             let cid = self.nxt;
+                //             // self.nxt = list.get_next(cid);
+                //             todo!();
+                //             cid
+                //         }
+                //     };
+                //     let ret = match need_clean {
+                //         true => caches.get_cache_init(self.bpb, cid, self.init_fn),
+                //         false => caches.get_cache(self.bpb, new),
+                //     };
+                //     return Some(ret);
+                // }
+                // let cache = caches.get_cache(&self.bpb, cid);
+                // // release cache_manager before lock list
+                // match cache {
+                //     Ok(cache) => {
+                //         // self.nxt = list.get_next(cid);
+                //         todo!();
+                //         Some(Ok(cache))
+                //     }
+                //     Err(e) => {
+                //         self.nxt.set_last();
+                //         Some(Err(e))
+                //     }
+                // }
             }
         }
     }

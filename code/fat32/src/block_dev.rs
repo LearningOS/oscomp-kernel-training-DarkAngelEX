@@ -21,3 +21,21 @@ pub trait BlockDevice: Send + Sync + 'static {
     #[must_use]
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a>;
 }
+
+/// 一个占位用的初始化BlockDevice 避免写 Option<Arc<>>
+pub struct PanicBlockDevice;
+
+impl BlockDevice for PanicBlockDevice {
+    fn sector_bpb(&self) -> usize {
+        panic!()
+    }
+    fn sector_bytes(&self) -> usize {
+        panic!()
+    }
+    fn read_block<'a>(&'a self, _block_id: usize, _buf: &'a mut [u8]) -> AsyncRet<'a> {
+        panic!()
+    }
+    fn write_block<'a>(&'a self, _block_id: usize, _buf: &'a [u8]) -> AsyncRet<'a> {
+        panic!()
+    }
+}

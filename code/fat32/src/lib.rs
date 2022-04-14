@@ -35,11 +35,13 @@ mod fat_list;
 mod layout;
 mod manager;
 mod mutex;
-mod sleep_mutex;
+
 mod tools;
 pub mod xerror;
 pub mod xtest;
 pub mod inode;
+pub mod xasync;
+
 pub use block_dev::{AsyncRet, BlockDevice};
 pub use manager::Fat32Manager;
 

@@ -122,14 +122,13 @@ async fn userloop(thread: Arc<Thread>) {
 
 pub fn spawn(thread: Arc<Thread>) {
     let future = userloop(thread.clone());
-    // let (runnable, task) = executor::spawn(future);
     let (runnable, task) = executor::spawn(OutermostFuture::new(thread, future));
     runnable.schedule();
     task.detach();
 }
 
 struct OutermostFuture<F: Future + Send + 'static> {
-    future: Pin<Box<F>>,
+    future: F,
     local_switch: LocalNow,
 }
 impl<F: Future + Send + 'static> OutermostFuture<F> {
@@ -144,7 +143,7 @@ impl<F: Future + Send + 'static> OutermostFuture<F> {
             page_table,
         }));
         Self {
-            future: Box::pin(future),
+            future,
             local_switch,
         }
     }
@@ -153,11 +152,12 @@ impl<F: Future + Send + 'static> OutermostFuture<F> {
 impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
     type Output = F::Output;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
-        local.enter_task_switch(&mut self.local_switch);
-        let ret = self.future.as_mut().poll(cx);
-        local.leave_task_switch(&mut self.local_switch);
+        let this = unsafe { self.get_unchecked_mut() };
+        local.enter_task_switch(&mut this.local_switch);
+        let ret = unsafe { Pin::new_unchecked(&mut this.future).poll(cx) };
+        local.leave_task_switch(&mut this.local_switch);
         ret
     }
 }

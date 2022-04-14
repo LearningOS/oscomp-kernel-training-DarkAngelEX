@@ -2,7 +2,13 @@ pub mod common;
 pub mod directory;
 pub mod file;
 
+use core::{
+    marker::PhantomData,
+    sync::atomic::{AtomicUsize, Ordering},
+};
+
 use alloc::{collections::LinkedList, string::String};
+
 
 pub enum Access {
     ReadOnly,

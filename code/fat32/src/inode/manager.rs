@@ -5,7 +5,7 @@ use alloc::{
     vec::Vec,
 };
 
-use crate::{mutex::SpinMutex, tools::CID};
+use crate::{mutex::spin_mutex::SpinMutex, tools::CID};
 
 use super::Fat32Inode;
 
