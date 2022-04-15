@@ -4,8 +4,6 @@ use alloc::boxed::Box;
 
 use crate::{tools, BlockDevice};
 
-use super::bpb::RawBPB;
-
 /// 处于FAT32保留区
 ///
 /// 通常位于逻辑扇区1

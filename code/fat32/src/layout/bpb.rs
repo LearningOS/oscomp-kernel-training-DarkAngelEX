@@ -12,7 +12,7 @@ use crate::{
 /// logical offset = 0x0B
 pub struct RawBPB {
     pub sector_bytes: u16,          // 扇区字节数
-    sector_per_cluster: u8,         // 每簇扇区数
+    pub sector_per_cluster: u8,     // 每簇扇区数
     sector_reserved: u16,           // 保留扇区数 用来获取第一个FAT偏移值
     pub fat_num: u8,                // FAT副本数 通常为2
     discard_root_entry_size: u16,   // 根目录项数 FAT32=0

@@ -3,7 +3,6 @@ use core::{future::Future, ops::ControlFlow};
 use alloc::{string::String, vec::Vec};
 
 use crate::{
-    block_cache::CacheRef,
     layout::{
         bpb::RawBPB,
         name::{Attr, Name, RawLongName, RawName, RawShortName},

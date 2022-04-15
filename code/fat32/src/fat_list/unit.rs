@@ -1,7 +1,8 @@
-use core::{borrow::Borrow, cell::UnsafeCell};
+//! FAT链表扇区缓存
+use core::cell::UnsafeCell;
 
 use crate::{
-    block_cache::buffer::{Buffer, SharedBuffer},
+    block::buffer::{Buffer, SharedBuffer},
     tools::{AID, CID},
     xerror::SysError,
 };
@@ -11,6 +12,11 @@ use crate::{
 pub struct UnitID(pub u32);
 
 /// 一个FAT表扇区
+///
+/// 看起来非常的unsafe, 但是从所有权来看ListUnit所有权属于inode,
+/// inode修改fat链表必须要获取互斥锁, 因此当ListUnit改变时一定是持有互斥锁的,
+/// 不同inode的修改处于不同的FAT链表, 绝对不会对同一块unit进行。
+/// aid随便竞争, 反正不会导致系统爆炸
 pub struct ListUnit {
     buffer: UnsafeCell<Buffer>, // cow内存
     aid: UnsafeCell<AID>,       // 访问ID
@@ -20,7 +26,7 @@ unsafe impl Send for ListUnit {}
 unsafe impl Sync for ListUnit {}
 
 impl ListUnit {
-    pub fn new_uninit(id: UnitID, sector_bytes: usize) -> Result<Self, SysError> {
+    pub fn new_uninit(sector_bytes: usize) -> Result<Self, SysError> {
         let buffer = Buffer::new(sector_bytes)?;
         Ok(Self {
             buffer: UnsafeCell::new(buffer),

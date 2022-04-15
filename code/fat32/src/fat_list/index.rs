@@ -1,3 +1,6 @@
+//! FAT链表扇区缓存块索引器
+//!
+//! 索引器自身无锁, 被inner更新
 use core::{cell::UnsafeCell, mem::MaybeUninit};
 
 use alloc::{
@@ -5,14 +8,16 @@ use alloc::{
     sync::{Arc, Weak},
 };
 
-use crate::{mutex::spin_mutex::SpinMutex, xerror::SysError};
+use crate::{mutex::rw_spin_mutex::RwSpinMutex, xerror::SysError};
 
 use super::unit::ListUnit;
 
 /// 一个扇区缓存的索引
+///
+/// 不使用任何异步操作
 pub struct ListIndex {
     weak: Box<[UnsafeCell<Weak<ListUnit>>]>,
-    lock: Box<[SpinMutex<()>]>,
+    lock: Box<[RwSpinMutex<()>]>,
 }
 
 unsafe impl Send for ListIndex {}
@@ -32,22 +37,22 @@ impl ListIndex {
         let mut lock = Box::try_new_uninit_slice(size)?;
         unsafe {
             weak.fill_with(|| MaybeUninit::new(UnsafeCell::new(Weak::<ListUnit>::new())));
-            lock.fill_with(|| MaybeUninit::new(SpinMutex::new(())));
+            lock.fill_with(|| MaybeUninit::new(RwSpinMutex::new(())));
             self.weak = weak.assume_init();
             self.lock = lock.assume_init();
             Ok(())
         }
     }
     pub fn get(&self, index: usize) -> Option<Arc<ListUnit>> {
-        let _lock = self.lock[index].lock();
+        let _lock = self.lock[index].shared_lock();
         unsafe { (*self.weak[index].get()).upgrade() }
     }
     pub fn set(&self, index: usize, arc: &Arc<ListUnit>) {
-        let _lock = self.lock[index].lock();
+        let _lock = self.lock[index].unique_lock();
         unsafe { *self.weak[index].get() = Arc::downgrade(arc) }
     }
-    pub fn reset(&self, index: usize) {
-        let _lock = self.lock[index].lock();
-        unsafe { *self.weak[index].get() = Weak::new() }
-    }
+    // pub fn reset(&self, index: usize) {
+    //     let _lock = self.lock[index].unique_lock();
+    //     unsafe { *self.weak[index].get() = Weak::new() }
+    // }
 }

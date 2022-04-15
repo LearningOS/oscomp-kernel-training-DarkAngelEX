@@ -28,9 +28,8 @@ mod console;
 #[macro_use]
 mod xdebug;
 pub mod access;
-mod block_cache;
+mod block;
 mod block_dev;
-pub mod block_sync;
 mod fat_list;
 mod layout;
 mod manager;

@@ -6,9 +6,9 @@ use crate::{tools, xerror::SysError};
 
 /// 用于无阻塞写IO
 ///
-/// 当Shared引用计数为1时尝试写可以无复制地转换为Unique
+/// 当Shared引用计数为1时尝试写将无复制地转换为Unique
 ///
-/// 引用计数不为1时会分配内存并复制
+/// 引用计数不为1时会分配新的内存并复制
 pub enum Buffer {
     // None, // allow delay alloc memory
     Unique(Box<[u8]>),

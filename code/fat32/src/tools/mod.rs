@@ -199,6 +199,7 @@ impl<T> AIDAllocator<T> {
     pub const fn new() -> Self {
         Self(AtomicUsize::new(0), PhantomData)
     }
+    /// 递增1并返回原来的值
     pub fn alloc(&self) -> AID {
         AID(self.0.fetch_add(1, Ordering::Relaxed))
     }

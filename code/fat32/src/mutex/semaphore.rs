@@ -54,7 +54,11 @@ impl Drop for MultiplySemaphore {
         }
     }
 }
-
+impl SemaphoreGuard {
+    pub fn into_multiply(self) -> MultiplySemaphore {
+        unsafe { core::mem::transmute(self) }
+    }
+}
 impl MultiplySemaphore {
     pub fn val(&self) -> usize {
         self.val
@@ -109,6 +113,10 @@ impl Semaphore {
         let mut inner = self.inner.lock();
         inner.max_size = n;
         inner.release_task();
+    }
+    /// 最大信号量
+    pub fn max(&self) -> usize {
+        unsafe { self.inner.unsafe_get().max_size }
     }
     /// 获取一个信号量
     pub async fn take(&self) -> SemaphoreGuard {

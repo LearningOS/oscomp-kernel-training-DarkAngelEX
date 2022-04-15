@@ -1,7 +1,7 @@
 use core::marker::PhantomData;
 
 use crate::{
-    block_cache::CacheRef, layout::bpb::RawBPB, manager::ManagerInner, mutex::spin_mutex::SpinMutex,
+    layout::bpb::RawBPB, manager::ManagerInner, mutex::spin_mutex::SpinMutex,
     tools::CID, xerror::SysError,
 };
 
@@ -60,84 +60,6 @@ impl Fat32Common {
                         Some(Err(e))
                     }
                 }
-            }
-        }
-    }
-    /// 无尽簇迭代器 永远不会返回None, 当磁盘满时返回Ok(Err(SysError::ENOSPC))
-    ///
-    /// 新分配的块将注册init_fn初始化函数 真正调用到这个块时将初始化
-    pub fn cluster_alloc_iter<'a, T: Copy + 'a>(
-        &'a self,
-        bpb: &'a RawBPB,
-        mi: &'a SpinMutex<ManagerInner>,
-        init_fn: impl FnOnce(&mut [T]) + Copy + 'static,
-    ) -> impl Iterator<Item = Result<CacheRef, SysError>> + 'a {
-        return ClusterAllocIter {
-            cur: self.cid,
-            nxt: self.cid,
-            bpb,
-            mi,
-            init_fn,
-            _marker: PhantomData,
-        };
-
-        struct ClusterAllocIter<'a, T: Copy, F: FnOnce(&mut [T]) + Copy + 'static> {
-            /// 上一次访问的簇号
-            cur: CID,
-            /// 下一次访问的簇号
-            nxt: CID,
-            bpb: &'a RawBPB,
-            mi: &'a SpinMutex<ManagerInner>,
-            init_fn: F,
-            _marker: PhantomData<*const T>,
-        }
-
-        impl<'a, T: Copy, F: FnOnce(&mut [T]) + Copy + 'static> Iterator for ClusterAllocIter<'a, T, F> {
-            type Item = Result<CacheRef, SysError>;
-            fn next(&mut self) -> Option<Self::Item> {
-                todo!()
-                // let mut mi = self.mi.lock();
-                // let (list, caches) = mi.list_caches();
-                // let cid = self.nxt;
-                // if !cid.is_next() {
-                //     // 分配新的块
-                //     debug_assert!(self.cur.is_next());
-                //     let mut need_clean = false;
-                //     let new = {
-                //         // self.nxt = list.get_next(self.cur);
-                //         todo!();
-                //         if self.nxt.is_last() {
-                //             need_clean = true;
-                //             match list.alloc_block_after(self.bpb, self.cur) {
-                //                 Ok(cid) => cid,
-                //                 Err(e) => return Some(Err(e)),
-                //             }
-                //         } else {
-                //             let cid = self.nxt;
-                //             // self.nxt = list.get_next(cid);
-                //             todo!();
-                //             cid
-                //         }
-                //     };
-                //     let ret = match need_clean {
-                //         true => caches.get_cache_init(self.bpb, cid, self.init_fn),
-                //         false => caches.get_cache(self.bpb, new),
-                //     };
-                //     return Some(ret);
-                // }
-                // let cache = caches.get_cache(&self.bpb, cid);
-                // // release cache_manager before lock list
-                // match cache {
-                //     Ok(cache) => {
-                //         // self.nxt = list.get_next(cid);
-                //         todo!();
-                //         Some(Ok(cache))
-                //     }
-                //     Err(e) => {
-                //         self.nxt.set_last();
-                //         Some(Err(e))
-                //     }
-                // }
             }
         }
     }

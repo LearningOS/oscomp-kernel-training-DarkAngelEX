@@ -2,7 +2,11 @@ use alloc::boxed::Box;
 
 use crate::tools::CID;
 
+pub mod inode_cache;
 pub mod manager;
+
+/// Inode ID
+pub struct IID(u32);
 
 /// 每个打开的文件将持有一个Inode
 pub struct Fat32Inode {
