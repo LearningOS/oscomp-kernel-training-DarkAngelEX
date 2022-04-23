@@ -40,14 +40,14 @@ pub struct ListManager {
     pub store_start: Vec<SID>, // 同步数据的起始扇区号组
 
     // 可变数据
-    aid_alloc: Arc<AIDAllocator<ListUnit>>, // 分配访问号
-    pub info_cluster_id: usize,             // fsinfo所在扇区
-    fsinfo_cache: Option<Buffer>,           // fsinfo缓存
-    fsinfo_status: FsinfoStatus,            // fsinfo状态
-    cluster_free: u32,                      // 空簇数
-    cluster_search: CID,                    // 分配新的块开始搜索位置
+    aid_alloc: Arc<AIDAllocator>, // 分配访问号
+    pub info_cluster_id: usize,   // fsinfo所在扇区
+    fsinfo_cache: Option<Buffer>, // fsinfo缓存
+    fsinfo_status: FsinfoStatus,  // fsinfo状态
+    cluster_free: u32,            // 空簇数
+    cluster_search: CID,          // 分配新的块开始搜索位置
     // 缓存块替换部分
-    search: BTreeMap<UnitID, (Arc<ListUnit>, AID)>, // 扇区偏移量 -> 缓存块 使用Arc来减少原子操作
+    search: BTreeMap<UnitID, (AID, Arc<ListUnit>)>, // 扇区偏移量 -> 缓存块 使用Arc来减少原子操作
     clean: BTreeMap<AID, (UnitID, Arc<ListUnit>)>,  // LRU 搜索替换搜索 与dirty保证无交集
     dirty: BTreeMap<UnitID, (Arc<ListUnit>, SemaphoreGuard)>, // 等待同步或运行在驱动的块
     pub sync_pending: Arc<SpinMutex<Option<BTreeSet<UnitID>>>>, // 同步系统优先获取的集合
@@ -63,7 +63,7 @@ impl Drop for ListManager {
 }
 
 impl ListManager {
-    pub fn new(aid_alloc: Arc<AIDAllocator<ListUnit>>, max_unit_num: usize) -> Self {
+    pub fn new(aid_alloc: Arc<AIDAllocator>, max_unit_num: usize) -> Self {
         Self {
             max_cid: CID(0),
             max_unit_num,
@@ -116,7 +116,9 @@ impl ListManager {
     }
     pub fn close(&mut self) {
         self.sync_pending.lock().take();
-        self.sync_waker().wake();
+        if self.sync_waker.is_some() {
+            self.sync_waker().wake();
+        }
     }
     /// waker由FatList的sync_task生成
     pub fn set_waker(&mut self, waker: Waker) {
@@ -185,7 +187,7 @@ impl ListManager {
         if self.dirty.contains_key(&uid) {
             self.sync_pending.lock().as_mut().unwrap().insert(uid);
         } else {
-            let aid = self.search.get(&uid).unwrap().1;
+            let aid = self.search.get(&uid).unwrap().0;
             let (xuid, unit) = self.clean.remove(&aid).unwrap();
             debug_assert!(uid == xuid);
             self.dirty
@@ -227,7 +229,7 @@ impl ListManager {
     pub async fn get_unit(&mut self, uid: UnitID) -> Result<Arc<ListUnit>, SysError> {
         stack_trace!();
         debug_assert!(uid.0 << self.u32_per_sector_log2 < self.max_unit_num as u32);
-        if let Some((unit, _aid)) = self.search.get(&uid) {
+        if let Some((_aid, unit)) = self.search.get(&uid) {
             return Ok(unit.clone());
         }
         let mut unit = self.get_new_uninit_unit()?;
@@ -240,7 +242,7 @@ impl ListManager {
         unit.update_aid(aid);
         let unit = Arc::new(unit);
         self.search
-            .try_insert(uid, (unit.clone(), aid))
+            .try_insert(uid, (aid, unit.clone()))
             .ok()
             .unwrap();
         self.clean
@@ -267,18 +269,20 @@ impl ListManager {
                 return Err(SysError::ENOBUFS);
             }
             if unit.aid() != xaid {
-                self.clean.try_insert(unit.aid(), (uid, unit)).ok().unwrap();
+                let aid = unit.aid();
+                self.search.get_mut(&uid).unwrap().0 = aid;
+                self.clean.try_insert(aid, (uid, unit)).ok().unwrap();
                 continue;
             }
             // 以下continue概率极低 原子操作都在这里
             // 两个强引用只会出现在 search 或 clean 极小概率所有权被某进程从Weak索引获取
-            let (ps, xxaid) = self.search.remove(&uid).unwrap(); // 减少引用计数
+            let (xxaid, ps) = self.search.remove(&uid).unwrap(); // 减少引用计数
             debug_assert_eq!(xaid, xxaid);
             debug_assert!(Arc::strong_count(&unit) >= 2);
             if Arc::strong_count(&unit) != 2 {
                 let aid = self.aid_alloc.alloc();
                 unit.update_aid(aid);
-                self.search.try_insert(uid, (ps, aid)).ok().unwrap();
+                self.search.try_insert(uid, (aid, ps)).ok().unwrap();
                 self.clean.try_insert(aid, (uid, unit)).ok().unwrap();
                 continue;
             }
@@ -288,10 +292,10 @@ impl ListManager {
                     let aid = self.aid_alloc.alloc();
                     unit.update_aid(aid);
                     self.search
-                        .try_insert(uid, (unit.clone(), aid))
+                        .try_insert(uid, (aid, unit.clone()))
                         .ok()
                         .unwrap();
-                    self.clean.try_insert(unit.aid(), (uid, unit)).ok().unwrap();
+                    self.clean.try_insert(aid, (uid, unit)).ok().unwrap();
                     continue;
                 }
                 Ok(unit) => return Ok(unit),

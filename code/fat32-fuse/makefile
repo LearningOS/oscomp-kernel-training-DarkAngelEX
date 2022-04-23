@@ -43,6 +43,10 @@ init: create
 	touch looooooo7 && \
 	touch looooooo8 && \
 	touch "好啊22.455" && \
+	touch BIG4K && truncate -s 4096 BIG4K && \
+	touch BIG6K && truncate -s 6000 BIG6K && \
+	touch BIG8K && truncate -s 8192 BIG8K && \
+	touch BIGTEST && truncate -s 4096 BIGTEST && truncate -s 0 BIGTEST \
 	ls
 	sudo umount $(DIR_PATH)
 

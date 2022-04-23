@@ -2,7 +2,7 @@ use core::{alloc::AllocError, fmt, ops::ControlFlow};
 
 #[allow(dead_code, clippy::upper_case_acronyms)]
 #[repr(isize)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum SysError {
     EUNDEF = 0,
     EPERM = 1,

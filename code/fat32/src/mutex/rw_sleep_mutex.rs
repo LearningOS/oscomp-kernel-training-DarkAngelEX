@@ -37,6 +37,9 @@ impl<T> RwSleepMutex<T> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    pub unsafe fn unsafe_get(&self) -> &T {
+        &*self.data.get()
+    }
     /// 睡眠锁将交替解锁共享任务和排他任务 不保证共享锁和排他锁的解锁顺序
     pub async fn shared_lock(&self) -> impl Deref<Target = T> + Send + Sync + '_ {
         RwSleepMutexFuture::<'_, T, false> { mutex: self, id: 0 }.await

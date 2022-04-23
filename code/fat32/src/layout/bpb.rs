@@ -39,6 +39,7 @@ pub struct RawBPB {
 
     // 此部分为加载后自行计算
     pub sector_bytes_log2: u32,  // 每扇区字节数的log2
+    pub cluster_bytes_log2: u32, // 每扇区字节数的log2
     pub cluster_bytes: usize,    // 每簇字节数
     pub fat_sector_start: SID,   // FAT表开始扇区号
     pub data_sector_start: SID,  // 数据区开始扇区号
@@ -95,6 +96,7 @@ impl RawBPB {
         debug_assert_eq!(offset, 0x5A);
         self.sector_bytes_log2 = self.sector_bytes.log2();
         self.cluster_bytes = self.sector_bytes as usize * self.sector_per_cluster as usize;
+        self.cluster_bytes_log2 = self.cluster_bytes.log2();
         self.fat_sector_start = SID(self.sector_hidden + self.sector_reserved as u32);
         self.data_sector_start =
             SID(self.fat_sector_start.0 + self.sector_per_fat * self.fat_num as u32);
@@ -106,6 +108,13 @@ impl RawBPB {
     pub fn cid_transform(&self, cid: CID) -> SID {
         debug_assert!(cid.0 >= 2);
         SID(self.data_sector_start.0 + (cid.0 - 2) * self.sector_per_cluster as u32)
+    }
+    /// (第几个簇, 簇内偏移)
+    pub fn cluster_spilt(&self, offset: usize) -> (usize, usize) {
+        (
+            offset >> self.cluster_bytes_log2,
+            offset & ((1 << self.cluster_bytes_log2) - 1),
+        )
     }
 }
 

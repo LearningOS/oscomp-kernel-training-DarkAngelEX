@@ -30,14 +30,14 @@ mod unit;
 ///
 /// 如果缓存存在只需要非常短暂地持有Weak指针锁upgrade为Arc
 pub struct FatList {
-    aid_alloc: Arc<AIDAllocator<ListUnit>>, // 分配访问号
-    list_index: ListIndex,                  // 链表索引
-    max_cid: CID,                           // 簇数 list中超过size的将被忽略
-    max_unit_num: usize,                    // 最大索引块数量
-    sector_bytes: usize,                    // 扇区大小
-    u32_per_sector_log2: u32,               // 一个扇区可以放多少个u32
-    dirty_semaphore: Semaphore,             // 脏块信号量 必须小于最大缓存数
-    manager: Arc<SleepMutex<ListManager>>,  // 全局管理系统 互斥操作
+    aid_alloc: Arc<AIDAllocator>,          // 分配访问号
+    list_index: ListIndex,                 // 链表索引
+    max_cid: CID,                          // 簇数 list中超过size的将被忽略
+    max_unit_num: usize,                   // 最大索引块数量
+    sector_bytes: usize,                   // 扇区大小
+    u32_per_sector_log2: u32,              // 一个扇区可以放多少个u32
+    dirty_semaphore: Semaphore,            // 脏块信号量 必须小于最大缓存数
+    manager: Arc<SleepMutex<ListManager>>, // 全局管理系统 互斥操作
 }
 
 impl FatList {
@@ -98,16 +98,19 @@ impl FatList {
     }
     /// 从起始块开始扫描FAT链表 如果存在缓存将伪无锁进行
     ///
-    /// 假设输入cid=8 链表序列为 8->9->10->LAST 将调用: (B,9,0) (B,10,1) (B,LAST,2) break
+    /// start_off是输入cid所在块的偏移量, op的第一次调用off将为start_off+1
+    ///
+    /// 假设输入cid=8 off=0 链表序列为 8->9->10->LAST 将调用: (B,9,1) (B,10,2) (B,LAST,3) break
     pub async fn travel<B>(
         &self,
         cid: CID, // start CID
+        start_off: usize,
         init: B,
         mut op: impl FnMut(B, CID, usize) -> ControlFlow<Result<B, SysError>, B>,
     ) -> ControlFlow<Result<B, SysError>, B> {
         let mut cur = cid;
         let mut accum = init;
-        let mut i = 0;
+        let mut i = start_off + 1;
         let mut unit: Option<(UnitID, Arc<ListUnit>)> = None; // 缓存一个缓存块加速缓存内查找
         while cur.is_next() {
             let (uid, uoff) = self.get_unit_of_cid(cur);

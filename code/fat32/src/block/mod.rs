@@ -46,8 +46,9 @@ impl CacheManager {
     pub async fn set_waker(&mut self, waker: Waker) {
         self.inner.lock().await.set_waker(waker)
     }
-    /// 获取扇区对应的缓存块
+    /// 获取簇号对应的缓存块
     pub async fn get_block(&self, cid: CID) -> Result<Arc<Cache>, SysError> {
+        debug_assert!(cid.is_next());
         if let Some(b) = self.index.get(cid) {
             return Ok(b);
         }
@@ -77,7 +78,6 @@ impl CacheManager {
     pub async fn release_block(&self, cid: CID) {
         self.inner.lock().await.release_block(cid)
     }
-
     /// 生成一个同步任务
     pub fn sync_task(
         &mut self,

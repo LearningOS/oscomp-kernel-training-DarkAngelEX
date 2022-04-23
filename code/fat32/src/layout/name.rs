@@ -79,6 +79,9 @@ impl RawShortName {
         self.cluster_h16 = (cid.0 >> 16) as u16;
         self.cluster_l16 = cid.0 as u16;
     }
+    pub fn file_bytes(&self) -> usize {
+        self.file_bytes as usize
+    }
     // -> (hms, date)
     fn time_tran(
         (year, mount, day): (usize, usize, usize),
@@ -195,7 +198,7 @@ impl RawLongName {
     }
 }
 
-#[repr(C, align(32))]
+#[repr(C, align(8))]
 #[derive(Clone, Copy)]
 pub union RawName {
     short: RawShortName,
@@ -286,7 +289,14 @@ impl NameSet {
                         let mut buf = [0; 12];
                         let str =
                             unsafe { core::str::from_utf8_unchecked(name.get_name(&mut buf)) };
-                        println!("{:3}     s:{}", i, str);
+                        println!(
+                            "{:3}     s:{} \tlen:{} cid:{:#x} attr:{:#x}",
+                            i,
+                            str,
+                            name.file_bytes(),
+                            name.cid().0,
+                            name.attributes
+                        );
                     }
                     Name::Long(name) => {
                         use alloc::string::String;

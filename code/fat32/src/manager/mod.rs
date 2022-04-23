@@ -6,7 +6,6 @@ use crate::{
     fat_list::FatList,
     inode::manager::InodeManager,
     layout::bpb::RawBPB,
-    mutex::spin_mutex::SpinMutex,
     tools::{CID, SID},
     xdebug::assert_sie_closed,
     xerror::SysError,
@@ -14,15 +13,11 @@ use crate::{
 };
 
 pub struct Fat32Manager {
-    bpb: RawBPB,
-    list: FatList,
-    inner: SpinMutex<ManagerInner>,
+    pub(crate) bpb: RawBPB,
+    pub(crate) list: FatList,
+    pub(crate) caches: CacheManager,
+    pub(crate) inodes: InodeManager,
     device: Option<Arc<dyn BlockDevice>>,
-}
-
-pub struct ManagerInner {
-    pub caches: CacheManager,
-    pub inodes: InodeManager,
 }
 
 impl Fat32Manager {
@@ -31,14 +26,13 @@ impl Fat32Manager {
         list_max_cache: usize,
         block_max_dirty: usize,
         block_max_cache: usize,
+        inode_target_free: usize,
     ) -> Self {
         Self {
             bpb: RawBPB::zeroed(),
             list: FatList::empty(list_max_dirty, list_max_cache),
-            inner: SpinMutex::new(ManagerInner {
-                caches: CacheManager::new(block_max_dirty, block_max_cache),
-                inodes: InodeManager::new(),
-            }),
+            caches: CacheManager::new(block_max_dirty, block_max_cache),
+            inodes: InodeManager::new(inode_target_free),
             device: None,
         }
     }
@@ -46,8 +40,8 @@ impl Fat32Manager {
         assert_sie_closed();
         self.bpb.load(&*device).await;
         self.list.init(&self.bpb, 0, device.clone()).await;
-        let inner = self.inner.get_mut();
-        inner.inodes.init();
+        self.caches.init(&self.bpb, device.clone()).await;
+        self.inodes.init();
         self.device = Some(device);
     }
     pub fn device(&self) -> &dyn BlockDevice {

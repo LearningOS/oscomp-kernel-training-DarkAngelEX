@@ -21,7 +21,7 @@ pub async fn test(device: impl BlockDevice) {
 
 fn system_test(device: Arc<dyn BlockDevice>) -> impl Future<Output = ()> + Send + 'static {
     async move {
-        let mut fat32 = Fat32Manager::new(100, 100, 100, 100);
+        let mut fat32 = Fat32Manager::new(100, 100, 100, 100, 100);
         fat32.init(device).await;
         let path = AccessPath::new();
         todo!()

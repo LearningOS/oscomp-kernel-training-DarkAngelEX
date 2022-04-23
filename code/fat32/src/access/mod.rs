@@ -4,7 +4,6 @@
 
 use alloc::{collections::LinkedList, string::String};
 
-
 pub enum Access {
     ReadOnly,
     Writable,

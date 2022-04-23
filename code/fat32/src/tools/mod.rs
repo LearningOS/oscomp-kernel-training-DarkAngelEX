@@ -1,4 +1,5 @@
 use core::{
+    cell::UnsafeCell,
     convert::Infallible,
     marker::PhantomData,
     ops::{Deref, DerefMut},
@@ -127,6 +128,7 @@ pub fn store_fn<T: Copy>(src: &T, dst: &mut [u8], offset: &mut usize) {
     };
 }
 
+/// 加速packed结构体访问 否则必须按字节把数据取出来
 #[repr(align(8))]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Align8<T>(pub T);
@@ -193,11 +195,11 @@ impl AtomicMID {
     }
 }
 
-pub struct AIDAllocator<T>(AtomicUsize, PhantomData<T>);
+pub struct AIDAllocator(AtomicUsize);
 
-impl<T> AIDAllocator<T> {
+impl AIDAllocator {
     pub const fn new() -> Self {
-        Self(AtomicUsize::new(0), PhantomData)
+        Self(AtomicUsize::new(0))
     }
     /// 递增1并返回原来的值
     pub fn alloc(&self) -> AID {
@@ -217,4 +219,38 @@ impl<T> MIDAllocator<T> {
 
 pub fn err_break<B, E>(e: Result<Infallible, E>) -> Result<B, E> {
     Err(e.err().unwrap())
+}
+
+pub struct SyncUnsafeCell<T: ?Sized> {
+    data: UnsafeCell<T>,
+}
+
+unsafe impl<T: ?Sized> Send for SyncUnsafeCell<T> {}
+unsafe impl<T: ?Sized> Sync for SyncUnsafeCell<T> {}
+
+impl<T> SyncUnsafeCell<T> {
+    pub const fn new(value: T) -> Self {
+        Self {
+            data: UnsafeCell::new(value),
+        }
+    }
+    pub fn into_inner(self) -> T {
+        self.data.into_inner()
+    }
+    pub unsafe fn get(&self) -> &mut T {
+        // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
+        // #[repr(transparent)]. This exploits libstd's special status, there is
+        // no guarantee for user code that this will work in future versions of the compiler!
+        &mut *(self as *const SyncUnsafeCell<T> as *const T as *mut T)
+    }
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
+    }
+}
+
+impl<T> const From<T> for SyncUnsafeCell<T> {
+    /// Creates a new `UnsafeCell<T>` containing the given value.
+    fn from(t: T) -> SyncUnsafeCell<T> {
+        SyncUnsafeCell::new(t)
+    }
 }

@@ -18,6 +18,8 @@
 #![feature(try_trait_v2)]
 #![feature(control_flow_enum)]
 #![feature(try_blocks)]
+#![feature(int_roundings)]
+#![feature(get_mut_unchecked)]
 
 #[macro_use]
 extern crate bitflags;

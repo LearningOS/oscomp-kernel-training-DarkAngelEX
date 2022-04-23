@@ -30,7 +30,7 @@ pub struct CacheManagerInner {
     pub sector_per_cluster_log2: u32, // 每个簇多少扇区
     max_cache_num: usize,             // 最大缓存块数
 
-    aid_alloc: Arc<AIDAllocator<Cache>>,
+    aid_alloc: Arc<AIDAllocator>,
     search: BTreeMap<CID, (Arc<Cache>, AID)>, // 簇号 -> 块号 使用Arc来减少原子操作
     clean: BTreeMap<AID, (CID, Arc<Cache>)>,  // LRU 搜索替换搜索 与dirty保证无交集
     dirty: BTreeMap<CID, (Arc<Cache>, SemaphoreGuard)>, // 等待同步或运行在驱动的块
@@ -78,7 +78,9 @@ impl CacheManagerInner {
     }
     pub fn close(&mut self) {
         self.sync_pending.lock().take();
-        self.sync_waker().wake();
+        if self.sync_waker.is_some() {
+            self.sync_waker().wake();
+        }
     }
     pub fn set_waker(&mut self, waker: Waker) {
         self.sync_waker = Some(waker);
@@ -129,10 +131,9 @@ impl CacheManagerInner {
                 return Err(SysError::ENOBUFS);
             }
             if cache.aid() != xaid {
-                self.clean
-                    .try_insert(cache.aid(), (cid, cache))
-                    .ok()
-                    .unwrap();
+                let aid = cache.aid();
+                self.search.get_mut(&cid).unwrap().1 = aid;
+                self.clean.try_insert(aid, (cid, cache)).ok().unwrap();
                 continue;
             }
             // 以下continue概率极低 原子操作都在这里
@@ -156,10 +157,7 @@ impl CacheManagerInner {
                         .try_insert(cid, (cache.clone(), aid))
                         .ok()
                         .unwrap();
-                    self.clean
-                        .try_insert(cache.aid(), (cid, cache))
-                        .ok()
-                        .unwrap();
+                    self.clean.try_insert(aid, (cid, cache)).ok().unwrap();
                     continue;
                 }
                 Ok(cache) => return Ok(cache),
