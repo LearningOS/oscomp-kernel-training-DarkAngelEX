@@ -3,6 +3,7 @@ use core::ops::ControlFlow;
 use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
+    inode::xstr::{name_check, str_to_just_short, str_to_utf16},
     layout::name::{Attr, Name, RawLongName, RawName, RawShortName},
     mutex::rw_sleep_mutex::RwSleepMutex,
     tools::{Align8, CID},
@@ -10,8 +11,12 @@ use crate::{
     Fat32Manager,
 };
 
-use super::raw_inode::RawInode;
+use super::{
+    raw_inode::RawInode,
+    xstr::{utf16_to_string, ShortFinder},
+};
 
+/// 短目录项偏移
 #[derive(Debug, Clone, Copy)]
 pub struct EntryPlace {
     cluster_off: usize, // inode簇偏移
@@ -38,37 +43,202 @@ impl DirInode {
     pub fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
         Self { inode }
     }
-    // unique
-    pub async fn create_dir(&self, manager: &Fat32Manager) -> Result<(), SysError> {
+    pub async fn search_entry(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
+        let inode = &*self.inode.shared_lock().await;
+        match Self::search_impl(inode, manager, name).await? {
+            None => todo!(),
+            Some(_) => todo!(),
+        }
+    }
+    /// unique
+    pub async fn create_dir(
+        &self,
+        manager: &Fat32Manager,
+        name: &str,
+        read_only: bool,
+        hidden: bool,
+    ) -> Result<(), SysError> {
+        let name = name_check(name)?;
+        // 排他锁保证文件分配不被打乱
+        let inode = &mut *self.inode.unique_lock().await;
+        if Self::search_impl(inode, manager, name).await?.is_some() {
+            return Err(SysError::EEXIST);
+        }
+        // 寻找短文件名
+        let finder = Self::short_detect(inode, manager, name).await;
+        let utc_time = manager.utc_time();
+        let parent_cid = inode.parent.inner.shared_lock().cid_start;
+        let this_cid = inode.cache.inner.shared_lock().cid_start;
+        debug_assert!(parent_cid.is_next());
+        debug_assert!(this_cid.is_next());
+        // 为目录分配新的簇
+        let cid = manager.list.alloc_block().await?;
+        debug_assert!(cid.is_next());
+        manager
+            .caches
+            .get_block_init(cid, |a| {
+                RawName::cluster_init(a);
+                a[0].short_init()
+                    .init_dot_dir("..".as_bytes(), parent_cid, &utc_time);
+                a[1].short_init()
+                    .init_dot_dir(".".as_bytes(), this_cid, &utc_time);
+            })
+            .await?;
+        let mut short = Align8(RawShortName::zeroed());
+        finder.apply(&mut short);
+        short.init_except_name(cid, 0, Attr::new(true, read_only, hidden), &utc_time);
+        Self::create_entry_impl(inode, manager, name, short).await?;
+        Ok(())
+    }
+    /// unique
+    ///
+    /// 创建一个空文件
+    pub async fn create_file(
+        &self,
+        manager: &Fat32Manager,
+        name: &str,
+        read_only: bool,
+        hidden: bool,
+    ) -> Result<(), SysError> {
+        let name = name_check(name)?;
+        // 排他锁保证文件分配不被打乱
+        let inode = &mut *self.inode.unique_lock().await;
+        if Self::search_impl(inode, manager, name).await?.is_some() {
+            return Err(SysError::EEXIST);
+        }
+        // 寻找短文件名
+        let finder = Self::short_detect(inode, manager, name).await;
+        let utc_time = manager.utc_time();
+        let mut short = Align8(RawShortName::zeroed());
+        finder.apply(&mut short);
+        short.init_except_name(CID::FREE, 0, Attr::new(false, read_only, hidden), &utc_time);
+        Self::create_entry_impl(inode, manager, name, short).await?;
+        Ok(())
+    }
+    async fn short_detect(inode: &mut RawInode, manager: &Fat32Manager, name: &str) -> ShortFinder {
+        // 寻找短文件名
+        let mut finder = ShortFinder::new(name);
+        if !finder.short_only() {
+            Self::raw_entry_try_fold(inode, manager, (), |(), name, _e| {
+                if let Some(Name::Short(short)) = name.get() {
+                    finder.record(short)
+                }
+                ControlFlow::CONTINUE
+            })
+            .await;
+        }
+        finder
+    }
+    /// shared
+    pub async fn free_dir(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
+        let name = name_check(name)?;
+        name_check(name)?;
         todo!()
     }
-    // unique
-    pub async fn create_file(&self, manager: &Fat32Manager) -> Result<(), SysError> {
+    /// shared
+    pub async fn free_file(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
+        let name = name_check(name)?;
+        name_check(name)?;
         todo!()
     }
-    // shared
-    pub async fn delete(&self, manager: &Fat32Manager) -> Result<(), SysError> {
-        todo!()
-    }
-    pub async fn create_entry(
+    /// unique
+    async fn create_entry(
         &self,
         manager: &Fat32Manager,
         name: &str,
         short: Align8<RawShortName>,
+    ) -> Result<EntryPlace, SysError> {
+        stack_trace!();
+        let inode = &mut *self.inode.unique_lock().await;
+        Self::create_entry_impl(inode, manager, name, short).await
+    }
+    /// 如果不为空将panic
+    async fn delete_empty_entry(
+        inode: &mut RawInode,
+        manager: &Fat32Manager,
+        start_place: EntryPlace, // 长文件名起始项 如果没有长文件名则等于short_place
+        short_place: EntryPlace,
     ) -> Result<(), SysError> {
-        let mut inode = self.inode.unique_lock().await;
-        if Self::search_entry(&*inode, manager, name).await?.is_some() {
+        stack_trace!();
+        // 检测是否链表为空
+        if cfg!(debug_assert) {
+            let cache = manager.caches.get_block(short_place.cid).await?;
+            cache
+                .access_ro(
+                    |names: &[RawName]| match names[short_place.entry_off].get().unwrap() {
+                        Name::Long(_) => panic!(),
+                        Name::Short(s) => assert_eq!(s.cid(), CID::FREE),
+                    },
+                )
+                .await;
+        }
+        let single = start_place.cluster_off == short_place.cluster_off;
+        manager
+            .caches
+            .write_block(
+                start_place.cid,
+                &*manager.caches.get_block(start_place.cid).await?,
+                |x: &mut [RawName]| {
+                    if single {
+                        &mut x[start_place.entry_off..short_place.entry_off]
+                    } else {
+                        &mut x[start_place.entry_off..]
+                    }
+                    .iter_mut()
+                    .for_each(|dst| {
+                        debug_assert!(dst.is_long());
+                        dst.set_free();
+                    });
+                    if single {
+                        let short = &mut x[short_place.entry_off];
+                        debug_assert!(!short.is_long());
+                        short.set_free();
+                    }
+                },
+            )
+            .await?;
+        if single {
+            return Ok(());
+        }
+        manager
+            .caches
+            .write_block(
+                short_place.cid,
+                &*manager.caches.get_block(short_place.cid).await?,
+                |x: &mut [RawName]| {
+                    x[..short_place.entry_off].iter_mut().for_each(|dst| {
+                        debug_assert!(dst.is_long());
+                        dst.set_free();
+                    });
+                    let short = &mut x[short_place.entry_off];
+                    debug_assert!(!short.is_long());
+                    short.set_free();
+                },
+            )
+            .await?;
+        todo!()
+    }
+    /// 返回短文件名的位置
+    async fn create_entry_impl(
+        inode: &mut RawInode,
+        manager: &Fat32Manager,
+        name: &str,
+        short: Align8<RawShortName>,
+    ) -> Result<EntryPlace, SysError> {
+        stack_trace!();
+        if Self::search_impl(inode, manager, name).await?.is_some() {
             return Err(SysError::EEXIST);
         }
         let long = if str_to_just_short(name).is_some() {
-            None
+            Vec::new()
         } else {
-            Some(str_to_utf16(name))
+            str_to_utf16(name)?
         };
-        let need_len = long.as_ref().map(|a| a.len() + 1).unwrap_or(1);
-        let r = Self::raw_entry_try_fold(&*inode, manager, (0, None), |(cnt, place), b, c| {
+        let need_len = long.len() + 1;
+        // (连续空位数, 第一个空entry的位置)
+        let r = Self::raw_entry_try_fold(inode, manager, (0, None), |(cnt, place), b, c| {
             if !b.is_free() {
-                return ControlFlow::Continue((0, None));
+                return ControlFlow::Continue((0, Some(c)));
             }
             let nxt_place = if cnt == 0 { Some(c) } else { place };
             let nxt = (cnt + 1, nxt_place);
@@ -79,28 +249,78 @@ impl DirInode {
             }
         })
         .await;
+        // 连续空闲数 位置
         let (n, p) = match r {
             ControlFlow::Break(Err(e)) => return Err(e),
             ControlFlow::Continue(x) | ControlFlow::Break(Ok(x)) => x,
         };
-        if n != need_len {
-            let (cid, cache) = inode.append_block(manager, RawName::cluster_init).await?;
-            todo!()
+        let mut iter = entry_generate(&long, &short);
+        // 在当前块写入
+        if p.is_none() || n == 0 {
+            let (cluster_off, cid, cache) =
+                inode.append_block(manager, RawName::cluster_init).await?;
+            manager
+                .caches
+                .write_block(cid, &cache, |a: &mut [RawName]| {
+                    a.iter_mut().zip(iter).for_each(|(dst, src)| {
+                        debug_assert!(dst.is_free());
+                        *dst = src;
+                    });
+                })
+                .await?;
+            return Ok(EntryPlace::new(cluster_off, cid, need_len - 1));
         }
-        todo!()
+        let p = p.unwrap();
+        // 只在新的块写入
+        manager
+            .caches
+            .write_block(
+                p.cid,
+                &*manager.caches.get_block(p.cid).await?,
+                |a: &mut [RawName]| {
+                    a[p.entry_off..]
+                        .iter_mut()
+                        .zip(&mut iter)
+                        .for_each(|(dst, src)| {
+                            debug_assert!(dst.is_free());
+                            *dst = src;
+                        });
+                },
+            )
+            .await?;
+        if n == need_len {
+            return Ok(EntryPlace::new(
+                p.cluster_off,
+                p.cid,
+                p.entry_off + need_len - 1,
+            ));
+        }
+        // 同时在当前块和新的块写入
+        let (cluster_off, cid_2, b_2) = inode.append_block(manager, RawName::cluster_init).await?;
+        let mut entry_off = 0;
+        manager
+            .caches
+            .write_block(cid_2, &b_2, |a: &mut [RawName]| {
+                iter.zip(a.iter_mut()).for_each(|(src, dst)| {
+                    debug_assert!(dst.is_free());
+                    entry_off += 1;
+                    *dst = src;
+                });
+            })
+            .await?;
+        return Ok(EntryPlace::new(cluster_off, cid_2, entry_off - 1));
     }
-    /// 返回短文件名位置
-    ///
-    /// (簇偏移, 簇内偏移, 簇号)
-    async fn search_entry(
+    /// 返回短文件名位置 短文件名 长文件名数量
+    async fn search_impl(
         inode: &RawInode,
         manager: &Fat32Manager,
         name: &str,
-    ) -> Result<Option<(EntryPlace, Align8<RawShortName>)>, SysError> {
+    ) -> Result<Option<(EntryPlace, Align8<RawShortName>, usize)>, SysError> {
+        stack_trace!();
         if let Some(short) = &str_to_just_short(name) {
             match Self::name_try_fold(inode, manager, None, |_prev, b| {
-                if b.short_cmp(short) {
-                    return ControlFlow::Break(Some((b.place(), b.short)));
+                if b.short_same(short) {
+                    return ControlFlow::Break(Some((b.place(), b.short, b.long_len)));
                 }
                 try { None }
             })
@@ -111,8 +331,8 @@ impl DirInode {
             }
         }
         match Self::name_try_fold(inode, manager, None, |_prev, b| {
-            if b.long_cmp(name) {
-                return ControlFlow::Break(Some((b.place(), b.short)));
+            if b.long_same(name) {
+                return ControlFlow::Break(Some((b.place(), b.short, b.long_len)));
             }
             try { None }
         })
@@ -138,7 +358,7 @@ impl DirInode {
             };
             let (cid, cache) = match r {
                 Ok(cache) => cache,
-                Err(_) => {
+                Err(_list_len) => {
                     return try { accum };
                 }
             };
@@ -166,6 +386,7 @@ impl DirInode {
         init: B,
         mut f: impl FnMut(B, DirName) -> ControlFlow<B, B>,
     ) -> ControlFlow<Result<B, SysError>, B> {
+        stack_trace!();
         match Self::raw_entry_try_fold(
             inode,
             manager,
@@ -208,6 +429,9 @@ impl LongNameBuilder {
             current: 0,
         }
     }
+    fn long_len(&self) -> usize {
+        self.long.len()
+    }
     fn clear(&mut self) {
         self.long.clear();
     }
@@ -233,49 +457,49 @@ impl LongNameBuilder {
     }
 }
 
-/// 长文件名反序 最后一项在前
-fn utf16_to_string<'a>(src: impl DoubleEndedIterator<Item = &'a [u16; 13]>) -> String {
-    let u16_iter = src
-        .rev()
-        .flat_map(|&s| s.into_iter())
-        .take_while(|&s| s != 0x00)
-        .into_iter();
-    char::decode_utf16(u16_iter)
-        .map(|r| r.unwrap_or(core::char::REPLACEMENT_CHARACTER))
-        .collect()
-}
-/// 字符串能只变为短文件名时返回Some
-fn str_to_just_short(src: &str) -> Option<([u8; 8], [u8; 3])> {
-    if src.len() >= 12 {
-        return None;
+fn entry_generate<'a>(
+    long: &'a [[u16; 13]],
+    short: &'a Align8<RawShortName>,
+) -> impl Iterator<Item = RawName> + 'a {
+    debug_assert!(long.len() <= 31);
+    let checksum = short.checksum();
+    return Iter {
+        long,
+        short,
+        cnt: long.len() as isize,
+        checksum,
+    };
+
+    struct Iter<'a> {
+        long: &'a [[u16; 13]],
+        short: &'a Align8<RawShortName>,
+        cnt: isize,
+        checksum: u8,
     }
-    todo!()
-}
-/// 正常顺序
-fn str_to_utf16(src: &str) -> Vec<[u16; 13]> {
-    if src.is_empty() {
-        return Vec::new();
-    }
-    let mut v = Vec::<[u16; 13]>::new();
-    let mut i = 0;
-    for ch in src.encode_utf16() {
-        if i == 0 {
-            v.push([0xFF; 13]);
+    impl<'a> Iterator for Iter<'a> {
+        type Item = RawName;
+        fn next(&mut self) -> Option<Self::Item> {
+            if self.cnt < 0 {
+                return None;
+            }
+            if self.cnt == 0 {
+                self.cnt -= 1;
+                return Some(RawName::from_short(*self.short));
+            }
+            let order = self.cnt as usize;
+            let last = order == self.long.len();
+            self.cnt -= 1;
+            let src = &self.long[self.cnt as usize];
+            let mut long = RawLongName::zeroed();
+            long.set(src, order, last, self.checksum);
+            Some(RawName::from_long(long))
         }
-        v.last_mut().unwrap()[i] = ch;
-        i += 1;
-        if i >= 13 {
-            i = 0;
-        }
     }
-    if i != 0 {
-        v.last_mut().unwrap()[i] = 0x00;
-    }
-    v
 }
 
 struct DirName {
     pub long: String,
+    pub long_len: usize,
     pub short: Align8<RawShortName>,
     pub place: EntryPlace,
 }
@@ -288,6 +512,7 @@ impl DirName {
     ) -> Self {
         Self {
             long: builder.decode_utf16(),
+            long_len: builder.long_len(),
             short: *short,
             place,
         }
@@ -302,10 +527,18 @@ impl DirName {
     fn place(&self) -> EntryPlace {
         self.place
     }
-    fn short_cmp(&self, short: &([u8; 8], [u8; 3])) -> bool {
+    // 存粹的短文件名没有小写字母
+    fn short_same(&self, short: &([u8; 8], [u8; 3])) -> bool {
         &(self.short.name, self.short.ext) == short
     }
-    fn long_cmp(&self, str: &str) -> bool {
-        self.long == str
+    // 不区分大小写
+    fn long_same(&self, str: &str) -> bool {
+        if self.long.len() != str.len() {
+            return false;
+        }
+        self.long
+            .bytes()
+            .zip(str.bytes())
+            .all(|(a, b)| a.eq_ignore_ascii_case(&b))
     }
 }

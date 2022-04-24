@@ -114,38 +114,42 @@ impl InodeCacheInner {
         self.short.attributes
     }
     pub fn update_list(&mut self, cid: CID, n: usize) {
-        if self.cid_list.len() > n {
-            debug_assert!(self.cid_list[n] == cid);
+        if let Some(&x) = self.cid_list.get(n) {
+            debug_assert!(x == cid);
             return;
-        }
-        debug_assert!(self.cid_list.len() == n);
-        if self.almost_last.0 <= n {
-            self.almost_last = (n, cid);
         }
         if !cid.is_next() {
             self.len = Some(n);
-        } else {
+            return;
+        }
+        if self.almost_last.0 <= n {
+            self.almost_last = (n, cid);
+        }
+        if self.cid_list.len() == n {
             self.cid_list.push(cid);
         }
     }
-    /// list的长度变为至多n
-    pub fn list_truncate(&mut self, n: usize) {
+    /// list的长度变为至多n cid为最后一个簇
+    pub fn list_truncate(&mut self, n: usize, cid: CID) {
         if n == 0 {
             self.cid_start = CID(0);
             self.cid_list.clear();
-            self.almost_last = (0, CID::free());
+            self.almost_last = (0, CID::FREE);
             self.len = Some(0);
             return;
         }
         self.cid_list.truncate(n);
-        self.almost_last = (self.cid_list.len() - 1, *self.cid_list.last().unwrap());
+        if self.cid_list.len() * 2 + 100 < self.cid_list.capacity() {
+            self.cid_list.shrink_to_fit();
+        }
+        self.almost_last = (n - 1, cid);
         self.len = Some(n);
     }
     /// 返回缓存的最后一个簇偏移与ID
     pub fn list_last_save(&self) -> Option<(usize, CID)> {
         if !self.cid_start.is_free() {
             debug_assert!(!self.cid_start.is_next());
-            debug_assert!(self.almost_last == (0, CID::free()));
+            debug_assert!(self.almost_last == (0, CID::FREE));
             return None;
         }
         debug_assert!(self.almost_last.0 > 0);
@@ -158,7 +162,7 @@ impl InodeCacheInner {
     pub fn try_get_nth_block_cid(&self, n: usize) -> Option<Result<CID, usize>> {
         if self.cid_start.is_free() {
             debug_assert!(!self.cid_start.is_next());
-            debug_assert!(self.almost_last == (0, CID::free()));
+            debug_assert!(self.almost_last == (0, CID::FREE));
             return Some(Err(0));
         }
         if let Some(x) = self.len {
@@ -206,16 +210,15 @@ impl InodeCacheInner {
         debug_assert!(self.cid_list.is_empty());
         debug_assert!(self.cid_start.is_free());
         debug_assert!(self.len.unwrap() == 0);
-        debug_assert!(self.almost_last == (0, CID::free()));
+        debug_assert!(self.almost_last == (0, CID::FREE));
         self.cid_start = cid;
         self.cid_list.push(cid);
         self.almost_last = (0, cid);
         self.len = Some(1);
     }
+    /// 簇偏移 簇ID
     pub fn append_last(&mut self, n: usize, cid: CID) {
-        debug_assert!(!self.cid_start.is_free());
-        debug_assert!(self.len.unwrap() == n);
-        debug_assert!(self.almost_last.0 == n - 1);
+        debug_assert!(self.cid_start.is_next());
         if self.cid_list.len() == n {
             self.cid_list.push(cid);
         }

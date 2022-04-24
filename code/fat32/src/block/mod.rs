@@ -49,12 +49,12 @@ impl CacheManager {
     /// 获取簇号对应的缓存块
     pub async fn get_block(&self, cid: CID) -> Result<Arc<Cache>, SysError> {
         debug_assert!(cid.is_next());
-        if let Some(b) = self.index.get(cid) {
-            return Ok(b);
+        if let Some(c) = self.index.get(cid) {
+            return Ok(c);
         }
-        let b = self.inner.lock().await.get_block(cid).await?;
-        self.index.insert(cid, Arc::downgrade(&b));
-        Ok(b)
+        let c = self.inner.lock().await.get_block(cid).await?;
+        self.index.insert(cid, Arc::downgrade(&c));
+        Ok(c)
     }
     /// 不从磁盘加载数据 而是使用init函数初始化
     pub async fn get_block_init<T: Copy>(
@@ -63,16 +63,43 @@ impl CacheManager {
         init: impl FnOnce(&mut [T]),
     ) -> Result<Arc<Cache>, SysError> {
         let mut blk = {
-            let mut inner = self.inner.lock().await;
+            let inner = &mut *self.inner.lock().await;
             debug_assert!(!inner.have_block_of(cid));
             inner.get_new_uninit_block()?
         };
         let sem = self.dirty_semaphore.take().await;
         init(blk.init_buffer()?);
-        let mut inner = self.inner.lock().await;
+        let inner = &mut *self.inner.lock().await;
         let c = inner.force_insert_block(blk, cid);
         inner.become_dirty(cid, &mut sem.into_multiply());
         Ok(c)
+    }
+    pub async fn write_block<T: Copy, V>(
+        &self,
+        cid: CID,
+        cache: &Cache,
+        op: impl FnOnce(&mut [T]) -> V,
+    ) -> Result<V, SysError> {
+        let sem = self.dirty_semaphore.take().await;
+        let r = cache.access_rw(op).await?;
+        self.inner
+            .lock()
+            .await
+            .become_dirty(cid, &mut sem.into_multiply());
+        Ok(r)
+    }
+    pub async fn apply_block<T: Copy, V>(
+        &self,
+        cid: CID,
+        cache: &Cache,
+        scan: impl FnOnce(&[T]) -> Option<V>,
+        op: impl FnOnce(&mut [T]) -> V,
+    ) -> Result<V, SysError> {
+        match cache.access_ro(scan).await {
+            Some(v) => return Ok(v),
+            None => (),
+        }
+        self.write_block(cid, cache, op).await
     }
     /// 从缓存块中释放块并取消同步任务
     pub async fn release_block(&self, cid: CID) {

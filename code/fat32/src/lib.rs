@@ -20,6 +20,7 @@
 #![feature(try_blocks)]
 #![feature(int_roundings)]
 #![feature(get_mut_unchecked)]
+#![feature(split_array)]
 
 #[macro_use]
 extern crate bitflags;
@@ -37,14 +38,15 @@ mod layout;
 mod manager;
 mod mutex;
 
+pub mod inode;
 mod tools;
+pub mod xasync;
 pub mod xerror;
 pub mod xtest;
-pub mod inode;
-pub mod xasync;
 
 pub use block_dev::{AsyncRet, BlockDevice};
 pub use manager::Fat32Manager;
+pub use tools::UtcTime;
 
 pub trait FsSystem {
     fn new(max_cache: usize) -> Self;

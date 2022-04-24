@@ -2,7 +2,7 @@ use alloc::boxed::Box;
 
 use crate::{
     tools::{self, Align8, CID},
-    BlockDevice,
+    BlockDevice, UtcTime,
 };
 
 use super::bpb::RawBPB;
@@ -15,6 +15,22 @@ bitflags! {
         const VOLUME_ID = 1 << 3; // 卷标
         const DIRECTORY = 1 << 4; // 目录
         const ARCHIVE   = 1 << 5; // 归档
+    }
+}
+
+impl Attr {
+    pub fn new(dir: bool, read_only: bool, hidden: bool) -> Self {
+        let mut v = Self::empty();
+        if dir {
+            v.insert(Attr::DIRECTORY);
+        }
+        if read_only {
+            v.insert(Attr::READ_ONLY);
+        }
+        if hidden {
+            v.insert(Attr::HIDDEN);
+        }
+        v
     }
 }
 
@@ -42,6 +58,33 @@ pub struct RawShortName {
 impl RawShortName {
     pub const fn zeroed() -> Self {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
+    }
+    /// generate ".." "."
+    pub fn init_dot_dir(&mut self, name: &[u8], cid: CID, utc_time: &UtcTime) {
+        debug_assert!(self.is_free());
+        self.name[..name.len()].copy_from_slice(name);
+        self.name[name.len()..].fill(0x20);
+        self.ext.fill(0x20);
+        self.attributes = Attr::DIRECTORY;
+        self.reversed = 0;
+        self.init_time(utc_time);
+        self.set_cluster(cid);
+        self.file_bytes = 0;
+    }
+    pub fn init_except_name(&mut self, cid: CID, file_bytes: u32, attr: Attr, utc_time: &UtcTime) {
+        self.reversed = 0;
+        self.set_cluster(cid);
+        self.attributes = attr;
+        self.init_time(utc_time);
+        self.file_bytes = file_bytes;
+    }
+    pub fn init_time(&mut self, utc_time: &UtcTime) {
+        self.set_access_date(&utc_time);
+        self.set_access_date(&utc_time);
+        self.set_modify_time(&utc_time);
+    }
+    pub fn is_free(&self) -> bool {
+        [0x00, 0xE5].contains(&self.name[0])
     }
     pub fn raw_name(&self) -> ([u8; 8], [u8; 3]) {
         (self.name, self.ext)
@@ -84,12 +127,12 @@ impl RawShortName {
     }
     // -> (hms, date)
     fn time_tran(
-        (year, mount, day): (usize, usize, usize),
-        (hour, min, sec): (usize, usize, usize),
+        &(year, mount, day): &(usize, usize, usize),
+        &(hour, min, sec): &(usize, usize, usize),
     ) -> (u16, u16) {
         let year = year - 1980;
         let sec = sec / 2;
-        debug_assert!(year < 1 << 7);
+        debug_assert!(year < (1 << 7));
         debug_assert!(mount <= 12);
         debug_assert!(day <= 31);
         debug_assert!(hour < 24);
@@ -99,26 +142,20 @@ impl RawShortName {
         let date = year << 9 | mount << 5 | day;
         (hms as u16, date as u16)
     }
-    pub fn set_create_time(
-        &mut self,
-        ymd: (usize, usize, usize),
-        hms: (usize, usize, usize),
-        ms: usize,
-    ) {
+    pub fn set_create_time(&mut self, utc_time: &UtcTime) {
         stack_trace!();
-        assert!(ms <= 200);
-        let (hms, date) = Self::time_tran(ymd, hms);
-        self.create_ms = ms as u8;
+        debug_assert!(utc_time.ms < 1000);
+        let (hms, date) = Self::time_tran(&utc_time.ymd, &utc_time.hms);
+        self.create_ms = (utc_time.ms / 10) as u8;
         self.create_hms = hms;
         self.create_date = date;
     }
-    pub fn set_access_date(&mut self, ymd: (usize, usize, usize)) {
-        let (_, date) = Self::time_tran(ymd, (0, 0, 0));
-        self.access_date = date;
+    pub fn set_access_date(&mut self, utc_time: &UtcTime) {
+        self.access_date = Self::time_tran(&utc_time.ymd, &(0, 0, 0)).1;
     }
-    pub fn set_modify_time(&mut self, ymd: (usize, usize, usize), hms: (usize, usize, usize)) {
+    pub fn set_modify_time(&mut self, utc_time: &UtcTime) {
         stack_trace!();
-        let (hms, date) = Self::time_tran(ymd, hms);
+        let (hms, date) = Self::time_tran(&utc_time.ymd, &utc_time.hms);
         self.modify_hms = hms;
         self.modify_date = date;
     }
@@ -145,6 +182,9 @@ pub struct RawLongName {
 }
 
 impl RawLongName {
+    pub fn zeroed() -> Align8<Self> {
+        unsafe { Align8(core::mem::zeroed()) }
+    }
     pub fn is_last(&self) -> bool {
         self.order & 0x40 != 0
     }
@@ -211,11 +251,25 @@ pub enum Name<'a> {
 }
 
 impl RawName {
+    pub fn short_init(&mut self) -> &mut Align8<RawShortName> {
+        debug_assert!(self.is_free());
+        unsafe { core::mem::transmute(&mut self.short) }
+    }
     pub fn alloc_init(&mut self) {
         unsafe { self.short.name[0] = 0x00 };
     }
+    pub fn from_short(short: Align8<RawShortName>) -> Self {
+        Self { short: *short }
+    }
+    pub fn from_long(long: Align8<RawLongName>) -> Self {
+        Self { long: *long }
+    }
     pub fn cluster_init(buf: &mut [RawName]) {
         buf.iter_mut().for_each(|a| a.alloc_init())
+    }
+    pub fn set_free(&mut self) {
+        debug_assert!(!self.is_free());
+        unsafe { self.short.name[0] = 0xE5 };
     }
     pub fn set_long(&mut self, name: &[u16; 13], order: usize, last: bool, checksum: u8) {
         unsafe {
@@ -244,9 +298,10 @@ impl RawName {
         }
         Some(self.vaild_get())
     }
+    /// 如果是空闲项直接panic
     pub fn vaild_get(&self) -> Name {
         unsafe {
-            debug_assert!(![0x00, 0xE5].contains(&self.long.order));
+            debug_assert!(!self.is_free());
             if self.is_long() {
                 debug_assert!(self.long.order & 0b1010_0000 == 0);
                 debug_assert!(self.long.order & 0b0001_1111 != 0);
@@ -290,19 +345,23 @@ impl NameSet {
                         let str =
                             unsafe { core::str::from_utf8_unchecked(name.get_name(&mut buf)) };
                         println!(
-                            "{:3}     s:{} \tlen:{} cid:{:#x} attr:{:#x}",
+                            "{:3}     s:<{}> \tlen:{:5} cid:{:#x} attr:{:#x} {:2x?}{:2x?}\n",
                             i,
                             str,
                             name.file_bytes(),
                             name.cid().0,
-                            name.attributes
+                            name.attributes,
+                            name.name,
+                            name.ext
                         );
                     }
                     Name::Long(name) => {
                         use alloc::string::String;
                         let mut buf = ['\0'; 13];
                         let str: String = name.get_name(&mut buf).iter().collect();
-                        println!("{:3}  long:{}", i, str);
+                        let mut raw = [0; 13];
+                        name.store_name(&mut raw);
+                        println!("{:3}  long:{:<13} \t\t\traw:{:4x?}", i, str, raw);
                     }
                 },
             }

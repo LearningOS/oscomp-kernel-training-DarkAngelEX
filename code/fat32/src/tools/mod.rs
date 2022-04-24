@@ -16,11 +16,13 @@ pub struct SID(pub u32);
 pub struct CID(pub u32);
 
 impl CID {
-    pub fn last() -> CID {
-        CID(0x0FFFFFFF)
-    }
-    pub fn free() -> CID {
+    pub const FREE: CID = Self::free();
+    pub const LAST: CID = Self::last();
+    pub const fn free() -> CID {
         CID(0x0)
+    }
+    pub const fn last() -> CID {
+        CID(0x0FFFFFFF)
     }
     pub fn set_free(&mut self) {
         self.0 = 0;
@@ -44,6 +46,7 @@ impl CID {
     pub fn is_bad(self) -> bool {
         matches!(self.status(), ClStatus::Bad)
     }
+    /// 判断一个簇是否有效的通用方法
     pub fn is_next(self) -> bool {
         matches!(self.status(), ClStatus::Next(_))
     }
@@ -252,5 +255,19 @@ impl<T> const From<T> for SyncUnsafeCell<T> {
     /// Creates a new `UnsafeCell<T>` containing the given value.
     fn from(t: T) -> SyncUnsafeCell<T> {
         SyncUnsafeCell::new(t)
+    }
+}
+
+pub struct UtcTime {
+    pub ymd: (usize, usize, usize),
+    pub hms: (usize, usize, usize),
+    pub ms: usize,
+}
+
+impl UtcTime {
+    pub fn base() -> Self {
+        let mut v: Self = unsafe { core::mem::MaybeUninit::zeroed().assume_init() };
+        v.ymd.0 = 1980;
+        v
     }
 }

@@ -130,20 +130,11 @@ impl FatList {
         }
         try { accum }
     }
-    /// 返回分配的簇号 这个簇将被写入FAT链表
-    pub async fn alloc_cluster(&self) -> Result<CID, SysError> {
-        let sem = self.dirty_semaphore.take().await;
-        self.manager.lock().await.alloc_cluster(sem).await
-    }
-    /// 第offset个扇区对应的buffer
-    fn get_buffer_of_sector<'a>(src: &'a [CID], bpb: &RawBPB, offset: usize) -> &'a [CID] {
-        let per = bpb.sector_bytes as usize;
-        &src[per * offset..per * (offset + 1)]
-    }
     pub async fn alloc_block(&self) -> Result<CID, SysError> {
         let sem = self.dirty_semaphore.take().await;
         self.manager.lock().await.alloc_cluster(sem).await
     }
+    /// cid 必须是链表的最后一项, 即FAT链表NEXT为LAST
     pub async fn alloc_block_after(&self, cid: CID) -> Result<CID, SysError> {
         let mut sems = self.dirty_semaphore.take_n(2).await;
         self.manager
@@ -152,11 +143,14 @@ impl FatList {
             .alloc_cluster_after(cid, &mut sems)
             .await
     }
+    /// 释放CID对应的簇
     pub async fn free_cluster(&self, cid: CID) -> Result<(), SysError> {
         let sem = self.dirty_semaphore.take().await;
         self.manager.lock().await.free_cluster(cid, sem).await
     }
     /// 释放从cid开始的整个链表 如果中途出错依然会保存链表的合法 完全释放返回Ok(())
+    ///
+    /// 不会释放cid本身, fat链表中cid将置为LAST
     ///
     /// 返回释放了多少个簇
     ///
@@ -166,7 +160,7 @@ impl FatList {
         let mut free_n = 0;
         loop {
             let mut sems = self.dirty_semaphore.take_n(n).await;
-            let mut manager = self.manager.lock().await;
+            let manager = &mut *self.manager.lock().await;
             let (this_n, ret) = manager.free_cluster_at(cid, &mut sems).await;
             free_n += this_n;
             return match ret {
@@ -192,15 +186,15 @@ impl FatList {
         let manager = self.manager.clone();
         return async move {
             let sem = Arc::new(AtomicUsize::new(0));
+            let waker = manager.lock().await.sync_waker();
             // fsinfo改变一定伴随着Dirty
             while let Ok(s) = WaitDirtyFuture(sync.clone()).await {
-                let mut lock = manager.lock().await;
-                let waker = lock.sync_waker();
-                let set: Vec<_> = s
-                    .into_iter()
-                    .map(|uid| (uid, lock.get_dirty_shared_buffer(uid)))
-                    .collect();
-                drop(lock);
+                let set: Vec<_> = {
+                    let lock = &mut *manager.lock().await;
+                    s.into_iter()
+                        .map(|uid| (uid, lock.get_dirty_shared_buffer(uid)))
+                        .collect()
+                };
                 for &start in &sync_start {
                     for (uid, buffer) in set.iter() {
                         WaitLessFuture(sem.as_ref(), concurrent).await;
@@ -223,7 +217,7 @@ impl FatList {
                     .await
                     .dirty_suspend_iter(set.into_iter().map(|(a, _b)| a));
                 let buffer = {
-                    let mut manager = manager.lock().await;
+                    let manager = &mut *manager.lock().await;
                     if !manager.fsinfo_need_sync() {
                         continue;
                     }

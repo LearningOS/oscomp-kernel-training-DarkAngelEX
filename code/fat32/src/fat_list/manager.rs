@@ -334,13 +334,15 @@ impl ListManager {
             self.cluster_search = CID((uid.0 as u32) << self.u32_per_sector_log2);
             unit = self.get_unit(uid).await?;
         };
-        unsafe { unit.set(off, CID::last())? };
+        unsafe { unit.set(off, CID::LAST)? };
         self.cluster_free -= 1;
         self.fsinfo_into_dirty();
         self.unit_into_dirty(uid, &mut sem.into_multiply());
         Ok(CID((uid.0 << self.u32_per_sector_log2) + off as u32))
     }
     /// 需要保证信号量容量不小于2
+    ///
+    /// debug将检测是否cid为链表的最后一项
     pub async fn alloc_cluster_after(
         &mut self,
         cid: CID,
@@ -358,17 +360,20 @@ impl ListManager {
         self.unit_into_dirty(uid, sems);
         Ok(cid)
     }
+    /// 释放cid自身并置为 CID::free
     pub async fn free_cluster(&mut self, cid: CID, sem: SemaphoreGuard) -> Result<(), SysError> {
         let (uid, uoff) = self.get_unit_of_cid(cid);
         let unit = self.get_unit(uid).await?;
         unit.update_aid(self.aid_alloc.alloc());
-        unsafe { unit.set(uoff, CID::free())? };
+        unsafe { unit.set(uoff, CID::FREE)? };
         self.cluster_free += 1;
         self.fsinfo_into_dirty();
         self.unit_into_dirty(uid, &mut sem.into_multiply());
         Ok(())
     }
     /// 释放从CID开始的块 当信号量耗尽时返回Ok(Err) 需要重新获取信号量
+    ///
+    /// 不会释放cid自身, 成功时链表中cid对应位变为 CID::last
     ///
     /// 失败时将重置链表末尾
     pub async fn free_cluster_at(
@@ -390,7 +395,7 @@ impl ListManager {
         let next_cid = unit.get(uoff, self.aid_alloc.alloc());
         match self.free_cluster_at_impl(next_cid, sems).await {
             Ok(free_n) => unsafe {
-                unit.set(uoff, CID::last()).unwrap();
+                unit.set(uoff, CID::LAST).unwrap();
                 self.cluster_free += free_n as u32;
                 self.fsinfo_into_dirty();
                 self.unit_into_dirty(uid, &mut sem.into_multiply());
@@ -422,8 +427,7 @@ impl ListManager {
             let unit = self.get_unit(uid).await.map_err(|e| (cid, cnt, Err(e)))?;
             let next_cid = unit.raw_get(uoff);
             unsafe {
-                unit.set(uoff, CID::free())
-                    .map_err(|e| (cid, cnt, Err(e)))?;
+                unit.set(uoff, CID::FREE).map_err(|e| (cid, cnt, Err(e)))?;
                 self.unit_into_dirty(uid, sems);
             }
             cid = next_cid;

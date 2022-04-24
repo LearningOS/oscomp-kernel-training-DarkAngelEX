@@ -17,6 +17,57 @@ init: create
 	touch dir0/a && \
 	mkdir dir1 && \
 	touch dir1/b && \
+	touch '!' && \
+	# " \
+	touch '#' && \
+	touch '$$' && \
+	touch '%' && \
+	touch '&' && \
+	touch '(' && \
+	touch ')' && \
+	# * \
+	touch _~1 && \
+	touch '+' && \
+	touch ',' && \
+	touch '-' && \
+	touch '1-2' && \
+	# . \
+	# / \
+	# : \
+	touch ';' && \
+	# < \
+	touch '=' && \
+	# > \
+	# ? \
+	touch '@' && \
+	touch '[' && \
+	# / \
+	touch ']' && \
+	touch '^' && \
+	touch '_' && \
+	touch '`' && \
+	touch '{' && \
+	touch '}' && \
+	touch '~' && \
+	# \
+	touch 'a~b~c00002' && \
+	touch 'a~b~c00001' && \
+	touch 'a' && \
+	touch 'A' && \
+	touch 12345678 && \
+	touch 123456789 && \
+	touch 1.2345 && \
+	touch '1 2 3 4.4 5 6 7' && \
+	touch '1.4+5#' && \
+	touch N.M && \
+	touch A..M && \
+	touch A.B.M && \
+	touch .U && \
+	touch ..V && \
+	touch ...W && \
+	touch X. && \
+	touch Y.. && \
+	touch Z... && \
 	touch aaa. && \
 	touch .a && \
 	touch .aa && \

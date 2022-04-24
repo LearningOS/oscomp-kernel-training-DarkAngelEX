@@ -79,5 +79,6 @@ fn main() {
 async fn a_main(path: &str) {
     let file = File::open(path).await.unwrap();
     let file = BlockFile::new(file);
-    fat32::xtest::test(file).await;
+    let utc_time = || fat32::UtcTime::base();
+    fat32::xtest::test(file, utc_time).await;
 }

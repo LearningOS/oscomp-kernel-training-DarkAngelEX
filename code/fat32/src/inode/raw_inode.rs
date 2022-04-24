@@ -44,7 +44,7 @@ impl RawInode {
         unsafe { debug_assert!(!p.unsafe_get().attr().contains(Attr::DIRECTORY)) };
         FileInode::new(p)
     }
-    /// 此函数将修改缓存
+    /// 此函数将更新缓存
     ///
     /// 如果长度不足, 返回Ok(Err(Fat链表长度)))
     async fn get_nth_block_cid(
@@ -73,12 +73,10 @@ impl RawInode {
                 return ControlFlow::Continue(this);
             })
             .await;
-        save_list
-            .into_iter()
-            .fold(self.cache.inner.unique_lock(), |mut cache, (cid, cur)| {
-                cache.update_list(cid, cur);
-                cache
-            });
+        let mut lock = self.cache.inner.unique_lock();
+        save_list.into_iter().for_each(move |(cid, cur)| {
+            lock.update_list(cid, cur);
+        });
         match r {
             ControlFlow::Break(Err(e)) => Err(e),
             ControlFlow::Continue((off, cid)) | ControlFlow::Break(Ok((off, cid))) => {
@@ -109,12 +107,10 @@ impl RawInode {
                 ControlFlow::Continue((cur, cid))
             })
             .await;
-        save_list
-            .into_iter()
-            .fold(self.cache.inner.unique_lock(), |mut cache, (cid, cur)| {
-                cache.update_list(cid, cur);
-                cache
-            });
+        let mut lock = self.cache.inner.unique_lock();
+        save_list.into_iter().for_each(move |(cid, cur)| {
+            lock.update_list(cid, cur);
+        });
         match r {
             ControlFlow::Break(Err(e)) => Err(e),
             ControlFlow::Continue(tup) | ControlFlow::Break(Ok(tup)) => Ok(Some(tup)),
@@ -162,7 +158,7 @@ impl RawInode {
             Err(cur_len) => cur_len,
         };
         let mut cid = match cur_len {
-            0 => CID::free(),
+            0 => CID::FREE,
             n => self.get_nth_block_cid(&manager.list, n - 1).await?.unwrap(),
         };
         let mut cache = None;
@@ -173,12 +169,17 @@ impl RawInode {
             cur_len += 1;
             cid = new_cid;
         }
+        let mut update = Vec::new();
         while cur_len < n {
             cid = manager.list.alloc_block_after(cid).await?;
             cache = Some(manager.caches.get_block_init(cid, &mut init).await?);
             cur_len += 1;
-            self.cache.inner.unique_lock().append_last(cur_len, cid);
+            update.push((cur_len, cid));
         }
+        let mut lock = self.cache.inner.unique_lock();
+        update
+            .into_iter()
+            .for_each(move |(n, cid)| lock.append_last(n, cid));
         self.cache.update_aid();
         let cache = (cid, cache.unwrap());
         self.last_cache.get_mut().replace((n, cache.clone()));
@@ -187,9 +188,45 @@ impl RawInode {
     pub async fn append_block<T: Copy>(
         &mut self,
         manager: &Fat32Manager,
-        mut init: impl FnMut(&mut [T]),
-    ) -> Result<(CID, Arc<Cache>), SysError> {
-        // if self.cache.inner.shared_lock().l
-        todo!()
+        init: impl FnMut(&mut [T]),
+    ) -> Result<(usize, CID, Arc<Cache>), SysError> {
+        let (n, cid) = match self.get_list_last(&manager.list).await? {
+            None => (0, manager.list.alloc_block().await?),
+            Some((off, cid)) => (off, manager.list.alloc_block_after(cid).await?),
+        };
+        let cache = manager.caches.get_block_init(cid, init).await?;
+        self.cache.inner.unique_lock().append_last(n, cid);
+        Ok((n, cid, cache))
+    }
+    /// 重置链表长度
+    pub async fn resize<T: Copy>(
+        &mut self,
+        manager: &Fat32Manager,
+        n: usize,
+        init: impl FnMut(&mut [T]),
+    ) -> Result<(), SysError> {
+        if n == 0 {
+            let cid = match self.get_nth_block_cid(&manager.list, 0).await? {
+                Err(len) => {
+                    debug_assert_eq!(len, 0);
+                    return Ok(());
+                }
+                Ok(cid) => cid,
+            };
+            manager.list.free_cluster_at(cid).await.1?;
+            manager.list.free_cluster(cid).await?;
+            self.cache.inner.unique_lock().list_truncate(0, CID::FREE);
+        } else {
+            match self.get_nth_block_cid(&manager.list, n - 1).await? {
+                Err(_) => {
+                    self.get_nth_block_alloc(manager, n - 1, init).await?;
+                }
+                Ok(cid) => {
+                    manager.list.free_cluster_at(cid).await.1?;
+                    self.cache.inner.unique_lock().list_truncate(n, cid);
+                }
+            }
+        }
+        Ok(())
     }
 }
