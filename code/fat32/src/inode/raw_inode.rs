@@ -5,11 +5,11 @@ use alloc::{sync::Arc, vec::Vec};
 use crate::{
     block::bcache::Cache,
     fat_list::FatList,
-    layout::name::Attr,
+    layout::name::{Attr, RawName},
     mutex::{rw_sleep_mutex::RwSleepMutex, rw_spin_mutex::RwSpinMutex},
     tools::CID,
     xerror::SysError,
-    Fat32Manager,
+    Fat32Manager, UtcTime,
 };
 
 use super::{dir_inode::DirInode, file_inode::FileInode, inode_cache::InodeCache, InodeMark};
@@ -44,6 +44,20 @@ impl RawInode {
         unsafe { debug_assert!(!p.unsafe_get().attr().contains(Attr::DIRECTORY)) };
         FileInode::new(p)
     }
+    pub fn update_file_bytes(&self, bytes: usize) {
+        self.cache.inner.unique_lock().update_file_bytes(bytes);
+    }
+    pub fn update_access_time(&self, utc_time: &UtcTime) {
+        self.cache.inner.unique_lock().update_access_time(utc_time);
+    }
+    pub fn update_modify_time(&self, utc_time: &UtcTime) {
+        self.cache.inner.unique_lock().update_modify_time(utc_time);
+    }
+    pub fn update_access_modify_time(&self, utc_time: &UtcTime) {
+        let lock = &mut *self.cache.inner.unique_lock();
+        lock.update_access_time(utc_time);
+        lock.update_modify_time(utc_time);
+    }
     /// 此函数将更新缓存
     ///
     /// 如果长度不足, 返回Ok(Err(Fat链表长度)))
@@ -64,11 +78,11 @@ impl RawInode {
             .travel(cid, cur, (cur, cid), |prev, cid, cur| {
                 save_list.push((cid, cur));
                 if !cid.is_next() {
-                    return ControlFlow::Break(Ok(prev));
+                    return ControlFlow::Break(prev);
                 }
                 let this = (cur, cid);
                 if cur == n {
-                    return ControlFlow::Break(Ok(this));
+                    return ControlFlow::Break(this);
                 }
                 return ControlFlow::Continue(this);
             })
@@ -102,7 +116,7 @@ impl RawInode {
             .travel(cid, cur, (cur, cid), |prev, cid, cur| {
                 save_list.push((cid, cur));
                 if !cid.is_next() {
-                    return ControlFlow::Break(Ok(prev));
+                    return ControlFlow::Break(prev);
                 }
                 ControlFlow::Continue((cur, cid))
             })
@@ -116,6 +130,8 @@ impl RawInode {
             ControlFlow::Continue(tup) | ControlFlow::Break(Ok(tup)) => Ok(Some(tup)),
         }
     }
+    /// 获取第n个簇(首个簇为0)
+    ///
     /// 如果n超出了fat链表, 返回Ok(Err(链表长度))
     pub async fn get_nth_block(
         &self,
@@ -227,6 +243,17 @@ impl RawInode {
                 }
             }
         }
+        Ok(())
+    }
+    pub async fn short_entry_sync(&self, manager: &Fat32Manager) -> Result<(), SysError> {
+        let (entry, short) = self.cache.inner.shared_lock().entry();
+        let cache = manager.caches.get_block(entry.cid).await?;
+        manager
+            .caches
+            .write_block(entry.cid, &cache, |a: &mut [RawName]| {
+                a[entry.entry_off].set_short(&short);
+            })
+            .await?;
         Ok(())
     }
 }

@@ -79,12 +79,15 @@ impl RawShortName {
         self.file_bytes = file_bytes;
     }
     pub fn init_time(&mut self, utc_time: &UtcTime) {
-        self.set_access_date(&utc_time);
-        self.set_access_date(&utc_time);
+        self.set_access_time(&utc_time);
+        self.set_access_time(&utc_time);
         self.set_modify_time(&utc_time);
     }
     pub fn is_free(&self) -> bool {
         [0x00, 0xE5].contains(&self.name[0])
+    }
+    pub fn is_dir(&self) -> bool {
+        self.attributes.contains(Attr::DIRECTORY)
     }
     pub fn raw_name(&self) -> ([u8; 8], [u8; 3]) {
         (self.name, self.ext)
@@ -125,6 +128,9 @@ impl RawShortName {
     pub fn file_bytes(&self) -> usize {
         self.file_bytes as usize
     }
+    pub fn set_file_bytes(&mut self, bytes: usize) {
+        self.file_bytes = bytes as u32
+    }
     // -> (hms, date)
     fn time_tran(
         &(year, mount, day): &(usize, usize, usize),
@@ -150,7 +156,7 @@ impl RawShortName {
         self.create_hms = hms;
         self.create_date = date;
     }
-    pub fn set_access_date(&mut self, utc_time: &UtcTime) {
+    pub fn set_access_time(&mut self, utc_time: &UtcTime) {
         self.access_date = Self::time_tran(&utc_time.ymd, &(0, 0, 0)).1;
     }
     pub fn set_modify_time(&mut self, utc_time: &UtcTime) {
@@ -258,11 +264,11 @@ impl RawName {
     pub fn alloc_init(&mut self) {
         unsafe { self.short.name[0] = 0x00 };
     }
-    pub fn from_short(short: Align8<RawShortName>) -> Self {
-        Self { short: *short }
+    pub fn from_short(short: &Align8<RawShortName>) -> Self {
+        Self { short: **short }
     }
-    pub fn from_long(long: Align8<RawLongName>) -> Self {
-        Self { long: *long }
+    pub fn from_long(long: &Align8<RawLongName>) -> Self {
+        Self { long: **long }
     }
     pub fn cluster_init(buf: &mut [RawName]) {
         buf.iter_mut().for_each(|a| a.alloc_init())
@@ -276,14 +282,14 @@ impl RawName {
             self.long.set(name, order, last, checksum);
         }
     }
-    pub fn set_short(&mut self, short: &RawShortName) {
-        self.short = *short;
+    pub fn set_short(&mut self, short: &Align8<RawShortName>) {
+        self.short = **short;
     }
     pub fn zeroed() -> Self {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     pub fn is_long(&self) -> bool {
-        self.attributes().bits() == 0x0F
+        !self.is_free() && self.attributes().bits() == 0x0F
     }
     pub fn attributes(&self) -> Attr {
         unsafe { self.short.attributes }
@@ -309,6 +315,12 @@ impl RawName {
             } else {
                 Name::Short(core::mem::transmute(&self.short))
             }
+        }
+    }
+    pub fn get_short(&self) -> Option<&Align8<RawShortName>> {
+        match self.get() {
+            Some(Name::Short(s)) => Some(s),
+            _ => None,
         }
     }
 }

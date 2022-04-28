@@ -1,5 +1,5 @@
 use alloc::{
-    string::String,
+    string::{String, ToString},
     sync::{Arc, Weak},
     vec::Vec,
 };
@@ -8,75 +8,118 @@ use crate::{
     layout::name::{Attr, RawShortName},
     mutex::rw_spin_mutex::RwSpinMutex,
     tools::{AIDAllocator, Align8, SyncUnsafeCell, AID, CID},
+    Fat32Manager, UtcTime,
 };
 
-use super::{raw_inode::RawInode, InodeMark, IID};
+use super::{dir_inode::EntryPlace, manager::InodeManager, raw_inode::RawInode, InodeMark};
 
-pub struct PlaceInfo {
-    pub parent: Weak<RwSpinMutex<InodeCache>>, // 父目录缓存指针
-    pub parent_iid: IID,                       // 父目录inode ID
-    pub entry_cid: CID,                        // 此文件的短文件名所在的簇号
-    pub entry_off: usize,                      // 簇内目录项偏移
-}
-
+/// 主要缓存FAT链表 不缓存数据
+///
 /// 此缓存块的全部操作都是同步操作
 pub struct InodeCache {
     pub inner: RwSpinMutex<InodeCacheInner>,
     aid_alloc: Arc<AIDAllocator>,
+    alive: Weak<InodeMark>,
     pub aid: SyncUnsafeCell<AID>,
 }
 
 pub struct InodeCacheInner {
-    pub place_info: PlaceInfo,     // 根目录是None
-    pub inode: Weak<RawInode>,     // inode
-    pub iid: IID,                  // 根目录为0
+    pub parent: Weak<InodeCache>,  // 父目录缓存指针
+    pub parent_entry: EntryPlace,  // 父目录位置 父目录移动时必须更新
+    pub inode: Weak<RawInode>,     // 自身inode
+    pub entry: EntryPlace,         // 文件目录项地址
     pub cid_list: Vec<CID>,        // FAT链表缓存 所有CID都是有效的
-    pub cid_start: CID,            // short中的首簇号 空文件是CID(0)
-    pub almost_last: (usize, CID), // 缓存访问到的最后一个有效块 空文件为0 CID(0) 当.1为0时无效
+    pub cid_start: CID,            // short中的首簇号 空文件是CID::FREE
+    pub almost_last: (usize, CID), // 缓存访问到的最后一个有效块 空文件为0 CID::FREE 当.1为0时无效
     pub len: Option<usize>,        // 文件簇数
     pub name: String,
     pub short: Align8<RawShortName>,
 }
 
-impl InodeCache {
-    pub fn new(
-        iid: IID,
+impl InodeCacheInner {
+    fn new(
         name: String,
         short: Align8<RawShortName>,
-        place: PlaceInfo,
+        entry: EntryPlace,
+        parent: &Arc<InodeCache>,
+        parent_entry: EntryPlace,
+    ) -> Self {
+        let cid_start = short.cid();
+        let mut cid_list = Vec::new();
+        let mut len = None;
+        if cid_start.is_next() {
+            cid_list.push(cid_start);
+        } else {
+            len = Some(0);
+        }
+        InodeCacheInner {
+            parent: Arc::downgrade(parent),
+            parent_entry,
+            entry,
+            inode: Weak::new(),
+            cid_list,
+            cid_start,
+            almost_last: (0, cid_start),
+            len,
+            name,
+            short,
+        }
+    }
+    pub fn entry(&self) -> (EntryPlace, Align8<RawShortName>) {
+        (self.entry, self.short)
+    }
+}
+
+impl InodeCache {
+    pub fn new(
+        name: String,
+        short: Align8<RawShortName>,
+        entry: EntryPlace,
+        parent: &Arc<InodeCache>,
+        parent_entry: EntryPlace,
+        alive: Weak<InodeMark>,
         aid_alloc: Arc<AIDAllocator>,
     ) -> Self {
+        debug_assert!(alive.strong_count() != 0);
+        let inner = InodeCacheInner::new(name, short, entry, parent, parent_entry);
         Self {
-            inner: RwSpinMutex::new(InodeCacheInner {
-                place_info: place,
-                inode: Weak::new(),
-                iid,
-                cid_list: Vec::new(),
-                cid_start: short.cid(),
-                almost_last: (0, short.cid()),
-                len: None,
-                name,
-                short,
-            }),
+            inner: RwSpinMutex::new(inner),
             aid_alloc,
+            alive,
             aid: SyncUnsafeCell::new(AID(0)),
         }
     }
-    pub fn init(&mut self, iid: IID, name: String, short: &Align8<RawShortName>, place: PlaceInfo) {
+    /// will shared lock inode.cache.inner
+    pub fn from_parent(
+        manager: &Fat32Manager,
+        name: &str,
+        short: Align8<RawShortName>,
+        entry: EntryPlace,
+        inode: &RawInode,
+    ) -> Self {
+        debug_assert!(inode.cache.alive.strong_count() != 0);
+        InodeCache::new(
+            name.to_string(),
+            short,
+            entry,
+            &inode.cache,
+            inode.cache.inner.shared_lock().entry,
+            inode.cache.alive.clone(),
+            manager.inodes.aid_alloc.clone(),
+        )
+    }
+    // inode缓存块替换时使用
+    pub fn init(
+        &mut self,
+        name: String,
+        short: Align8<RawShortName>,
+        entry: EntryPlace,
+        parent: &Arc<InodeCache>,
+        parent_entry: EntryPlace,
+    ) {
         let inner = self.inner_mut();
         debug_assert!(inner.inode.strong_count() == 0);
-        inner.iid = iid;
-        inner.place_info = place;
-        inner.cid_list = Vec::new();
-        inner.almost_last = (0, short.cid());
-        inner.cid_start = short.cid();
-        if inner.cid_start.is_next() {
-            inner.cid_list.push(inner.cid_start);
-        } else {
-            inner.len = Some(0);
-        }
-        inner.name = name;
-        inner.short = *short;
+        *inner = InodeCacheInner::new(name, short, entry, parent, parent_entry);
     }
     pub fn inner_mut(&mut self) -> &mut InodeCacheInner {
         self.inner.get_mut()
@@ -87,14 +130,15 @@ impl InodeCache {
     }
     pub fn get_inode(
         self: &Arc<Self>,
+        manager: &InodeManager,
         parent: Arc<InodeCache>,
-        mark: Arc<InodeMark>,
     ) -> Arc<RawInode> {
         let mut lock = self.inner.unique_lock();
         if let Some(i) = lock.inode.upgrade() {
             return i;
         }
-        let inode = RawInode::new(self.clone(), parent, mark);
+        let alive = self.alive.upgrade().unwrap();
+        let inode = RawInode::new(self.clone(), parent, alive);
         let inode = Arc::new(inode);
         lock.inode = Arc::downgrade(&inode);
         inode
@@ -112,6 +156,19 @@ impl InodeCache {
 impl InodeCacheInner {
     pub fn attr(&self) -> Attr {
         self.short.attributes
+    }
+    pub fn file_bytes(&self) -> usize {
+        debug_assert!(!self.attr().contains(Attr::DIRECTORY));
+        self.short.file_bytes()
+    }
+    pub fn update_file_bytes(&mut self, bytes: usize) {
+        self.short.set_file_bytes(bytes);
+    }
+    pub fn update_modify_time(&mut self, utc_time: &UtcTime) {
+        self.short.set_modify_time(utc_time);
+    }
+    pub fn update_access_time(&mut self, utc_time: &UtcTime) {
+        self.short.set_access_time(utc_time);
     }
     pub fn update_list(&mut self, cid: CID, n: usize) {
         if let Some(&x) = self.cid_list.get(n) {
@@ -132,7 +189,8 @@ impl InodeCacheInner {
     /// list的长度变为至多n cid为最后一个簇
     pub fn list_truncate(&mut self, n: usize, cid: CID) {
         if n == 0 {
-            self.cid_start = CID(0);
+            self.cid_start = CID::FREE;
+            self.short.set_cluster(CID::FREE);
             self.cid_list.clear();
             self.almost_last = (0, CID::FREE);
             self.len = Some(0);
@@ -212,6 +270,7 @@ impl InodeCacheInner {
         debug_assert!(self.len.unwrap() == 0);
         debug_assert!(self.almost_last == (0, CID::FREE));
         self.cid_start = cid;
+        self.short.set_cluster(cid);
         self.cid_list.push(cid);
         self.almost_last = (0, cid);
         self.len = Some(1);

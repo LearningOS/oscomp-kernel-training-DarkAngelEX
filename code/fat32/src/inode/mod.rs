@@ -28,16 +28,17 @@ impl IID {
         self == Self::root()
     }
     /// 文件所在目录簇号 目录项偏移量
-    pub fn new(cid: CID, off: usize, cluster_bytes_log2: usize) -> Self {
-        debug_assert!(off < 1 << (cluster_bytes_log2 as u32) - 5);
-        Self(((cid.0 as u64) << ((cluster_bytes_log2 as u32) - 5)) | off as u64)
+    #[inline(always)]
+    pub fn new(cid: CID, off: usize, cluster_bytes_log2: u32) -> Self {
+        debug_assert!(off < 1 << (cluster_bytes_log2 - 5));
+        Self(((cid.0 as u64) << (cluster_bytes_log2 - 5)) | off as u64)
     }
     /// 簇号
-    pub fn cid(self, cluster_bytes_log2: usize) -> CID {
-        CID((self.0 >> ((cluster_bytes_log2 as u32) - 5)) as u32)
+    pub fn cid(self, cluster_bytes_log2: u32) -> CID {
+        CID((self.0 >> (cluster_bytes_log2 - 5)) as u32)
     }
     /// 簇内目录项偏移
-    pub fn off(self, cluster_bytes_log2: usize) -> usize {
-        (self.0 as usize) & ((1 << (cluster_bytes_log2 as u32) - 5) - 1)
+    pub fn off(self, cluster_bytes_log2: u32) -> usize {
+        (self.0 as usize) & ((1 << (cluster_bytes_log2 - 5)) - 1)
     }
 }

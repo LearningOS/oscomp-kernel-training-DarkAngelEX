@@ -3,12 +3,13 @@ use alloc::{collections::BTreeMap, sync::Arc};
 use crate::{
     mutex::rw_spin_mutex::RwSpinMutex,
     tools::{AIDAllocator, AID},
+    xerror::SysError,
 };
 
 use super::{inode_cache::InodeCache, InodeMark, IID};
 
 pub struct InodeManager {
-    aid_alloc: Arc<AIDAllocator>,
+    pub aid_alloc: Arc<AIDAllocator>,
     inner: RwSpinMutex<InodeManagerInner>,
 }
 
@@ -22,6 +23,31 @@ impl InodeManager {
         }
     }
     pub fn init(&mut self) {}
+    pub fn try_get(&self, iid: IID) -> Option<Arc<InodeCache>> {
+        self.inner.shared_lock().try_get_cache(iid)
+    }
+    pub fn get_or_insert(&self, iid: IID, op: impl FnOnce() -> InodeCache) -> Arc<InodeCache> {
+        if let Some(c) = self.try_get(iid) {
+            return c;
+        }
+        let lock = &mut *self.inner.unique_lock();
+        if let Some(c) = lock.try_get_cache(iid) {
+            return c;
+        }
+        let c = Arc::new(op());
+        lock.force_insert_cache(iid, c.clone());
+        c
+    }
+    /// 当无缓存或缓存不被使用时返回Ok
+    ///
+    /// Ok(true) 存在且成功释放
+    ///
+    /// Ok(false) 无缓存
+    ///
+    /// Err(EBUSY) busy
+    pub fn unused_release(&self, iid: IID) -> Result<bool, SysError> {
+        self.inner.unique_lock().unused_release(iid)
+    }
 }
 
 /// 每个打开的文件都会在这里缓存
@@ -117,5 +143,29 @@ impl InodeManagerInner {
             Ok(ic) => drop(ic),
         }
         return Ok(true);
+    }
+    ///
+    pub fn unused_release(&mut self, iid: IID) -> Result<bool, SysError> {
+        let aid = match self.search.get(&iid) {
+            Some((aid, cache)) => {
+                if Arc::strong_count(cache) > 2 {
+                    return Err(SysError::EBUSY);
+                }
+                *aid
+            }
+            None => return Ok(false),
+        };
+        self.search.remove(&iid).unwrap();
+        let (xiid, cache) = self.access.remove(&aid).unwrap();
+        debug_assert_eq!(iid, xiid);
+        match Arc::try_unwrap(cache) {
+            Err(cache) => {
+                let tc = cache.clone();
+                self.search.try_insert(iid, (aid, tc)).ok().unwrap();
+                self.access.try_insert(aid, (iid, cache)).ok().unwrap();
+                Err(SysError::EBUSY)
+            }
+            Ok(_) => Ok(true),
+        }
     }
 }

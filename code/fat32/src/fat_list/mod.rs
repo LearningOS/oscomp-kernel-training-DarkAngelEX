@@ -106,7 +106,7 @@ impl FatList {
         cid: CID, // start CID
         start_off: usize,
         init: B,
-        mut op: impl FnMut(B, CID, usize) -> ControlFlow<Result<B, SysError>, B>,
+        mut op: impl FnMut(B, CID, usize) -> ControlFlow<B, B>,
     ) -> ControlFlow<Result<B, SysError>, B> {
         let mut cur = cid;
         let mut accum = init;
@@ -123,7 +123,7 @@ impl FatList {
                     .map_break(tools::err_break)?,
             };
             let nxt = unit_cur.get(uoff, self.aid_alloc.alloc());
-            accum = op(accum, nxt, i)?;
+            accum = op(accum, nxt, i).map_break(Ok)?;
             unit = Some((uid, unit_cur));
             cur = nxt;
             i += 1;
@@ -145,6 +145,8 @@ impl FatList {
     }
     /// 释放CID对应的簇
     pub async fn free_cluster(&self, cid: CID) -> Result<(), SysError> {
+        stack_trace!();
+        debug_assert!(cid.is_next());
         let sem = self.dirty_semaphore.take().await;
         self.manager.lock().await.free_cluster(cid, sem).await
     }
@@ -156,6 +158,8 @@ impl FatList {
     ///
     /// A -> B -> C -> D -> E 如果释放D时出错将变为 A -> D -> E
     pub async fn free_cluster_at(&self, cid: CID) -> (usize, Result<(), SysError>) {
+        stack_trace!();
+        debug_assert!(cid.is_next());
         let n = (self.dirty_semaphore.max() / 4).max(2).min(10);
         let mut free_n = 0;
         loop {

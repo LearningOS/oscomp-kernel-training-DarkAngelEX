@@ -1,7 +1,6 @@
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
-    // access::{common::Fat32Enum, directory::Fat32Dir, AccessPath},
     block::CacheManager,
     fat_list::FatList,
     inode::manager::InodeManager,
@@ -19,6 +18,7 @@ pub struct Fat32Manager {
     pub(crate) inodes: InodeManager,
     device: Option<Arc<dyn BlockDevice>>,
     utc_time: Option<Box<dyn Fn() -> UtcTime + Send + 'static>>,
+    rcu_handle: Option<Box<dyn Fn(Box<dyn Send + 'static>) + Send + 'static>>,
 }
 
 impl Fat32Manager {
@@ -36,6 +36,7 @@ impl Fat32Manager {
             inodes: InodeManager::new(inode_target_free),
             device: None,
             utc_time: None,
+            rcu_handle: None,
         }
     }
     pub async fn init(

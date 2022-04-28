@@ -81,12 +81,8 @@ pub fn str_to_just_short(str: &str) -> Option<([u8; 8], [u8; 3])> {
         .rev()
         .find_map(|(i, &c)| (c == b'.').then_some(i))
     {
-        // 012345678.
-        //         ^
-        // 0.1234
-        //      ^
-        // 0.1.2
-        //  ^
+        // 012345678.   0.1234   0.1.2
+        //         ^         ^    ^
         let ext_len = str.len() - i;
         if i > 8 || ext_len > 3 || str[0..i].contains(&(b'.')) {
             return None;
@@ -103,7 +99,7 @@ pub fn str_to_just_short(str: &str) -> Option<([u8; 8], [u8; 3])> {
     name[..str.len()].copy_from_slice(str);
     Some((name, ext))
 }
-/// utf16顺序放置, 写入时应倒序扫描
+/// utf16顺序放置, 写入时应倒序遍历
 ///
 /// 最大数组长度为31
 pub fn str_to_utf16(src: &str) -> Result<Vec<[u16; 13]>, SysError> {
@@ -135,17 +131,17 @@ pub fn str_to_utf16(src: &str) -> Result<Vec<[u16; 13]>, SysError> {
 
 /// 小写字母变为大写字母 其他非法字符使用'_'代替
 ///
-/// 后缀使用~+数字递增 (完全没必要找到最小的)
+/// 后缀使用~+数字递增
 ///
-/// 搜索策略: 匹配~字符前的至多6byte 寻找 1位 1-9 都存在则哈希[2Bytes]+~4
+/// 搜索策略: 匹配~~字符前的至多6byte 寻找 1位 1-9 都存在则哈希(2Bytes)+~4
 pub struct ShortFinder {
     name: [u8; 8],
     ext: [u8; 3],
     short_only: bool,
     name_len: usize,
-    force: bool,     // 当为true时, 必须添加~x
-    have_same: bool, // 当为false且force为false时, 不需要添加~x
-    num_mask: [bool; 10],
+    force: bool,          // 当为true时, 必须添加~x
+    have_same: bool,      // 当为false且force为false时, 不需要添加~x
+    num_mask: [bool; 10], // 不使用第0位
     hash: u16,
 }
 

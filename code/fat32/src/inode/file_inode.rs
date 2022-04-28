@@ -13,40 +13,124 @@ impl FileInode {
     pub fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
         Self { inode }
     }
-    /// offset为字节偏移 Ok(Err)则为超出了范围
-    pub async fn read_at<T: Copy>(
+    /// offset为字节偏移
+    pub async fn read_at(
         &self,
         manager: &Fat32Manager,
         offset: usize,
         buffer: &mut [u8],
-    ) -> Result<(), SysError> {
-        let (c, o) = manager.bpb.cluster_spilt(offset);
-        todo!()
+    ) -> Result<usize, SysError> {
+        let inode = &*self.inode.shared_lock().await;
+        let bytes = inode.cache.inner.shared_lock().file_bytes();
+        let prev_len = buffer.len();
+        let mut buffer = &mut buffer[..prev_len.min(bytes - offset)];
+        let mut cur = offset;
+        while cur < bytes {
+            let (nth, off) = manager.bpb.cluster_spilt(cur);
+            let cache = match inode.get_nth_block(manager, nth).await? {
+                Ok((_cid, cache)) => cache,
+                Err(_) => return Ok(cur - offset),
+            };
+            let n = cache
+                .access_ro(|s: &[u8]| {
+                    let n = buffer.len().min(s.len() - off);
+                    buffer[..n].copy_from_slice(&s[off..]);
+                    n
+                })
+                .await;
+            cur += n;
+            buffer = &mut buffer[n..];
+        }
+        inode.update_access_time(&manager.utc_time());
+        inode.short_entry_sync(manager).await?;
+        Ok(cur - offset)
     }
-    // 如果返回 Ok(Err)则为超出了范围, 什么也不会做
-    pub async fn write_at_no_resize<T: Copy>(
+    /// 自动扩容
+    pub async fn write_at(
         &self,
         manager: &Fat32Manager,
         offset: usize,
         buffer: &[u8],
-    ) -> Result<Result<(), ()>, SysError> {
-        todo!()
+    ) -> Result<usize, SysError> {
+        let mut cur = offset;
+        let inode = self.inode.shared_lock().await;
+        let bytes = inode.cache.inner.shared_lock().file_bytes();
+        let mut buffer_0 = &buffer[..buffer.len().min(bytes.saturating_sub(offset))];
+        while cur < bytes {
+            let (nth, off) = manager.bpb.cluster_spilt(cur);
+            let (cid, cache) = match inode.get_nth_block(manager, nth).await? {
+                Ok(tup) => tup,
+                Err(_) => return Ok(cur - offset),
+            };
+            let n = manager
+                .caches
+                .write_block(cid, &cache, |s: &mut [u8]| {
+                    let n = buffer_0.len().min(s.len() - off);
+                    s[off..].copy_from_slice(&buffer_0[..n]);
+                    n
+                })
+                .await?;
+            cur += n;
+            buffer_0 = &buffer_0[n..];
+        }
+        debug_assert!(cur <= bytes);
+        if cur == bytes {
+            inode.update_access_modify_time(&manager.utc_time());
+            inode.short_entry_sync(manager).await?;
+            return Ok(buffer.len());
+        }
+        drop(inode); // release shared_lock
+        let inode = &mut *self.inode.unique_lock().await;
+        let mut buffer = &buffer[cur - offset..];
+        while !buffer.is_empty() {
+            let (nth, off) = manager.bpb.cluster_spilt(cur);
+            let (cid, cache) = inode
+                .get_nth_block_alloc(manager, nth, |_: &mut [u8]| ())
+                .await?;
+            let n = manager
+                .caches
+                .write_block(cid, &cache, |s: &mut [u8]| {
+                    let n = buffer.len().min(s.len() - off);
+                    s[off..].copy_from_slice(&buffer[..n]);
+                    n
+                })
+                .await?;
+            cur += n;
+            buffer = &buffer[n..];
+        }
+        inode.update_file_bytes(cur);
+        inode.update_access_modify_time(&manager.utc_time());
+        inode.short_entry_sync(manager).await?;
+        Ok(cur - offset)
     }
-    // 自动扩容
-    pub async fn write_at<T: Copy>(
-        &mut self,
+    /// 在文件末尾写
+    pub async fn write_append(
+        &self,
         manager: &Fat32Manager,
-        offset: usize,
-        buffer: &[u8],
-    ) -> Result<(), SysError> {
-        todo!()
-    }
-    // 在文件末尾写
-    pub async fn write_append<T: Copy>(
-        &mut self,
-        manager: &Fat32Manager,
-        buffer: &[u8],
-    ) -> Result<(), SysError> {
-        todo!()
+        mut buffer: &[u8],
+    ) -> Result<usize, SysError> {
+        let inode = &mut *self.inode.unique_lock().await;
+        let offset = inode.cache.inner.shared_lock().file_bytes();
+        let mut cur = offset;
+        while !buffer.is_empty() {
+            let (nth, off) = manager.bpb.cluster_spilt(cur);
+            let (cid, cache) = inode
+                .get_nth_block_alloc(manager, nth, |_: &mut [u8]| ())
+                .await?;
+            let n = manager
+                .caches
+                .write_block(cid, &cache, |s: &mut [u8]| {
+                    let n = buffer.len().min(s.len() - off);
+                    s[off..].copy_from_slice(&buffer[..n]);
+                    n
+                })
+                .await?;
+            cur += n;
+            buffer = &buffer[n..];
+        }
+        inode.update_file_bytes(cur);
+        inode.update_access_modify_time(&manager.utc_time());
+        inode.short_entry_sync(manager).await?;
+        Ok(cur - offset)
     }
 }
