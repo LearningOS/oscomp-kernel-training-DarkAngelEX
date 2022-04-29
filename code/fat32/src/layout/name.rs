@@ -39,7 +39,7 @@ impl Attr {
 /// 被删除后name[0]变为0xE5
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-pub struct RawShortName {
+pub(crate) struct RawShortName {
     pub name: [u8; 8],
     pub ext: [u8; 3],
     pub attributes: Attr, // 只读 隐藏 系统 卷标 目录 归档
@@ -60,10 +60,10 @@ impl RawShortName {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     /// generate ".." "."
-    pub fn init_dot_dir(&mut self, name: &[u8], cid: CID, utc_time: &UtcTime) {
+    pub fn init_dot_dir(&mut self, dot_n: usize, cid: CID, utc_time: &UtcTime) {
         debug_assert!(self.is_free());
-        self.name[..name.len()].copy_from_slice(name);
-        self.name[name.len()..].fill(0x20);
+        self.name[..dot_n].fill(b'.');
+        self.name[dot_n..].fill(0x20);
         self.ext.fill(0x20);
         self.attributes = Attr::DIRECTORY;
         self.reversed = 0;
@@ -116,7 +116,11 @@ impl RawShortName {
         &buf[0..n]
     }
     pub fn checksum(&self) -> u8 {
-        todo!()
+        self.name
+            .iter()
+            .chain(self.ext.iter())
+            .copied()
+            .fold(0, |a, c| a.rotate_right(1) + c)
     }
     pub fn cid(&self) -> CID {
         CID((self.cluster_h16 as u32) << 16 | self.cluster_l16 as u32)
@@ -176,7 +180,7 @@ impl RawShortName {
 /// 使用packed后rust将自行将操作转化为位运算, 不要去获取引用!
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-pub struct RawLongName {
+pub(crate) struct RawLongName {
     order: u8,        // [0|last|reverse|order]=[1|1|1|5] max order = 31 start = 1
     p1: [u16; 5],     // 5 unicode char
     attributes: Attr, // always 0x0F for long name entry
@@ -242,16 +246,19 @@ impl RawLongName {
         }
         &buf[..n]
     }
+    pub fn checksum(&self) -> u8 {
+        self.checksum
+    }
 }
 
 #[repr(C, align(8))]
 #[derive(Clone, Copy)]
-pub union RawName {
+pub(crate) union RawName {
     short: RawShortName,
     long: RawLongName,
 }
 
-pub enum Name<'a> {
+pub(crate) enum Name<'a> {
     Short(&'a Align8<RawShortName>),
     Long(&'a Align8<RawLongName>),
 }
@@ -325,7 +332,7 @@ impl RawName {
     }
 }
 
-pub struct NameSet {
+pub(crate) struct NameSet {
     names: Box<[RawName]>,
 }
 

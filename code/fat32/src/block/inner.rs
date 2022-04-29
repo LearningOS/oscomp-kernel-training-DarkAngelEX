@@ -21,7 +21,7 @@ use crate::{
 use super::{bcache::Cache, buffer::SharedBuffer};
 
 /// 此管理器仅用于获取块 不会进行任何读写操作 因此也不需要异步操作函数
-pub struct CacheManagerInner {
+pub(crate) struct CacheManagerInner {
     // 不可变数据
     max_cid: CID,                     // 簇数 list中超过size的将被忽略
     sector_bytes: usize,              // 扇区字节数

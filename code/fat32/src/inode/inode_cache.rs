@@ -1,49 +1,39 @@
 use alloc::{
-    string::{String, ToString},
     sync::{Arc, Weak},
     vec::Vec,
 };
 
 use crate::{
     layout::name::{Attr, RawShortName},
-    mutex::rw_spin_mutex::RwSpinMutex,
+    mutex::{rw_sleep_mutex::RwSleepMutex, rw_spin_mutex::RwSpinMutex},
     tools::{AIDAllocator, Align8, SyncUnsafeCell, AID, CID},
     Fat32Manager, UtcTime,
 };
 
-use super::{dir_inode::EntryPlace, manager::InodeManager, raw_inode::RawInode, InodeMark};
+use super::{dir_inode::EntryPlace, raw_inode::RawInode, InodeMark};
 
 /// 主要缓存FAT链表 不缓存数据
 ///
 /// 此缓存块的全部操作都是同步操作
-pub struct InodeCache {
+pub(crate) struct InodeCache {
     pub inner: RwSpinMutex<InodeCacheInner>,
     aid_alloc: Arc<AIDAllocator>,
     alive: Weak<InodeMark>,
     pub aid: SyncUnsafeCell<AID>,
 }
 
-pub struct InodeCacheInner {
-    pub parent: Weak<InodeCache>,  // 父目录缓存指针
-    pub parent_entry: EntryPlace,  // 父目录位置 父目录移动时必须更新
-    pub inode: Weak<RawInode>,     // 自身inode
-    pub entry: EntryPlace,         // 文件目录项地址
-    pub cid_list: Vec<CID>,        // FAT链表缓存 所有CID都是有效的
-    pub cid_start: CID,            // short中的首簇号 空文件是CID::FREE
+pub(crate) struct InodeCacheInner {
+    pub inode: Weak<RwSleepMutex<RawInode>>, // 自身inode
+    pub entry: EntryPlace,                   // 文件目录项地址 父目录移动时必须更新
+    pub cid_list: Vec<CID>,                  // FAT链表缓存 所有CID都是有效的
+    pub cid_start: CID,                      // short中的首簇号 空文件是CID::FREE
     pub almost_last: (usize, CID), // 缓存访问到的最后一个有效块 空文件为0 CID::FREE 当.1为0时无效
     pub len: Option<usize>,        // 文件簇数
-    pub name: String,
     pub short: Align8<RawShortName>,
 }
 
 impl InodeCacheInner {
-    fn new(
-        name: String,
-        short: Align8<RawShortName>,
-        entry: EntryPlace,
-        parent: &Arc<InodeCache>,
-        parent_entry: EntryPlace,
-    ) -> Self {
+    fn new(short: Align8<RawShortName>, entry: EntryPlace) -> Self {
         let cid_start = short.cid();
         let mut cid_list = Vec::new();
         let mut len = None;
@@ -53,15 +43,12 @@ impl InodeCacheInner {
             len = Some(0);
         }
         InodeCacheInner {
-            parent: Arc::downgrade(parent),
-            parent_entry,
             entry,
             inode: Weak::new(),
             cid_list,
             cid_start,
             almost_last: (0, cid_start),
             len,
-            name,
             short,
         }
     }
@@ -71,17 +58,14 @@ impl InodeCacheInner {
 }
 
 impl InodeCache {
-    pub fn new(
-        name: String,
+    fn new(
         short: Align8<RawShortName>,
         entry: EntryPlace,
-        parent: &Arc<InodeCache>,
-        parent_entry: EntryPlace,
         alive: Weak<InodeMark>,
         aid_alloc: Arc<AIDAllocator>,
     ) -> Self {
         debug_assert!(alive.strong_count() != 0);
-        let inner = InodeCacheInner::new(name, short, entry, parent, parent_entry);
+        let inner = InodeCacheInner::new(short, entry);
         Self {
             inner: RwSpinMutex::new(inner),
             aid_alloc,
@@ -92,54 +76,58 @@ impl InodeCache {
     /// will shared lock inode.cache.inner
     pub fn from_parent(
         manager: &Fat32Manager,
-        name: &str,
         short: Align8<RawShortName>,
         entry: EntryPlace,
         inode: &RawInode,
     ) -> Self {
         debug_assert!(inode.cache.alive.strong_count() != 0);
         InodeCache::new(
-            name.to_string(),
             short,
             entry,
-            &inode.cache,
-            inode.cache.inner.shared_lock().entry,
             inode.cache.alive.clone(),
             manager.inodes.aid_alloc.clone(),
         )
     }
+    pub fn new_root(manager: &Fat32Manager) -> Self {
+        let mut short = Align8(RawShortName::zeroed());
+        short.init_dot_dir(1, CID(manager.bpb.root_cluster_id), &manager.utc_time());
+        let entry = EntryPlace::ROOT;
+        let alive = manager.inodes.alive_weak();
+        let aid_alloc = manager.inodes.aid_alloc.clone();
+        Self::new(short, entry, alive, aid_alloc)
+    }
     // inode缓存块替换时使用
-    pub fn init(
-        &mut self,
-        name: String,
-        short: Align8<RawShortName>,
-        entry: EntryPlace,
-        parent: &Arc<InodeCache>,
-        parent_entry: EntryPlace,
-    ) {
+    pub fn init(&mut self, short: Align8<RawShortName>, entry: EntryPlace) {
         let inner = self.inner_mut();
         debug_assert!(inner.inode.strong_count() == 0);
-        *inner = InodeCacheInner::new(name, short, entry, parent, parent_entry);
+        *inner = InodeCacheInner::new(short, entry);
     }
     pub fn inner_mut(&mut self) -> &mut InodeCacheInner {
         self.inner.get_mut()
     }
     /// 尝试快速获取inode
-    pub fn try_get_inode(self: &Arc<Self>) -> Option<Arc<RawInode>> {
+    pub fn try_get_inode(self: &Arc<Self>) -> Option<Arc<RwSleepMutex<RawInode>>> {
         self.inner.try_shared_lock()?.inode.upgrade()
     }
-    pub fn get_inode(
-        self: &Arc<Self>,
-        manager: &InodeManager,
-        parent: Arc<InodeCache>,
-    ) -> Arc<RawInode> {
-        let mut lock = self.inner.unique_lock();
+    pub fn get_inode(self: &Arc<Self>, parent: Arc<InodeCache>) -> Arc<RwSleepMutex<RawInode>> {
+        let lock = &mut *self.inner.unique_lock();
         if let Some(i) = lock.inode.upgrade() {
             return i;
         }
         let alive = self.alive.upgrade().unwrap();
-        let inode = RawInode::new(self.clone(), parent, alive);
-        let inode = Arc::new(inode);
+        let inode = RawInode::new(self.clone(), parent, alive, false);
+        let inode = Arc::new(RwSleepMutex::new(inode));
+        lock.inode = Arc::downgrade(&inode);
+        inode
+    }
+    pub unsafe fn get_root_inode(self: &Arc<Self>) -> Arc<RwSleepMutex<RawInode>> {
+        let lock = &mut *self.inner.unique_lock();
+        if let Some(i) = lock.inode.upgrade() {
+            return i;
+        }
+        let alive = self.alive.upgrade().unwrap();
+        let inode = RawInode::new(self.clone(), self.clone(), alive, true);
+        let inode = Arc::new(RwSleepMutex::new(inode));
         lock.inode = Arc::downgrade(&inode);
         inode
     }

@@ -105,7 +105,7 @@ init: create
 
 test:
 #	@cargo run --release -- -s $(IMG_PATH)
-	@cargo run -- -s $(IMG_PATH)
+	@RUST_BACKTRACE=1 cargo run -- -s $(IMG_PATH)
 
 clean:
 	@rm -rf $(IMG_PATH)

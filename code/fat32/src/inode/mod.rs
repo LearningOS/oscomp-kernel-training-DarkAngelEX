@@ -10,22 +10,17 @@ mod xstr;
 /// 此Inode在manager与所有文件中共享, 强引用计数-1即为打开的文件数量
 ///
 /// 用来动态释放多余的缓存块
-pub struct InodeMark;
+pub(crate) struct InodeMark;
 /// Inode ID, offset of entry offset
 ///
 /// IID of root is 0
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct IID(u64);
+pub(crate) struct IID(u64);
 
 impl IID {
-    pub fn invalid() -> Self {
-        IID(u64::MAX)
-    }
-    pub fn root() -> Self {
-        IID(0)
-    }
+    pub const ROOT: Self = IID(0);
     pub fn is_root(self) -> bool {
-        self == Self::root()
+        self == Self::ROOT
     }
     /// 文件所在目录簇号 目录项偏移量
     #[inline(always)]

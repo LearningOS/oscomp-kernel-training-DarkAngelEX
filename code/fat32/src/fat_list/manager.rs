@@ -29,7 +29,7 @@ pub enum FsinfoStatus {
     SyncDirty, // 需要同步 正在同步
 }
 
-pub struct ListManager {
+pub(crate) struct ListManager {
     // 不可变数据
     max_cid: CID,              // 簇数 list中超过size的将被忽略
     max_unit_num: usize,       // 最大缓存索引块数量

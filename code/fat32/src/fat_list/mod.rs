@@ -29,7 +29,7 @@ mod unit;
 /// FAT链表
 ///
 /// 如果缓存存在只需要非常短暂地持有Weak指针锁upgrade为Arc
-pub struct FatList {
+pub(crate) struct FatList {
     aid_alloc: Arc<AIDAllocator>,          // 分配访问号
     list_index: ListIndex,                 // 链表索引
     max_cid: CID,                          // 簇数 list中超过size的将被忽略

@@ -7,7 +7,7 @@ use crate::{
     mutex::rw_sleep_mutex::RwSleepMutex,
     tools::{Align8, CID},
     xerror::SysError,
-    Fat32Manager,
+    Fat32Manager, FileInode,
 };
 
 use super::{
@@ -21,23 +21,21 @@ use super::{
 ///
 /// 根目录为全0
 #[derive(Debug, Clone, Copy)]
-pub struct EntryPlace {
+pub(crate) struct EntryPlace {
     pub cluster_off: usize, // inode簇偏移
     pub cid: CID,           // 文件项所在簇的CID
     pub entry_off: usize,   // 文件项的簇内偏移
 }
 
 impl EntryPlace {
-    pub fn new(cluster_off: usize, cid: CID, entry_off: usize) -> Self {
+    pub const fn new(cluster_off: usize, cid: CID, entry_off: usize) -> Self {
         Self {
             cluster_off,
             cid,
             entry_off,
         }
     }
-    pub fn root() -> Self {
-        Self::new(0, CID::FREE, 0)
-    }
+    pub const ROOT: Self = Self::new(0, CID::FREE, 0);
     #[inline(always)]
     pub fn iid(&self, manager: &Fat32Manager) -> IID {
         IID::new(self.cid, self.entry_off, manager.bpb.cluster_bytes_log2)
@@ -45,16 +43,58 @@ impl EntryPlace {
 }
 
 /// 不要在这里维护任何数据 数据都放在inode中
+#[derive(Clone)]
 pub struct DirInode {
     inode: Arc<RwSleepMutex<RawInode>>, // 只有需要改变文件大小时才需要排他锁
 }
 
 impl DirInode {
-    pub fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
+    pub(crate) fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
         Self { inode }
     }
-    /// shared
-    pub async fn search(
+    pub async fn list(&self, manager: &Fat32Manager) -> Result<Vec<String>, SysError> {
+        let inode = &*self.inode.shared_lock().await;
+        let mut set = Vec::new();
+        Self::name_try_fold(inode, manager, (), |(), dir| {
+            set.push(dir.long);
+            ControlFlow::<Infallible>::Continue(())
+        })
+        .await?;
+        Ok(set)
+    }
+    pub async fn search_dir(
+        &self,
+        manager: &Fat32Manager,
+        name: &str,
+    ) -> Result<DirInode, SysError> {
+        let cache = self
+            .raw_search(manager, name)
+            .await?
+            .ok_or(SysError::ENOENT)?;
+        if !cache.inner.shared_lock().attr().contains(Attr::DIRECTORY) {
+            return Err(SysError::ENOTDIR);
+        }
+        Ok(DirInode::new(cache.get_inode(unsafe {
+            self.inode.unsafe_get().cache.clone()
+        })))
+    }
+    pub async fn search_file(
+        &self,
+        manager: &Fat32Manager,
+        name: &str,
+    ) -> Result<FileInode, SysError> {
+        let cache = self
+            .raw_search(manager, name)
+            .await?
+            .ok_or(SysError::ENOENT)?;
+        if cache.inner.shared_lock().attr().contains(Attr::DIRECTORY) {
+            return Err(SysError::ENOTDIR);
+        }
+        Ok(FileInode::new(cache.get_inode(unsafe {
+            self.inode.unsafe_get().cache.clone()
+        })))
+    }
+    async fn raw_search(
         &self,
         manager: &Fat32Manager,
         name: &str,
@@ -68,10 +108,9 @@ impl DirInode {
         };
         let iid = place.iid(manager);
         Ok(Some(manager.inodes.get_or_insert(iid, || {
-            InodeCache::from_parent(manager, name, short, place, inode)
+            InodeCache::from_parent(manager, short, place, inode)
         })))
     }
-    /// unique
     pub async fn create_dir(
         &self,
         manager: &Fat32Manager,
@@ -100,10 +139,8 @@ impl DirInode {
             .caches
             .get_block_init(cid, |a| {
                 RawName::cluster_init(a);
-                a[0].short_init()
-                    .init_dot_dir("..".as_bytes(), parent_cid, &utc_time);
-                a[1].short_init()
-                    .init_dot_dir(".".as_bytes(), this_cid, &utc_time);
+                a[0].short_init().init_dot_dir(2, parent_cid, &utc_time);
+                a[1].short_init().init_dot_dir(1, this_cid, &utc_time);
             })
             .await?;
         let mut short = Align8(RawShortName::zeroed());
@@ -112,8 +149,6 @@ impl DirInode {
         Self::create_entry_impl(inode, manager, name, short).await?;
         Ok(())
     }
-    /// unique
-    ///
     /// 创建一个空文件
     pub async fn create_file(
         &self,
@@ -157,14 +192,31 @@ impl DirInode {
         }
         Ok(finder)
     }
-    /// shared
-    ///
-    /// 目录必须为空 只删除仅含有 ".." "." 的目录
-    pub async fn free_dir(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
+    /// 自动判断是删除目录还是文件
+    pub async fn delete_any(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
         stack_trace!();
         let name = name_check(name)?;
-        name_check(name)?;
-        let inode = &mut *self.inode.unique_lock().await;
+        let mut inode = self.inode.unique_lock().await;
+        let (short, place) = match Self::search_impl(&*inode, manager, name).await? {
+            Some(x) => x,
+            None => return Err(SysError::ENOENT),
+        };
+        let cid = match short.is_dir() {
+            true => Self::delete_dir_impl(&mut *inode, manager, short, place).await?,
+            false => Self::delete_file_impl(&mut *inode, manager, short, place).await?,
+        };
+        drop(inode);
+        if cid.is_next() {
+            manager.list.free_cluster_at(cid).await.1?;
+            manager.list.free_cluster(cid).await?;
+        }
+        Ok(())
+    }
+    /// 目录必须为空 只删除仅含有 ".." "." 的目录
+    pub async fn delete_dir(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
+        stack_trace!();
+        let name = name_check(name)?;
+        let mut inode = self.inode.unique_lock().await;
         let (short, place) = match Self::search_impl(&*inode, manager, name).await? {
             Some(x) => x,
             None => return Err(SysError::ENOENT),
@@ -172,27 +224,7 @@ impl DirInode {
         if !short.is_dir() {
             return Err(SysError::ENOTDIR);
         }
-        // 文件如果处于打开状态将返回Err
-        manager.inodes.unused_release(place.1.iid(manager))?;
-        // 这里将持有唯一打开的引用
-        let dir = manager
-            .inodes
-            .get_or_insert(place.1.iid(manager), || {
-                InodeCache::from_parent(manager, name, short, place.1, inode)
-            })
-            .get_inode(&manager.inodes, inode.cache.clone());
-        // 检查是否是空文件夹
-        let r = Self::name_try_fold(&dir, manager, (), |(), b| match b.is_dot() {
-            true => ControlFlow::CONTINUE,
-            false => ControlFlow::BREAK,
-        })
-        .await?;
-        if r.is_break() {
-            return Err(SysError::ENOTEMPTY);
-        }
-        manager.inodes.unused_release(place.1.iid(manager))?;
-        let cid = Self::delete_entry(&mut *inode, manager, place).await?;
-        debug_assert!(cid == short.cid());
+        let cid = Self::delete_dir_impl(&mut *inode, manager, short, place).await?;
         drop(inode);
         if cid.is_next() {
             manager.list.free_cluster_at(cid).await.1?;
@@ -201,10 +233,9 @@ impl DirInode {
         Ok(())
     }
     /// shared
-    pub async fn free_file(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
+    pub async fn delete_file(&self, manager: &Fat32Manager, name: &str) -> Result<(), SysError> {
         stack_trace!();
         let name = name_check(name)?;
-        name_check(name)?;
         let mut inode = self.inode.unique_lock().await;
         let (short, place) = match Self::search_impl(&*inode, manager, name).await? {
             Some(x) => x,
@@ -213,9 +244,7 @@ impl DirInode {
         if short.is_dir() {
             return Err(SysError::EISDIR);
         }
-        manager.inodes.unused_release(place.1.iid(manager))?;
-        let cid = Self::delete_entry(&mut *inode, manager, place).await?;
-        debug_assert!(cid == short.cid());
+        let cid = Self::delete_file_impl(&mut *inode, manager, short, place).await?;
         drop(inode);
         // release list
         if cid.is_next() {
@@ -223,6 +252,48 @@ impl DirInode {
             manager.list.free_cluster(cid).await?;
         }
         Ok(())
+    }
+    async fn delete_dir_impl(
+        inode: &mut RawInode,
+        manager: &Fat32Manager,
+        short: Align8<RawShortName>,
+        place: (EntryPlace, EntryPlace),
+    ) -> Result<CID, SysError> {
+        // 文件如果处于打开状态将返回Err
+        manager.inodes.unused_release(place.1.iid(manager))?;
+        // 这里将持有唯一打开的引用
+        let dir = manager
+            .inodes
+            .get_or_insert(place.1.iid(manager), || {
+                InodeCache::from_parent(manager, short, place.1, inode)
+            })
+            .get_inode(inode.cache.clone());
+        // 检查是否是空文件夹
+        let r = Self::name_try_fold(&*dir.shared_lock().await, manager, (), |(), b| {
+            match b.is_dot() {
+                true => ControlFlow::CONTINUE,
+                false => ControlFlow::BREAK,
+            }
+        })
+        .await?;
+        if r.is_break() {
+            return Err(SysError::ENOTEMPTY);
+        }
+        manager.inodes.unused_release(place.1.iid(manager))?;
+        let cid = Self::delete_entry(&mut *inode, manager, place).await?;
+        debug_assert!(cid == short.cid());
+        Ok(cid)
+    }
+    async fn delete_file_impl(
+        inode: &mut RawInode,
+        manager: &Fat32Manager,
+        short: Align8<RawShortName>,
+        place: (EntryPlace, EntryPlace),
+    ) -> Result<CID, SysError> {
+        manager.inodes.unused_release(place.1.iid(manager))?;
+        let cid = Self::delete_entry(&mut *inode, manager, place).await?;
+        debug_assert!(cid == short.cid());
+        Ok(cid)
     }
     // =============================================================================
     // ============ private ============  private  ============ private ============
@@ -508,6 +579,7 @@ struct LongNameBuilder {
     long: Vec<[u16; 13]>,
     current: usize,
     start_place: Option<EntryPlace>,
+    checksum: u8,
 }
 
 impl LongNameBuilder {
@@ -516,6 +588,7 @@ impl LongNameBuilder {
             long: Vec::new(),
             current: 0,
             start_place: None,
+            checksum: 0,
         }
     }
     fn success(&self) -> bool {
@@ -528,12 +601,14 @@ impl LongNameBuilder {
         if s.is_last() {
             self.current = s.order_num();
             self.start_place.replace(start_place);
-        } else if self.current != s.order_num() + 1 {
+            self.checksum = s.checksum();
+        } else if self.current != s.order_num() + 1 || self.checksum != s.checksum() {
             self.current = 0;
         }
         if self.current == 0 {
             self.long.clear();
             self.start_place = None;
+            self.checksum = 0;
             return;
         }
         self.current = s.order_num();
@@ -589,10 +664,10 @@ fn entry_generate<'a>(
 }
 
 struct DirName {
-    pub long: String,
-    pub short: Align8<RawShortName>,
-    pub start_place: EntryPlace,
-    pub end_place: EntryPlace,
+    long: String,
+    short: Align8<RawShortName>,
+    start_place: EntryPlace,
+    end_place: EntryPlace,
 }
 
 impl DirName {

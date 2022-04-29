@@ -22,7 +22,7 @@ pub mod buffer;
 mod index;
 mod inner;
 
-pub struct CacheManager {
+pub(crate) struct CacheManager {
     index: CacheIndex,          // 无竞争索引
     dirty_semaphore: Semaphore, // 脏块信号量 必须小于最大缓存数
     inner: Arc<SleepMutex<CacheManagerInner>>,

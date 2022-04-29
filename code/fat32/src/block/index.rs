@@ -7,7 +7,7 @@ use crate::{mutex::rw_spin_mutex::RwSpinMutex, tools::CID};
 
 use super::bcache::Cache;
 
-pub struct CacheIndex(RwSpinMutex<BTreeMap<CID, Weak<Cache>>>);
+pub(crate) struct CacheIndex(RwSpinMutex<BTreeMap<CID, Weak<Cache>>>);
 
 impl CacheIndex {
     pub fn new() -> Self {

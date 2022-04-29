@@ -5,7 +5,7 @@ use crate::{mutex::rw_sleep_mutex::RwSleepMutex, tools::AID, xerror::SysError};
 use super::buffer::{Buffer, SharedBuffer};
 
 /// 缓存一个簇
-pub struct Cache {
+pub(crate) struct Cache {
     aid: UnsafeCell<AID>,
     buffer: RwSleepMutex<Buffer>,
 }

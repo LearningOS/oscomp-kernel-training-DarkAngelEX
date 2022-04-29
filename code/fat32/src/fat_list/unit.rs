@@ -17,7 +17,7 @@ pub struct UnitID(pub u32);
 /// inode修改fat链表必须要获取互斥锁, 因此当ListUnit改变时一定是持有互斥锁的,
 /// 不同inode的修改处于不同的FAT链表, 绝对不会对同一块unit进行。
 /// aid随便竞争, 反正不会导致系统爆炸
-pub struct ListUnit {
+pub(crate) struct ListUnit {
     buffer: UnsafeCell<Buffer>, // cow内存
     aid: UnsafeCell<AID>,       // 访问ID
 }

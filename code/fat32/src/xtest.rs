@@ -3,14 +3,16 @@ use core::future::Future;
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
-    access::AccessPath,
     fat_list::FatList,
     layout::{bpb::RawBPB, fsinfo::RawFsInfo, name::NameSet},
     tools::{UtcTime, CID},
     BlockDevice, Fat32Manager,
 };
 
-pub async fn test(device: impl BlockDevice, utc_time: impl Fn() -> UtcTime + Send + 'static) {
+pub async fn test(
+    device: impl BlockDevice,
+    utc_time: impl Fn() -> UtcTime + Send + Sync + 'static,
+) {
     stack_trace!();
     println!("test start!");
     let device = Arc::new(device);
@@ -19,14 +21,24 @@ pub async fn test(device: impl BlockDevice, utc_time: impl Fn() -> UtcTime + Sen
     println!("test end!");
 }
 
+// fn system_test(
+//     device: Arc<dyn BlockDevice>,
+//     utc_time: Box<dyn Fn() -> UtcTime + Send + 'static>,
+// ) -> impl Future<Output = ()> + Send + 'static {
+//     async move {system_test_impl(device, utc_time).await}
+// }
+
 fn system_test(
     device: Arc<dyn BlockDevice>,
-    utc_time: Box<dyn Fn() -> UtcTime + Send + 'static>,
+    utc_time: Box<dyn Fn() -> UtcTime + Send + Sync + 'static>,
 ) -> impl Future<Output = ()> + Send + 'static {
     async move {
-        let mut fat32 = Fat32Manager::new(100, 100, 100, 100, 100);
-        fat32.init(device, utc_time).await;
-        let path = AccessPath::new();
+        let mut manager = Fat32Manager::new(100, 100, 100, 100, 100);
+        manager.init(device, utc_time).await;
+        let root = manager.search_dir(&[]).await.unwrap();
+        for (i, name) in root.list(&manager).await.unwrap().into_iter().enumerate() {
+            println!("{:>2} {}", i, name);
+        }
         todo!()
         // let root = fat32.access(&path).await.unwrap();
     }

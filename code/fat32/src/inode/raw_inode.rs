@@ -17,19 +17,26 @@ use super::{dir_inode::DirInode, file_inode::FileInode, inode_cache::InodeCache,
 /// 每个打开的文件将持有一个RawInode
 ///
 /// Inode可以直接从InodeCache产生
-pub struct RawInode {
+pub(crate) struct RawInode {
     pub cache: Arc<InodeCache>,
     pub parent: Arc<InodeCache>,
     last_cache: RwSpinMutex<Option<(usize, (CID, Arc<Cache>))>>, // 最近一次访问的块
+    is_root: bool,
     _mark: Arc<InodeMark>,
 }
 
 impl RawInode {
-    pub fn new(cache: Arc<InodeCache>, parent: Arc<InodeCache>, mark: Arc<InodeMark>) -> Self {
+    pub fn new(
+        cache: Arc<InodeCache>,
+        parent: Arc<InodeCache>,
+        mark: Arc<InodeMark>,
+        is_root: bool,
+    ) -> Self {
         Self {
             parent,
             cache,
             last_cache: RwSpinMutex::new(None),
+            is_root,
             _mark: mark,
         }
     }
@@ -246,6 +253,9 @@ impl RawInode {
         Ok(())
     }
     pub async fn short_entry_sync(&self, manager: &Fat32Manager) -> Result<(), SysError> {
+        if self.is_root {
+            return Ok(());
+        }
         let (entry, short) = self.cache.inner.shared_lock().entry();
         let cache = manager.caches.get_block(entry.cid).await?;
         manager

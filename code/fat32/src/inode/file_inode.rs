@@ -10,7 +10,7 @@ pub struct FileInode {
 }
 
 impl FileInode {
-    pub fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
+    pub(crate) fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
         Self { inode }
     }
     /// offset为字节偏移

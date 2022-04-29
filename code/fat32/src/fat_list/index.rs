@@ -15,7 +15,7 @@ use super::unit::ListUnit;
 /// 一个扇区缓存的索引
 ///
 /// 不使用任何异步操作
-pub struct ListIndex {
+pub(crate) struct ListIndex {
     weak: Box<[UnsafeCell<Weak<ListUnit>>]>,
     lock: Box<[RwSpinMutex<()>]>,
 }

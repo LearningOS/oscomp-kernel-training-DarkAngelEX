@@ -10,7 +10,7 @@ use crate::{
 /// BIOS Parameter Block
 ///
 /// logical offset = 0x0B
-pub struct RawBPB {
+pub(crate) struct RawBPB {
     pub sector_bytes: u16,          // 扇区字节数
     pub sector_per_cluster: u8,     // 每簇扇区数
     sector_reserved: u16,           // 保留扇区数 用来获取第一个FAT偏移值

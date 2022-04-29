@@ -1,4 +1,7 @@
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::{
+    collections::BTreeMap,
+    sync::{Arc, Weak},
+};
 
 use crate::{
     mutex::rw_spin_mutex::RwSpinMutex,
@@ -8,7 +11,7 @@ use crate::{
 
 use super::{inode_cache::InodeCache, InodeMark, IID};
 
-pub struct InodeManager {
+pub(crate) struct InodeManager {
     pub aid_alloc: Arc<AIDAllocator>,
     inner: RwSpinMutex<InodeManagerInner>,
 }
@@ -22,7 +25,12 @@ impl InodeManager {
             inner: RwSpinMutex::new(InodeManagerInner::new(x, target_free)),
         }
     }
-    pub fn init(&mut self) {}
+    pub fn init(&mut self) {
+        self.inner.get_mut().init()
+    }
+    pub fn alive_weak(&self) -> Weak<InodeMark> {
+        Arc::downgrade(unsafe { &self.inner.unsafe_get().alive })
+    }
     pub fn try_get(&self, iid: IID) -> Option<Arc<InodeCache>> {
         self.inner.shared_lock().try_get_cache(iid)
     }
@@ -55,7 +63,7 @@ impl InodeManager {
 /// 打开的文件将在此获取Inode, 如果Inode不存在则自动创建一个
 ///
 /// Inode析构将抹去这里的记录 缓存将被动释放
-pub struct InodeManagerInner {
+pub(crate) struct InodeManagerInner {
     aid_alloc: Arc<AIDAllocator>,
     target_free: usize,    // 目标空闲缓存数量 空闲数超过这个值的两倍将释放一部分
     alive: Arc<InodeMark>, // 强引用计数-1即为打开的文件数量

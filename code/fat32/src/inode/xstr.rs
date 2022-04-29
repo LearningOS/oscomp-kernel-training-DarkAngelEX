@@ -51,7 +51,7 @@ pub fn name_check(str: &str) -> Result<&str, SysError> {
 ///
 /// 方法:
 pub fn str_to_just_short(str: &str) -> Option<([u8; 8], [u8; 3])> {
-    name_check(str).unwrap();
+    debug_assert_eq!(str.len(), name_check(str).unwrap().len());
     if str.len() > 12 {
         return None;
     }
@@ -102,15 +102,15 @@ pub fn str_to_just_short(str: &str) -> Option<([u8; 8], [u8; 3])> {
 /// utf16顺序放置, 写入时应倒序遍历
 ///
 /// 最大数组长度为31
-pub fn str_to_utf16(src: &str) -> Result<Vec<[u16; 13]>, SysError> {
-    name_check(src).unwrap();
+pub fn str_to_utf16(str: &str) -> Result<Vec<[u16; 13]>, SysError> {
+    debug_assert_eq!(str.len(), name_check(str).unwrap().len());
     const MAX_LEN: usize = 31;
-    if src.is_empty() {
+    if str.is_empty() {
         return Ok(Vec::new());
     }
     let mut v = Vec::<[u16; 13]>::new();
     let mut i = 0;
-    for ch in src.encode_utf16() {
+    for ch in str.encode_utf16() {
         if i == 0 {
             if v.len() == MAX_LEN {
                 return Err(SysError::ENAMETOOLONG);
@@ -134,7 +134,7 @@ pub fn str_to_utf16(src: &str) -> Result<Vec<[u16; 13]>, SysError> {
 /// 后缀使用~+数字递增
 ///
 /// 搜索策略: 匹配~~字符前的至多6byte 寻找 1位 1-9 都存在则哈希(2Bytes)+~4
-pub struct ShortFinder {
+pub(super) struct ShortFinder {
     name: [u8; 8],
     ext: [u8; 3],
     short_only: bool,

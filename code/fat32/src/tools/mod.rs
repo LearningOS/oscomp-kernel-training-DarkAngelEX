@@ -10,10 +10,10 @@ pub mod xasync;
 
 /// 扇区号
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct SID(pub u32);
+pub(crate) struct SID(pub u32);
 /// 簇号
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct CID(pub u32);
+pub(crate) struct CID(pub u32);
 
 impl CID {
     pub const FREE: CID = Self::free();
@@ -70,7 +70,7 @@ impl CID {
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ClStatus {
+pub(crate) enum ClStatus {
     Free,
     Reverse,
     Next(CID),

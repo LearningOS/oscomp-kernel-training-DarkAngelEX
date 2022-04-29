@@ -30,7 +30,6 @@ extern crate alloc;
 mod console;
 #[macro_use]
 mod xdebug;
-pub mod access;
 mod block;
 mod block_dev;
 mod fat_list;
@@ -38,13 +37,13 @@ mod layout;
 mod manager;
 mod mutex;
 
-pub mod inode;
+mod inode;
 mod tools;
-pub mod xasync;
 pub mod xerror;
 pub mod xtest;
 
 pub use block_dev::{AsyncRet, BlockDevice};
+pub use inode::{dir_inode::DirInode, file_inode::FileInode};
 pub use manager::Fat32Manager;
 pub use tools::UtcTime;
 
