@@ -10,8 +10,27 @@ create: clean
 	mkdir $(DIR_PATH)
 	mkfs.vfat -s 8 -F 32 $(IMG_PATH)
 
-init: create
+init: create mount init_dir_0 umount
+
+mount:
 	sudo mount -t vfat -o user,umask=000,utf8=1 --source $(IMG_PATH) --target $(DIR_PATH)
+
+umount:
+	sudo umount $(DIR_PATH)
+
+
+init_dir_0:
+	@cd $(DIR_PATH) && \
+	mkdir dir0 && \
+	touch dir0/a && \
+	mkdir dir1 && \
+	touch dir1/b && \
+	touch 'abcde' && \
+	touch '居然是中文!' && \
+	touch touch 12345678901234567890123456 && \
+	touch end
+
+init_dir_1:
 	@cd $(DIR_PATH) && \
 	mkdir dir0 && \
 	touch dir0/a && \
@@ -97,9 +116,8 @@ init: create
 	touch BIG4K && truncate -s 4096 BIG4K && \
 	touch BIG6K && truncate -s 6000 BIG6K && \
 	touch BIG8K && truncate -s 8192 BIG8K && \
-	touch BIGTEST && truncate -s 4096 BIGTEST && truncate -s 0 BIGTEST \
-	ls
-	sudo umount $(DIR_PATH)
+	touch BIGTEST && truncate -s 4096 BIGTEST && truncate -s 0 BIGTEST && \
+	touch endfile
 
 .PHONY: clean
 

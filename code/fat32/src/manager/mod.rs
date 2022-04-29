@@ -1,3 +1,5 @@
+use core::{future::Future, pin::Pin, task::Waker};
+
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
 use crate::{
@@ -57,6 +59,18 @@ impl Fat32Manager {
         self.device = Some(device);
         self.utc_time = Some(utc_time);
         self.init_root();
+    }
+    pub async fn spawn_sync_task(
+        &mut self,
+        (concurrent_list, concurrent_cache): (usize, usize),
+        spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
+            + Clone
+            + Send
+            + 'static,
+    ) {
+        let x = spawn_fn.clone();
+        self.list.sync_task(concurrent_list, x).await;
+        self.caches.sync_task(concurrent_cache, spawn_fn).await;
     }
     fn init_root(&mut self) {
         let cache = self

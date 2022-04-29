@@ -56,7 +56,7 @@ impl DirInode {
         let inode = &*self.inode.shared_lock().await;
         let mut set = Vec::new();
         Self::name_try_fold(inode, manager, (), |(), dir| {
-            set.push(dir.long);
+            set.push(dir.take_name());
             ControlFlow::<Infallible>::Continue(())
         })
         .await?;
@@ -698,6 +698,15 @@ impl DirName {
     fn cid(&self) -> CID {
         let h16 = (self.short.cluster_h16 as u32) << 16;
         CID(h16 | self.short.cluster_l16 as u32)
+    }
+    fn take_name(self) -> String {
+        if self.long.is_empty() {
+            let buf = &mut [0; 12];
+            let name = self.short.get_name(buf);
+            String::from_utf8_lossy(name).into_owned()
+        } else {
+            self.long
+        }
     }
     fn place(&self) -> (EntryPlace, EntryPlace) {
         (self.start_place, self.end_place)

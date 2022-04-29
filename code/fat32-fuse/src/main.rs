@@ -80,5 +80,9 @@ async fn a_main(path: &str) {
     let file = File::open(path).await.unwrap();
     let file = BlockFile::new(file);
     let utc_time = || fat32::UtcTime::base();
-    fat32::xtest::test(file, utc_time).await;
+    let spawn_fn = |future| {
+        let join = async_std::task::spawn(future);
+        std::thread::spawn(|| block_on(async move { join.await }));
+    };
+    fat32::xtest::test(file, utc_time, spawn_fn).await;
 }

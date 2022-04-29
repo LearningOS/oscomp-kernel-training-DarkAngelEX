@@ -3,7 +3,7 @@ use core::{
     ops::{ControlFlow, Try},
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll},
+    task::{Context, Poll, Waker},
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};
@@ -11,7 +11,11 @@ use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};
 use crate::{
     layout::bpb::RawBPB,
     mutex::{semaphore::Semaphore, sleep_mutex::SleepMutex, spin_mutex::SpinMutex},
-    tools::{self, AIDAllocator, CID},
+    tools::{
+        self,
+        xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
+        AIDAllocator, CID,
+    },
     xerror::SysError,
     BlockDevice,
 };
@@ -177,20 +181,27 @@ impl FatList {
     /// 并发同步系统 参数为最大并发任务数
     ///
     /// 必须将此函数spawn后将waker更新进manager.sync_waker
-    pub fn apwan_sync_task(
+    pub async fn sync_task(
         &mut self,
         concurrent: usize,
-        mut spawn_fn: impl FnMut(Box<dyn Future<Output = ()> + Send + 'static>) + Send + 'static,
-    ) -> impl Future<Output = ()> + Send + 'static {
+        mut spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
+            + Clone
+            + Send
+            + 'static,
+    ) {
         let init_manager = Arc::get_mut(&mut self.manager).unwrap().get_mut();
         let device = init_manager.device.clone();
         let sync_start = init_manager.store_start.clone();
         let sync = init_manager.sync_pending.clone();
         let info_cluster_id = init_manager.info_cluster_id;
         let manager = self.manager.clone();
-        return async move {
-            let sem = Arc::new(AtomicUsize::new(0));
-            let waker = manager.lock().await.sync_waker();
+        let mut spawn_fn_x = spawn_fn.clone();
+        let this_waker = GetWakerFuture.await;
+        let future = async move {
+            let sem = Arc::new(AtomicUsize::new(concurrent));
+            let waker = GetWakerFuture.await;
+            manager.lock().await.set_waker(waker.clone());
+            this_waker.wake();
             // fsinfo改变一定伴随着Dirty
             while let Ok(s) = WaitDirtyFuture(sync.clone()).await {
                 let set: Vec<_> = {
@@ -201,17 +212,16 @@ impl FatList {
                 };
                 for &start in &sync_start {
                     for (uid, buffer) in set.iter() {
-                        WaitLessFuture(sem.as_ref(), concurrent).await;
-                        sem.fetch_add(1, Ordering::Relaxed);
+                        WaitSemFuture(sem.as_ref()).await;
                         let uid = *uid;
                         let device = device.clone();
                         let sem = sem.clone();
                         let waker = waker.clone();
                         let buffer = buffer.clone();
                         let sid = ListManager::get_sid_of_unit_id(start, uid);
-                        spawn_fn(Box::new(async move {
+                        spawn_fn_x(Box::pin(async move {
                             device.write_block(sid.0 as usize, &*buffer).await.unwrap();
-                            sem.fetch_sub(1, Ordering::Relaxed);
+                            sem.fetch_add(1, Ordering::Relaxed);
                             waker.wake();
                         }));
                     }
@@ -227,20 +237,23 @@ impl FatList {
                     }
                     manager.fsifo_store_buffer_device().unwrap()
                 };
-                WaitLessFuture(sem.as_ref(), concurrent).await;
-                sem.fetch_add(1, Ordering::Relaxed);
+                WaitSemFuture(sem.as_ref()).await;
                 let device = device.clone();
                 let manager = manager.clone();
                 let sem = sem.clone();
                 let waker = waker.clone();
-                spawn_fn(Box::new(async move {
+                spawn_fn_x(Box::pin(async move {
                     device.write_block(info_cluster_id, &*buffer).await.unwrap();
                     manager.lock().await.fsinfo_leave_device();
-                    sem.fetch_sub(1, Ordering::Relaxed);
+                    sem.fetch_add(1, Ordering::Relaxed);
                     waker.wake();
                 }));
             }
         };
+        spawn_fn(Box::pin(future));
+        WaitingEventFuture(|| unsafe { self.manager.unsafe_get().sync_waker.as_ref().is_some() })
+            .await;
+
         struct WaitDirtyFuture(Arc<SpinMutex<Option<BTreeSet<UnitID>>>>);
         impl Future for WaitDirtyFuture {
             type Output = Result<BTreeSet<UnitID>, ()>;
@@ -249,17 +262,6 @@ impl FatList {
                     Some(set) if set.is_empty() => Poll::Pending,
                     Some(set) => Poll::Ready(Ok(core::mem::take(set))),
                     None => Poll::Ready(Err(())), // Exit
-                }
-            }
-        }
-
-        struct WaitLessFuture<'a>(&'a AtomicUsize, usize);
-        impl Future for WaitLessFuture<'_> {
-            type Output = ();
-            fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-                match self.0.load(Ordering::Relaxed) {
-                    v if v <= self.1 => Poll::Ready(()),
-                    _ => Poll::Pending,
                 }
             }
         }

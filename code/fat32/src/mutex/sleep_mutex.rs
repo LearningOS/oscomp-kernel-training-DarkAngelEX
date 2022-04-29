@@ -56,6 +56,12 @@ impl<T> SleepMutex<T> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    pub unsafe fn unsafe_get(&self) -> &T {
+        &*self.data.get()
+    }
+    pub unsafe fn unsafe_get_mut(&self) -> &mut T {
+        &mut *self.data.get()
+    }
     /// 保证按顺序解锁
     pub async fn lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
         SleepMutexFuture::<'_, T> {

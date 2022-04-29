@@ -1,1 +1,0 @@
-sudo umount ./img_test/

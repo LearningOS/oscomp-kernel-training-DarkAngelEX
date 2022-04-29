@@ -52,7 +52,7 @@ pub(crate) struct ListManager {
     dirty: BTreeMap<UnitID, (Arc<ListUnit>, SemaphoreGuard)>, // 等待同步或运行在驱动的块
     pub sync_pending: Arc<SpinMutex<Option<BTreeSet<UnitID>>>>, // 同步系统优先获取的集合
 
-    sync_waker: Option<Waker>,
+    pub sync_waker: Option<Waker>,
     pub device: Arc<dyn BlockDevice>,
 }
 

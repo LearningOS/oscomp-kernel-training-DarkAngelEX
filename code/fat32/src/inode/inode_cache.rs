@@ -27,7 +27,7 @@ pub(crate) struct InodeCacheInner {
     pub entry: EntryPlace,                   // 文件目录项地址 父目录移动时必须更新
     pub cid_list: Vec<CID>,                  // FAT链表缓存 所有CID都是有效的
     pub cid_start: CID,                      // short中的首簇号 空文件是CID::FREE
-    pub almost_last: (usize, CID), // 缓存访问到的最后一个有效块 空文件为0 CID::FREE 当.1为0时无效
+    pub almost_last: (usize, CID), // 缓存访问到的最后一个有效块和簇偏移 空文件为0 CID::FREE
     pub len: Option<usize>,        // 文件簇数
     pub short: Align8<RawShortName>,
 }
@@ -192,13 +192,14 @@ impl InodeCacheInner {
         self.len = Some(n);
     }
     /// 返回缓存的最后一个簇偏移与ID
+    ///
+    /// 返回None的唯一可能是文件未分配空间
     pub fn list_last_save(&self) -> Option<(usize, CID)> {
-        if !self.cid_start.is_free() {
-            debug_assert!(!self.cid_start.is_next());
+        if self.cid_start.is_free() {
             debug_assert!(self.almost_last == (0, CID::FREE));
             return None;
         }
-        debug_assert!(self.almost_last.0 > 0);
+        debug_assert!(self.cid_start.is_next());
         debug_assert!(self.almost_last.1.is_next());
         Some(self.almost_last)
     }

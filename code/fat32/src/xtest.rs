@@ -1,4 +1,4 @@
-use core::future::Future;
+use core::{future::Future, pin::Pin, task::Waker};
 
 use alloc::{boxed::Box, sync::Arc};
 
@@ -6,41 +6,42 @@ use crate::{
     fat_list::FatList,
     layout::{bpb::RawBPB, fsinfo::RawFsInfo, name::NameSet},
     tools::{UtcTime, CID},
-    BlockDevice, Fat32Manager,
+    BlockDevice, DirInode, Fat32Manager,
 };
 
 pub async fn test(
     device: impl BlockDevice,
     utc_time: impl Fn() -> UtcTime + Send + Sync + 'static,
+    spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
 ) {
     stack_trace!();
     println!("test start!");
     let device = Arc::new(device);
     info_test(device.clone()).await;
-    system_test(device.clone(), Box::new(utc_time)).await;
+    system_test(device.clone(), Box::new(utc_time), spawn_fn).await;
     println!("test end!");
 }
-
-// fn system_test(
-//     device: Arc<dyn BlockDevice>,
-//     utc_time: Box<dyn Fn() -> UtcTime + Send + 'static>,
-// ) -> impl Future<Output = ()> + Send + 'static {
-//     async move {system_test_impl(device, utc_time).await}
-// }
 
 fn system_test(
     device: Arc<dyn BlockDevice>,
     utc_time: Box<dyn Fn() -> UtcTime + Send + Sync + 'static>,
+    spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
 ) -> impl Future<Output = ()> + Send + 'static {
+    async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
+        for (i, name) in dir.list(&manager).await.unwrap().into_iter().enumerate() {
+            println!("{:>2} <{}>", i, name);
+        }
+    }
     async move {
         let mut manager = Fat32Manager::new(100, 100, 100, 100, 100);
         manager.init(device, utc_time).await;
         let root = manager.search_dir(&[]).await.unwrap();
-        for (i, name) in root.list(&manager).await.unwrap().into_iter().enumerate() {
-            println!("{:>2} {}", i, name);
-        }
-        todo!()
-        // let root = fat32.access(&path).await.unwrap();
+        println!("/// show file ///");
+        show_dir(&root, &manager).await;
+        println!("/// show dir0 ///");
+        let dir0 = root.search_dir(&manager, "dir0").await.unwrap();
+        show_dir(&dir0, &manager).await;
+        manager.spawn_sync_task((2, 2), spawn_fn).await;
     }
 }
 
@@ -60,5 +61,9 @@ async fn info_test(device: Arc<dyn BlockDevice>) {
 
     let mut nameset = NameSet::new(&bpb);
     nameset.load(&bpb, CID(2), &*device).await;
-    nameset.show(0);
+    nameset.show(30);
+
+    // let mut nameset = NameSet::new(&bpb);
+    // nameset.load(&bpb, CID(3), &*device).await;
+    // nameset.show(0);
 }

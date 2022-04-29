@@ -10,7 +10,10 @@ use alloc::{boxed::Box, collections::BTreeSet, sync::Arc};
 use crate::{
     layout::bpb::RawBPB,
     mutex::{semaphore::Semaphore, sleep_mutex::SleepMutex, spin_mutex::SpinMutex},
-    tools::CID,
+    tools::{
+        xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
+        CID,
+    },
     xerror::SysError,
     BlockDevice,
 };
@@ -88,29 +91,19 @@ impl CacheManager {
             .become_dirty(cid, &mut sem.into_multiply());
         Ok(r)
     }
-    pub async fn apply_block<T: Copy, V>(
-        &self,
-        cid: CID,
-        cache: &Cache,
-        scan: impl FnOnce(&[T]) -> Option<V>,
-        op: impl FnOnce(&mut [T]) -> V,
-    ) -> Result<V, SysError> {
-        match cache.access_ro(scan).await {
-            Some(v) => return Ok(v),
-            None => (),
-        }
-        self.write_block(cid, cache, op).await
-    }
     /// 从缓存块中释放块并取消同步任务
     pub async fn release_block(&self, cid: CID) {
         self.inner.lock().await.release_block(cid)
     }
     /// 生成一个同步任务
-    pub fn sync_task(
+    pub async fn sync_task(
         &mut self,
         concurrent: usize,
-        mut spawn_fn: impl FnMut(Box<dyn Future<Output = ()> + Send + 'static>) + Send + 'static,
-    ) -> impl Future<Output = ()> + Send + 'static {
+        mut spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
+            + Clone
+            + Send
+            + 'static,
+    ) {
         // 这一行保证了同步任务只会生成一次
         let init_inner = Arc::get_mut(&mut self.inner).unwrap().get_mut();
         let device = init_inner.device.clone();
@@ -118,28 +111,35 @@ impl CacheManager {
         let spcl2 = init_inner.sector_per_cluster_log2;
         let sync = init_inner.sync_pending.clone();
         let manager = self.inner.clone();
-        return async move {
-            let sem = Arc::new(AtomicUsize::new(0));
-            let waker = manager.lock().await.sync_waker();
+        let mut spawn_fn_x = spawn_fn.clone();
+        let this_waker = GetWakerFuture.await;
+        let future = async move {
+            let waker = GetWakerFuture.await;
+            manager.lock().await.set_waker(waker.clone());
+            this_waker.wake();
+            let sem = Arc::new(AtomicUsize::new(concurrent));
             while let Ok(s) = WaitDirtyFuture(sync.clone()).await {
                 for &cid in s.iter() {
                     let buffer = manager.lock().await.get_dirty_shared_buffer(cid).await;
-                    WaitLessFuture(sem.as_ref(), concurrent).await;
-                    sem.fetch_add(1, Ordering::Relaxed);
+                    WaitSemFuture(sem.as_ref()).await;
                     let device = device.clone();
                     let sem = sem.clone();
                     let waker = waker.clone();
                     let buffer = buffer.clone();
                     let sid = CacheManagerInner::raw_get_sid_of_cid(data_sector_start, spcl2, cid);
-                    spawn_fn(Box::new(async move {
+                    spawn_fn_x(Box::pin(async move {
                         device.write_block(sid.0 as usize, &*buffer).await.unwrap();
-                        sem.fetch_sub(1, Ordering::Relaxed);
+                        sem.fetch_add(1, Ordering::Relaxed);
                         waker.wake();
                     }));
                 }
                 manager.lock().await.dirty_suspend_iter(s.into_iter());
             }
         };
+        spawn_fn(Box::pin(future));
+        WaitingEventFuture(|| unsafe { self.inner.unsafe_get().sync_waker.as_ref().is_some() })
+            .await;
+
         struct WaitDirtyFuture(Arc<SpinMutex<Option<BTreeSet<CID>>>>);
         impl Future for WaitDirtyFuture {
             type Output = Result<BTreeSet<CID>, ()>;
@@ -148,17 +148,6 @@ impl CacheManager {
                     Some(set) if set.is_empty() => Poll::Pending,
                     Some(set) => Poll::Ready(Ok(core::mem::take(set))),
                     None => Poll::Ready(Err(())), // Exit
-                }
-            }
-        }
-
-        struct WaitLessFuture<'a>(&'a AtomicUsize, usize);
-        impl Future for WaitLessFuture<'_> {
-            type Output = ();
-            fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-                match self.0.load(Ordering::Relaxed) {
-                    v if v <= self.1 => Poll::Ready(()),
-                    _ => Poll::Pending,
                 }
             }
         }

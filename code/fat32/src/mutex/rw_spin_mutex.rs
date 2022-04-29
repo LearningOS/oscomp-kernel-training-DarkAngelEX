@@ -67,7 +67,7 @@ impl<T> RwSpinMutex<T> {
             }
             if self
                 .lock
-                .compare_exchange(0, isize::MIN, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange(0, -isize::MAX, Ordering::Acquire, Ordering::Relaxed)
                 .is_err()
             {
                 continue;
@@ -76,15 +76,17 @@ impl<T> RwSpinMutex<T> {
         }
     }
     pub fn try_shared_lock(&self) -> Option<impl Deref<Target = T> + '_> {
-        if self.lock.load(Ordering::Relaxed) < 0 {
-            return None;
+        let mut cur = self.lock.load(Ordering::Relaxed);
+        while cur >= 0 {
+            match self
+                .lock
+                .compare_exchange(cur, cur + 1, Ordering::Acquire, Ordering::Relaxed)
+            {
+                Ok(_) => return Some(SharedRwMutexGuard { mutex: self }),
+                Err(v) => cur = v,
+            };
         }
-        if self.lock.fetch_add(1, Ordering::Relaxed) >= 0 {
-            atomic::fence(Ordering::Acquire);
-            return Some(SharedRwMutexGuard { mutex: self });
-        }
-        self.lock.fetch_sub(1, Ordering::Relaxed);
-        return None;
+        None
     }
     pub fn shared_lock(&self) -> impl Deref<Target = T> + '_ {
         if self.lock.fetch_add(1, Ordering::Relaxed) >= 0 {
@@ -133,8 +135,9 @@ impl<'a, T: ?Sized> Drop for SharedRwMutexGuard<'a, T> {
 impl<'a, T: ?Sized> Drop for UniqueRwMutexGuard<'a, T> {
     /// The dropping of the MutexGuard will release the lock it was created from.
     fn drop(&mut self) {
+        debug_assert!(self.mutex.lock.load(Ordering::Relaxed) < 0);
         // debug_assert_eq!(self.mutex.lock.load(Ordering::Relaxed), -1);
         // self.mutex.lock.store(0, Ordering::Release);
-        self.mutex.lock.fetch_add(-isize::MAX, Ordering::Release);
+        self.mutex.lock.fetch_add(isize::MAX, Ordering::Release);
     }
 }
