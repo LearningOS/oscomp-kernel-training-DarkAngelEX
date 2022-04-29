@@ -9,6 +9,7 @@ create: clean
 	dd if=/dev/zero of=$(IMG_PATH) bs=40M count=1
 	mkdir $(DIR_PATH)
 	mkfs.vfat -s 8 -F 32 $(IMG_PATH)
+	chmod 777 $(IMG_PATH)
 
 init: create mount init_dir_0 umount
 
@@ -124,6 +125,8 @@ init_dir_1:
 test:
 #	@cargo run --release -- -s $(IMG_PATH)
 	@RUST_BACKTRACE=1 cargo run -- -s $(IMG_PATH)
+
+start: init test
 
 clean:
 	@rm -rf $(IMG_PATH)

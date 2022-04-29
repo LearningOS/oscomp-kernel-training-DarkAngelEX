@@ -1,4 +1,4 @@
-use core::{future::Future, pin::Pin, task::Waker};
+use core::{future::Future, pin::Pin};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 
@@ -20,7 +20,6 @@ pub struct Fat32Manager {
     pub(crate) caches: CacheManager,
     pub(crate) inodes: InodeManager,
     root_dir: Option<DirInode>,
-    device: Option<Arc<dyn BlockDevice>>,
     utc_time: Option<Box<dyn Fn() -> UtcTime + Send + Sync + 'static>>,
     rcu_handler: Option<Box<dyn Fn(Box<dyn Send + 'static>) + Send + Sync + 'static>>,
     rcu_pending: SpinMutex<Vec<Box<dyn Send + 'static>>>,
@@ -40,7 +39,6 @@ impl Fat32Manager {
             caches: CacheManager::new(block_max_dirty, block_max_cache),
             inodes: InodeManager::new(inode_target_free),
             root_dir: None,
-            device: None,
             utc_time: None,
             rcu_handler: None,
             rcu_pending: SpinMutex::new(Vec::new()),
@@ -56,7 +54,6 @@ impl Fat32Manager {
         self.list.init(&self.bpb, 0, device.clone()).await;
         self.caches.init(&self.bpb, device.clone()).await;
         self.inodes.init();
-        self.device = Some(device);
         self.utc_time = Some(utc_time);
         self.init_root();
     }
@@ -125,12 +122,10 @@ impl Fat32Manager {
         let (name, dir) = self.split_search_path(path).await?;
         dir.delete_file(self, name).await
     }
-    // =================== no public ===================
-
-    fn root_dir(&self) -> DirInode {
+    pub fn root_dir(&self) -> DirInode {
         self.root_dir.as_ref().unwrap().clone()
     }
-
+    // =================== no public ===================
     pub(crate) fn rcu_free(&self, src: impl Send + 'static) {
         debug_assert!(core::mem::size_of_val(&src) <= core::mem::size_of::<usize>());
         debug_assert!(core::mem::size_of_val(&src) == core::mem::align_of_val(&src));
@@ -143,12 +138,6 @@ impl Fat32Manager {
             Some(f) => f(src),
             None => self.rcu_pending.lock().push(src),
         }
-    }
-    pub(crate) fn device(&self) -> &dyn BlockDevice {
-        &**self.arc_device()
-    }
-    pub(crate) fn arc_device(&self) -> &Arc<dyn BlockDevice> {
-        self.device.as_ref().unwrap()
     }
     /// 返回UTC时间
     ///

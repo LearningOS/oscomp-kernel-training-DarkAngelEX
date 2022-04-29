@@ -42,6 +42,9 @@ fn system_test(
         let dir0 = root.search_dir(&manager, "dir0").await.unwrap();
         show_dir(&dir0, &manager).await;
         manager.spawn_sync_task((2, 2), spawn_fn).await;
+        root.create_dir(&manager, "dir2", false, false).await.unwrap();
+        println!("/// after insert dir2 ///");
+        show_dir(&root, &manager).await;
     }
 }
 

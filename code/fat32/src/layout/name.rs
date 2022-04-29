@@ -120,7 +120,7 @@ impl RawShortName {
             .iter()
             .chain(self.ext.iter())
             .copied()
-            .fold(0, |a, c| a.rotate_right(1) + c)
+            .fold(0, |a, c| a.rotate_right(1).wrapping_add(c))
     }
     pub fn cid(&self) -> CID {
         CID((self.cluster_h16 as u32) << 16 | self.cluster_l16 as u32)
@@ -205,7 +205,7 @@ impl RawLongName {
     pub fn set(&mut self, name: &[u16; 13], order: usize, last: bool, checksum: u8) {
         debug_assert!(order < 32);
         self.load_name(name);
-        self.order = ((last as u8) << 7) | (order as u8);
+        self.order = ((last as u8) << 6) | (order as u8);
         self.attributes = Attr::from_bits_truncate(0x0f);
         self.entry_type = 0;
         self.checksum = checksum;
@@ -316,8 +316,8 @@ impl RawName {
         unsafe {
             debug_assert!(!self.is_free());
             if self.is_long() {
-                debug_assert!(self.long.order & 0b1010_0000 == 0);
-                debug_assert!(self.long.order & 0b0001_1111 != 0);
+                debug_assert!(self.long.order & 0b1010_0000 == 0, "{:#x}", self.long.order);
+                debug_assert!(self.long.order & 0b0001_1111 != 0, "{:#x}", self.long.order);
                 Name::Long(core::mem::transmute(&self.long))
             } else {
                 Name::Short(core::mem::transmute(&self.short))

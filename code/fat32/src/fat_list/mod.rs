@@ -3,7 +3,7 @@ use core::{
     ops::{ControlFlow, Try},
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
-    task::{Context, Poll, Waker},
+    task::{Context, Poll},
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};

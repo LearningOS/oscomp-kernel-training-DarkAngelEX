@@ -15,18 +15,18 @@ pub struct Semaphore {
     inner: Arc<SpinMutex<SemaphoreInner>>,
 }
 
-impl Drop for Semaphore {
-    fn drop(&mut self) {
-        debug_assert!(self.inner.lock().cur_size == 0);
-    }
-}
-
 struct SemaphoreInner {
     pub alloc_id: AID,
     pub allow_id: AID,
     pub max_size: usize,
     pub cur_size: usize,
     pub queue: VecDeque<(AID, usize, Waker)>,
+}
+
+impl Drop for SemaphoreInner {
+    fn drop(&mut self) {
+        debug_assert!(self.cur_size == 0);
+    }
 }
 
 /// 原子获取1个信号量

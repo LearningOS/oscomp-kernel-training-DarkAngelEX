@@ -30,6 +30,7 @@ impl Future for WaitSemFuture<'_> {
             {
                 return Poll::Ready(());
             }
+            core::hint::spin_loop();
         }
     }
 }

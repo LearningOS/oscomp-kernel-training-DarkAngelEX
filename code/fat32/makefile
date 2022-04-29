@@ -7,4 +7,7 @@ init:
 test:
 	@cd ../fat32-fuse && make test
 
+start:
+	@cd ../fat32-fuse && make start
+
 all: init test

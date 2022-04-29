@@ -414,7 +414,7 @@ impl DirInode {
             ControlFlow::Continue(x) | ControlFlow::Break(x) => x,
         };
         let mut iter = entry_generate(&long, &short);
-        // 在当前块写入
+        // 在新的块从头开始写入
         if p.is_none() || n == 0 {
             let (cluster_off, cid, cache) =
                 inode.append_block(manager, RawName::cluster_init).await?;

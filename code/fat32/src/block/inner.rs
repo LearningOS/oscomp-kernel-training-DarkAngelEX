@@ -190,6 +190,7 @@ impl CacheManagerInner {
     pub fn become_dirty(&mut self, cid: CID, sems: &mut MultiplySemaphore) {
         stack_trace!();
         debug_assert!(sems.val() >= 1);
+        println!("become_dirty: {:?}", cid);
         let aid = self.search.get(&cid).unwrap().1;
         if let Some((xcid, c)) = self.clean.remove(&aid) {
             debug_assert!(cid == xcid);
@@ -203,7 +204,10 @@ impl CacheManagerInner {
             self.wake_sync();
         } else {
             debug_assert!(self.dirty.contains_key(&cid));
-            self.sync_pending.lock().as_mut().unwrap().insert(cid);
+            let ok = self.sync_pending.lock().as_mut().unwrap().insert(cid);
+            if ok {
+                self.wake_sync();
+            }
         }
     }
     /// 由同步系统进行回调

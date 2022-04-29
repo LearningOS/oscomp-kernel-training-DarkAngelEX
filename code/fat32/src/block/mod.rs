@@ -144,6 +144,12 @@ impl CacheManager {
         impl Future for WaitDirtyFuture {
             type Output = Result<BTreeSet<CID>, ()>;
             fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+                print!("block dirty wake: ");
+                match &mut *self.0.lock() {
+                    Some(set) if set.is_empty() => println!("empty"),
+                    Some(set) => println!("take {}", set.len()),
+                    None => println!("exit"), // Exit
+                };
                 match &mut *self.0.lock() {
                     Some(set) if set.is_empty() => Poll::Pending,
                     Some(set) => Poll::Ready(Ok(core::mem::take(set))),
