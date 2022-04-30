@@ -14,7 +14,7 @@ use super::{
     inode_cache::InodeCache,
     raw_inode::RawInode,
     xstr::{name_check, str_to_just_short, str_to_utf16, utf16_to_string, ShortFinder},
-    IID,
+    AnyInode, IID,
 };
 
 /// 短目录项偏移
@@ -93,6 +93,24 @@ impl DirInode {
         Ok(FileInode::new(cache.get_inode(unsafe {
             self.inode.unsafe_get().cache.clone()
         })))
+    }
+    pub async fn search_any(
+        &self,
+        manager: &Fat32Manager,
+        name: &str,
+    ) -> Result<AnyInode, SysError> {
+        let cache = self
+            .raw_search(manager, name)
+            .await?
+            .ok_or(SysError::ENOENT)?;
+        let inode = cache.get_inode(unsafe { self.inode.unsafe_get().cache.clone() });
+        let is_dir = cache.inner.shared_lock().attr().contains(Attr::DIRECTORY);
+        let any = if is_dir {
+            AnyInode::Dir(DirInode::new(inode))
+        } else {
+            AnyInode::File(FileInode::new(inode))
+        };
+        Ok(any)
     }
     async fn raw_search(
         &self,
@@ -279,6 +297,7 @@ impl DirInode {
         if r.is_break() {
             return Err(SysError::ENOTEMPTY);
         }
+        drop(dir);
         manager.inodes.unused_release(place.1.iid(manager))?;
         let cid = Self::delete_entry(&mut *inode, manager, place).await?;
         debug_assert!(cid == short.cid());

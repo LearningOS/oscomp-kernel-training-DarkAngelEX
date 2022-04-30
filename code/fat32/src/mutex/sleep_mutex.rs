@@ -33,7 +33,6 @@ struct SleepMutexGuard<'a, T> {
 impl<T> Drop for SleepMutexGuard<'_, T> {
     fn drop(&mut self) {
         let mut inner = self.mutex.inner.lock();
-        // let slot = inner.allow_id.step();
         inner.allow_id.step();
         if let Some((aid, w)) = inner.queue.pop_front() {
             debug_assert_eq!(inner.allow_id, aid);

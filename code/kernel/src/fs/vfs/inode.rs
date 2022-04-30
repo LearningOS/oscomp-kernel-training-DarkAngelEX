@@ -1,6 +1,6 @@
-use super::{AsyncFile, File, OpenFlags};
 use crate::{
     drivers::BLOCK_DEVICE,
+    fs::{AsyncFile, File, OpenFlags},
     memory::allocator::frame,
     sync::mutex::SpinNoIrqLock,
     syscall::SysError,

@@ -217,6 +217,7 @@ impl ListManager {
                 let unit = self.dirty.remove(&uid).unwrap().0;
                 let aid = self.aid_alloc.alloc();
                 self.clean.try_insert(aid, (uid, unit)).ok().unwrap();
+                self.search.get_mut(&uid).unwrap().0 = aid;
             }
         }
     }

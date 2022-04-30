@@ -11,6 +11,8 @@ use crate::{
 
 use super::{inode_cache::InodeCache, InodeMark, IID};
 
+const PRINT_INODE_OP: bool = true;
+
 pub(crate) struct InodeManager {
     pub aid_alloc: Arc<AIDAllocator>,
     inner: RwSpinMutex<InodeManagerInner>,
@@ -87,6 +89,9 @@ impl InodeManagerInner {
     }
     /// 此函数需要先在同一个锁下用try_get_cache检测失败后进行
     pub fn force_insert_cache(&mut self, iid: IID, ic: Arc<InodeCache>) {
+        if PRINT_INODE_OP {
+            println!("inode force_insert_cache: {:?}", iid);
+        }
         self.recycle();
         let aid = self.aid_alloc.alloc();
         ic.update_aid();
@@ -154,6 +159,9 @@ impl InodeManagerInner {
     }
     ///
     pub fn unused_release(&mut self, iid: IID) -> Result<bool, SysError> {
+        if PRINT_INODE_OP {
+            println!("inode unused_release: {:?}", iid);
+        }
         let aid = match self.search.get(&iid) {
             Some((aid, cache)) => {
                 if Arc::strong_count(cache) > 2 {

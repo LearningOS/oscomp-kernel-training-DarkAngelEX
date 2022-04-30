@@ -19,14 +19,14 @@ mount:
 umount:
 	sudo umount $(DIR_PATH)
 
-
 init_dir_0:
 	@cd $(DIR_PATH) && \
 	mkdir dir0 && \
 	touch dir0/a && \
 	mkdir dir1 && \
 	touch dir1/b && \
-	touch 'abcde' && \
+	touch abcde && \
+	echo "abcde" >> abcde && \
 	touch '居然是中文!' && \
 	touch touch 12345678901234567890123456 && \
 	touch end

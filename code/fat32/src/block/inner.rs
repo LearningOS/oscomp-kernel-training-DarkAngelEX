@@ -3,6 +3,7 @@ use core::task::Waker;
 use alloc::{
     collections::{BTreeMap, BTreeSet},
     sync::Arc,
+    vec::Vec,
 };
 
 use crate::{
@@ -19,6 +20,8 @@ use crate::{
 };
 
 use super::{bcache::Cache, buffer::SharedBuffer};
+
+const PRINT_BLOCK_OP: bool = false;
 
 /// 此管理器仅用于获取块 不会进行任何读写操作 因此也不需要异步操作函数
 pub(crate) struct CacheManagerInner {
@@ -166,14 +169,17 @@ impl CacheManagerInner {
     }
     /// 从缓存块中释放块并取消同步任务
     pub fn release_block(&mut self, cid: CID) {
-        let (c, a) = self.search.remove(&cid).unwrap();
-        drop(c);
+        let (_, a) = self.search.remove(&cid).unwrap();
         let _ = self.sync_pending.lock().as_mut().unwrap().remove(&cid);
         let _ = self.clean.remove(&a);
         let _ = self.dirty.remove(&cid);
     }
     /// 此函数会分配一个aid
     pub fn force_insert_block(&mut self, cache: Cache, cid: CID) -> Arc<Cache> {
+        stack_trace!();
+        if PRINT_BLOCK_OP {
+            println!("force_insert_block: {:?}", cid);
+        }
         let aid = self.aid_alloc.alloc();
         cache.update_aid(aid);
         let cache = Arc::new(cache);
@@ -190,7 +196,9 @@ impl CacheManagerInner {
     pub fn become_dirty(&mut self, cid: CID, sems: &mut MultiplySemaphore) {
         stack_trace!();
         debug_assert!(sems.val() >= 1);
-        println!("become_dirty: {:?}", cid);
+        if PRINT_BLOCK_OP {
+            println!("become_dirty: {:?}", cid);
+        }
         let aid = self.search.get(&cid).unwrap().1;
         if let Some((xcid, c)) = self.clean.remove(&aid) {
             debug_assert!(cid == xcid);
@@ -214,13 +222,21 @@ impl CacheManagerInner {
     pub fn dirty_suspend_iter(&mut self, cid_iter: impl Iterator<Item = CID>) {
         let sync_pending = self.sync_pending.lock();
         let sync_pending = sync_pending.as_ref().unwrap();
-        for uid in cid_iter {
-            debug_assert!(self.dirty.contains_key(&uid));
-            if !sync_pending.contains(&uid) {
-                let unit = self.dirty.remove(&uid).unwrap().0;
-                let aid = self.aid_alloc.alloc();
-                self.clean.try_insert(aid, (uid, unit)).ok().unwrap();
+        let mut set = Vec::new();
+        for cid in cid_iter {
+            if PRINT_BLOCK_OP {
+                set.push(cid);
             }
+            debug_assert!(self.dirty.contains_key(&cid));
+            if !sync_pending.contains(&cid) {
+                let unit = self.dirty.remove(&cid).unwrap().0;
+                let aid = self.aid_alloc.alloc();
+                self.clean.try_insert(aid, (cid, unit)).ok().unwrap();
+                self.search.get_mut(&cid).unwrap().1 = aid;
+            }
+        }
+        if PRINT_BLOCK_OP {
+            println!("dirty_suspend: {:?}", set.as_slice());
         }
     }
     /// 尝试释放最久未访问的n个缓存块 返回实际释放的数量

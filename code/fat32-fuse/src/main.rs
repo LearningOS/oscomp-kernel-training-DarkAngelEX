@@ -1,13 +1,7 @@
 #![feature(trait_alias)]
 #![feature(bench_black_box)]
 
-use std::{
-    fs::File,
-    io::{Read, Seek, Write},
-    os::unix::prelude::FileExt,
-    sync::Arc,
-    time::Duration,
-};
+use std::{fs::File, os::unix::prelude::FileExt, sync::Arc, time::Duration};
 
 use async_std::{sync::Mutex, task::block_on};
 use clap::{Arg, Command};
@@ -44,17 +38,20 @@ impl BlockDevice for BlockFile {
             assert!(buf.len() % self.sector_bytes() == 0);
             let file = self.file.lock().await;
             let offset = (block_id * self.sector_bytes()) as u64;
-            file.read_at(buf, offset).unwrap();
+            file.read_exact_at(buf, offset).unwrap();
+            let n = buf.len() / self.sector_bytes();
+            println!("driver read  sid: {:>4} n:{}", block_id, n);
             Ok(())
         })
     }
-
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             assert!(buf.len() % self.sector_bytes() == 0);
             let file = self.file.lock().await;
             let offset = (block_id * self.sector_bytes()) as u64;
             file.write_all_at(buf, offset).unwrap();
+            let n = buf.len() / self.sector_bytes();
+            println!("driver write sid: {:>4} n:{}", block_id, n);
             Ok(())
         })
     }
@@ -80,7 +77,6 @@ async fn a_main(path: &str) {
     let file = BlockFile::new(file);
     let utc_time = || fat32::UtcTime::base();
     let spawn_fn = |future| {
-        // std::thread::spawn(|| block_on(future));
         async_std::task::spawn(future);
     };
     fat32::xtest::test(file.clone(), utc_time, spawn_fn).await;

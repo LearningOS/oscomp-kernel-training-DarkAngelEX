@@ -34,7 +34,7 @@ impl FileInode {
             let n = cache
                 .access_ro(|s: &[u8]| {
                     let n = buffer.len().min(s.len() - off);
-                    buffer[..n].copy_from_slice(&s[off..]);
+                    buffer[..n].copy_from_slice(&s[off..off + n]);
                     n
                 })
                 .await;
@@ -66,7 +66,7 @@ impl FileInode {
                 .caches
                 .write_block(cid, &cache, |s: &mut [u8]| {
                     let n = buffer_0.len().min(s.len() - off);
-                    s[off..].copy_from_slice(&buffer_0[..n]);
+                    s[off..off + n].copy_from_slice(&buffer_0[..n]);
                     n
                 })
                 .await?;
@@ -91,7 +91,7 @@ impl FileInode {
                 .caches
                 .write_block(cid, &cache, |s: &mut [u8]| {
                     let n = buffer.len().min(s.len() - off);
-                    s[off..].copy_from_slice(&buffer[..n]);
+                    s[off..off + n].copy_from_slice(&buffer[..n]);
                     n
                 })
                 .await?;
@@ -121,7 +121,7 @@ impl FileInode {
                 .caches
                 .write_block(cid, &cache, |s: &mut [u8]| {
                     let n = buffer.len().min(s.len() - off);
-                    s[off..].copy_from_slice(&buffer[..n]);
+                    s[off..off + n].copy_from_slice(&buffer[..n]);
                     n
                 })
                 .await?;

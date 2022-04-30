@@ -1,12 +1,14 @@
-mod inode;
+//! 类似linux的虚拟文件系统
+
 pub mod pipe;
 mod stdio;
+mod vfs;
 
 use core::ops::BitAnd;
 
 pub use self::{
-    inode::{list_apps, open_file, OSInode},
     stdio::{Stdin, Stdout},
+    vfs::inode::{list_apps, open_file, OSInode},
 };
 
 use crate::{
@@ -81,5 +83,5 @@ pub trait File: Send + Sync + 'static {
 }
 
 pub fn init() {
-    inode::init();
+    vfs::init();
 }

@@ -67,7 +67,10 @@ impl CacheManager {
     ) -> Result<Arc<Cache>, SysError> {
         let mut blk = {
             let inner = &mut *self.inner.lock().await;
-            debug_assert!(!inner.have_block_of(cid));
+            // debug_assert!(!inner.have_block_of(cid));
+            if inner.have_block_of(cid) {
+                inner.release_block(cid);
+            }
             inner.get_new_uninit_block()?
         };
         let sem = self.dirty_semaphore.take().await;
@@ -144,12 +147,6 @@ impl CacheManager {
         impl Future for WaitDirtyFuture {
             type Output = Result<BTreeSet<CID>, ()>;
             fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-                print!("block dirty wake: ");
-                match &mut *self.0.lock() {
-                    Some(set) if set.is_empty() => println!("empty"),
-                    Some(set) => println!("take {}", set.len()),
-                    None => println!("exit"), // Exit
-                };
                 match &mut *self.0.lock() {
                     Some(set) if set.is_empty() => Poll::Pending,
                     Some(set) => Poll::Ready(Ok(core::mem::take(set))),

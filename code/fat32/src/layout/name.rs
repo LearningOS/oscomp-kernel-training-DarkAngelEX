@@ -364,7 +364,7 @@ impl NameSet {
                         let str =
                             unsafe { core::str::from_utf8_unchecked(name.get_name(&mut buf)) };
                         println!(
-                            "{:3}     s:<{}> \tlen:{:5} cid:{:#x} attr:{:#x} {:2x?}{:2x?}\n",
+                            "{:3}     s:<{}> \tlen:{:<5} cid:{:#x} attr:{:#x} {:2x?}{:2x?}\n",
                             i,
                             str,
                             name.file_bytes(),
@@ -380,7 +380,7 @@ impl NameSet {
                         let str: String = name.get_name(&mut buf).iter().collect();
                         let mut raw = [0; 13];
                         name.store_name(&mut raw);
-                        println!("{:3}  long:{:<13} \t\t\traw:{:4x?}", i, str, raw);
+                        println!("{:3}  long:{:<13} \traw:{:4x?}", i, str, raw);
                     }
                 },
             }

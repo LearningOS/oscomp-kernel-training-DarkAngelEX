@@ -43,7 +43,7 @@ pub mod xerror;
 pub mod xtest;
 
 pub use block_dev::{AsyncRet, BlockDevice};
-pub use inode::{dir_inode::DirInode, file_inode::FileInode};
+pub use inode::{dir_inode::DirInode, file_inode::FileInode, AnyInode};
 pub use manager::Fat32Manager;
 pub use tools::UtcTime;
 

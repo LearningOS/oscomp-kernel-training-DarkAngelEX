@@ -1,4 +1,4 @@
-use core::{future::Future, pin::Pin, task::Waker};
+use core::{future::Future, pin::Pin};
 
 use alloc::{boxed::Box, sync::Arc};
 
@@ -42,9 +42,41 @@ fn system_test(
         let dir0 = root.search_dir(&manager, "dir0").await.unwrap();
         show_dir(&dir0, &manager).await;
         manager.spawn_sync_task((2, 2), spawn_fn).await;
-        root.create_dir(&manager, "dir2", false, false).await.unwrap();
-        println!("/// after insert dir2 ///");
+        println!("/// create dir2 0 ///");
+        root.create_dir(&manager, "dir2", false, false)
+            .await
+            .unwrap();
+        println!("/// delete dir2 0 ///");
+        root.delete_dir(&manager, "dir2").await.unwrap();
+        println!("/// create dir2 1 ///");
+        root.create_dir(&manager, "dir2", false, false)
+            .await
+            .unwrap();
         show_dir(&root, &manager).await;
+        println!("/// dir2 create bbb ///");
+        let dir2 = root.search_dir(&manager, "dir2").await.unwrap();
+        dir2.create_file(&manager, "bbb", false, false)
+            .await
+            .unwrap();
+        println!("/// write bbb ///");
+        let bbb = dir2.search_file(&manager, "bbb").await.unwrap();
+        bbb.write_append(&manager, b"123456").await.unwrap();
+        println!("/// read abcde ///");
+        let abcde = root.search_file(&manager, "abcde").await.unwrap();
+        let buffer = &mut [0; 20];
+        let n = abcde.read_at(&manager, 0, buffer).await.unwrap();
+        let str = unsafe { core::str::from_utf8_unchecked(&buffer[..n]) };
+        println!("read:<{}> n:{}", str, n);
+        println!("/// delete abcde ///");
+        drop(abcde);
+        root.delete_file(&manager, "abcde").await.unwrap();
+        println!("/// delete bbb ///");
+        drop(bbb);
+        dir2.delete_file(&manager, "bbb").await.unwrap();
+        println!("/// delete dir2 ///");
+        drop(dir2);
+        root.delete_dir(&manager, "dir2").await.unwrap();
+        println!("/// test end ///");
     }
 }
 
@@ -65,8 +97,4 @@ async fn info_test(device: Arc<dyn BlockDevice>) {
     let mut nameset = NameSet::new(&bpb);
     nameset.load(&bpb, CID(2), &*device).await;
     nameset.show(30);
-
-    // let mut nameset = NameSet::new(&bpb);
-    // nameset.load(&bpb, CID(3), &*device).await;
-    // nameset.show(0);
 }

@@ -5,7 +5,7 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use crate::{
     block::CacheManager,
     fat_list::FatList,
-    inode::{inode_cache::InodeCache, manager::InodeManager, IID},
+    inode::{inode_cache::InodeCache, manager::InodeManager, AnyInode, IID},
     layout::bpb::RawBPB,
     mutex::spin_mutex::SpinMutex,
     tools::UtcTime,
@@ -86,6 +86,13 @@ impl Fat32Manager {
             .for_each(|a| rcu_handler(a));
         self.rcu_handler.replace(rcu_handler);
     }
+    pub async fn search_any(&self, path: &[String]) -> Result<AnyInode, SysError> {
+        let (name, dir) = match path.split_first() {
+            Some((name, path)) => (name.as_str(), self.search_dir(path).await?),
+            None => return Ok(AnyInode::Dir(self.root_dir())),
+        };
+        dir.search_any(self, name).await
+    }
     pub async fn search_dir(&self, mut path: &[String]) -> Result<DirInode, SysError> {
         let mut cur = self.root_dir();
         while let Some((xname, next_path)) = path.split_first() {
@@ -98,7 +105,7 @@ impl Fat32Manager {
     async fn split_search_path<'a>(
         &self,
         path: &'a [String],
-    ) -> Result<(&'a String, DirInode), SysError> {
+    ) -> Result<(&'a str, DirInode), SysError> {
         match path.split_first() {
             Some((name, path)) => Ok((name, self.search_dir(path).await?)),
             None => Err(SysError::ENOENT),
@@ -125,7 +132,7 @@ impl Fat32Manager {
     pub fn root_dir(&self) -> DirInode {
         self.root_dir.as_ref().unwrap().clone()
     }
-    // =================== no public ===================
+
     pub(crate) fn rcu_free(&self, src: impl Send + 'static) {
         debug_assert!(core::mem::size_of_val(&src) <= core::mem::size_of::<usize>());
         debug_assert!(core::mem::size_of_val(&src) == core::mem::align_of_val(&src));

@@ -1,4 +1,4 @@
-use crate::tools::CID;
+use crate::{tools::CID, DirInode, FileInode};
 
 pub mod dir_inode;
 pub mod file_inode;
@@ -6,6 +6,11 @@ pub mod inode_cache;
 pub mod manager;
 pub mod raw_inode;
 mod xstr;
+
+pub enum AnyInode {
+    Dir(DirInode),
+    File(FileInode),
+}
 
 /// 此Inode在manager与所有文件中共享, 强引用计数-1即为打开的文件数量
 ///
