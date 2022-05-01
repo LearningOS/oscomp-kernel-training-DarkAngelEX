@@ -1,6 +1,7 @@
 use alloc::{string::String, vec::Vec};
+use ftl_util::error::SysError;
 
-use crate::{layout::name::RawShortName, tools::Align8, xerror::SysError};
+use crate::{layout::name::RawShortName, tools::Align8};
 
 /// 长文件名反序 最后一项在前
 pub fn utf16_to_string<'a>(src: impl DoubleEndedIterator<Item = &'a [u16; 13]>) -> String {

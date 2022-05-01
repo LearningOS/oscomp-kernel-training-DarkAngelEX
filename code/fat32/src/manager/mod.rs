@@ -1,6 +1,7 @@
 use core::{future::Future, pin::Pin};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use ftl_util::error::SysError;
 
 use crate::{
     block::CacheManager,
@@ -10,7 +11,7 @@ use crate::{
     mutex::spin_mutex::SpinMutex,
     tools::UtcTime,
     xdebug::assert_sie_closed,
-    xerror::SysError,
+
     BlockDevice, DirInode, FileInode,
 };
 

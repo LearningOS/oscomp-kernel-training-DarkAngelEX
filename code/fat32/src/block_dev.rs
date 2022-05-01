@@ -1,8 +1,7 @@
 use core::{future::Future, pin::Pin};
 
 use alloc::boxed::Box;
-
-use crate::xerror::SysError;
+use ftl_util::error::SysError;
 
 pub type Async<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 

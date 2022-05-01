@@ -5,6 +5,7 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use ftl_util::error::SysError;
 
 use crate::{
     block::buffer::Buffer,
@@ -15,7 +16,7 @@ use crate::{
         spin_mutex::SpinMutex,
     },
     tools::{AIDAllocator, AID, CID, SID},
-    xerror::SysError,
+
     BlockDevice,
 };
 

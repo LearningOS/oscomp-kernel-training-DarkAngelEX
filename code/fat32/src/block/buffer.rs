@@ -1,8 +1,9 @@
 use core::ops::Deref;
 
 use alloc::{boxed::Box, sync::Arc};
+use ftl_util::error::SysError;
 
-use crate::{tools, xerror::SysError};
+use crate::tools;
 
 /// 用于无阻塞写IO
 ///

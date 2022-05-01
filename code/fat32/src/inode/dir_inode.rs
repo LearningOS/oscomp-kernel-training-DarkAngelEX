@@ -1,12 +1,12 @@
 use core::{convert::Infallible, ops::ControlFlow};
 
 use alloc::{string::String, sync::Arc, vec::Vec};
+use ftl_util::error::SysError;
 
 use crate::{
     layout::name::{Attr, Name, RawLongName, RawName, RawShortName},
     mutex::rw_sleep_mutex::RwSleepMutex,
     tools::{Align8, CID},
-    xerror::SysError,
     Fat32Manager, FileInode,
 };
 

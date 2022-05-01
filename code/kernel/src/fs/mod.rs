@@ -4,11 +4,9 @@ pub mod pipe;
 mod stdio;
 mod vfs;
 
-use core::ops::BitAnd;
-
 pub use self::{
     stdio::{Stdin, Stdout},
-    vfs::inode::{list_apps, open_file, OSInode},
+    vfs::{list_apps, open_file, VfsInode},
 };
 
 use crate::{
@@ -46,6 +44,7 @@ impl OpenFlags {
     pub fn read_write(
         &self,
     ) -> Result<(bool, bool), UniqueSysError<{ SysError::EINVAL as isize }>> {
+        use core::ops::BitAnd;
         let v = match self.bitand(Self::ACCMODE) {
             Self::RDONLY => (true, false),
             Self::WRONLY => (false, true),

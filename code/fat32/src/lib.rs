@@ -22,6 +22,7 @@
 #![feature(get_mut_unchecked)]
 #![feature(split_array)]
 
+extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;
 extern crate alloc;
@@ -39,7 +40,6 @@ mod mutex;
 
 mod inode;
 mod tools;
-pub mod xerror;
 pub mod xtest;
 
 pub use block_dev::{AsyncRet, BlockDevice};

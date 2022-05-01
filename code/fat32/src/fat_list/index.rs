@@ -7,8 +7,9 @@ use alloc::{
     boxed::Box,
     sync::{Arc, Weak},
 };
+use ftl_util::error::SysError;
 
-use crate::{mutex::rw_spin_mutex::RwSpinMutex, xerror::SysError};
+use crate::mutex::rw_spin_mutex::RwSpinMutex;
 
 use super::unit::ListUnit;
 

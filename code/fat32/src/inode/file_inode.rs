@@ -1,6 +1,7 @@
 use alloc::sync::Arc;
+use ftl_util::error::SysError;
 
-use crate::{mutex::rw_sleep_mutex::RwSleepMutex, xerror::SysError, Fat32Manager};
+use crate::{mutex::rw_sleep_mutex::RwSleepMutex, Fat32Manager};
 
 use super::raw_inode::RawInode;
 

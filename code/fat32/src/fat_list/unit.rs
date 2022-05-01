@@ -1,10 +1,12 @@
 //! FAT链表扇区缓存
 use core::cell::UnsafeCell;
 
+use ftl_util::error::SysError;
+
 use crate::{
     block::buffer::{Buffer, SharedBuffer},
     tools::{AID, CID},
-    xerror::SysError,
+
 };
 
 // 此单元是链表的第几个扇区 ListUnit不变标识符

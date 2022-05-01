@@ -12,8 +12,6 @@ pub type TryR<T, A> = Result<T, TryRunFail<A>>;
 /// Async: 这个函数需要被异步版本的函数再次调用一遍.
 ///
 /// Error: 操作失败不需要干掉进程
-///
-/// Fatal: 把这个线程直接杀了吧
 pub enum TryRunFail<A> {
     Async(A),
     Error(SysError),

@@ -6,6 +6,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc};
+use ftl_util::error::SysError;
 
 use crate::{
     layout::bpb::RawBPB,
@@ -14,7 +15,6 @@ use crate::{
         xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
         CID,
     },
-    xerror::SysError,
     BlockDevice,
 };
 

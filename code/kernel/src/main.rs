@@ -40,6 +40,8 @@
 
 // #![allow(dead_code)]
 
+extern crate async_trait;
+extern crate ftl_util;
 extern crate alloc;
 extern crate async_task;
 #[macro_use]

@@ -2,11 +2,11 @@ use alloc::{
     collections::BTreeMap,
     sync::{Arc, Weak},
 };
+use ftl_util::error::SysError;
 
 use crate::{
     mutex::rw_spin_mutex::RwSpinMutex,
     tools::{AIDAllocator, AID},
-    xerror::SysError,
 };
 
 use super::{inode_cache::InodeCache, InodeMark, IID};
