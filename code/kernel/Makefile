@@ -8,6 +8,8 @@ KERNEL_BIN := $(KERNEL_ELF).bin
 DISASM_TMP := target/$(TARGET)/$(MODE)/asm
 # FS_IMG := ../user/target/$(TARGET)/$(MODE)/fs.img
 FS_IMG := ../user/target/$(TARGET)/release/fs.img
+FS_IMG_BUILD := ../fat32-fuse
+FS_IMG_SRC := ../fat32-fuse/fat32.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
@@ -61,11 +63,15 @@ sdcard: fs-img
 $(KERNEL_BIN): kernel
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
 
-fs-img: $(APPS)
+fs-img-prev: $(APPS)
 	@cd ../user && make build
 	@rm -f $(FS_IMG)
-	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/ -o ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/ -o ../user/target/riscv64gc-unknown-none-elf/release/
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64gc-unknown-none-elf/release/
+
+fs-img:
+	@cd $(FS_IMG_BUILD) && make init
+	@cp $(FS_IMG_SRC) $(FS_IMG)
 
 $(APPS):
 

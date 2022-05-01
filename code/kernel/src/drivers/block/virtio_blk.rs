@@ -11,6 +11,8 @@ use crate::{
 };
 
 use super::BlockDevice;
+use alloc::boxed::Box;
+use fat32::AsyncRet;
 use virtio_drivers::{VirtIOBlk, VirtIOHeader};
 
 #[allow(unused)]
@@ -19,19 +21,31 @@ const VIRTIO0: usize = 0x10001000;
 pub struct VirtIOBlock(SpinNoIrqLock<VirtIOBlk<'static>>);
 
 impl BlockDevice for VirtIOBlock {
-    fn read_block(&self, block_id: usize, buf: &mut [u8]) {
-        stack_trace!();
-        self.0
-            .lock(place!())
-            .read_block(block_id, buf)
-            .expect("Error when reading VirtIOBlk");
+    fn sector_bpb(&self) -> usize {
+        0
     }
-    fn write_block(&self, block_id: usize, buf: &[u8]) {
-        stack_trace!();
-        self.0
-            .lock(place!())
-            .write_block(block_id, buf)
-            .expect("Error when writing VirtIOBlk");
+    fn sector_bytes(&self) -> usize {
+        512
+    }
+    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
+        Box::pin(async move {
+            stack_trace!();
+            self.0
+                .lock(place!())
+                .read_block(block_id, buf)
+                .expect("Error when reading VirtIOBlk");
+            Ok(())
+        })
+    }
+    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
+        Box::pin(async move {
+            stack_trace!();
+            self.0
+                .lock(place!())
+                .write_block(block_id, buf)
+                .expect("Error when writing VirtIOBlk");
+            Ok(())
+        })
     }
 }
 

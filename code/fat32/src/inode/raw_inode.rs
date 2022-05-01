@@ -1,7 +1,7 @@
 use core::ops::ControlFlow;
 
 use alloc::{sync::Arc, vec::Vec};
-use ftl_util::error::SysError;
+use ftl_util::{error::SysError, utc_time::UtcTime};
 
 use crate::{
     block::bcache::Cache,
@@ -10,7 +10,7 @@ use crate::{
     mutex::{rw_sleep_mutex::RwSleepMutex, rw_spin_mutex::RwSpinMutex},
     tools::CID,
 
-    Fat32Manager, UtcTime,
+    Fat32Manager,
 };
 
 use super::{dir_inode::DirInode, file_inode::FileInode, inode_cache::InodeCache, InodeMark};

@@ -4,7 +4,10 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use core::{
+    future::Future,
+    sync::atomic::{AtomicI32, AtomicUsize, Ordering},
+};
 
 use crate::{
     executor, fs,
@@ -179,11 +182,13 @@ impl AliveProcess {
     }
 }
 
-pub fn init() {
+pub async fn init() {
     // let initproc = "initproc";
     let initproc = "initproc";
     println!("load initporc: {}", initproc);
-    let inode = fs::open_file(initproc, fs::OpenFlags::RDONLY).unwrap();
+    let inode = fs::open_file(initproc, fs::OpenFlags::RDONLY)
+        .await
+        .unwrap();
     let elf_data = executor::block_on(async move { inode.read_all().await });
     let mut args = Vec::new();
     args.push(initproc.to_string());

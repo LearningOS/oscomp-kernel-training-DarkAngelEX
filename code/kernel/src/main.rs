@@ -37,17 +37,20 @@
 #![feature(riscv_target_feature)]
 #![feature(slice_ptr_get)]
 #![feature(maybe_uninit_as_bytes)]
+#![feature(custom_test_frameworks)]
+#![test_runner(crate::test_runner)]
+#![reexport_test_harness_main = "test_main"]
 
 // #![allow(dead_code)]
 
-extern crate async_trait;
-extern crate ftl_util;
+#[macro_use]
 extern crate alloc;
 extern crate async_task;
+extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;
 extern crate easy_fs;
-extern crate lazy_static;
+extern crate fat32;
 extern crate riscv;
 extern crate xmas_elf;
 
@@ -105,5 +108,13 @@ pub fn kmain(_hart_id: usize) -> ! {
             assert!(sstatus::read().sie());
             riscv::asm::wfi();
         }
+    }
+}
+
+#[cfg(test)]
+fn test_runner(tests: &[&dyn Fn()]) {
+    println!("Running {} tests", tests.len());
+    for test in tests {
+        test();
     }
 }

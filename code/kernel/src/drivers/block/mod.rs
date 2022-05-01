@@ -1,23 +1,29 @@
 mod sdcard;
 mod virtio_blk;
 
-pub use virtio_blk::VirtIOBlock;
 pub use sdcard::SDCardWrapper;
+pub use virtio_blk::VirtIOBlock;
 
 use alloc::sync::Arc;
-use easy_fs::BlockDevice;
-use lazy_static::*;
 
 use crate::board::BlockDeviceImpl;
 
-lazy_static! {
-    pub static ref BLOCK_DEVICE: Arc<dyn BlockDevice> = Arc::new(BlockDeviceImpl::new());
+use super::BlockDevice;
+
+static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
+
+pub fn init() {
+    unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
+}
+
+pub fn device() -> &'static Arc<dyn BlockDevice> {
+    unsafe { BLOCK_DEVICE.as_ref().unwrap() }
 }
 
 #[allow(unused)]
 pub fn block_device_test() {
-    let x = core::lazy::Lazy::<usize>::new(||3);
-    let block_device = BLOCK_DEVICE.clone();
+    let x = core::lazy::Lazy::<usize>::new(|| 3);
+    let block_device = device().clone();
     let mut write_buffer = [0u8; 512];
     let mut read_buffer = [0u8; 512];
     for i in 0..512 {

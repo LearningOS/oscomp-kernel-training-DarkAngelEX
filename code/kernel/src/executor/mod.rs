@@ -49,6 +49,16 @@ where
     async_task::spawn(future, |runnable| TASK_QUEUE.push(runnable))
 }
 
+/// 生成一个完全没有状态切换的内核线程
+///
+/// 内核线程使用全局页表, 永远不要在内核线程中访问用户态数据!
+pub fn kernel_spawn<F: Future<Output = ()> + Send + 'static>(kernel_thread: F) {
+    let (runnable, task) = spawn(kernel_thread);
+    runnable.schedule();
+    task.detach();
+}
+
+
 struct BlockOnFuture<F: Future> {
     future: Pin<Box<F>>,
 }

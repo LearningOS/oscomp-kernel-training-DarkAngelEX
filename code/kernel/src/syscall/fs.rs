@@ -114,7 +114,7 @@ impl<'a> Syscall<'a> {
             .to_vec();
         let path = String::from_utf8(path)?;
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
-        let inode = fs::open_file(path.as_str(), flags)?;
+        let inode = fs::open_file(path.as_str(), flags).await?;
         let close_on_exec = false;
 
         let mut alive = self.alive_lock()?;

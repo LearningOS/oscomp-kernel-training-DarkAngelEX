@@ -4,7 +4,7 @@ use core::{
 };
 
 use crate::{
-    benchmark, executor, fs, local, memory, process, timer,
+    benchmark, drivers, executor, fs, local, memory, process, timer,
     tools::{self, container},
     trap, user,
     xdebug::CLOSE_TIME_INTERRUPT,
@@ -12,10 +12,10 @@ use crate::{
 
 pub mod cpu;
 pub mod csr;
+pub mod floating;
 pub mod interrupt;
 pub mod sbi;
 pub mod sfence;
-pub mod floating;
 
 global_asm!(include_str!("./boot/entry64.asm"));
 
@@ -46,9 +46,9 @@ const BOOT_HART_ID: usize = 0;
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     unsafe { cpu::set_cpu_id(hartid) };
     if FIRST_HART
-    .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+        .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
-        {
+    {
         clear_bss();
         INIT_START.store(true, Ordering::Release);
         // println!("[FTL OS]clear bss using hart {}", hartid);
@@ -93,20 +93,26 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     executor::init();
     trap::init();
     floating::init();
-    fs::init();
-    process::init();
+    drivers::init();
     user::test();
     benchmark::run_all();
-    println!("[FTL OS]hello! from hart {}", hartid);
-    fs::list_apps();
-    sfence::fence_i();
-    println!("init complete! weakup the other cores.");
-    AP_CAN_INIT.store(true, Ordering::Release);
-    tools::multi_thread_test(hartid);
-    if !CLOSE_TIME_INTERRUPT {
-        trap::enable_timer_interrupt();
-        timer::set_next_trigger();
-    }
+    #[cfg(test)]
+    crate::test_main();
+    println!("spawn file system init task");
+    executor::kernel_spawn(async move {
+        fs::init().await;
+        process::init().await;
+        println!("[FTL OS]hello! from hart {}", hartid);
+        fs::list_apps().await;
+        sfence::fence_i();
+        println!("init complete! weakup the other cores.");
+        AP_CAN_INIT.store(true, Ordering::Release);
+        tools::multi_thread_test(hartid);
+        if !CLOSE_TIME_INTERRUPT {
+            trap::enable_timer_interrupt();
+            timer::set_next_trigger();
+        }
+    });
     crate::kmain(hartid);
 }
 

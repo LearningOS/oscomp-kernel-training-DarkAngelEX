@@ -7,6 +7,7 @@ pub mod manager;
 pub mod raw_inode;
 mod xstr;
 
+#[derive(Clone)]
 pub enum AnyInode {
     Dir(DirInode),
     File(FileInode),

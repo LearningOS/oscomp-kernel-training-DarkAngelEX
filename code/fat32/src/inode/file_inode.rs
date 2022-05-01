@@ -6,6 +6,7 @@ use crate::{mutex::rw_sleep_mutex::RwSleepMutex, Fat32Manager};
 use super::raw_inode::RawInode;
 
 /// 不要在这里维护任何数据 数据都放在inode中
+#[derive(Clone)]
 pub struct FileInode {
     inode: Arc<RwSleepMutex<RawInode>>,
 }

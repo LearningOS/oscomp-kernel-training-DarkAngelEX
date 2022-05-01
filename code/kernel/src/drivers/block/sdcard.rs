@@ -5,7 +5,9 @@
 use crate::sync::mutex::SpinNoIrqLock;
 
 use super::BlockDevice;
+use alloc::boxed::Box;
 use core::convert::TryInto;
+use fat32::AsyncRet;
 use k210_hal::prelude::*;
 use k210_pac::{Peripherals, SPI0};
 use k210_soc::{
@@ -17,7 +19,6 @@ use k210_soc::{
     spi::{aitm, frame_format, tmod, work_mode, SPIExt, SPIImpl, SPI},
     sysctl,
 };
-use lazy_static::*;
 
 pub struct SDCard<SPI> {
     spi: SPI,
@@ -715,10 +716,10 @@ fn io_init() {
     fpioa::set_io_pull(io::SPI0_CS0, fpioa::pull::DOWN); // GPIO output=pull down
 }
 
-lazy_static! {
-    static ref PERIPHERALS: SpinNoIrqLock<Peripherals> =
-        unsafe { SpinNoIrqLock::new(Peripherals::take().unwrap()) };
-}
+// lazy_static! {
+//     static ref PERIPHERALS: SpinNoIrqLock<Peripherals> =
+//         unsafe { SpinNoIrqLock::new(Peripherals::take().unwrap()) };
+// }
 
 fn init_sdcard() -> SDCard<SPIImpl<SPI0>> {
     // wait previous output
@@ -750,16 +751,28 @@ impl SDCardWrapper {
 }
 
 impl BlockDevice for SDCardWrapper {
-    fn read_block(&self, block_id: usize, buf: &mut [u8]) {
-        self.0
-            .lock(place!())
-            .read_sector(buf, block_id as u32)
-            .unwrap();
+    fn sector_bpb(&self) -> usize {
+        0
     }
-    fn write_block(&self, block_id: usize, buf: &[u8]) {
-        self.0
-            .lock(place!())
-            .write_sector(buf, block_id as u32)
-            .unwrap();
+    fn sector_bytes(&self) -> usize {
+        512
+    }
+    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
+        Box::pin(async move {
+            self.0
+                .lock(place!())
+                .read_sector(buf, block_id as u32)
+                .unwrap();
+            Ok(())
+        })
+    }
+    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
+        Box::pin(async move {
+            self.0
+                .lock(place!())
+                .write_sector(buf, block_id as u32)
+                .unwrap();
+            Ok(())
+        })
     }
 }

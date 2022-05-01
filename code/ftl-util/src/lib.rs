@@ -6,6 +6,8 @@
 
 pub mod error;
 pub mod sync;
+pub mod utc_time;
+pub mod device;
 
 extern crate alloc;
 

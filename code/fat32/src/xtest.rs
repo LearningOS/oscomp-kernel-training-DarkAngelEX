@@ -1,12 +1,13 @@
 use core::{future::Future, pin::Pin};
 
 use alloc::{boxed::Box, sync::Arc};
+use ftl_util::{device::BlockDevice, utc_time::UtcTime};
 
 use crate::{
     fat_list::FatList,
     layout::{bpb::RawBPB, fsinfo::RawFsInfo, name::NameSet},
-    tools::{UtcTime, CID},
-    BlockDevice, DirInode, Fat32Manager,
+    tools::CID,
+    DirInode, Fat32Manager,
 };
 
 pub async fn test(

@@ -42,10 +42,10 @@ mod inode;
 mod tools;
 pub mod xtest;
 
-pub use block_dev::{AsyncRet, BlockDevice};
+pub use block_dev::AsyncRet;
+pub use ftl_util::{device::BlockDevice, utc_time::UtcTime};
 pub use inode::{dir_inode::DirInode, file_inode::FileInode, AnyInode};
 pub use manager::Fat32Manager;
-pub use tools::UtcTime;
 
 pub trait FsSystem {
     fn new(max_cache: usize) -> Self;

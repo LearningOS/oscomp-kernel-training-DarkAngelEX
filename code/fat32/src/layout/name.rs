@@ -1,9 +1,7 @@
 use alloc::boxed::Box;
+use ftl_util::{device::BlockDevice, utc_time::UtcTime};
 
-use crate::{
-    tools::{self, Align8, CID},
-    BlockDevice, UtcTime,
-};
+use crate::tools::{self, Align8, CID};
 
 use super::bpb::RawBPB;
 

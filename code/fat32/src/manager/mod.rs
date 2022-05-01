@@ -1,7 +1,7 @@
 use core::{future::Future, pin::Pin};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
-use ftl_util::error::SysError;
+use ftl_util::{device::BlockDevice, error::SysError, utc_time::UtcTime};
 
 use crate::{
     block::CacheManager,
@@ -9,10 +9,8 @@ use crate::{
     inode::{inode_cache::InodeCache, manager::InodeManager, AnyInode, IID},
     layout::bpb::RawBPB,
     mutex::spin_mutex::SpinMutex,
-    tools::UtcTime,
     xdebug::assert_sie_closed,
-
-    BlockDevice, DirInode, FileInode,
+    DirInode, FileInode,
 };
 
 pub struct Fat32Manager {

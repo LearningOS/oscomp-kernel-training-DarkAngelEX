@@ -10,6 +10,7 @@ async-trait = "0.1.53"
 ftl-util = { path = "../ftl-util" }
 riscv = { path = "../dependencies/riscv", features = ["inline-asm"] }
 easy-fs = { path = "../easy-fs" }
+fat32 = { path = "../fat32" }
 virtio-drivers = { git = "https://github.com/rcore-os/virtio-drivers" }
 k210-pac = { git = "https://github.com/wyfcyx/k210-pac" }
 k210-hal = { git = "https://github.com/wyfcyx/k210-hal" }
@@ -17,7 +18,7 @@ k210-soc = { git = "https://github.com/wyfcyx/k210-soc" }
 
 # riscv = "0.7.0"
 # bare-metal = "0.2.5"
-lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
+# lazy_static = { version = "1.4.0", features = ["spin_no_std"] }
 buddy_system_allocator = "0.8"
 bitflags = "1.3.2"
 bit_field = "0.10.1"
@@ -28,12 +29,6 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 
 [features]
 board_qemu = []
-
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "../dependencies/vendor"
 
 # https://zhuanlan.zhihu.com/p/476524365
 [profile.dev]

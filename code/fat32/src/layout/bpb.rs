@@ -1,11 +1,9 @@
 use core::{fmt::Display, mem::MaybeUninit};
 
 use alloc::boxed::Box;
+use ftl_util::device::BlockDevice;
 
-use crate::{
-    tools::{self, CID, SID},
-    BlockDevice,
-};
+use crate::tools::{self, CID, SID};
 
 /// BIOS Parameter Block
 ///

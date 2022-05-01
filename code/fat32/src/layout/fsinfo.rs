@@ -1,8 +1,9 @@
 use core::{fmt::Display, mem::MaybeUninit};
 
 use alloc::boxed::Box;
+use ftl_util::device::BlockDevice;
 
-use crate::{tools, BlockDevice};
+use crate::tools;
 
 /// 处于FAT32保留区
 ///

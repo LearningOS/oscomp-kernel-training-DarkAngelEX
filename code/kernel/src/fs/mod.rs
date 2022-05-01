@@ -56,6 +56,7 @@ impl OpenFlags {
 }
 
 pub type AsyncFile<'a> = Async<'a, Result<usize, SysError>>;
+
 pub trait File: Send + Sync + 'static {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
@@ -81,6 +82,6 @@ pub trait File: Send + Sync + 'static {
     }
 }
 
-pub fn init() {
-    vfs::init();
+pub async fn init() {
+    vfs::init().await;
 }

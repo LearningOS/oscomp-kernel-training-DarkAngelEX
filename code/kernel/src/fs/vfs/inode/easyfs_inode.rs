@@ -1,5 +1,5 @@
 use crate::{
-    drivers::BLOCK_DEVICE,
+    drivers,
     fs::{AsyncFile, File, OpenFlags},
     memory::allocator::frame,
     sync::mutex::SpinNoIrqLock,
@@ -10,24 +10,24 @@ use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::lazy::OnceCell;
 use easy_fs::{EasyFileSystem, Inode};
 
-pub struct VfsInode {
+pub struct EasyFsInode {
     readable: bool,
     writable: bool,
-    inner: SpinNoIrqLock<OSInodeInner>,
+    inner: SpinNoIrqLock<EasyFsInodeInner>,
 }
 
-struct OSInodeInner {
+struct EasyFsInodeInner {
     offset: usize,
     inode: Arc<Inode>,
 }
 
-impl VfsInode {
+impl EasyFsInode {
     /// parameter: (readable, writable), inode
     pub fn new((readable, writable): (bool, bool), inode: Arc<Inode>) -> Self {
         Self {
             readable,
             writable,
-            inner: SpinNoIrqLock::new(OSInodeInner { offset: 0, inode }),
+            inner: SpinNoIrqLock::new(EasyFsInodeInner { offset: 0, inode }),
         }
     }
     pub async fn read_all(&self) -> Vec<u8> {
@@ -48,8 +48,10 @@ impl VfsInode {
 
 static mut ROOT_INODE: OnceCell<Arc<Inode>> = OnceCell::new();
 
-pub fn init() {
-    let efs = EasyFileSystem::open(BLOCK_DEVICE.clone());
+struct EasyFsDevice(Arc<dyn drivers::BlockDevice>);
+
+pub fn init(block_device: Arc<dyn easy_fs::BlockDevice>) {
+    let efs = EasyFileSystem::open(block_device);
     unsafe {
         ROOT_INODE
             .set(Arc::new(EasyFileSystem::root_inode(&efs)))
@@ -69,19 +71,19 @@ pub fn list_apps() {
     println!("**************/");
 }
 
-pub fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<VfsInode>, SysError> {
+pub fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<EasyFsInode>, SysError> {
     let rw = flags.read_write()?;
     let root_inode = root_inode();
     if flags.contains(OpenFlags::CREAT) {
         if let Some(inode) = root_inode.find(name) {
             // clear size
             inode.clear();
-            Ok(Arc::new(VfsInode::new(rw, inode)))
+            Ok(Arc::new(EasyFsInode::new(rw, inode)))
         } else {
             // create file
             root_inode
                 .create(name)
-                .map(|inode| Arc::new(VfsInode::new(rw, inode)))
+                .map(|inode| Arc::new(EasyFsInode::new(rw, inode)))
                 .ok_or(SysError::ENFILE)
         }
     } else {
@@ -91,21 +93,18 @@ pub fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<VfsInode>, SysError
                 if flags.contains(OpenFlags::TRUNC) {
                     inode.clear();
                 }
-                Arc::new(VfsInode::new(rw, inode))
+                Arc::new(EasyFsInode::new(rw, inode))
             })
             .ok_or(SysError::ENFILE)
     }
 }
 
-impl File for VfsInode {
+impl File for EasyFsInode {
     fn readable(&self) -> bool {
         self.readable
     }
     fn writable(&self) -> bool {
         self.writable
-    }
-    fn can_mmap(&self) -> bool {
-        true
     }
     fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
         let mut inner = self.inner.lock(place!());

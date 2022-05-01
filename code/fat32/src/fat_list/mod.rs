@@ -7,7 +7,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};
-use ftl_util::error::SysError;
+use ftl_util::{device::BlockDevice, error::SysError};
 
 use crate::{
     layout::bpb::RawBPB,
@@ -17,8 +17,6 @@ use crate::{
         xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
         AIDAllocator, CID,
     },
-  
-    BlockDevice,
 };
 
 use self::{
