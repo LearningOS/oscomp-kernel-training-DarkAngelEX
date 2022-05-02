@@ -42,7 +42,7 @@ const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
-const SYSCALL_WAITPID: usize = 260;
+const SYSCALL_WAIT4: usize = 260;
 
 // rCore-tutorial
 const SYSCALL_THREAD_CREATE: usize = 1000;
@@ -111,7 +111,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_MMAP => self.sys_mmap(),
             SYSCALL_MPROTECT => self.sys_mprotect(),
-            SYSCALL_WAITPID => self.sys_waitpid().await,
+            SYSCALL_WAIT4 => self.sys_wait4().await,
 
             SYSCALL_THREAD_CREATE => self.sys_thread_create(),
             SYSCALL_GETTID => todo!(),

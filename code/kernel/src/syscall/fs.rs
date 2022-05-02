@@ -22,7 +22,7 @@ impl<'a> Syscall<'a> {
         if buf_in.is_null() {
             return Err(SysError::EINVAL);
         }
-        let buf = UserCheck::new()
+        let buf = UserCheck::new(self.process)
             .translated_user_writable_slice(buf_in, len)
             .await?;
         let lock = self.alive_lock()?;
@@ -47,7 +47,7 @@ impl<'a> Syscall<'a> {
     pub fn sys_dup3(&mut self) -> SysResult {
         stack_trace!();
         let (old_fd, new_fd, flags): (Fd, Fd, u32) = self.cx.into();
-        if PRINT_SYSCALL_FS || true {
+        if PRINT_SYSCALL_FS {
             println!("sys_dup3 old{:?} new{:?} flags{:#x}", old_fd, new_fd, flags);
         }
         let flags = OpenFlags::from_bits(flags).unwrap();
@@ -68,7 +68,7 @@ impl<'a> Syscall<'a> {
         }
         let (fd, write_only_buffer) = {
             let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.para3();
-            let write_only_buffer = UserCheck::new()
+            let write_only_buffer = UserCheck::new(self.process)
                 .translated_user_writable_slice(buf, len)
                 .await?;
             (fd, write_only_buffer)
@@ -88,7 +88,7 @@ impl<'a> Syscall<'a> {
         }
         let (fd, read_only_buffer) = {
             let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.para3();
-            let read_only_buffer = UserCheck::new()
+            let read_only_buffer = UserCheck::new(self.process)
                 .translated_user_readonly_slice(buf, len)
                 .await?;
             (fd, read_only_buffer)
@@ -108,7 +108,7 @@ impl<'a> Syscall<'a> {
             println!("sys_open");
         }
         let (fd, path, flags, _mode): (isize, UserReadPtr<u8>, u32, u32) = self.cx.into();
-        let path = UserCheck::new()
+        let path = UserCheck::new(self.process)
             .translated_user_array_zero_end(path)
             .await?
             .to_vec();
@@ -145,7 +145,7 @@ impl<'a> Syscall<'a> {
         stack_trace!();
         // println!("sys_pipe");
         let pipe: UserWritePtr<usize> = self.cx.para1();
-        let write_to = UserCheck::new()
+        let write_to = UserCheck::new(self.process)
             .translated_user_writable_slice(pipe, 2)
             .await?;
         let (reader, writer) = pipe::make_pipe()?;

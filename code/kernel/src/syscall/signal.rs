@@ -43,7 +43,7 @@ impl Syscall<'_> {
             9.. => return Err(SysError::EINVAL),
             _ => (),
         }
-        let user_check = UserCheck::new();
+        let user_check = UserCheck::new(self.process);
         if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
             return Ok(0);
         }

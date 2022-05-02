@@ -21,7 +21,7 @@ __try_write_user_u8:
 try_access_user_error:
     addi sp, sp, -16
     sd   ra, 8(sp)
-    call try_access_user_error_debug
+    # call try_access_user_error_debug
     csrr a0, sepc
     addi a0, a0, 4
     csrw sepc, a0

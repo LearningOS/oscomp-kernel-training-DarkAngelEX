@@ -62,7 +62,8 @@ impl FatList {
         self.max_cid = CID(bpb.data_cluster_num as u32);
         self.sector_bytes = bpb.sector_bytes as usize;
         self.u32_per_sector_log2 = bpb.sector_bytes_log2 - core::mem::size_of::<u32>().log2();
-        self.max_unit_num = bpb.data_cluster_num >> self.u32_per_sector_log2;
+        self.max_unit_num = (bpb.data_cluster_num + (1 << self.u32_per_sector_log2) - 1)
+            >> self.u32_per_sector_log2;
         self.list_index.init(self.max_unit_num).unwrap();
         let manager = Arc::get_mut(&mut self.manager).unwrap().get_mut();
         manager.init(bpb, n, device).await;

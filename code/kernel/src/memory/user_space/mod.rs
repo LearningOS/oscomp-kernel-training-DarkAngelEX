@@ -43,6 +43,13 @@ pub struct AccessType {
     pub user: bool,
 }
 impl AccessType {
+    pub fn write() -> Self {
+        Self {
+            write: true,
+            exec: false,
+            user: true,
+        }
+    }
     pub fn from_exception(e: Exception) -> Result<Self, ()> {
         match e {
             Exception::LoadPageFault => Ok(Self {
@@ -293,7 +300,7 @@ impl UserSpace {
                     perm |= PTEFlags::X;
                     x = 1;
                 }
-                if true {
+                if false {
                     println!(
                         "    {:?} -> {:?} rwx:{}{}{} file_size:{:#x}",
                         start_va,

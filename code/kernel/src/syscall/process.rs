@@ -74,7 +74,7 @@ impl Syscall<'_> {
             UserReadPtr<UserReadPtr<u8>>,
             UserReadPtr<UserReadPtr<u8>>,
         ) = self.cx.para3();
-        let user_check = UserCheck::new();
+        let user_check = UserCheck::new(self.process);
         let path = String::from_utf8(
             user_check
                 .translated_user_array_zero_end(path)
@@ -132,11 +132,16 @@ impl Syscall<'_> {
         check.assume_success();
         Ok(argc)
     }
-    pub async fn sys_waitpid(&mut self) -> SysResult {
+    pub async fn sys_wait4(&mut self) -> SysResult {
         stack_trace!();
-        let (pid, exit_code_ptr): (isize, UserWritePtr<i32>) = self.cx.para2();
+        let (pid, exit_code_ptr, option, rusage): (
+            isize,
+            UserWritePtr<i32>,
+            u32,
+            UserWritePtr<u8>,
+        ) = self.cx.into();
         if PRINT_SYSCALL_PROCESS {
-            println!("sys_waitpid {:?} <- {}", self.process.pid(), pid);
+            println!("sys_wait4 {:?} <- {}", self.process.pid(), pid);
         }
         enum WaitFor {
             PGid(usize),
@@ -152,9 +157,7 @@ impl Syscall<'_> {
         };
         loop {
             // this brace is for xlock which drop before .await but stupid rust can't see it.
-
             let this_pid = self.process.pid();
-
             let process = {
                 let mut alive = self.alive_lock()?;
                 let p = match target {
@@ -172,7 +175,7 @@ impl Syscall<'_> {
                 if let Some(exit_code_ptr) = exit_code_ptr.transmute::<u8>().nonnull_mut() {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
                     // assert!(alive.user_space.in_using());
-                    let access = UserCheck::new()
+                    let access = UserCheck::new(self.process)
                         .translated_user_writable_slice(exit_code_ptr, 4)
                         .await?;
                     let exit_code_slice =
@@ -182,15 +185,18 @@ impl Syscall<'_> {
                         .copy_from_slice(unsafe { &*exit_code_slice });
                 }
                 if PRINT_SYSCALL_PROCESS {
-                    println!("sys_waitpid success {:?} <- {:?}", this_pid, process.pid());
+                    println!("sys_wait4 success {:?} <- {:?}", this_pid, process.pid());
                 }
                 return Ok(process.pid().into_usize());
             }
             let event_bus = &self.process.event_bus;
-            if let Err(_e) = even_bus::wait_for_event(event_bus.clone(), Event::CHILD_PROCESS_QUIT)
+            if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT)
                 .await
                 .and_then(|_x| event_bus.lock(place!()).clear(Event::CHILD_PROCESS_QUIT))
             {
+                if PRINT_SYSCALL_PROCESS {
+                    println!("sys_wait4 fail by close {:?}", this_pid);
+                }
                 self.do_exit = true;
                 return Err(SysError::ESRCH);
             }

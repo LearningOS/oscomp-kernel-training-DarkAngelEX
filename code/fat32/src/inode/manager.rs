@@ -7,11 +7,12 @@ use ftl_util::error::SysError;
 use crate::{
     mutex::RwSpinMutex,
     tools::{AIDAllocator, AID},
+    xdebug::OPEN_DEBUG_PRINT,
 };
 
 use super::{inode_cache::InodeCache, InodeMark, IID};
 
-const PRINT_INODE_OP: bool = true;
+const PRINT_INODE_OP: bool = true && OPEN_DEBUG_PRINT;
 
 pub(crate) struct InodeManager {
     pub aid_alloc: Arc<AIDAllocator>,

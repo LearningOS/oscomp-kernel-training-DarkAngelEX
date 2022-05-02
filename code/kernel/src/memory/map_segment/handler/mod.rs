@@ -197,25 +197,6 @@ pub trait UserAreaHandler: Send + 'static {
 
 pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
-    fn a_map(&self, sh: SpaceHolder, range: URange) -> AsyncR<Asid>;
-    fn a_page_fault(
-        &self,
-        sh: SpaceHolder,
-        addr: UserAddr4K,
-    ) -> AsyncR<(UserAddr4K, Asid)>;
-}
-
-/// 数据获取完毕后才获取锁获取锁
-pub struct SpaceHolder(Arc<Process>);
-
-impl SpaceHolder {
-    pub fn new(p: Arc<Process>) -> Self {
-        Self(p)
-    }
-    fn space_run<T, F: FnOnce(&mut UserSpace) -> T>(&self, f: F) -> Result<T, Dead> {
-        self.0.alive_then(|a| f(&mut a.user_space))
-    }
-    fn page_table_run<T, F: FnOnce(&mut PageTable) -> T>(&self, f: F) -> Result<T, Dead> {
-        self.0.alive_then(|a| f(a.user_space.page_table_mut()))
-    }
+    fn a_map(&self, sh: &Process, range: URange) -> AsyncR<Asid>;
+    fn a_page_fault(&self, process: &Process, addr: UserAddr4K) -> AsyncR<(UserAddr4K, Asid)>;
 }

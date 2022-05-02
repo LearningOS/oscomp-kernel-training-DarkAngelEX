@@ -225,7 +225,11 @@ impl ListManager {
     /// 如果找不到则LRU替换一个旧的块
     pub async fn get_unit(&mut self, uid: UnitID) -> Result<Arc<ListUnit>, SysError> {
         stack_trace!();
-        debug_assert!(uid.0 << self.u32_per_sector_log2 < self.max_unit_num as u32);
+        debug_assert!(
+            uid.0 < self.max_unit_num as u32,
+            "{:?}",
+            (uid, self.u32_per_sector_log2, self.max_unit_num)
+        );
         if let Some((_aid, unit)) = self.search.get(&uid) {
             return Ok(unit.clone());
         }

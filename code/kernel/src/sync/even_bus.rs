@@ -126,19 +126,16 @@ impl EventBus {
     }
 }
 
-pub fn wait_for_event(
-    bus: Arc<Mutex<EventBus>>,
-    mask: Event,
-) -> impl Future<Output = Result<Event, EvenBusClose>> {
-    EventBusFuture { bus, mask }
+pub async fn wait_for_event(bus: &Mutex<EventBus>, mask: Event) -> Result<Event, EvenBusClose> {
+    EventBusFuture { bus, mask }.await
 }
 
-struct EventBusFuture {
-    bus: Arc<Mutex<EventBus>>,
+struct EventBusFuture<'a> {
+    bus: &'a Mutex<EventBus>,
     mask: Event,
 }
 
-impl Future for EventBusFuture {
+impl Future for EventBusFuture<'_> {
     type Output = Result<Event, EvenBusClose>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {

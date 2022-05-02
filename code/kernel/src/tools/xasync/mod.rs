@@ -7,7 +7,7 @@ use crate::{process::Dead, syscall::SysError};
 use super::error::OOM;
 /// 可以被调度器使用的Future.
 pub type Async<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
-/// Result<T, TryRunFail>
+/// Result<T, TryRunFail<A>>
 pub type TryR<T, A> = Result<T, TryRunFail<A>>;
 /// Async: 这个函数需要被异步版本的函数再次调用一遍.
 ///

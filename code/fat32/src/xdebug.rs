@@ -1,4 +1,5 @@
 pub const STACK_TRACE: bool = true;
+pub const OPEN_DEBUG_PRINT: bool = false;
 
 #[macro_export]
 macro_rules! stack_trace {

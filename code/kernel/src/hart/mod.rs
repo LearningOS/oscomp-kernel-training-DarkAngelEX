@@ -94,7 +94,6 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     trap::init();
     floating::init();
     drivers::init();
-    user::test();
     benchmark::run_all();
     #[cfg(test)]
     crate::test_main();
@@ -103,6 +102,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         fs::init().await;
         fs::list_apps().await;
         process::init().await;
+        user::test().await;
         println!("[FTL OS]hello! from hart {}", hartid);
         sfence::fence_i();
         println!("init complete! weakup the other cores.");

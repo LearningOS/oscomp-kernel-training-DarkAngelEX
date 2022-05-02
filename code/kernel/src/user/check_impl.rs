@@ -8,8 +8,14 @@ use riscv::register::{
 
 use crate::{
     local,
-    memory::user_ptr::{UserReadPtr, UserWritePtr},
+    memory::{
+        address::{UserAddr, UserAddr4K},
+        user_ptr::{UserReadPtr, UserWritePtr},
+        AccessType,
+    },
+    process::Process,
     syscall::{SysError, UniqueSysError},
+    tools::xasync::TryRunFail,
     trap,
     xdebug::PRINT_PAGE_FAULT,
 };
@@ -18,77 +24,84 @@ use super::{UserAccessStatus, UserType};
 
 global_asm!(include_str!("check_impl.S"));
 
-pub(super) struct UserCheckImpl;
+pub(super) struct UserCheckImpl<'a>(&'a Process);
 
-impl Drop for UserCheckImpl {
+impl Drop for UserCheckImpl<'_> {
     fn drop(&mut self) {
         unsafe { trap::set_kernel_default_trap() };
         assert!(Self::status().is_access());
     }
 }
 
-impl UserCheckImpl {
-    pub fn new() -> Self {
+impl<'a> UserCheckImpl<'a> {
+    pub fn new(process: &'a Process) -> Self {
         assert!(Self::status().is_access());
         unsafe { set_error_handle() };
-        Self
+        Self(process)
     }
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status
     }
-    pub async fn read_check<T: UserType>(
-        &self,
-        ptr: UserReadPtr<T>,
-    ) -> Result<(), UniqueSysError<{ SysError::EFAULT as isize }>> {
+    pub async fn read_check<T: UserType>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
             Err(_e) => (),
         }
-        Self::handle_read_fault(ptr).await?;
+        self.handle_read_fault(ptr).await?;
         try_read_user_u8(ptr)?;
         Ok(())
     }
-    pub async fn write_check<T: UserType>(
-        &self,
-        ptr: UserWritePtr<T>,
-    ) -> Result<(), UniqueSysError<{ SysError::EFAULT as isize }>> {
+    pub async fn write_check<T: UserType>(&self, ptr: UserWritePtr<T>) -> Result<(), SysError> {
         // let ptr = ptr.raw_ptr_mut() as *mut u8;
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
             Err(_e) => {
-                Self::handle_write_fault(ptr).await?;
+                self.handle_write_fault(ptr).await?;
                 try_read_user_u8(ptr)?
             }
         };
         match try_write_user_u8(ptr, v) {
             Ok(_v) => return Ok(()),
             Err(_e) => {
-                Self::handle_write_fault(ptr).await?;
+                self.handle_write_fault(ptr).await?;
                 try_write_user_u8(ptr, v)?
             }
         }
         Ok(())
     }
-    async fn handle_read_fault(ptr: usize) -> Result<(), ()> {
+    async fn handle_read_fault(&self, ptr: usize) -> Result<(), SysError> {
         if PRINT_PAGE_FAULT {
             println!(" read fault of {:#x}", ptr);
         }
-        Err(())
+        Err(SysError::EFAULT)
     }
-    async fn handle_write_fault(ptr: usize) -> Result<(), ()> {
+    async fn handle_write_fault(&self, ptr: usize) -> Result<(), SysError> {
         if PRINT_PAGE_FAULT {
             println!("write fault of {:#x}", ptr);
         }
-        Err(())
+        let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
+        let r = self.0.alive_then(|a| {
+            a.user_space
+                .map_segment
+                .page_fault(ptr, AccessType::write())
+        })?;
+        let a = match r {
+            Ok(()) => return Ok(()),
+            Err(TryRunFail::Error(e)) => return Err(e),
+            Err(TryRunFail::Async(a)) => a,
+        };
+        let (addr, asid) = a.a_page_fault(self.0, ptr).await?;
+        local::all_hart_sfence_vma_va_asid(addr, asid);
+        Ok(())
     }
 }
 
 /// return false if success, return true if error.
 ///
 /// if return Err, cause must be Exception::LoadPageFault
-fn try_read_user_u8(ptr: usize) -> Result<u8, ()> {
+fn try_read_user_u8(ptr: usize) -> Result<u8, SysError> {
     #[allow(improper_ctypes)]
     extern "C" {
         fn __try_read_user_u8(ptr: usize) -> (usize, usize);
@@ -102,7 +115,7 @@ fn try_read_user_u8(ptr: usize) -> Result<u8, ()> {
                 scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
                 scause::Trap::Exception(e) => assert_eq!(e, Exception::LoadPageFault),
             };
-            Err(())
+            Err(SysError::EFAULT)
         }
     }
 }
@@ -110,7 +123,7 @@ fn try_read_user_u8(ptr: usize) -> Result<u8, ()> {
 /// return false if success, return true if error.
 ///
 /// if return Err, cause must be Exception::StorePageFault
-fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), ()> {
+fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), SysError> {
     #[allow(improper_ctypes)]
     extern "C" {
         fn __try_write_user_u8(ptr: usize, value: u8) -> (usize, usize);
@@ -124,7 +137,7 @@ fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), ()> {
                 scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
                 scause::Trap::Exception(e) => assert_eq!(e, Exception::StorePageFault),
             };
-            Err(())
+            Err(SysError::EFAULT)
         }
     }
 }
