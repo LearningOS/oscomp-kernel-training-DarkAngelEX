@@ -27,23 +27,27 @@ impl BlockDevice for VirtIOBlock {
     fn sector_bytes(&self) -> usize {
         512
     }
-    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
+    fn read_block<'a>(&'a self, mut block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             stack_trace!();
-            self.0
-                .lock(place!())
-                .read_block(block_id, buf)
-                .expect("Error when reading VirtIOBlk");
+            let io = &mut *self.0.lock(place!());
+            for buf in buf.chunks_mut(self.sector_bytes()) {
+                io.read_block(block_id, buf)
+                    .expect("Error when reading VirtIOBlk");
+                block_id += 1;
+            }
             Ok(())
         })
     }
-    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
+    fn write_block<'a>(&'a self, mut block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             stack_trace!();
-            self.0
-                .lock(place!())
-                .write_block(block_id, buf)
-                .expect("Error when writing VirtIOBlk");
+            let io = &mut *self.0.lock(place!());
+            for buf in buf.chunks(self.sector_bytes()) {
+                io.write_block(block_id, buf)
+                    .expect("Error when reading VirtIOBlk");
+                block_id += 1;
+            }
             Ok(())
         })
     }

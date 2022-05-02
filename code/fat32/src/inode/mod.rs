@@ -1,4 +1,4 @@
-use crate::{tools::CID, DirInode, FileInode};
+use crate::{layout::name::Attr, tools::CID, DirInode, FileInode};
 
 pub mod dir_inode;
 pub mod file_inode;
@@ -11,6 +11,27 @@ mod xstr;
 pub enum AnyInode {
     Dir(DirInode),
     File(FileInode),
+}
+
+impl AnyInode {
+    pub fn attr(&self) -> Attr {
+        match self {
+            AnyInode::Dir(v) => v.attr(),
+            AnyInode::File(v) => v.attr(),
+        }
+    }
+    pub fn file(&self) -> Option<&FileInode> {
+        match self {
+            AnyInode::Dir(_) => None,
+            AnyInode::File(v) => Some(v),
+        }
+    }
+    pub fn dir(&self) -> Option<&DirInode> {
+        match self {
+            AnyInode::Dir(v) => Some(v),
+            AnyInode::File(_) => None,
+        }
+    }
 }
 
 /// 此Inode在manager与所有文件中共享, 强引用计数-1即为打开的文件数量

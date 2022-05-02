@@ -99,7 +99,7 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).await?;
-        let elf_data = inode.read_all().await;
+        let elf_data = inode.read_all().await?;
         let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
                 .map_err(|_e| SysError::ENOEXEC)?;

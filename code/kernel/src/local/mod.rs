@@ -109,7 +109,7 @@ impl HartLocal {
     pub fn enter_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Idle));
         assert!(matches!(task, LocalNow::Task(_)));
-        let new = task.always(&mut self.always_local);
+        let new = task.always(&mut self.always_local); // 获取task
         let old = self.always();
         // 关中断 避免中断时使用always_local时发生错误
         if old.sie_cur() == 0 {
@@ -135,6 +135,19 @@ impl HartLocal {
         let open_intrrupt = AlwaysLocal::env_change(new, old);
         memory::set_satp_by_global();
         core::mem::swap(&mut self.local_now, task);
+        if open_intrrupt {
+            unsafe { sstatus::set_sie() };
+        }
+    }
+    pub fn switch_kernel_task(&mut self, task: &mut AlwaysLocal) {
+        debug_assert!(matches!(&mut self.local_now, LocalNow::Idle));
+        let old = self.always();
+        // 关中断 避免中断时使用always_local时发生错误
+        if old.sie_cur() == 0 {
+            unsafe { sstatus::clear_sie() };
+        }
+        let open_intrrupt = AlwaysLocal::env_change(task, old);
+        core::mem::swap(&mut self.always_local, task);
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
         }

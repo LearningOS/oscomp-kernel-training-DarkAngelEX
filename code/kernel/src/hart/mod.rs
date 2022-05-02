@@ -98,12 +98,12 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     benchmark::run_all();
     #[cfg(test)]
     crate::test_main();
-    println!("spawn file system init task");
     executor::kernel_spawn(async move {
+        println!("[FTL OS]running async init");
         fs::init().await;
+        fs::list_apps().await;
         process::init().await;
         println!("[FTL OS]hello! from hart {}", hartid);
-        fs::list_apps().await;
         sfence::fence_i();
         println!("init complete! weakup the other cores.");
         AP_CAN_INIT.store(true, Ordering::Release);

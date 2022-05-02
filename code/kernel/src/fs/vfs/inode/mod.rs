@@ -21,7 +21,7 @@ pub trait FsInode {
 }
 
 impl VfsInode {
-    pub async fn read_all(&self) -> Vec<u8> {
+    pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
         self.inode.read_all().await
     }
 }
@@ -35,6 +35,7 @@ pub async fn list_apps() {
 }
 
 pub async fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<VfsInode>, SysError> {
+    stack_trace!();
     let inode = fat32_inode::open_file(name, flags).await?;
     Ok(Arc::new(VfsInode { inode }))
 }

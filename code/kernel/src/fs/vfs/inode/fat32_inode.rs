@@ -5,9 +5,9 @@ use fat32::Fat32Manager;
 use ftl_util::{error::SysError, utc_time::UtcTime};
 
 use crate::{
-    drivers,
+    drivers, executor,
     fs::{AsyncFile, File, OpenFlags},
-    user::{UserData, UserDataMut},
+    user::{AutoSie, UserData, UserDataMut},
 };
 
 pub use fat32::AnyInode;
@@ -20,8 +20,22 @@ pub struct Fat32Inode {
 }
 
 impl Fat32Inode {
-    pub async fn read_all(&self) -> Vec<u8> {
-        todo!()
+    pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
+        let buffer_size = 4096;
+        let mut buffer = unsafe { Box::try_new_uninit_slice(buffer_size)?.assume_init() };
+        let mut v: Vec<u8> = Vec::new();
+        let file = self.inode.file().ok_or(SysError::EISDIR)?;
+        let mut offset = 0;
+        loop {
+            let len = file.read_at(manager(), offset, &mut *buffer).await?;
+            if len == 0 {
+                break;
+            }
+            offset += len;
+            v.extend_from_slice(&buffer[..len]);
+        }
+        v.shrink_to_fit();
+        Ok(v)
     }
 }
 
@@ -32,17 +46,23 @@ fn manager() -> &'static Fat32Manager {
 }
 
 pub async fn init() {
+    stack_trace!();
+    let _sie = AutoSie::new();
     unsafe {
         MANAGER = Some(Fat32Manager::new(100, 200, 100, 200, 100));
         let manager = MANAGER.as_mut().unwrap();
         manager
             .init(drivers::device().clone(), Box::new(|| UtcTime::base()))
             .await;
+        manager
+            .spawn_sync_task((8, 8), |f| executor::kernel_spawn(f))
+            .await;
     }
-    todo!();
 }
 
 pub async fn list_apps() {
+    stack_trace!();
+    let _sie = AutoSie::new();
     println!("/**** APPS ****");
     for app in manager().root_dir().list(manager()).await.unwrap() {
         println!("{}", app);
@@ -51,8 +71,40 @@ pub async fn list_apps() {
 }
 
 pub async fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<Fat32Inode>, SysError> {
-    let root = manager().root_dir();
-    todo!()
+    stack_trace!();
+    let _sie = AutoSie::new();
+    let (f_r, f_w) = flags.read_write()?;
+    if flags.create() {
+        todo!()
+    }
+    let mut stack = Vec::new();
+    for s in name
+        .split(['/', '\\'])
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        match s {
+            "." => continue,
+            ".." => {
+                stack.pop();
+            }
+            s => {
+                stack.push(s);
+            }
+        }
+    }
+    let inode = manager().search_any(&stack).await?;
+    let attr = inode.attr();
+    let writable = attr.writable();
+    if !writable && f_w {
+        return Err(SysError::EACCES);
+    }
+    Ok(Arc::new(Fat32Inode {
+        readable: AtomicBool::new(f_r),
+        writable: AtomicBool::new(f_w),
+        ptr: AtomicUsize::new(0),
+        inode,
+    }))
 }
 
 impl File for Fat32Inode {

@@ -21,7 +21,7 @@ bitflags! {
         const RDONLY    = 00000000;
         const WRONLY    = 00000001;
         const RDWR      = 00000002;
-        const CREAT     = 00000100; // 不存在则创建
+        const CREAT     = 00000100; // 不存在则创建, 存在则删除再创建
         const EXCL      = 00000200; //
         const NOCTTY    = 00000400; //
         const TRUNC     = 00001000; // 文件清空 ultra os is 2000 ???
@@ -41,9 +41,7 @@ bitflags! {
 impl OpenFlags {
     /// Do not check validity for simplicity
     /// Return (readable, writable)
-    pub fn read_write(
-        &self,
-    ) -> Result<(bool, bool), UniqueSysError<{ SysError::EINVAL as isize }>> {
+    pub fn read_write(self) -> Result<(bool, bool), UniqueSysError<{ SysError::EINVAL as isize }>> {
         use core::ops::BitAnd;
         let v = match self.bitand(Self::ACCMODE) {
             Self::RDONLY => (true, false),
@@ -52,6 +50,9 @@ impl OpenFlags {
             _ => return Err(UniqueSysError),
         };
         Ok(v)
+    }
+    fn create(self) -> bool {
+        self.contains(Self::CREAT)
     }
 }
 

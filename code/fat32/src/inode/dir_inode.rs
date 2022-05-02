@@ -52,6 +52,9 @@ impl DirInode {
     pub(crate) fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
         Self { inode }
     }
+    pub fn attr(&self) -> Attr {
+        unsafe { self.inode.unsafe_get().attr() }
+    }
     pub async fn list(&self, manager: &Fat32Manager) -> Result<Vec<String>, SysError> {
         let inode = &*self.inode.shared_lock().await;
         let mut set = Vec::new();

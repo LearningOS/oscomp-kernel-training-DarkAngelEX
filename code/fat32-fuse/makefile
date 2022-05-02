@@ -4,23 +4,26 @@ DIR_PATH = ./img_test
 all: clean init
 
 create: clean
-	@rm -rf $(IMG_PATH)
-	@rm -rf $(DIR_PATH)
 	dd if=/dev/zero of=$(IMG_PATH) bs=41M count=1
 	mkdir $(DIR_PATH)
 	mkfs.vfat -s 8 -F 32 $(IMG_PATH)
 	chmod 777 $(IMG_PATH)
 
-init: create mount init_dir_test_caes umount
+init: create init_dir_test_caes endumount
 
-mount: umount
+mount:
+	-sudo umount -l $(DIR_PATH)
 	sudo mount -t vfat -o user,umask=000,utf8=1 --source $(IMG_PATH) --target $(DIR_PATH)
 
 umount:
-	-sudo umount $(DIR_PATH)
+	-sudo umount -l $(DIR_PATH)
 
-init_dir_test_caes:
-	cp -r ../test_case/ $(DIR_PATH)/ && echo "copy test_case complete"
+endumount:
+	-sudo umount -l $(DIR_PATH)
+
+init_dir_test_caes: mount
+	cp -r ../initproc/. $(DIR_PATH)/
+	cp -r ../test_case/. $(DIR_PATH)/
 
 init_dir_0:
 	@cd $(DIR_PATH) && \
@@ -131,6 +134,7 @@ test:
 
 start: init test
 
-clean: umount
+clean:
+	-sudo umount -l $(DIR_PATH)
 	@rm -rf $(IMG_PATH)
 	@rm -rf $(DIR_PATH)

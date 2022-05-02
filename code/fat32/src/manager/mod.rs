@@ -1,6 +1,6 @@
 use core::{future::Future, pin::Pin};
 
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use ftl_util::{device::BlockDevice, error::SysError, utc_time::UtcTime};
 
 use crate::{
@@ -85,14 +85,14 @@ impl Fat32Manager {
             .for_each(|a| rcu_handler(a));
         self.rcu_handler.replace(rcu_handler);
     }
-    pub async fn search_any(&self, path: &[String]) -> Result<AnyInode, SysError> {
+    pub async fn search_any(&self, path: &[&str]) -> Result<AnyInode, SysError> {
         let (name, dir) = match path.split_first() {
-            Some((name, path)) => (name.as_str(), self.search_dir(path).await?),
+            Some((name, path)) => (name, self.search_dir(path).await?),
             None => return Ok(AnyInode::Dir(self.root_dir())),
         };
         dir.search_any(self, name).await
     }
-    pub async fn search_dir(&self, mut path: &[String]) -> Result<DirInode, SysError> {
+    pub async fn search_dir(&self, mut path: &[&str]) -> Result<DirInode, SysError> {
         let mut cur = self.root_dir();
         while let Some((xname, next_path)) = path.split_first() {
             path = next_path;
@@ -103,28 +103,28 @@ impl Fat32Manager {
     /// 搜索路径
     async fn split_search_path<'a>(
         &self,
-        path: &'a [String],
+        path: &'a [&str],
     ) -> Result<(&'a str, DirInode), SysError> {
         match path.split_first() {
             Some((name, path)) => Ok((name, self.search_dir(path).await?)),
             None => Err(SysError::ENOENT),
         }
     }
-    pub async fn search_file(&self, path: &[String]) -> Result<FileInode, SysError> {
+    pub async fn search_file(&self, path: &[&str]) -> Result<FileInode, SysError> {
         let (name, dir) = self.split_search_path(path).await?;
         dir.search_file(self, name).await
     }
     /// 只能删除文件或空目录
-    pub async fn delete_any(&self, path: &[String]) -> Result<(), SysError> {
+    pub async fn delete_any(&self, path: &[&str]) -> Result<(), SysError> {
         let (name, dir) = self.split_search_path(path).await?;
         dir.delete_any(self, name).await
     }
     /// 只能删除空目录
-    pub async fn delete_dir(&self, path: &[String]) -> Result<(), SysError> {
+    pub async fn delete_dir(&self, path: &[&str]) -> Result<(), SysError> {
         let (name, dir) = self.split_search_path(path).await?;
         dir.delete_dir(self, name).await
     }
-    pub async fn delete_file(&self, path: &[String]) -> Result<(), SysError> {
+    pub async fn delete_file(&self, path: &[&str]) -> Result<(), SysError> {
         let (name, dir) = self.split_search_path(path).await?;
         dir.delete_file(self, name).await
     }

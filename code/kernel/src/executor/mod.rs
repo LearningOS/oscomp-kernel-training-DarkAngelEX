@@ -8,7 +8,10 @@ use core::{
 use alloc::{boxed::Box, collections::VecDeque};
 use async_task::{Runnable, Task};
 
-use crate::sync::mutex::SpinNoIrqLock;
+use crate::{
+    local::{self, always_local::AlwaysLocal},
+    sync::mutex::SpinNoIrqLock,
+};
 
 pub struct TaskQueue {
     queue: SpinNoIrqLock<Option<VecDeque<Runnable>>>,
@@ -49,15 +52,42 @@ where
     async_task::spawn(future, |runnable| TASK_QUEUE.push(runnable))
 }
 
-/// 生成一个完全没有状态切换的内核线程
+/// 生成一个不切换页表的内核线程
 ///
 /// 内核线程使用全局页表, 永远不要在内核线程中访问用户态数据!
 pub fn kernel_spawn<F: Future<Output = ()> + Send + 'static>(kernel_thread: F) {
-    let (runnable, task) = spawn(kernel_thread);
+    let (runnable, task) = spawn(KernelTaskFuture::new(kernel_thread));
     runnable.schedule();
     task.detach();
 }
 
+struct KernelTaskFuture<F: Future<Output = ()> + Send + 'static> {
+    always_local: AlwaysLocal,
+    task: F,
+}
+impl<F: Future<Output = ()> + Send + 'static> KernelTaskFuture<F> {
+    pub fn new(task: F) -> Self {
+        Self {
+            always_local: AlwaysLocal::new(),
+            task,
+        }
+    }
+}
+
+impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
+    type Output = F::Output;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        unsafe {
+            let this = self.get_unchecked_mut();
+            let local = local::hart_local();
+            local.switch_kernel_task(&mut this.always_local);
+            let r = Pin::new_unchecked(&mut this.task).poll(cx);
+            local.switch_kernel_task(&mut this.always_local);
+            r
+        }
+    }
+}
 
 struct BlockOnFuture<F: Future> {
     future: Pin<Box<F>>,

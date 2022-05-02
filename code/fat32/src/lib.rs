@@ -45,6 +45,7 @@ pub mod xtest;
 pub use block_dev::AsyncRet;
 pub use ftl_util::{device::BlockDevice, utc_time::UtcTime};
 pub use inode::{dir_inode::DirInode, file_inode::FileInode, AnyInode};
+pub use layout::name::Attr;
 pub use manager::Fat32Manager;
 
 pub trait FsSystem {

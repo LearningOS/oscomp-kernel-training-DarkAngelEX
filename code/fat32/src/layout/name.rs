@@ -30,6 +30,12 @@ impl Attr {
         }
         v
     }
+    pub fn readonly(self) -> bool {
+        self.contains(Self::READ_ONLY)
+    }
+    pub fn writable(self) -> bool {
+        !self.readonly()
+    }
 }
 
 /// 文件名不足8则填充0x20 子目录扩展名填充0x20

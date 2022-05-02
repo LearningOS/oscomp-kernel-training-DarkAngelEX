@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use ftl_util::error::SysError;
 
-use crate::{mutex::rw_sleep_mutex::RwSleepMutex, Fat32Manager};
+use crate::{layout::name::Attr, mutex::rw_sleep_mutex::RwSleepMutex, Fat32Manager};
 
 use super::raw_inode::RawInode;
 
@@ -15,6 +15,9 @@ impl FileInode {
     pub(crate) fn new(inode: Arc<RwSleepMutex<RawInode>>) -> Self {
         Self { inode }
     }
+    pub fn attr(&self) -> Attr {
+        unsafe { self.inode.unsafe_get().attr() }
+    }
     /// offset为字节偏移
     pub async fn read_at(
         &self,
@@ -25,9 +28,10 @@ impl FileInode {
         let inode = &*self.inode.shared_lock().await;
         let bytes = inode.cache.inner.shared_lock().file_bytes();
         let prev_len = buffer.len();
+        let end_offset = bytes.min(offset + prev_len);
         let mut buffer = &mut buffer[..prev_len.min(bytes - offset)];
         let mut cur = offset;
-        while cur < bytes {
+        while cur < end_offset {
             let (nth, off) = manager.bpb.cluster_spilt(cur);
             let cache = match inode.get_nth_block(manager, nth).await? {
                 Ok((_cid, cache)) => cache,
@@ -57,8 +61,9 @@ impl FileInode {
         let mut cur = offset;
         let inode = self.inode.shared_lock().await;
         let bytes = inode.cache.inner.shared_lock().file_bytes();
+        let end_offset = bytes.min(offset + buffer.len());
         let mut buffer_0 = &buffer[..buffer.len().min(bytes.saturating_sub(offset))];
-        while cur < bytes {
+        while cur < end_offset {
             let (nth, off) = manager.bpb.cluster_spilt(cur);
             let (cid, cache) = match inode.get_nth_block(manager, nth).await? {
                 Ok(tup) => tup,
