@@ -7,7 +7,7 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
-use crate::{async_tools, list::SyncListNode};
+use crate::{async_tools, list::ListNode};
 
 use super::{spin_mutex::SpinMutex, MutexSupport};
 
@@ -41,16 +41,16 @@ impl Status {
 struct MutexInner {
     inited: bool,
     status: Status,
-    shared: SyncListNode<(bool, Option<Waker>)>,
-    unique: SyncListNode<(bool, Option<Waker>)>,
+    shared: ListNode<(bool, Option<Waker>)>,
+    unique: ListNode<(bool, Option<Waker>)>,
 }
 impl MutexInner {
     const fn new() -> Self {
         Self {
             inited: false,
             status: Status::Unlock,
-            shared: SyncListNode::new((false, None)),
-            unique: SyncListNode::new((false, None)),
+            shared: ListNode::new((false, None)),
+            unique: ListNode::new((false, None)),
         }
     }
     fn lazy_init(&mut self) {
@@ -106,14 +106,14 @@ impl<T: ?Sized, S: MutexSupport> RwSleepMutex<T, S> {
 
 struct SharedSleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a RwSleepMutex<T, S>,
-    node: SyncListNode<(bool, Option<Waker>)>,
+    node: ListNode<(bool, Option<Waker>)>,
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> SharedSleepLockFuture<'a, T, S> {
     fn new(mutex: &'a RwSleepMutex<T, S>) -> Self {
         Self {
             mutex,
-            node: SyncListNode::new((false, None)),
+            node: ListNode::new((false, None)),
         }
     }
     async fn init(&mut self) {
@@ -144,14 +144,14 @@ impl<'a, T: ?Sized, S: MutexSupport> Future for SharedSleepLockFuture<'a, T, S> 
 
 struct UniqueSleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a RwSleepMutex<T, S>,
-    node: SyncListNode<(bool, Option<Waker>)>,
+    node: ListNode<(bool, Option<Waker>)>,
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> UniqueSleepLockFuture<'a, T, S> {
     fn new(mutex: &'a RwSleepMutex<T, S>) -> Self {
         UniqueSleepLockFuture {
             mutex,
-            node: SyncListNode::new((false, None)),
+            node: ListNode::new((false, None)),
         }
     }
     async fn init(&mut self) {

@@ -7,12 +7,12 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
-use crate::{async_tools, list::SyncListNode};
+use crate::{async_tools, list::ListNode};
 
 use super::{spin_mutex::SpinMutex, MutexSupport};
 
 pub struct SleepMutex<T: ?Sized, S: MutexSupport> {
-    lock: SpinMutex<SyncListNode<(bool, Option<Waker>)>, S>, // push at prev, release at next
+    lock: SpinMutex<ListNode<(bool, Option<Waker>)>, S>, // push at prev, release at next
     _marker: PhantomData<S>,
     data: UnsafeCell<T>, // actual data
 }
@@ -23,7 +23,7 @@ unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for SleepMutex<T, S> {}
 impl<T, S: MutexSupport> SleepMutex<T, S> {
     pub const fn new(user_data: T) -> Self {
         Self {
-            lock: SpinMutex::new(SyncListNode::new((false, None))),
+            lock: SpinMutex::new(ListNode::new((false, None))),
             data: UnsafeCell::new(user_data),
             _marker: PhantomData,
         }
@@ -57,14 +57,14 @@ impl<T: ?Sized + Send, S: MutexSupport> SleepMutex<T, S> {
 
 struct SleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a SleepMutex<T, S>,
-    node: SyncListNode<(bool, Option<Waker>)>,
+    node: ListNode<(bool, Option<Waker>)>,
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, T, S> {
     fn new(mutex: &'a SleepMutex<T, S>) -> Self {
         SleepLockFuture {
             mutex,
-            node: SyncListNode::new((false, None)),
+            node: ListNode::new((false, None)),
         }
     }
     async fn init(&mut self) {

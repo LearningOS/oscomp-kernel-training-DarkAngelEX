@@ -5,16 +5,15 @@ use core::ptr::NonNull;
 /// ListNode 必须在使用前使用 init 或 lazy_init 初始化
 ///
 /// 由于new函数将导致ListNode被移动, 因此不能在new中初始化指针
-pub struct SyncListNode<T> {
-    prev: *mut SyncListNode<T>,
-    next: *mut SyncListNode<T>,
+pub struct ListNode<T> {
+    prev: *mut ListNode<T>,
+    next: *mut ListNode<T>,
     data: T,
 }
 
-unsafe impl<T> Send for SyncListNode<T> {}
-unsafe impl<T> Sync for SyncListNode<T> {}
+unsafe impl<T> Send for ListNode<T> {}
 
-impl<T> SyncListNode<T> {
+impl<T> ListNode<T> {
     pub const fn new(data: T) -> Self {
         Self {
             prev: core::ptr::null_mut(),
@@ -44,7 +43,13 @@ impl<T> SyncListNode<T> {
             return false;
         }
         debug_assert!(!self.prev.is_null());
-        debug_assert!(self.prev.as_const() == self);
+        if cfg!(debug_assert) && self.prev.as_const() != self {
+            // 唯一的可能是链表长度为2
+            let other = unsafe { &*self.next };
+            let this = self as *const _ as *mut _;
+            assert!(other.prev == this);
+            assert!(other.next == this);
+        }
         true
     }
     pub fn insert_prev(&mut self, new: &mut Self) {

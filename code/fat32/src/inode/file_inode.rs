@@ -1,7 +1,7 @@
 use alloc::sync::Arc;
 use ftl_util::error::SysError;
 
-use crate::{layout::name::Attr, mutex::rw_sleep_mutex::RwSleepMutex, Fat32Manager};
+use crate::{layout::name::Attr, mutex::RwSleepMutex, Fat32Manager};
 
 use super::raw_inode::RawInode;
 
@@ -25,18 +25,21 @@ impl FileInode {
         offset: usize,
         buffer: &mut [u8],
     ) -> Result<usize, SysError> {
+        stack_trace!();
         let inode = &*self.inode.shared_lock().await;
         let bytes = inode.cache.inner.shared_lock().file_bytes();
         let prev_len = buffer.len();
         let end_offset = bytes.min(offset + prev_len);
         let mut buffer = &mut buffer[..prev_len.min(bytes - offset)];
         let mut cur = offset;
+        stack_trace!();
         while cur < end_offset {
             let (nth, off) = manager.bpb.cluster_spilt(cur);
             let cache = match inode.get_nth_block(manager, nth).await? {
                 Ok((_cid, cache)) => cache,
                 Err(_) => return Ok(cur - offset),
             };
+            stack_trace!();
             let n = cache
                 .access_ro(|s: &[u8]| {
                     let n = buffer.len().min(s.len() - off);
@@ -47,6 +50,7 @@ impl FileInode {
             cur += n;
             buffer = &mut buffer[n..];
         }
+        stack_trace!();
         inode.update_access_time(&manager.utc_time());
         inode.short_entry_sync(manager).await?;
         Ok(cur - offset)

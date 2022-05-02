@@ -8,7 +8,7 @@ use crate::{
     fat_list::FatList,
     inode::{inode_cache::InodeCache, manager::InodeManager, AnyInode, IID},
     layout::bpb::RawBPB,
-    mutex::spin_mutex::SpinMutex,
+    mutex::SpinMutex,
     xdebug::assert_sie_closed,
     DirInode, FileInode,
 };

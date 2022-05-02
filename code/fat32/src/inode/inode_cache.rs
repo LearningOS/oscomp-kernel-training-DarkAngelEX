@@ -6,7 +6,7 @@ use ftl_util::utc_time::UtcTime;
 
 use crate::{
     layout::name::{Attr, RawShortName},
-    mutex::{rw_sleep_mutex::RwSleepMutex, rw_spin_mutex::RwSpinMutex},
+    mutex::{RwSleepMutex, RwSpinMutex},
     tools::{AIDAllocator, Align8, SyncUnsafeCell, AID, CID},
     Fat32Manager,
 };

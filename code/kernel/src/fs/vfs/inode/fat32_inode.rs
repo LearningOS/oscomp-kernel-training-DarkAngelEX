@@ -21,6 +21,7 @@ pub struct Fat32Inode {
 
 impl Fat32Inode {
     pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
+        stack_trace!();
         let buffer_size = 4096;
         let mut buffer = unsafe { Box::try_new_uninit_slice(buffer_size)?.assume_init() };
         let mut v: Vec<u8> = Vec::new();

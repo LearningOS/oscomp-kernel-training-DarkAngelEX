@@ -5,7 +5,7 @@ use alloc::{
 use ftl_util::error::SysError;
 
 use crate::{
-    mutex::rw_spin_mutex::RwSpinMutex,
+    mutex::RwSpinMutex,
     tools::{AIDAllocator, AID},
 };
 

@@ -2,7 +2,7 @@ use core::cell::UnsafeCell;
 
 use ftl_util::error::SysError;
 
-use crate::{mutex::rw_sleep_mutex::RwSleepMutex, tools::AID};
+use crate::{mutex::RwSleepMutex, tools::AID};
 
 use super::buffer::{Buffer, SharedBuffer};
 

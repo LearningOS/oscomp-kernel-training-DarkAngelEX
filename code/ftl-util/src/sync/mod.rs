@@ -13,7 +13,9 @@ pub trait MutexSupport {
     fn after_unlock(_: &mut Self::GuardData);
 }
 
-/// Spin lock
+/// 什么也不做的Spin
+///
+/// 谨防自旋锁中断死锁!
 #[derive(Debug)]
 pub struct Spin;
 
@@ -25,6 +27,7 @@ impl MutexSupport for Spin {
     fn after_unlock(_: &mut Self::GuardData) {}
 }
 
+#[inline(always)]
 pub fn seq_fence() {
     core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
 }

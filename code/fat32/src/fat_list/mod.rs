@@ -11,7 +11,7 @@ use ftl_util::{device::BlockDevice, error::SysError};
 
 use crate::{
     layout::bpb::RawBPB,
-    mutex::{semaphore::Semaphore, sleep_mutex::SleepMutex, spin_mutex::SpinMutex},
+    mutex::{Semaphore, SleepMutex, SpinMutex},
     tools::{
         self,
         xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},

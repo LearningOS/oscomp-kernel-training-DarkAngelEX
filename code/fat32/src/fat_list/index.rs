@@ -9,7 +9,7 @@ use alloc::{
 };
 use ftl_util::error::SysError;
 
-use crate::mutex::rw_spin_mutex::RwSpinMutex;
+use crate::mutex::RwSpinMutex;
 
 use super::unit::ListUnit;
 

@@ -6,7 +6,7 @@ use core::{
 
 use alloc::sync::Arc;
 
-use crate::{async_tools, list::SyncListNode};
+use crate::{async_tools, list::ListNode};
 
 use super::{spin_mutex::SpinMutex, MutexSupport};
 
@@ -21,7 +21,7 @@ unsafe impl<S: MutexSupport> Sync for Semaphore<S> {}
 struct SemaphoreInner {
     cur: isize,
     max: isize,
-    queue: SyncListNode<(bool, isize, Option<Waker>)>,
+    queue: ListNode<(bool, isize, Option<Waker>)>,
 }
 
 impl Drop for SemaphoreInner {
@@ -105,7 +105,7 @@ impl<S: MutexSupport> Semaphore<S> {
             inner: Arc::new(SpinMutex::new(SemaphoreInner {
                 cur: n,
                 max: n,
-                queue: SyncListNode::new((false, 0, None)),
+                queue: ListNode::new((false, 0, None)),
             })),
         }
     }
@@ -142,7 +142,7 @@ impl<S: MutexSupport> Semaphore<S> {
 struct SemaphoreFuture<'a, S: MutexSupport> {
     val: isize,
     sem: &'a Semaphore<S>,
-    node: SyncListNode<(bool, isize, Option<Waker>)>,
+    node: ListNode<(bool, isize, Option<Waker>)>,
 }
 
 impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
@@ -150,7 +150,7 @@ impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
         Self {
             val,
             sem,
-            node: SyncListNode::new((false, val, None)),
+            node: ListNode::new((false, val, None)),
         }
     }
     async fn init(&mut self) {

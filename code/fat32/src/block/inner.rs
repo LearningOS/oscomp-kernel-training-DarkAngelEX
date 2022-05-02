@@ -11,10 +11,7 @@ use crate::{
     block::buffer::Buffer,
     block_dev::PanicBlockDevice,
     layout::bpb::RawBPB,
-    mutex::{
-        semaphore::{MultiplySemaphore, SemaphoreGuard},
-        spin_mutex::SpinMutex,
-    },
+    mutex::{MultiplySemaphore, SemaphoreGuard, SpinMutex},
     tools::{AIDAllocator, AID, CID, SID},
 };
 
@@ -101,6 +98,7 @@ impl CacheManagerInner {
     }
     /// 如果缓存块不存在将从磁盘加载数据
     pub async fn get_block(&mut self, cid: CID) -> Result<Arc<Cache>, SysError> {
+        stack_trace!();
         debug_assert!(cid.0 >= 2 && cid < self.max_cid);
         if let Some((c, _aid)) = self.search.get(&cid) {
             return Ok(c.clone());

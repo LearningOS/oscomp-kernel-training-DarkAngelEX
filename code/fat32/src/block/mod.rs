@@ -10,7 +10,7 @@ use ftl_util::{device::BlockDevice, error::SysError};
 
 use crate::{
     layout::bpb::RawBPB,
-    mutex::{semaphore::Semaphore, sleep_mutex::SleepMutex, spin_mutex::SpinMutex},
+    mutex::{Semaphore, SleepMutex, SpinMutex},
     tools::{
         xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
         CID,
@@ -50,10 +50,12 @@ impl CacheManager {
     }
     /// 获取簇号对应的缓存块
     pub async fn get_block(&self, cid: CID) -> Result<Arc<Cache>, SysError> {
+        stack_trace!();
         debug_assert!(cid.is_next());
         if let Some(c) = self.index.get(cid) {
             return Ok(c);
         }
+        stack_trace!();
         let c = self.inner.lock().await.get_block(cid).await?;
         self.index.insert(cid, Arc::downgrade(&c));
         Ok(c)

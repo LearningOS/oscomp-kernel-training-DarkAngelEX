@@ -12,10 +12,7 @@ use crate::{
     block::buffer::{Buffer, SharedBuffer},
     block_dev::PanicBlockDevice,
     layout::{bpb::RawBPB, fsinfo::RawFsInfo},
-    mutex::{
-        semaphore::{MultiplySemaphore, SemaphoreGuard},
-        spin_mutex::SpinMutex,
-    },
+    mutex::{MultiplySemaphore, SemaphoreGuard, SpinMutex},
     tools::{AIDAllocator, AID, CID, SID},
 };
 

@@ -5,7 +5,7 @@ use ftl_util::error::SysError;
 
 use crate::{
     layout::name::{Attr, Name, RawLongName, RawName, RawShortName},
-    mutex::rw_sleep_mutex::RwSleepMutex,
+    mutex::RwSleepMutex,
     tools::{Align8, CID},
     Fat32Manager, FileInode,
 };

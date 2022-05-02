@@ -7,9 +7,8 @@ use crate::{
     block::bcache::Cache,
     fat_list::FatList,
     layout::name::{Attr, RawName},
-    mutex::{rw_sleep_mutex::RwSleepMutex, rw_spin_mutex::RwSpinMutex},
+    mutex::{RwSleepMutex, RwSpinMutex},
     tools::CID,
-
     Fat32Manager,
 };
 
@@ -74,6 +73,7 @@ impl RawInode {
         fat_list: &FatList,
         n: usize,
     ) -> Result<Result<CID, usize>, SysError> {
+        stack_trace!();
         let (cur, cid) = {
             let cache = self.cache.inner.shared_lock();
             if let Some(x) = cache.try_get_nth_block_cid(n) {
@@ -146,6 +146,7 @@ impl RawInode {
         manager: &Fat32Manager,
         n: usize,
     ) -> Result<Result<(CID, Arc<Cache>), usize>, SysError> {
+        stack_trace!();
         if let Some((ln, c)) = &*self.last_cache.shared_lock() {
             if *ln == n {
                 return Ok(Ok(c.clone()));

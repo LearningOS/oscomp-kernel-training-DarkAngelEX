@@ -3,7 +3,7 @@ use alloc::{
     sync::{Arc, Weak},
 };
 
-use crate::{mutex::rw_spin_mutex::RwSpinMutex, tools::CID};
+use crate::{mutex::RwSpinMutex, tools::CID};
 
 use super::bcache::Cache;
 
