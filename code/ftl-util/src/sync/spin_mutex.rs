@@ -8,6 +8,8 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
+use crate::async_tools::SendWraper;
+
 use super::MutexSupport;
 
 pub struct SpinMutex<T: ?Sized, S: MutexSupport> {
@@ -16,7 +18,7 @@ pub struct SpinMutex<T: ?Sized, S: MutexSupport> {
     data: UnsafeCell<T>, // actual data
 }
 
-struct MutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
+struct MutexGuard<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a SpinMutex<T, S>,
     support_guard: S::GuardData,
 }
@@ -44,7 +46,7 @@ impl<T, S: MutexSupport> SpinMutex<T, S> {
     ///     drop(lock);
     /// }
     /// ```
-    pub const fn new(user_data: T) -> SpinMutex<T, S> {
+    pub const fn new(user_data: T) -> Self {
         SpinMutex {
             lock: AtomicBool::new(false),
             data: UnsafeCell::new(user_data),
@@ -62,6 +64,9 @@ impl<T, S: MutexSupport> SpinMutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
+    }
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
@@ -118,6 +123,10 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
             mutex: self,
             support_guard,
         }
+    }
+    pub unsafe fn send_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
+        let lock = self.lock();
+        SendWraper::new(lock)
     }
     pub fn get_ptr(&self) -> *mut T {
         self.data.get()
@@ -185,6 +194,7 @@ impl<'a, T: ?Sized, S: MutexSupport> DerefMut for MutexGuard<'a, T, S> {
 impl<'a, T: ?Sized, S: MutexSupport> Drop for MutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
     fn drop(&mut self) {
+        debug_assert!(self.mutex.lock.load(Ordering::Relaxed));
         self.mutex.lock.store(false, Ordering::Release);
         S::after_unlock(&mut self.support_guard);
     }

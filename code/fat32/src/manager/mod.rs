@@ -103,7 +103,7 @@ impl Fat32Manager {
     /// 搜索路径
     async fn split_search_path<'a>(
         &self,
-        path: &'a [&str],
+        path: &[&'a str],
     ) -> Result<(&'a str, DirInode), SysError> {
         match path.split_first() {
             Some((name, path)) => Ok((name, self.search_dir(path).await?)),

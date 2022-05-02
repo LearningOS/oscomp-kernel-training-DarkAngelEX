@@ -9,6 +9,12 @@ use core::{
 
 use super::MutexSupport;
 
+/// 读优先自旋锁
+///
+/// 锁状态: 0 -> unlock >0 -> shared lock <0 -> unique lock
+///
+/// 读者在未获取锁时
+///
 pub struct RwSpinMutex<T: ?Sized, S: MutexSupport> {
     lock: AtomicIsize,
     _marker: PhantomData<S>,
@@ -35,7 +41,7 @@ impl<T, S: MutexSupport> RwSpinMutex<T, S> {
     ///     drop(lock);
     /// }
     /// ```
-    pub const fn new(user_data: T) -> RwSpinMutex<T, S> {
+    pub const fn new(user_data: T) -> Self {
         RwSpinMutex {
             lock: AtomicIsize::new(0),
             data: UnsafeCell::new(user_data),
@@ -53,6 +59,9 @@ impl<T, S: MutexSupport> RwSpinMutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
+    }
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
@@ -138,48 +147,48 @@ impl<T: ?Sized + ~const Default, S: MutexSupport> const Default for RwSpinMutex<
     }
 }
 
-struct UniqueRwMutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
+struct UniqueRwMutexGuard<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a RwSpinMutex<T, S>,
     guard: S::GuardData,
 }
-impl<'a, T: ?Sized, S: MutexSupport + 'a> !Send for UniqueRwMutexGuard<'a, T, S> {}
-impl<'a, T: ?Sized, S: MutexSupport + 'a> !Sync for UniqueRwMutexGuard<'a, T, S> {}
+impl<'a, T: ?Sized, S: MutexSupport> !Send for UniqueRwMutexGuard<'a, T, S> {}
+impl<'a, T: ?Sized, S: MutexSupport> !Sync for UniqueRwMutexGuard<'a, T, S> {}
 
 struct SharedRwMutexGuard<'a, T: ?Sized, S: MutexSupport + 'a> {
     mutex: &'a RwSpinMutex<T, S>,
     guard: S::GuardData,
 }
-impl<'a, T: ?Sized, S: MutexSupport + 'a> !Send for SharedRwMutexGuard<'a, T, S> {}
-impl<'a, T: ?Sized, S: MutexSupport + 'a> !Sync for SharedRwMutexGuard<'a, T, S> {}
+impl<'a, T: ?Sized, S: MutexSupport> !Send for SharedRwMutexGuard<'a, T, S> {}
+impl<'a, T: ?Sized, S: MutexSupport> !Sync for SharedRwMutexGuard<'a, T, S> {}
 
-impl<'a, T: ?Sized, S: MutexSupport + 'a> Deref for SharedRwMutexGuard<'a, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Deref for SharedRwMutexGuard<'a, T, S> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
 }
-impl<'a, T: ?Sized, S: MutexSupport + 'a> Deref for UniqueRwMutexGuard<'a, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Deref for UniqueRwMutexGuard<'a, T, S> {
     type Target = T;
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
 }
 
-impl<'a, T: ?Sized, S: MutexSupport + 'a> DerefMut for UniqueRwMutexGuard<'a, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> DerefMut for UniqueRwMutexGuard<'a, T, S> {
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mutex.data.get() }
     }
 }
 
-impl<'a, T: ?Sized, S: MutexSupport + 'a> Drop for SharedRwMutexGuard<'a, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedRwMutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
     fn drop(&mut self) {
-        let prev = self.mutex.lock.fetch_sub(1, Ordering::Release);
-        debug_assert!(prev > 0);
+        debug_assert!(self.mutex.lock.load(Ordering::Relaxed) > 0);
+        self.mutex.lock.fetch_sub(1, Ordering::Release);
         S::after_unlock(&mut self.guard);
     }
 }
-impl<'a, T: ?Sized, S: MutexSupport + 'a> Drop for UniqueRwMutexGuard<'a, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Drop for UniqueRwMutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
     fn drop(&mut self) {
         debug_assert!(self.mutex.lock.load(Ordering::Relaxed) < 0);
