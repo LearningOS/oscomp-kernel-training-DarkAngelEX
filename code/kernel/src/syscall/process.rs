@@ -9,7 +9,8 @@ use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_STACK_RESERVE},
-    fs, local,
+    fs::{self, Mode},
+    local,
     memory::{
         self,
         address::{PageCount, UserAddr},
@@ -102,6 +103,7 @@ impl Syscall<'_> {
             &self.alive_then(|a| a.cwd.clone())?,
             path.as_str(),
             fs::OpenFlags::RDONLY,
+            Mode(0o500),
         )
         .await?;
         let elf_data = inode.read_all().await?;

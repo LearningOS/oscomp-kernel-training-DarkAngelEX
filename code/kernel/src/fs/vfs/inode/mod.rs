@@ -1,7 +1,8 @@
 use crate::{
-    fs::{AsyncFile, File, OpenFlags, stat::Stat},
+    fs::{stat::Stat, AsyncFile, File, OpenFlags, Mode},
     syscall::SysError,
-    user::{UserData, UserDataMut}, tools::xasync::Async,
+    tools::xasync::Async,
+    user::{UserData, UserDataMut},
 };
 use alloc::{sync::Arc, vec::Vec};
 
@@ -34,11 +35,11 @@ pub async fn list_apps() {
     fat32_inode::list_apps().await
 }
 
-pub async fn create_any(cwd: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
+pub async fn create_any(cwd: &str, path: &str, flags: OpenFlags, _mode: Mode) -> Result<(), SysError> {
     stack_trace!();
     fat32_inode::create_any(cwd, path, flags).await
 }
-pub async fn open_file(cwd: &str, path: &str, flags: OpenFlags) -> Result<Arc<VfsInode>, SysError> {
+pub async fn open_file(cwd: &str, path: &str, flags: OpenFlags, _mode: Mode) -> Result<Arc<VfsInode>, SysError> {
     stack_trace!();
     let inode = fat32_inode::open_file(cwd, path, flags).await?;
     Ok(Arc::new(VfsInode { inode }))
@@ -51,11 +52,23 @@ impl File for VfsInode {
     fn writable(&self) -> bool {
         self.inode.writable()
     }
+    fn can_read_offset(&self) -> bool {
+        self.inode.can_read_offset()
+    }
+    fn can_write_offset(&self) -> bool {
+        self.inode.can_write_offset()
+    }
     fn read_at(&self, offset: usize, write_only: UserDataMut<u8>) -> AsyncFile {
         self.inode.read_at(offset, write_only)
     }
     fn write_at(&self, offset: usize, write_only: UserData<u8>) -> AsyncFile {
         self.inode.write_at(offset, write_only)
+    }
+    fn read_at_kernel<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> AsyncFile {
+        self.inode.read_at_kernel(offset, buf)
+    }
+    fn write_at_kernel<'a>(&'a self, offset: usize, buf: &'a [u8]) -> AsyncFile {
+        self.inode.write_at_kernel(offset, buf)
     }
     fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
         self.inode.read(buf)

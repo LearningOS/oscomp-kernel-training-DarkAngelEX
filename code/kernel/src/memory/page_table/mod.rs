@@ -146,6 +146,10 @@ impl PageTableEntry {
         *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
         Ok(())
     }
+    pub fn alloc_by_frame(&mut self, perm: PTEFlags, pa: PhyAddrRef4K) {
+        assert!(!self.is_valid(), "try alloc to a valid pte");
+        *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
+    }
     /// this function will clear V flag.
     pub unsafe fn dealloc_by(&mut self, allocator: &mut impl FrameAllocator) {
         assert!(self.is_valid());

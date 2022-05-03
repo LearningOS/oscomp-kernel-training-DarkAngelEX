@@ -1,7 +1,7 @@
 use alloc::string::String;
 
 use crate::{
-    fs::{self, pipe, OpenFlags},
+    fs::{self, pipe, Mode, OpenFlags},
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::SysError,
@@ -9,8 +9,8 @@ use crate::{
     user::check::UserCheck,
     xdebug::{NO_SYSCALL_PANIC, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
-pub mod stat;
 pub mod mount;
+pub mod stat;
 
 use super::{SysResult, Syscall};
 
@@ -129,10 +129,10 @@ impl Syscall<'_> {
     }
     pub async fn sys_mkdirat(&mut self) -> SysResult {
         stack_trace!();
+        let (fd, path, mode): (isize, UserReadPtr<u8>, Mode) = self.cx.into();
         if PRINT_SYSCALL_FS {
-            println!("sys_open");
+            println!("sys_mkdirat {} {:#x} {:#x}", fd, path.as_usize(), mode.0);
         }
-        let (fd, path, mode): (isize, UserReadPtr<u8>, u32) = self.cx.into();
         let path = UserCheck::new(self.process)
             .translated_user_array_zero_end(path)
             .await?
@@ -143,9 +143,14 @@ impl Syscall<'_> {
             todo!();
         }
         let path = String::from_utf8(path)?;
-        let mode = fs::OpenFlags::from_bits(mode).unwrap();
-        let flags = mode & fs::OpenFlags::ACCMODE | fs::OpenFlags::CREAT | fs::OpenFlags::DIRECTORY;
-        fs::create_any(&self.alive_then(|a| a.cwd.clone())?, path.as_str(), flags).await?;
+        let flags = fs::OpenFlags::RDWR | fs::OpenFlags::CREAT | fs::OpenFlags::DIRECTORY;
+        fs::create_any(
+            &self.alive_then(|a| a.cwd.clone())?,
+            path.as_str(),
+            flags,
+            mode,
+        )
+        .await?;
         Ok(0)
     }
     pub async fn sys_chdir(&mut self) -> SysResult {
@@ -156,20 +161,26 @@ impl Syscall<'_> {
             .to_vec();
         let path = String::from_utf8(path)?;
         let flags = OpenFlags::RDONLY | fs::OpenFlags::DIRECTORY;
-        fs::open_file(&self.alive_then(|a| a.cwd.clone())?, path.as_str(), flags).await?;
+        fs::open_file(
+            &self.alive_then(|a| a.cwd.clone())?,
+            path.as_str(),
+            flags,
+            Mode(0o600),
+        )
+        .await?;
         self.alive_then(|a| a.cwd = path)?;
         Ok(0)
     }
     pub async fn sys_openat(&mut self) -> SysResult {
         stack_trace!();
-        let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, u32) = self.cx.into();
+        let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
         if PRINT_SYSCALL_FS {
             println!(
-                "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#x}",
+                "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#o}",
                 fd,
                 path.as_usize(),
                 flags,
-                mode
+                mode.0
             );
         }
         let path = UserCheck::new(self.process)
@@ -179,8 +190,8 @@ impl Syscall<'_> {
         let path = String::from_utf8(path)?;
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
         let inode =
-            fs::open_file(&self.alive_then(|a| a.cwd.clone())?, path.as_str(), flags).await?;
-        let close_on_exec = false;
+            fs::open_file(&self.alive_then(|a| a.cwd.clone())?, path.as_str(), flags, mode).await?;
+        let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
 
         let mut alive = self.alive_lock()?;
         if fd == AT_FDCWD {

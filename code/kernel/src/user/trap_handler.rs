@@ -72,7 +72,7 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
         Ok(Err((addr, a))) => {
             stack_trace!();
             match a.a_page_fault(&thread.process, addr).await {
-                Ok((addr, asid)) => {
+                Ok(asid) => {
                     if PRINT_PAGE_FAULT {
                         println!("{}", to_green!("success handle exception by async"));
                     }

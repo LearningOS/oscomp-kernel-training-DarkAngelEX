@@ -19,27 +19,59 @@ use crate::{
     user::{UserData, UserDataMut},
 };
 
+pub async fn init() {
+    vfs::init().await;
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Mode(pub u32);
+
+impl Mode {
+    pub const MASK: u32 = 0b111;
+    pub fn split(x: u32) -> (bool, bool, bool) {
+        (x & 0b100 != 0, x & 0b010 != 0, x & 0b001 != 0)
+    }
+    pub fn user(self) -> (bool, bool, bool) {
+        Self::split((self.0 >> 6) & Self::MASK)
+    }
+    pub fn group(self) -> (bool, bool, bool) {
+        Self::split((self.0 >> 3) & Self::MASK)
+    }
+    pub fn other(self) -> (bool, bool, bool) {
+        Self::split(self.0 & Self::MASK)
+    }
+    pub fn user_v(self) -> u32 {
+        self.0 & (Self::MASK << 6)
+    }
+    pub fn group_v(self) -> u32 {
+        self.0 & (Self::MASK << 3)
+    }
+    pub fn other_v(self) -> u32 {
+        self.0 & Self::MASK
+    }
+}
+
 bitflags! {
     pub struct OpenFlags: u32 {
-        const ACCMODE   = 00000003;
-        const RDONLY    = 00000000;
-        const WRONLY    = 00000001;
-        const RDWR      = 00000002;
-        const CREAT     = 00000100; // 不存在则创建, 存在则删除再创建
-        const EXCL      = 00000200; //
-        const NOCTTY    = 00000400; //
-        const TRUNC     = 00001000; // 文件清空 ultra os is 2000 ???
-        const APPEND    = 00002000;
-        const NONBLOCK  = 00004000;
-        const DSYNC     = 00010000;
-        const FASYNC    = 00020000;
-        const DIRECT    = 00040000;
-        const LARGEFILE = 00100000;
+        const ACCMODE   = 0o0000003;
+        const RDONLY    = 0o0000000;
+        const WRONLY    = 0o0000001;
+        const RDWR      = 0o0000002;
+        const CREAT     = 0o0000100; // LINUX 不存在则创建, 存在则删除再创建
+        const EXCL      = 0o0000200; //
+        const NOCTTY    = 0o0000400; //
+        const TRUNC     = 0o0001000; // 文件清空 ultra os is 2000 ???
+        const APPEND    = 0o0002000;
+        const NONBLOCK  = 0o0004000;
+        const DSYNC     = 0o0010000;
+        const FASYNC    = 0o0020000;
+        const DIRECT    = 0o0040000;
+        const LARGEFILE = 0o0100000;
         // const DIRECTORY = 00200000; // LINUX
         const DIRECTORY = 0x0200000; // test run
-        const NOFOLLOW  = 00400000;
-        const NOATIME   = 01000000;
-        const CLOEXEC   = 02000000;
+        const NOFOLLOW  = 0o0400000;
+        const NOATIME   = 0o1000000;
+        const CLOEXEC   = 0o2000000;
     }
 }
 
@@ -84,6 +116,12 @@ pub trait File: Send + Sync + 'static {
     fn write_at(&self, _offset: usize, _read_only: UserData<u8>) -> AsyncFile {
         unimplemented!()
     }
+    fn read_at_kernel<'a>(&'a self, _offset: usize, buf: &'a mut [u8]) -> AsyncFile {
+        unimplemented!()
+    }
+    fn write_at_kernel<'a>(&'a self, _offset: usize, buf: &'a [u8]) -> AsyncFile {
+        unimplemented!()
+    }
     fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile;
     fn write(&self, read_only: UserData<u8>) -> AsyncFile;
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
@@ -92,8 +130,4 @@ pub trait File: Send + Sync + 'static {
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
         Box::pin(async move { Err(SysError::EACCES) })
     }
-}
-
-pub async fn init() {
-    vfs::init().await;
 }

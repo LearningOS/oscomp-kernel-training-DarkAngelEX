@@ -22,8 +22,10 @@ endumount:
 	-sudo umount -l $(DIR_PATH)
 
 init_dir_test_caes: mount
-	cp -r ../initproc/. $(DIR_PATH)/
-	cp -r ../test_case/. $(DIR_PATH)/
+	@cd .. && ./make_test.sh && ./take_case.sh;
+#	@(find ../initproc/) && (find ../test_case/) || (cd .. && ./take_case.sh)
+	@cp -r ../initproc/. $(DIR_PATH)/
+	@cp -r ../test_case/. $(DIR_PATH)/
 
 init_dir_0:
 	@cd $(DIR_PATH) && \
@@ -136,5 +138,7 @@ start: init test
 
 clean:
 	-sudo umount -l $(DIR_PATH)
-	@rm -rf $(IMG_PATH)
-	@rm -rf $(DIR_PATH)
+	@-(find $(IMG_PATH)) && (rm -rf $(IMG_PATH))
+	@-(find $(DIR_PATH)) && (rm -rf $(DIR_PATH))
+	@-(find ../initproc/) && (rm -rf ../initproc)
+	@-(find ../test_case/) && (rm -rf ../test_case)

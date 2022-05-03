@@ -1,11 +1,12 @@
 use crate::fs::File;
 use crate::memory::address::UserAddr4K;
-use crate::memory::map_segment::handler::{AsyncHandler, UserAreaHandler};
+use crate::memory::allocator::frame;
+use crate::memory::map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler};
 use crate::memory::page_table::PTEFlags;
 use crate::memory::{AccessType, PageTable};
 use crate::syscall::SysError;
 use crate::tools::range::URange;
-use crate::tools::xasync::{HandlerID, TryR};
+use crate::tools::xasync::{HandlerID, TryR, TryRunFail};
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 
@@ -13,7 +14,8 @@ use alloc::sync::Arc;
 pub struct MmapHandler {
     id: Option<HandlerID>,
     file: Option<Arc<dyn File>>,
-    offset: usize,
+    addr: UserAddr4K, // MMAP开始地址
+    offset: usize,    // 文件偏移量
     perm: PTEFlags,
     shared: bool,
 }
@@ -21,6 +23,7 @@ pub struct MmapHandler {
 impl MmapHandler {
     pub fn box_new(
         file: Option<Arc<dyn File>>,
+        addr: UserAddr4K,
         offset: usize,
         perm: PTEFlags,
         shared: bool,
@@ -28,6 +31,7 @@ impl MmapHandler {
         Box::new(MmapHandler {
             id: None,
             file,
+            addr,
             offset,
             perm,
             shared,
@@ -68,10 +72,21 @@ impl UserAreaHandler for MmapHandler {
         self.perm = perm;
     }
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
-        match self.file {
-            None => self.default_map(pt, range),
-            Some(_) => todo!(),
+        stack_trace!();
+        if range.start >= range.end {
+            return Ok(());
         }
+        let file = match self.file.as_ref() {
+            None => return self.default_map(pt, range),
+            Some(file) => file.clone(),
+        };
+        return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
+            self.id(),
+            self.perm(),
+            self.addr,
+            self.offset,
+            file,
+        ))));
     }
     fn copy_map(
         &self,
@@ -87,10 +102,20 @@ impl UserAreaHandler for MmapHandler {
         addr: UserAddr4K,
         access: AccessType,
     ) -> TryR<(), Box<dyn AsyncHandler>> {
-        match self.file {
-            None => self.default_page_fault(pt, addr, access),
-            Some(_) => todo!(),
-        }
+        access
+            .check(self.perm())
+            .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;
+        let file = match self.file.as_ref() {
+            None => return self.default_page_fault(pt, addr, access),
+            Some(file) => file.clone(),
+        };
+        return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
+            self.id(),
+            self.perm(),
+            self.addr,
+            self.offset,
+            file,
+        ))));
     }
     fn unmap(&self, pt: &mut PageTable, range: URange) {
         self.default_unmap(pt, range)

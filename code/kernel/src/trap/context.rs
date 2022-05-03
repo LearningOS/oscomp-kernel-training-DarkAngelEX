@@ -4,6 +4,7 @@ use alloc::boxed::Box;
 use riscv::register::fcsr::FCSR;
 use riscv::register::sstatus::FS;
 
+use crate::fs::Mode;
 use crate::hart::floating;
 use crate::riscv::register::sstatus::Sstatus;
 use crate::tools::allocator::from_usize_allocator::FromUsize;
@@ -42,8 +43,15 @@ pub trait UsizeForward {
     fn usize_forward(a: usize) -> Self;
 }
 macro_rules! usize_forward_impl {
-    ($type: ident, $var: ident, $body: expr) => {
+    ($type: ty, $var: ident, $body: expr) => {
         impl UsizeForward for $type {
+            fn usize_forward($var: usize) -> $type {
+                $body
+            }
+        }
+    };
+    ($type: ty, $var: ident, $body: expr, $T: tt) => {
+        impl<$T> UsizeForward for $type {
             fn usize_forward($var: usize) -> $type {
                 $body
             }
@@ -59,16 +67,9 @@ usize_forward_impl!(u16, a, a as u16);
 usize_forward_impl!(i16, a, a as i16);
 usize_forward_impl!(u8, a, a as u8);
 usize_forward_impl!(i8, a, a as i8);
-impl<T> UsizeForward for *const T {
-    fn usize_forward(a: usize) -> *const T {
-        a as *const T
-    }
-}
-impl<T> UsizeForward for *mut T {
-    fn usize_forward(a: usize) -> *mut T {
-        a as *mut T
-    }
-}
+usize_forward_impl!(Mode, a, Mode(a as u32));
+usize_forward_impl!(*const T, a, a as *const T, T);
+usize_forward_impl!(*mut T, a, a as *mut T, T);
 
 impl<T: Clone + Copy + 'static, P: Policy> UsizeForward for UserPtr<T, P> {
     fn usize_forward(a: usize) -> Self {

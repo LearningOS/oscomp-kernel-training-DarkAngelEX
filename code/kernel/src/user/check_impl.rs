@@ -92,8 +92,8 @@ impl<'a> UserCheckImpl<'a> {
             Err(TryRunFail::Error(e)) => return Err(e),
             Err(TryRunFail::Async(a)) => a,
         };
-        let (addr, asid) = a.a_page_fault(self.0, ptr).await?;
-        local::all_hart_sfence_vma_va_asid(addr, asid);
+        let asid = a.a_page_fault(self.0, ptr).await?;
+        local::all_hart_sfence_vma_va_asid(ptr, asid);
         Ok(())
     }
 }

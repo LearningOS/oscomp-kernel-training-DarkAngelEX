@@ -100,10 +100,22 @@ pub async fn open_file(
         _ => walk_path(cwd, &mut stack),
     }
     walk_path(path, &mut stack);
+    // println!("open_file {:?} flags: {:#x}, create: {}", stack, flags, flags.create());
+    if flags.create() {
+        match manager().create_any(&stack, flags.dir(), !f_w, false).await {
+            Ok(_) => (),
+            Err(SysError::EEXIST) => {
+                if flags.dir() {
+                    return Err(SysError::EISDIR);
+                }
+                manager().delete_file(&stack).await?;
+                manager().create_any(&stack, false, !f_w, false).await?;
+            }
+            Err(e) => return Err(e),
+        }
+    }
     let inode = manager().search_any(&stack).await?;
-    let attr = inode.attr();
-    let writable = attr.writable();
-    if !writable && f_w {
+    if !inode.attr().writable() && f_w {
         return Err(SysError::EACCES);
     }
     Ok(Arc::new(Fat32Inode {
@@ -137,6 +149,12 @@ impl File for Fat32Inode {
     fn writable(&self) -> bool {
         self.writable.load(Ordering::Relaxed)
     }
+    fn can_read_offset(&self) -> bool {
+        true
+    }
+    fn can_write_offset(&self) -> bool {
+        true
+    }
     fn read_at(&self, offset: usize, buf: UserDataMut<u8>) -> AsyncFile {
         Box::pin(async move {
             let inode = match &self.inode {
@@ -159,6 +177,28 @@ impl File for Fat32Inode {
             Ok(n)
         })
     }
+    fn read_at_kernel<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> AsyncFile {
+        Box::pin(async move {
+            let inode = match &self.inode {
+                AnyInode::Dir(_) => return Err(SysError::EISDIR),
+                AnyInode::File(inode) => inode,
+            };
+            let n = inode
+                .read_at(manager(), offset, buf)
+                .await?;
+            Ok(n)
+        })
+    }
+    fn write_at_kernel<'a>(&'a self, offset: usize, buf: &'a [u8]) -> AsyncFile {
+        Box::pin(async move {
+            let inode = match &self.inode {
+                AnyInode::Dir(_) => return Err(SysError::EISDIR),
+                AnyInode::File(inode) => inode,
+            };
+            let n = inode.write_at(manager(), offset, buf).await?;
+            Ok(n)
+        })
+    }
     fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
         Box::pin(async move {
             let offset = self.ptr.load(Ordering::Acquire);
@@ -175,6 +215,7 @@ impl File for Fat32Inode {
     }
     fn write(&self, buf: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
+            println!("write: {}", buf.len());
             let offset = self.ptr.load(Ordering::Acquire);
             let inode = match &self.inode {
                 AnyInode::Dir(_) => return Err(SysError::EISDIR),
@@ -196,20 +237,20 @@ impl File for Fat32Inode {
             let modify_time = short.modify_time();
             stat.st_dev = 0;
             stat.st_ino = 0;
-            stat.st_mode = 7;
+            stat.st_mode = 0o777;
             stat.st_nlink = 1;
             stat.st_uid = 0;
             stat.st_gid = 0;
             stat.st_rdev = 0;
-            stat.st_size = size as u32;
+            stat.st_size = size;
             stat.st_blksize = blk_size;
             stat.st_blocks = blk_n * (blk_size / 512) as u64;
-            stat.st_atime = access_time.second() as u32;
-            stat.st_atime_nsec = access_time.nanosecond() as u32;
-            stat.st_mtime = modify_time.second() as u32;
-            stat.st_mtime_nsec = access_time.nanosecond() as u32;
-            stat.st_ctime = modify_time.second() as u32;
-            stat.st_ctime_nsec = access_time.nanosecond() as u32;
+            stat.st_atime = access_time.second();
+            stat.st_atime_nsec = access_time.nanosecond();
+            stat.st_mtime = modify_time.second();
+            stat.st_mtime_nsec = access_time.nanosecond();
+            stat.st_ctime = modify_time.second();
+            stat.st_ctime_nsec = access_time.nanosecond();
             Ok(())
         })
     }

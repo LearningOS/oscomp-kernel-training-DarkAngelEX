@@ -1,5 +1,5 @@
 use crate::config::{PAGE_SIZE, USER_MMAP_RANGE, USER_MMAP_SEARCH_RANGE};
-use crate::memory::address::PageCount;
+use crate::memory::address::{PageCount, UserAddr};
 use crate::memory::map_segment::handler::mmap::MmapHandler;
 use crate::memory::user_ptr::UserInOutPtr;
 use crate::memory::PTEFlags;
@@ -18,7 +18,7 @@ impl Syscall<'_> {
         stack_trace!();
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =
             self.cx.into();
-        const PRINT_THIS: bool = true;
+        const PRINT_THIS: bool = false;
         if PRINT_SYSCALL_MMAP || PRINT_THIS {
             let addr = addr.as_usize();
             println!(
@@ -32,7 +32,7 @@ impl Syscall<'_> {
         let prot = MmapProt::from_bits_truncate(prot);
         let flags = MmapFlags::from_bits(flags).unwrap();
         let page_count = PageCount::page_ceil(len);
-
+        println!("sys_mmap 0");
         let shared = match (
             flags.contains(MmapFlags::PRIVATE),
             flags.contains(MmapFlags::SHARED),
@@ -41,7 +41,6 @@ impl Syscall<'_> {
             (false, true) => true,
             _ => return Err(SysError::EINVAL),
         };
-
         let mut alive = self.alive_lock()?;
         let file = if !flags.contains(MmapFlags::ANONYMOUS) {
             let file = alive.fd_table.get(fd).ok_or(SysError::ENFILE)?;
@@ -76,18 +75,34 @@ impl Syscall<'_> {
                     .ok_or(SysError::ENOMEM)?
             }
         };
-        let addr = range.start.into_usize();
+        let addr = range.start;
         let perm = prot.into_perm();
 
-        let handler = MmapHandler::box_new(file, offset, perm, shared);
+        let handler = MmapHandler::box_new(file, addr, offset, perm, shared);
         manager.replace(range, handler)?;
         let asid = alive.asid();
         drop(alive);
         local::all_hart_sfence_vma_asid(asid);
+        let addr = addr.into_usize();
         if PRINT_THIS {
             println!("    -> {:#x}", addr);
         }
         Ok(addr)
+    }
+    pub fn sys_munmap(&mut self) -> SysResult {
+        stack_trace!();
+        let (addr, len): (UserInOutPtr<()>, usize) = self.cx.into();
+        if PRINT_SYSCALL_MMAP {
+            let addr = addr.as_usize();
+            println!("sys_munmap addr:{:#x} len:{}", addr, len);
+        }
+        let addr = addr.as_uptr_nullable().ok_or(SysError::EFAULT)?;
+        let start = addr.floor();
+        let end = UserAddr::try_from((addr.into_usize() + len) as *const u8)?.floor();
+        let mut alive = self.alive_lock()?;
+        let manager = &mut alive.user_space.map_segment;
+        manager.free_range_check(start..end).map_err(|()|SysError::EINVAL)?;
+        Ok(0)
     }
     pub fn sys_mprotect(&mut self) -> SysResult {
         stack_trace!();

@@ -1,15 +1,16 @@
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
+    fs::File,
     memory::{
         address::UserAddr4K,
         allocator::frame,
         asid::Asid,
         page_table::{PTEFlags, PageTableEntry},
         user_space::{AccessType, UserArea},
-        PageTable, UserSpace,
+        PageTable,
     },
-    process::{Dead, Process},
+    process::Process,
     syscall::SysError,
     tools::{
         self,
@@ -197,6 +198,102 @@ pub trait UserAreaHandler: Send + 'static {
 
 pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
-    fn a_map(&self, sh: &Process, range: URange) -> AsyncR<Asid>;
-    fn a_page_fault(&self, process: &Process, addr: UserAddr4K) -> AsyncR<(UserAddr4K, Asid)>;
+    fn perm(&self) -> PTEFlags;
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<'a, Asid>;
+    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<'a, Asid>;
+}
+
+pub struct FileAsyncHandler {
+    id: HandlerID,
+    perm: PTEFlags,
+    start: UserAddr4K,
+    offset: usize,
+    file: Arc<dyn File>,
+}
+impl FileAsyncHandler {
+    pub fn new(
+        id: HandlerID,
+        perm: PTEFlags,
+        start: UserAddr4K,
+        offset: usize,
+        file: Arc<dyn File>,
+    ) -> Self {
+        Self {
+            id,
+            perm,
+            start,
+            offset,
+            file,
+        }
+    }
+}
+
+impl AsyncHandler for FileAsyncHandler {
+    fn id(&self) -> HandlerID {
+        self.id
+    }
+    fn perm(&self) -> PTEFlags {
+        self.perm | PTEFlags::U | PTEFlags::V
+    }
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<Asid> {
+        Box::pin(async move {
+            stack_trace!();
+            if !self.file.can_read_offset() {
+                return Err(SysError::EACCES);
+            }
+            let mut asid = None;
+            let allocator = &mut frame::defualt_allocator();
+            for addr in tools::range::ur_iter(range) {
+                debug_assert!(addr >= self.start);
+                let offset = addr.into_usize() - self.start.into_usize() + self.offset;
+                let frame = allocator.alloc()?;
+                let n = self.file
+                    .read_at_kernel(offset, frame.data().as_bytes_array_mut())
+                    .await?;
+                frame.data().as_bytes_array_mut()[n..].fill(0);
+                asid = Some(process.alive_then(|a| -> Result<Asid, SysError> {
+                    let pte = a
+                        .user_space
+                        .page_table_mut()
+                        .get_pte_user(addr, allocator)?;
+                    if !pte.is_valid() {
+                        pte.alloc_by_frame(self.perm(), frame.consume());
+                    }
+                    Ok(a.asid())
+                })??);
+            }
+            let asid = match asid {
+                None => process.alive_then(|a| a.asid())?,
+                Some(asid) => asid,
+            };
+            Ok(asid)
+        })
+    }
+    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<Asid> {
+        Box::pin(async move {
+            stack_trace!();
+            if !self.file.can_read_offset() {
+                return Err(SysError::EACCES);
+            }
+            let allocator = &mut frame::defualt_allocator();
+            debug_assert!(addr >= self.start);
+            let offset = addr.into_usize() - self.start.into_usize() + self.offset;
+            let frame = allocator.alloc()?;
+            let n = self.file
+                .read_at_kernel(offset, frame.data().as_bytes_array_mut())
+                .await?;
+            frame.data().as_bytes_array_mut()[n..].fill(0);
+            let asid = process.alive_then(|a| -> Result<Asid, SysError> {
+                let pte = a
+                    .user_space
+                    .page_table_mut()
+                    .get_pte_user(addr, allocator)?;
+                if !pte.is_valid() {
+                    pte.alloc_by_frame(self.perm(), frame.consume());
+                }
+                Ok(a.asid())
+            })??;
+            Ok(asid)
+        })
+    }
 }

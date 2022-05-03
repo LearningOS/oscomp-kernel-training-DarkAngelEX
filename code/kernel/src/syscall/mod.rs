@@ -44,6 +44,7 @@ const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
 const SYSCALL_GETUID: usize = 174;
 const SYSCALL_BRK: usize = 214;
+const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXEC: usize = 221;
 const SYSCALL_MMAP: usize = 222;
@@ -119,6 +120,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETPPID => self.sys_getppid(),
             SYSCALL_GETUID => self.sys_getuid(),
             SYSCALL_BRK => self.sys_brk(),
+            SYSCALL_MUNMAP => self.sys_munmap(),
             SYSCALL_CLONE => self.sys_clone(),
             SYSCALL_EXEC => self.sys_exec().await,
             SYSCALL_MMAP => self.sys_mmap(),

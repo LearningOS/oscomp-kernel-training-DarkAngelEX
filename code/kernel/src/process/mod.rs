@@ -10,7 +10,8 @@ use core::{
 };
 
 use crate::{
-    executor, fs,
+    executor,
+    fs::{self, Mode},
     memory::{asid::Asid, UserSpace},
     signal::SignalPack,
     sync::{
@@ -186,7 +187,7 @@ pub async fn init() {
     // let initproc = "initproc";
     let initproc = "/initproc";
     println!("load initporc: {}", initproc);
-    let inode = fs::open_file("", initproc, fs::OpenFlags::RDONLY)
+    let inode = fs::open_file("", initproc, fs::OpenFlags::RDONLY, Mode(0o500))
         .await
         .unwrap();
     let elf_data = executor::block_on(async move { inode.read_all().await.unwrap() });
