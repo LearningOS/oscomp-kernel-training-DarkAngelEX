@@ -20,6 +20,7 @@ const AT_FDCWD: isize = -100;
 
 impl Syscall<'_> {
     pub async fn getcwd(&mut self) -> SysResult {
+        stack_trace!();
         let (buf_in, len): (UserWritePtr<u8>, usize) = self.cx.into();
         if buf_in.is_null() {
             return Err(SysError::EINVAL);
@@ -153,7 +154,30 @@ impl Syscall<'_> {
         .await?;
         Ok(0)
     }
+    pub async fn sys_unlinkat(&mut self) -> SysResult {
+        stack_trace!();
+        let (fd, path, flags): (isize, UserReadPtr<u8>, u32) = self.cx.into();
+        if fd != AT_FDCWD {
+            todo!();
+        }
+        let path = UserCheck::new(self.process)
+            .translated_user_array_zero_end(path)
+            .await?
+            .to_vec();
+        let path = String::from_utf8(path)?;
+        if flags != 0 {
+            panic!();
+        }
+        fs::unlink(
+            &self.alive_then(|a| a.cwd.clone())?,
+            &path,
+            OpenFlags::empty(),
+        )
+        .await?;
+        Ok(0)
+    }
     pub async fn sys_chdir(&mut self) -> SysResult {
+        stack_trace!();
         let path: UserReadPtr<u8> = self.cx.para1();
         let path = UserCheck::new(self.process)
             .translated_user_array_zero_end(path)
@@ -189,8 +213,13 @@ impl Syscall<'_> {
             .to_vec();
         let path = String::from_utf8(path)?;
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
-        let inode =
-            fs::open_file(&self.alive_then(|a| a.cwd.clone())?, path.as_str(), flags, mode).await?;
+        let inode = fs::open_file(
+            &self.alive_then(|a| a.cwd.clone())?,
+            path.as_str(),
+            flags,
+            mode,
+        )
+        .await?;
         let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
 
         let mut alive = self.alive_lock()?;
@@ -206,10 +235,10 @@ impl Syscall<'_> {
     }
     pub fn sys_close(&mut self) -> SysResult {
         stack_trace!();
-        if PRINT_SYSCALL_FS {
-            println!("sys_close");
-        }
         let fd = self.cx.para1();
+        if PRINT_SYSCALL_FS {
+            println!("sys_close fd: {}", fd);
+        }
         let fd = Fd::new(fd);
         let file = self
             .alive_then(move |a| a.fd_table.remove(fd))?
@@ -220,7 +249,7 @@ impl Syscall<'_> {
     pub async fn sys_pipe(&mut self) -> SysResult {
         stack_trace!();
         // println!("sys_pipe");
-        let pipe: UserWritePtr<usize> = self.cx.para1();
+        let pipe: UserWritePtr<u32> = self.cx.para1();
         let write_to = UserCheck::new(self.process)
             .translated_user_writable_slice(pipe, 2)
             .await?;
@@ -228,7 +257,7 @@ impl Syscall<'_> {
         let (rfd, wfd) = self.alive_then(move |a| {
             let rfd = a.fd_table.insert(reader, false).to_usize();
             let wfd = a.fd_table.insert(writer, false).to_usize();
-            (rfd, wfd)
+            (rfd as u32, wfd as u32)
         })?;
         write_to.access_mut().copy_from_slice(&[rfd, wfd]);
         Ok(0)

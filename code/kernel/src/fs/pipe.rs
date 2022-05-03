@@ -1,7 +1,7 @@
 use core::{
     future::Future,
     pin::Pin,
-    sync::atomic::{self, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -9,11 +9,12 @@ use alloc::{
     boxed::Box,
     sync::{Arc, Weak},
 };
+use ftl_util::error::SysError;
 
 use crate::{
     config::PAGE_SIZE,
     memory::allocator::frame::{self, global::FrameTracker},
-    sync::{mutex::SpinNoIrqLock, sleep_mutex::SleepMutex},
+    sync::{mutex::SpinNoIrqLock, SleepMutex},
     syscall::SysResult,
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
     user::{UserData, UserDataMut},
@@ -27,23 +28,27 @@ const RING_SIZE: usize = RING_PAGE * PAGE_SIZE;
 /// 可以并行读写的管道，但读写者都至多同时存在一个。
 pub struct Pipe {
     buffer: [FrameTracker; RING_PAGE],
-    read_at: usize,  // only modify by reader
-    write_at: usize, // only modify by writer
+    read_at: AtomicUsize,  // only modify by reader
+    write_at: AtomicUsize, // only modify by writer
 }
 
 impl Pipe {
     pub fn new() -> Result<Self, FrameOOM> {
         Ok(Self {
             buffer: frame::global::alloc_n()?,
-            read_at: 0,
-            write_at: 0,
+            read_at: AtomicUsize::new(0),
+            write_at: AtomicUsize::new(0),
         })
     }
     pub fn max_read(&self) -> usize {
-        (self.write_at + RING_SIZE - self.read_at) % RING_SIZE
+        (self.write_at.load(Ordering::Relaxed) + RING_SIZE - self.read_at.load(Ordering::Relaxed))
+            % RING_SIZE
     }
     pub fn max_write(&self) -> usize {
-        (self.read_at + RING_SIZE - 1 - self.write_at) % RING_SIZE
+        (self.read_at.load(Ordering::Relaxed) + RING_SIZE
+            - 1
+            - self.write_at.load(Ordering::Relaxed))
+            % RING_SIZE
     }
     pub fn can_read(&self) -> bool {
         self.max_read() != 0
@@ -54,45 +59,43 @@ impl Pipe {
     pub fn get_range(&mut self, at: usize, len: usize) -> &mut [u8] {
         let n = at % RING_SIZE / PAGE_SIZE;
         let i = at % PAGE_SIZE;
-        let end = PAGE_SIZE.min(i + len);
+        let end = (i + len).min(PAGE_SIZE);
         &mut self.buffer[n].data().as_bytes_array_mut()[i..end]
     }
     /// never return zero, otherwise panic.
     pub fn read(&mut self, buffer: &mut [u8]) -> usize {
         let max = self.max_read();
-        let read_at = self.read_at;
+        let read_at = self.read_at.load(Ordering::Acquire);
         let len = buffer.len().min(max);
         assert!(len != 0);
-        atomic::fence(Ordering::Acquire);
         let mut cur = 0;
         while cur < len {
             let ran = self.get_range(read_at + cur, len - cur);
             let n = ran.len();
             buffer[cur..cur + n].copy_from_slice(ran);
             cur += n;
+            self.read_at
+                .store((read_at + cur) % RING_SIZE, Ordering::SeqCst);
         }
         assert!(cur == len);
-        atomic::fence(Ordering::Release);
-        self.read_at = (read_at + len) % RING_SIZE;
         len
     }
     /// never return zero, otherwise panic.
     pub fn write(&mut self, buffer: &[u8]) -> usize {
         let max = self.max_write();
-        let write_at = self.write_at;
+        let write_at = self.write_at.load(Ordering::Acquire);
         let len = buffer.len().min(max);
         assert!(len != 0);
-        atomic::fence(Ordering::Acquire);
         let mut cur = 0;
         while cur < len {
             let ran = self.get_range(write_at + cur, len - cur);
             let n = ran.len();
             ran.copy_from_slice(&buffer[cur..cur + n]);
             cur += n;
+            self.write_at
+                .store((write_at + cur) % RING_SIZE, Ordering::SeqCst);
         }
         assert!(cur == len);
-        atomic::fence(Ordering::Release);
-        self.write_at = (write_at + len) % RING_SIZE;
         len
     }
 }
@@ -143,14 +146,15 @@ impl File for PipeReader {
                 return Ok(0);
             }
             let pipe = self.pipe.lock().await;
-            ReadPipeFuture {
+            let mut future = ReadPipeFuture {
                 pipe: unsafe { pipe.get() },
                 waker: &self.waker,
                 writer: &self.writer,
                 buffer: write_only,
                 current: 0,
-            }
-            .await
+            };
+            future.init().await;
+            future.await
         })
     }
     fn write(&self, _read_only: UserData<u8>) -> AsyncFile {
@@ -192,14 +196,15 @@ impl File for PipeWriter {
                 return Ok(0);
             }
             let pipe = self.pipe.lock().await;
-            WritePipeFuture {
+            let mut future = WritePipeFuture {
                 pipe: unsafe { pipe.get() },
                 waker: &self.waker,
                 reader: &self.reader,
                 buffer: read_only,
                 current: 0,
-            }
-            .await
+            };
+            future.init().await;
+            future.await
         })
     }
 }
@@ -215,45 +220,33 @@ impl ReadPipeFuture<'_> {
     fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut UserDataMut<u8>) {
         (self.pipe, &mut self.buffer)
     }
+    async fn init(&mut self) {
+        let waker = ftl_util::async_tools::take_waker().await;
+        self.waker.lock(place!()).replace(waker);
+    }
 }
 impl Future for ReadPipeFuture<'_> {
     type Output = SysResult;
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        macro_rules! pending {
-            () => {{
-                let prev = self.waker.lock(place!()).replace(cx.waker().clone());
-                assert!(prev.is_none());
-                Poll::Pending
-            }};
-        }
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        loop {
+            if self.current == self.buffer.len() {
+                return Poll::Ready(Ok(self.current));
+            }
+            assert!(self.current < self.buffer.len());
+            if !self.pipe.can_read() {
+                return match self.writer.upgrade() {
+                    Some(_) => Poll::Pending,
+                    None => Poll::Ready(Ok(self.current)),
+                };
+            }
+            let current = self.current;
+            let (pipe, buffer) = self.pipe_and_buf_mut();
+            let dst = &mut buffer.access_mut()[current..];
+            self.current += pipe.read(dst);
 
-        assert_ne!(self.buffer.len(), self.current);
-        if !self.pipe.can_read() {
-            return match self.writer.upgrade() {
-                Some(_w) => pending!(),
-                None => Poll::Ready(Ok(self.current)),
-            };
-        }
-        // let dst = &mut self.buffer.access_mut()[self.current..];
-        // self.current += self.pipe.read(dst);
-        let current = self.current;
-        let (pipe, buffer) = self.pipe_and_buf_mut();
-        let dst = &mut buffer.access_mut()[current..];
-        self.current += pipe.read(dst);
-
-        if let Some(w) = self
-            .writer
-            .upgrade()
-            .and_then(|w| w.waker.lock(place!()).take())
-        {
-            w.wake()
-        } else {
-            return Poll::Ready(Ok(self.current));
-        }
-        if self.current == self.buffer.len() {
-            Poll::Ready(Ok(self.current))
-        } else {
-            pending!()
+            self.writer
+                .upgrade()
+                .and_then(|w| w.waker.lock(place!()).as_ref().map(|w| w.wake_by_ref()));
         }
     }
 }
@@ -269,45 +262,34 @@ impl WritePipeFuture<'_> {
     fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut UserData<u8>) {
         (self.pipe, &mut self.buffer)
     }
+    async fn init(&mut self) {
+        let waker = ftl_util::async_tools::take_waker().await;
+        self.waker.lock(place!()).replace(waker);
+    }
 }
 impl Future for WritePipeFuture<'_> {
     type Output = SysResult;
 
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        macro_rules! pending {
-            () => {{
-                let prev = self.waker.lock(place!()).replace(cx.waker().clone());
-                assert!(prev.is_none());
-                Poll::Pending
-            }};
-        }
-        assert_ne!(self.buffer.len(), self.current);
-        if !self.pipe.can_write() {
-            return match self.reader.upgrade() {
-                Some(_w) => pending!(),
-                None => Poll::Ready(Ok(self.current)),
-            };
-        }
-        // let dst = &self.buffer.access()[self.current..];
-        // self.current += self.pipe.write(dst);
-        let current = self.current;
-        let (pipe, buffer) = self.pipe_and_buf_mut();
-        let dst = &buffer.access()[current..];
-        self.current += pipe.write(dst);
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        loop {
+            if self.current == self.buffer.len() {
+                return Poll::Ready(Ok(self.current));
+            }
+            assert!(self.current < self.buffer.len());
+            if !self.pipe.can_write() {
+                return match self.reader.upgrade() {
+                    Some(_) => Poll::Pending,
+                    None => Poll::Ready(Err(SysError::EPIPE)),
+                };
+            }
+            let current = self.current;
+            let (pipe, buffer) = self.pipe_and_buf_mut();
+            let dst = &buffer.access()[current..];
+            self.current += pipe.write(dst);
 
-        if let Some(w) = self
-            .reader
-            .upgrade()
-            .and_then(|w| w.waker.lock(place!()).take())
-        {
-            w.wake()
-        } else {
-            return Poll::Ready(Ok(self.current));
-        }
-        if self.current == self.buffer.len() {
-            Poll::Ready(Ok(self.current))
-        } else {
-            pending!()
+            self.reader
+                .upgrade()
+                .and_then(|w| w.waker.lock(place!()).as_ref().map(|w| w.wake_by_ref()));
         }
     }
 }

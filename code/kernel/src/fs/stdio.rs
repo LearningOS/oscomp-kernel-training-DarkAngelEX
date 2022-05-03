@@ -4,7 +4,7 @@ use super::{AsyncFile, File};
 use crate::{
     console,
     process::thread,
-    sync::sleep_mutex::SleepMutex,
+    sync::SleepMutex,
     user::{UserData, UserDataMut},
 };
 

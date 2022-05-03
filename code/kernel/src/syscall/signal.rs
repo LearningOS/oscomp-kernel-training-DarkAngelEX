@@ -68,6 +68,7 @@ impl Syscall<'_> {
         Ok(0)
     }
     pub async fn sys_rt_sigaction(&mut self) -> SysResult {
+        stack_trace!();
         let (sig, _new_act, _old_act, _s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
             self.cx.into();
         if sig >= 32 {

@@ -87,7 +87,7 @@ fn walk_path<'a>(src: &'a str, dst: &mut Vec<&'a str>) {
 }
 
 pub async fn open_file(
-    cwd: &str,
+    base: &str,
     path: &str,
     flags: OpenFlags,
 ) -> Result<Arc<Fat32Inode>, SysError> {
@@ -97,7 +97,7 @@ pub async fn open_file(
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => walk_path(cwd, &mut stack),
+        _ => walk_path(base, &mut stack),
     }
     walk_path(path, &mut stack);
     // println!("open_file {:?} flags: {:#x}, create: {}", stack, flags, flags.create());
@@ -126,14 +126,25 @@ pub async fn open_file(
     }))
 }
 
-pub async fn create_any(cwd: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
+pub async fn unlink(base: &str, path: &str, _flags: OpenFlags) -> Result<(), SysError> {
+    stack_trace!();
+    let mut stack = Vec::new();
+    match path.as_bytes().first() {
+        Some(b'/') => (),
+        _ => walk_path(base, &mut stack),
+    }
+    walk_path(path, &mut stack);
+    manager().delete_any(&stack).await
+}
+
+pub async fn create_any(base: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
     stack_trace!();
     let _sie = AutoSie::new();
     let (f_r, f_w) = flags.read_write()?;
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => walk_path(cwd, &mut stack),
+        _ => walk_path(base, &mut stack),
     }
     walk_path(path, &mut stack);
     manager()
@@ -183,9 +194,7 @@ impl File for Fat32Inode {
                 AnyInode::Dir(_) => return Err(SysError::EISDIR),
                 AnyInode::File(inode) => inode,
             };
-            let n = inode
-                .read_at(manager(), offset, buf)
-                .await?;
+            let n = inode.read_at(manager(), offset, buf).await?;
             Ok(n)
         })
     }

@@ -273,7 +273,7 @@ impl Syscall<'_> {
     pub fn sys_exit_group(&mut self) -> SysResult {
         self.sys_exit()
     }
-    pub async fn sys_yield(&mut self) -> SysResult {
+    pub async fn sys_sched_yield(&mut self) -> SysResult {
         stack_trace!();
         thread::yield_now().await;
         Ok(0)
@@ -326,6 +326,40 @@ impl Syscall<'_> {
         };
         // println!("    -> {:#x}", brk.into_usize());
         Ok(brk.into_usize())
+    }
+    pub async fn sys_uname(&mut self) -> SysResult {
+        stack_trace!();
+        #[repr(C)]
+        #[derive(Clone, Copy)]
+        struct Utsname {
+            sysname: [u8; 65],
+            nodename: [u8; 65],
+            release: [u8; 65],
+            version: [u8; 65],
+            machine: [u8; 65],
+            domainname: [u8; 65],
+        }
+
+        let buf: UserWritePtr<Utsname> = self.cx.para1();
+        let buf = UserCheck::new(self.process)
+            .translated_user_writable_value(buf)
+            .await?;
+        let mut access = buf.access_mut();
+        let uts_name = &mut access[0];
+        *uts_name = unsafe { core::mem::MaybeUninit::zeroed().assume_init() };
+        macro_rules! xwrite {
+            ($name: ident, $str: expr) => {
+                let v = $str;
+                uts_name.$name[..v.len()].copy_from_slice(v);
+            };
+        }
+        xwrite!(sysname, b"FTL OS");
+        xwrite!(nodename, b"unknown");
+        xwrite!(release, b"1.0.0");
+        xwrite!(version, b"1.0.0");
+        xwrite!(machine, b"qemu / sifive unmatch");
+        xwrite!(domainname, b"192.168.0.1");
+        Ok(0)
     }
 }
 

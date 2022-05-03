@@ -190,7 +190,7 @@ pub async fn init() {
     let inode = fs::open_file("", initproc, fs::OpenFlags::RDONLY, Mode(0o500))
         .await
         .unwrap();
-    let elf_data = executor::block_on(async move { inode.read_all().await.unwrap() });
+    let elf_data = inode.read_all().await.unwrap();
     let mut args = Vec::new();
     args.push(initproc.to_string());
     let envp = Vec::new();

@@ -214,8 +214,8 @@ impl Thread {
     }
 }
 
-pub fn yield_now() -> impl Future<Output = ()> {
-    YieldFuture { flag: false }
+pub async fn yield_now() {
+    YieldFuture { flag: false }.await
 }
 
 struct YieldFuture {

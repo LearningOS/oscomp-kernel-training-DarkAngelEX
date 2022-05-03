@@ -8,11 +8,32 @@ use crate::riscv::register::time;
 pub mod sleep;
 
 /// how many time interrupt per second
-const TIME_INTERRUPT_PER_SEC: usize = 100;
+const TIME_INTERRUPT_PER_SEC: usize = 20;
 const MILLISECOND_PER_SEC: usize = 1000;
 
 pub fn init() {
     sleep::sleep_queue_init();
+}
+
+#[derive(Clone, Copy)]
+pub struct Tms {
+    pub tms_utime: usize,  // 当前进程的用户态花费时间
+    pub tms_stime: usize,  // 当前进程的内核态花费时间
+    pub tms_cutime: usize, // 死去子进程的用户态时间
+    pub tms_cstime: usize, // 死去子进程的内核态时间
+}
+
+impl Tms {
+    pub fn zeroed() -> Self {
+        unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
+    }
+    pub fn append(&mut self, src: &Self) {
+        self.tms_cutime += src.tms_utime + src.tms_cutime;
+        self.tms_cstime += src.tms_stime + src.tms_cstime;
+    }
+    pub fn reset(&mut self) {
+        *self = Self::zeroed()
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -30,6 +51,9 @@ impl TimeTicks {
     }
     pub fn into_millisecond(self) -> usize {
         self.0 / (CLOCK_FREQ / MILLISECOND_PER_SEC)
+    }
+    pub fn into_second(self) -> usize {
+        self.0 / CLOCK_FREQ
     }
 }
 impl Add for TimeTicks {

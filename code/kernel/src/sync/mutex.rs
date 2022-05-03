@@ -8,14 +8,14 @@ use core::{
     sync::atomic::{AtomicBool, Ordering},
 };
 
-use crate::{
-    hart::{cpu, interrupt},
-    timer,
-};
+use ftl_util::sync::{MutexSupport, Spin};
+
+use crate::{hart::cpu, timer};
+
+use super::SpinNoIrq;
 
 pub type SpinLock<T> = Mutex<T, Spin>;
 pub type SpinNoIrqLock<T> = Mutex<T, SpinNoIrq>;
-// pub type SleepLock<T> = Mutex<T, Condvar>;
 
 pub struct Mutex<T: ?Sized, S: MutexSupport> {
     lock: AtomicBool,
@@ -72,6 +72,12 @@ impl<T, S: MutexSupport> Mutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> Mutex<T, S> {
+    pub fn get_mut(&mut self) -> &mut T {
+        self.data.get_mut()
+    }
+    pub unsafe fn unsafe_get_mut(&self) -> &mut T {
+        unsafe { &mut *self.data.get() }
+    }
     #[inline(always)]
     fn obtain_lock(&self, place: &'static str) {
         while self
@@ -217,64 +223,3 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for MutexGuard<'a, T, S> {
         S::after_unlock(&mut self.support_guard);
     }
 }
-
-/// Low-level support for mutex
-pub trait MutexSupport {
-    type GuardData;
-    /// Called before lock() & try_lock()
-    fn before_lock() -> Self::GuardData;
-    /// Called when MutexGuard dropping
-    fn after_unlock(_: &mut Self::GuardData);
-}
-
-/// Spin lock
-#[derive(Debug)]
-pub struct Spin;
-
-impl MutexSupport for Spin {
-    type GuardData = ();
-    fn before_lock() -> Self::GuardData {}
-    fn after_unlock(_: &mut Self::GuardData) {}
-}
-
-/// Spin & no-interrupt lock
-#[derive(Debug)]
-pub struct SpinNoIrq;
-
-/// Contains RFLAGS before disable interrupt, will auto restore it when dropping
-pub struct FlagsGuard(bool);
-
-impl Drop for FlagsGuard {
-    fn drop(&mut self) {
-        unsafe { interrupt::restore(self.0) };
-    }
-}
-
-impl FlagsGuard {
-    pub fn no_irq_region() -> Self {
-        Self(unsafe { interrupt::disable_and_store() })
-    }
-}
-
-impl MutexSupport for SpinNoIrq {
-    type GuardData = FlagsGuard;
-    #[inline(always)]
-    fn before_lock() -> Self::GuardData {
-        FlagsGuard::no_irq_region()
-    }
-    fn after_unlock(_: &mut Self::GuardData) {}
-}
-
-// impl MutexSupport for Condvar {
-//     type GuardData = ();
-//     fn new() -> Self {
-//         Condvar::new()
-//     }
-//     fn cpu_relax(&self) {
-//         self._wait();
-//     }
-//     fn before_lock() -> Self::GuardData {}
-//     fn after_unlock(&self) {
-//         self.notify_one();
-//     }
-// }

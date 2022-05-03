@@ -1,5 +1,5 @@
 use crate::{
-    fs::{stat::Stat, AsyncFile, File, OpenFlags, Mode},
+    fs::{stat::Stat, AsyncFile, File, Mode, OpenFlags},
     syscall::SysError,
     tools::xasync::Async,
     user::{UserData, UserDataMut},
@@ -35,14 +35,28 @@ pub async fn list_apps() {
     fat32_inode::list_apps().await
 }
 
-pub async fn create_any(cwd: &str, path: &str, flags: OpenFlags, _mode: Mode) -> Result<(), SysError> {
+pub async fn create_any(
+    base: &str,
+    path: &str,
+    flags: OpenFlags,
+    _mode: Mode,
+) -> Result<(), SysError> {
     stack_trace!();
-    fat32_inode::create_any(cwd, path, flags).await
+    fat32_inode::create_any(base, path, flags).await
 }
-pub async fn open_file(cwd: &str, path: &str, flags: OpenFlags, _mode: Mode) -> Result<Arc<VfsInode>, SysError> {
+pub async fn open_file(
+    base: &str,
+    path: &str,
+    flags: OpenFlags,
+    _mode: Mode,
+) -> Result<Arc<VfsInode>, SysError> {
     stack_trace!();
-    let inode = fat32_inode::open_file(cwd, path, flags).await?;
+    let inode = fat32_inode::open_file(base, path, flags).await?;
     Ok(Arc::new(VfsInode { inode }))
+}
+pub async fn unlink(base: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
+    stack_trace!();
+    fat32_inode::unlink(base, path, flags).await
 }
 
 impl File for VfsInode {
