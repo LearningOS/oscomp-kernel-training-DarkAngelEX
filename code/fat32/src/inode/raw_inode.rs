@@ -261,6 +261,7 @@ impl RawInode {
         Ok(())
     }
     pub async fn short_entry_sync(&self, manager: &Fat32Manager) -> Result<(), SysError> {
+        stack_trace!();
         if self.is_root {
             return Ok(());
         }

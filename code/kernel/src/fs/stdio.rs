@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
@@ -32,7 +34,6 @@ impl File for Stdin {
                 loop {
                     c = console::getchar() as usize;
                     if c == 0 {
-                        // suspend_current_and_run_next();
                         thread::yield_now().await;
                         continue;
                     }
@@ -61,15 +62,14 @@ impl File for Stdout {
     }
     fn write(&self, buf: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
-            // print!("!");
+            let n = CNT.fetch_add(1, Ordering::Relaxed);
             let lock = STDOUT_MUTEX.lock().await;
-            // print!("<");
             let str = buf.access();
             print_unlocked!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
             let len = buf.len();
             drop(lock);
-            // print!(">");
             Ok(len)
         })
     }
 }
+static CNT: AtomicUsize = AtomicUsize::new(0);

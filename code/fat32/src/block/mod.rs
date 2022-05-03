@@ -87,12 +87,14 @@ impl CacheManager {
         cache: &Cache,
         op: impl FnOnce(&mut [T]) -> V,
     ) -> Result<V, SysError> {
+        stack_trace!();
         let sem = self.dirty_semaphore.take().await;
         let r = cache.access_rw(op).await?;
+        stack_trace!();
         self.inner
-            .lock()
-            .await
-            .become_dirty(cid, &mut sem.into_multiply());
+        .lock()
+        .await
+        .become_dirty(cid, &mut sem.into_multiply());
         Ok(r)
     }
     /// 从缓存块中释放块并取消同步任务

@@ -1,7 +1,6 @@
 use core::{
     cell::UnsafeCell,
     future::Future,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     pin::Pin,
     task::{Context, Poll, Waker},
@@ -13,8 +12,7 @@ use super::{spin_mutex::SpinMutex, MutexSupport};
 
 pub struct SleepMutex<T: ?Sized, S: MutexSupport> {
     lock: SpinMutex<ListNode<(bool, Option<Waker>)>, S>, // push at prev, release at next
-    _marker: PhantomData<S>,
-    data: UnsafeCell<T>, // actual data
+    data: UnsafeCell<T>,                                 // actual data
 }
 
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for SleepMutex<T, S> {}
@@ -25,14 +23,9 @@ impl<T, S: MutexSupport> SleepMutex<T, S> {
         Self {
             lock: SpinMutex::new(ListNode::new((false, None))),
             data: UnsafeCell::new(user_data),
-            _marker: PhantomData,
         }
     }
-
-    /// Consumes this mutex, returning the underlying data.
     pub fn into_inner(self) -> T {
-        // We know statically that there are no outstanding references to
-        // `self` so there's no need to lock.
         let Self { data, .. } = self;
         data.into_inner()
     }
@@ -47,25 +40,22 @@ impl<T: ?Sized + Send, S: MutexSupport> SleepMutex<T, S> {
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
-    #[inline(always)]
     pub async fn lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
-        let mut future = SleepLockFuture::new(self);
+        let mut node = ListNode::new((false, None));
+        let mut future = SleepLockFuture::new(self, &mut node);
         future.init().await;
         future.await
     }
 }
 
-struct SleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
+struct SleepLockFuture<'a, 'b, T: ?Sized, S: MutexSupport> {
     mutex: &'a SleepMutex<T, S>,
-    node: ListNode<(bool, Option<Waker>)>,
+    node: &'b mut ListNode<(bool, Option<Waker>)>,
 }
 
-impl<'a, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, T, S> {
-    fn new(mutex: &'a SleepMutex<T, S>) -> Self {
-        SleepLockFuture {
-            mutex,
-            node: ListNode::new((false, None)),
-        }
+impl<'a, 'b, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, 'b, T, S> {
+    fn new(mutex: &'a SleepMutex<T, S>, node: &'b mut ListNode<(bool, Option<Waker>)>) -> Self {
+        SleepLockFuture { mutex, node }
     }
     async fn init(&mut self) {
         self.node.init();
@@ -80,22 +70,23 @@ impl<'a, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, T, S> {
             return;
         }
         this.1 = Some(async_tools::take_waker().await);
-        mx_list.insert_prev(&mut self.node);
+        mx_list.push_prev(self.node);
     }
 }
 
-impl<'a, T: ?Sized, S: MutexSupport> Future for SleepLockFuture<'a, T, S> {
+impl<'a, 'b, T: ?Sized, S: MutexSupport> Future for SleepLockFuture<'a, 'b, T, S> {
     type Output = SleepMutexGuard<'a, T, S>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match self.node.data().0 {
+        let ptr = &self.node.data().0;
+        match *ptr {
             false => Poll::Pending,
             true => Poll::Ready(SleepMutexGuard { mutex: self.mutex }),
         }
     }
 }
 
-struct SleepMutexGuard<'a, T: ?Sized + 'a, S: MutexSupport> {
+struct SleepMutexGuard<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a SleepMutex<T, S>,
 }
 
@@ -119,9 +110,9 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SleepMutexGuard<'a, T, S> {
     fn drop(&mut self) {
         let mut mx_list = self.mutex.lock.lock();
         debug_assert!(mx_list.data_mut().0);
-        let next = match mx_list.try_remove_next() {
+        let next = match mx_list.pop_next() {
             None => {
-                mx_list.data_mut().0 = false;
+                mx_list.data_mut().0 = false; // unlock
                 return;
             }
             Some(mut next) => unsafe { next.as_mut().data_mut() },
@@ -129,7 +120,6 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SleepMutexGuard<'a, T, S> {
         drop(mx_list);
         // waker必须在 next.0 = true 之前获取, 在这之后next将失效
         let waker = next.1.take().unwrap();
-        super::seq_fence();
         next.0 = true;
         waker.wake();
     }

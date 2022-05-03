@@ -10,6 +10,8 @@ use crate::{async_tools, list::ListNode};
 
 use super::{spin_mutex::SpinMutex, MutexSupport};
 
+type ListNodeImpl = ListNode<(bool, isize, Option<Waker>)>;
+
 /// 此信号量生成的guard通过Arc维护,可以发送至'static闭包
 pub struct Semaphore<S: MutexSupport> {
     inner: Arc<SpinMutex<SemaphoreInner, S>>,
@@ -21,7 +23,7 @@ unsafe impl<S: MutexSupport> Sync for Semaphore<S> {}
 struct SemaphoreInner {
     cur: isize,
     max: isize,
-    queue: ListNode<(bool, isize, Option<Waker>)>,
+    queue: ListNodeImpl,
 }
 
 impl Drop for SemaphoreInner {
@@ -87,7 +89,7 @@ impl SemaphoreInner {
             if self.cur < next.1 {
                 return;
             }
-            unsafe { p.as_mut().remove_self() };
+            unsafe { p.as_mut().pop_self() };
             self.cur -= next.1;
             let waker = next.2.take().unwrap();
             super::seq_fence();
@@ -133,25 +135,22 @@ impl<S: MutexSupport> Semaphore<S> {
     pub async fn take_n(&self, n: usize) -> MultiplySemaphore<S> {
         debug_assert!(n <= isize::MAX as usize);
         let n = n as isize;
-        let mut future = SemaphoreFuture::new(n, self);
+        let mut node = ListNodeImpl::new((false, n, None));
+        let mut future = SemaphoreFuture::new(n, self, &mut node);
         future.init().await;
         future.await
     }
 }
 
-struct SemaphoreFuture<'a, S: MutexSupport> {
+struct SemaphoreFuture<'a, 'b, S: MutexSupport> {
     val: isize,
     sem: &'a Semaphore<S>,
-    node: ListNode<(bool, isize, Option<Waker>)>,
+    node: &'b mut ListNodeImpl,
 }
 
-impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
-    fn new(val: isize, sem: &'a Semaphore<S>) -> Self {
-        Self {
-            val,
-            sem,
-            node: ListNode::new((false, val, None)),
-        }
+impl<'a, 'b, S: MutexSupport> SemaphoreFuture<'a, 'b, S> {
+    fn new(val: isize, sem: &'a Semaphore<S>, node: &'b mut ListNodeImpl) -> Self {
+        Self { val, sem, node }
     }
     async fn init(&mut self) {
         self.node.init();
@@ -163,11 +162,11 @@ impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
             return;
         }
         self.node.data_mut().2 = Some(async_tools::take_waker().await);
-        sem.queue.insert_prev(&mut self.node);
+        sem.queue.push_prev(self.node);
     }
 }
 
-impl<'a, S: MutexSupport> Future for SemaphoreFuture<'a, S> {
+impl<'a, S: MutexSupport> Future for SemaphoreFuture<'a, '_, S> {
     type Output = MultiplySemaphore<S>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {

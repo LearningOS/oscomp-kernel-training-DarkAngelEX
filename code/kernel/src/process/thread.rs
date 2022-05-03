@@ -226,10 +226,12 @@ impl Future for YieldFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        use core::sync::atomic;
         if self.flag {
             Poll::Ready(())
         } else {
             self.flag = true;
+            atomic::fence(atomic::Ordering::SeqCst);
             cx.waker().wake_by_ref();
             Poll::Pending
         }

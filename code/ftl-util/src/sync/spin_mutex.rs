@@ -125,8 +125,7 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
         }
     }
     pub unsafe fn send_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
-        let lock = self.lock();
-        SendWraper::new(lock)
+        SendWraper::new(self.lock())
     }
     pub fn get_ptr(&self) -> *mut T {
         self.data.get()

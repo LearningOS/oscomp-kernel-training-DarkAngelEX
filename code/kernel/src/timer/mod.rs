@@ -1,4 +1,5 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
+use core::sync::atomic::AtomicUsize;
 
 use crate::board::CLOCK_FREQ;
 use crate::hart::sbi;

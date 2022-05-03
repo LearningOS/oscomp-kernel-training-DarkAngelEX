@@ -6,11 +6,13 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
+#[inline]
 pub async fn take_waker() -> Waker {
     TakeWakerFuture.await
 }
 
 /// 避免一次Waker原子递增
+#[inline]
 pub async fn take_waker_ptr() -> NonNull<Waker> {
     TakeWakerPtrFuture.await
 }
@@ -19,7 +21,7 @@ struct TakeWakerFuture;
 
 impl Future for TakeWakerFuture {
     type Output = Waker;
-
+    #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Poll::Ready(cx.waker().clone())
     }
@@ -29,7 +31,7 @@ struct TakeWakerPtrFuture;
 
 impl Future for TakeWakerPtrFuture {
     type Output = NonNull<Waker>;
-
+    #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Poll::Ready(cx.waker().into())
     }

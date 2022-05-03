@@ -49,7 +49,9 @@ where
     F: Future + Send + 'static,
     F::Output: Send + 'static,
 {
-    async_task::spawn(future, |runnable| TASK_QUEUE.push(runnable))
+    async_task::spawn(future, |runnable| {
+        TASK_QUEUE.push(runnable);
+    })
 }
 
 /// 生成一个不切换页表的内核线程
@@ -110,6 +112,14 @@ impl<F: Future> Future for BlockOnFuture<F> {
         }
     }
 }
+
+pub fn run_until_idle() {
+    while let Some(task) = TASK_QUEUE.fetch() {
+        stack_trace!();
+        task.run();
+    }
+}
+
 /// loop forever until future return Poll::Ready
 pub fn block_on<F>(future: F) -> F::Output
 where
@@ -134,11 +144,4 @@ where
         r.run();
     }
     ans.unwrap()
-}
-
-pub fn run_until_idle() {
-    while let Some(task) = TASK_QUEUE.fetch() {
-        stack_trace!();
-        task.run();
-    }
 }

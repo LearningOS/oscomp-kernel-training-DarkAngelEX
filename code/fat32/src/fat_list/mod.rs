@@ -83,6 +83,7 @@ impl FatList {
     }
     /// LRU替换一个旧的块
     async fn get_unit(&self, id: UnitID) -> Result<Arc<ListUnit>, SysError> {
+        stack_trace!();
         self.manager.lock().await.get_unit(id).await
     }
     pub async fn get_next(&self, cid: CID) -> Result<CID, SysError> {
@@ -112,6 +113,7 @@ impl FatList {
         init: A,
         mut op: impl FnMut(A, CID, usize) -> ControlFlow<B, A>,
     ) -> Result<ControlFlow<B, A>, SysError> {
+        stack_trace!();
         let mut cur = cid;
         let mut accum = init;
         let mut i = start_off + 1;

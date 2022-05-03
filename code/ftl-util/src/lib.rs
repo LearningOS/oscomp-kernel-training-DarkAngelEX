@@ -5,12 +5,16 @@
 #![feature(const_fn_trait_bound)]
 #![feature(ptr_const_cast)]
 
+#[macro_use]
+mod console;
+#[macro_use]
+mod xdebug;
+pub mod async_tools;
+pub mod device;
 pub mod error;
+pub mod list;
 pub mod sync;
 pub mod utc_time;
-pub mod device;
-pub mod list;
-pub mod async_tools;
 
 extern crate alloc;
 
