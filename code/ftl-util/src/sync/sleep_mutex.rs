@@ -11,8 +11,30 @@ use crate::{async_tools, list::ListNode};
 use super::{spin_mutex::SpinMutex, MutexSupport};
 
 pub struct SleepMutex<T: ?Sized, S: MutexSupport> {
-    lock: SpinMutex<ListNode<(bool, Option<Waker>)>, S>, // push at prev, release at next
-    data: UnsafeCell<T>,                                 // actual data
+    lock: SpinMutex<MutexInner, S>, // push at prev, release at next
+    data: UnsafeCell<T>,            // actual data
+}
+
+struct MutexInner {
+    this_ptr: usize,
+    status: bool,
+    queue: ListNode<(bool, Option<Waker>)>,
+}
+
+impl MutexInner {
+    const fn new() -> Self {
+        Self {
+            this_ptr: 0,
+            status: false,
+            queue: ListNode::new((false, None)),
+        }
+    }
+    fn lazy_init(&mut self) {
+        if self.this_ptr != self as *mut _ as usize {
+            self.queue.init();
+            self.this_ptr = self as *mut _ as usize;
+        }
+    }
 }
 
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for SleepMutex<T, S> {}
@@ -21,7 +43,7 @@ unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for SleepMutex<T, S> {}
 impl<T, S: MutexSupport> SleepMutex<T, S> {
     pub const fn new(user_data: T) -> Self {
         Self {
-            lock: SpinMutex::new(ListNode::new((false, None))),
+            lock: SpinMutex::new(MutexInner::new()),
             data: UnsafeCell::new(user_data),
         }
     }
@@ -59,18 +81,17 @@ impl<'a, 'b, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, 'b, T, S> {
     }
     async fn init(&mut self) {
         self.node.init();
-        let mx_list = unsafe { &mut *self.mutex.lock.send_lock() };
-        mx_list.lazy_init();
+        let inner = unsafe { &mut *self.mutex.lock.send_lock() };
+        inner.lazy_init();
         let this = self.node.data_mut();
-        let head = mx_list.data_mut();
         // empty
-        if !head.0 {
-            head.0 = true; // lock
+        if !inner.status {
+            inner.status = true; // lock
             this.0 = true;
             return;
         }
         this.1 = Some(async_tools::take_waker().await);
-        mx_list.push_prev(self.node);
+        inner.queue.push_prev(self.node);
     }
 }
 
@@ -108,16 +129,16 @@ impl<'a, T: ?Sized, S: MutexSupport> DerefMut for SleepMutexGuard<'a, T, S> {
 
 impl<'a, T: ?Sized, S: MutexSupport> Drop for SleepMutexGuard<'a, T, S> {
     fn drop(&mut self) {
-        let mut mx_list = self.mutex.lock.lock();
-        debug_assert!(mx_list.data_mut().0);
-        let next = match mx_list.pop_next() {
+        let mut inner = self.mutex.lock.lock();
+        debug_assert!(inner.status);
+        let next = match inner.queue.pop_next() {
             None => {
-                mx_list.data_mut().0 = false; // unlock
+                inner.status = false; // unlock
                 return;
             }
             Some(mut next) => unsafe { next.as_mut().data_mut() },
         };
-        drop(mx_list);
+        drop(inner);
         // waker必须在 next.0 = true 之前获取, 在这之后next将失效
         let waker = next.1.take().unwrap();
         next.0 = true;

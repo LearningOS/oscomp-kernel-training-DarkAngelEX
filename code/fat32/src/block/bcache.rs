@@ -9,7 +9,7 @@ use super::buffer::{Buffer, SharedBuffer};
 /// 缓存一个簇
 pub(crate) struct Cache {
     aid: UnsafeCell<AID>,
-    buffer: RwSleepMutex<Buffer>,
+    buffer: RwSleepMutex<Buffer>, // 每次移动后都要init!!!
 }
 
 unsafe impl Send for Cache {}
@@ -21,15 +21,6 @@ impl Cache {
             aid: UnsafeCell::new(AID(0)),
             buffer: RwSleepMutex::new(buffer),
         }
-    }
-    pub(super) fn init(
-        &mut self,
-        aid: AID,
-        init: impl FnOnce(&mut [u8]) + 'static,
-    ) -> Result<(), SysError> {
-        *self.aid.get_mut() = aid;
-        init(self.buffer.get_mut().access_rw()?);
-        Ok(())
     }
     /// 以只读打开一个缓存块 允许多个进程同时访问
     pub async fn access_ro<T: Copy, V>(&self, op: impl FnOnce(&[T]) -> V) -> V {

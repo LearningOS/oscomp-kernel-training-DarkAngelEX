@@ -180,7 +180,7 @@ impl CacheManagerInner {
         }
         let aid = self.aid_alloc.alloc();
         cache.update_aid(aid);
-        let cache = Arc::new(cache);
+        let mut cache = Arc::new(cache);
         self.search
             .try_insert(cid, (cache.clone(), aid))
             .ok()

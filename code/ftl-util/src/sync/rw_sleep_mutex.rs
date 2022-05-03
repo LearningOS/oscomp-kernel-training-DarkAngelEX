@@ -39,7 +39,7 @@ impl Status {
 }
 
 struct MutexInner {
-    inited: bool,
+    this_ptr: usize,
     status: Status,
     shared: ListNodeImpl,
     unique: ListNodeImpl,
@@ -47,17 +47,17 @@ struct MutexInner {
 impl MutexInner {
     const fn new() -> Self {
         Self {
-            inited: false,
+            this_ptr: 0,
             status: Status::Unlock,
             shared: ListNodeImpl::new((false, None)),
             unique: ListNodeImpl::new((false, None)),
         }
     }
     fn lazy_init(&mut self) {
-        if !self.inited {
+        if self.this_ptr != self as *mut _ as usize {
             self.shared.init();
             self.unique.init();
-            self.inited = true;
+            self.this_ptr = self as *mut _ as usize;
         }
     }
 }
@@ -119,9 +119,6 @@ impl<'a, 'b, T: ?Sized, S: MutexSupport> SharedSleepLockFuture<'a, 'b, T, S> {
         self.node.init();
         let mx_list = unsafe { &mut *self.mutex.lock.send_lock() };
         mx_list.lazy_init();
-        mx_list.shared.list_check();
-        mx_list.unique.list_check();
-        stack_trace!();
         let this = self.node.data_mut();
         match mx_list.status {
             Status::Unlock => {
@@ -137,9 +134,6 @@ impl<'a, 'b, T: ?Sized, S: MutexSupport> SharedSleepLockFuture<'a, 'b, T, S> {
                 mx_list.shared.push_prev(self.node);
             }
         }
-        stack_trace!();
-        mx_list.shared.list_check();
-        mx_list.unique.list_check();
     }
 }
 
@@ -168,8 +162,6 @@ impl<'a, 'b, T: ?Sized, S: MutexSupport> UniqueSleepLockFuture<'a, 'b, T, S> {
         self.node.init();
         let mx_list = unsafe { &mut *self.mutex.lock.send_lock() };
         mx_list.lazy_init();
-        mx_list.shared.list_check();
-        mx_list.unique.list_check();
         let this = self.node.data_mut();
         match mx_list.status {
             Status::Unlock => {
@@ -223,10 +215,6 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedSleepMutexGuard<'a, T, S> {
                 return;
             }
         }
-        mx_list.shared.list_check();
-        stack_trace!();
-        mx_list.unique.list_check();
-        stack_trace!();
         if let Some(mut unique) = mx_list.unique.pop_next() {
             mx_list.shared.list_check();
             mx_list.unique.list_check();
@@ -244,19 +232,13 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedSleepMutexGuard<'a, T, S> {
         // release all shared
         let mut cnt = 0;
         while let Some(mut shared) = mx_list.shared.pop_next() {
-            stack_trace!();
-            mx_list.shared.list_check();
-            mx_list.unique.list_check();
-            stack_trace!();
             let shared = unsafe { shared.as_mut().data_mut() };
-            debug_assert!(!shared.0);
             let waker = shared.1.take().unwrap();
             super::seq_fence();
             shared.0 = true;
             waker.wake();
             cnt += 1;
         }
-        stack_trace!();
         mx_list.status = match cnt {
             0 => Status::Unlock,
             _ => Status::Shared(cnt),
@@ -288,18 +270,11 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for UnqiueSleepMutexGuard<'a, T, S> {
     fn drop(&mut self) {
         stack_trace!();
         let mut mx_list = self.mutex.lock.lock();
-        mx_list.shared.list_check();
-        mx_list.unique.list_check();
-        stack_trace!();
         debug_assert!(matches!(mx_list.status, Status::Unique));
         // release all shared
         let mut cnt = 0;
         while let Some(mut shared) = mx_list.shared.pop_next() {
-            stack_trace!();
-            mx_list.shared.list_check();
-            mx_list.unique.list_check();
             let shared = unsafe { shared.as_mut().data_mut() };
-            debug_assert!(!shared.0);
             let waker = shared.1.take().unwrap();
             super::seq_fence();
             shared.0 = true;
@@ -311,9 +286,6 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for UnqiueSleepMutexGuard<'a, T, S> {
             return;
         }
         if let Some(mut unique) = mx_list.unique.pop_next() {
-            stack_trace!();
-            mx_list.shared.list_check();
-            mx_list.unique.list_check();
             mx_list.status = Status::Unique;
             drop(mx_list);
             let unique = unsafe { unique.as_mut().data_mut() };
