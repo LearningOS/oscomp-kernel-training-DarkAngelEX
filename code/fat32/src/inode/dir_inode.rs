@@ -45,7 +45,7 @@ impl EntryPlace {
 /// 不要在这里维护任何数据 数据都放在inode中
 #[derive(Clone)]
 pub struct DirInode {
-    inode: Arc<RwSleepMutex<RawInode>>, // 只有需要改变文件大小时才需要排他锁
+    pub(crate) inode: Arc<RwSleepMutex<RawInode>>, // 只有需要改变文件大小时才需要排他锁
 }
 
 impl DirInode {

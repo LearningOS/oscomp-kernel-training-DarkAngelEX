@@ -8,7 +8,7 @@ use crate::tools::{self, CID, SID};
 /// BIOS Parameter Block
 ///
 /// logical offset = 0x0B
-pub(crate) struct RawBPB {
+pub struct RawBPB {
     pub sector_bytes: u16,          // 扇区字节数
     pub sector_per_cluster: u8,     // 每簇扇区数
     sector_reserved: u16,           // 保留扇区数 用来获取第一个FAT偏移值
@@ -36,13 +36,13 @@ pub(crate) struct RawBPB {
     system_id: [u8; 8],             // "FAT32"
 
     // 此部分为加载后自行计算
-    pub sector_bytes_log2: u32,  // 每扇区字节数的log2
-    pub cluster_bytes_log2: u32, // 每扇区字节数的log2
-    pub cluster_bytes: usize,    // 每簇字节数
-    pub fat_sector_start: SID,   // FAT表开始扇区号
-    pub data_sector_start: SID,  // 数据区开始扇区号
-    pub data_sector_num: usize,  // 数据区扇区数
-    pub data_cluster_num: usize, // 数据区簇数
+    pub sector_bytes_log2: u32,        // 每扇区字节数的log2
+    pub cluster_bytes_log2: u32,       // 每扇区字节数的log2
+    pub cluster_bytes: usize,          // 每簇字节数
+    pub(crate) fat_sector_start: SID,  // FAT表开始扇区号
+    pub(crate) data_sector_start: SID, // 数据区开始扇区号
+    pub data_sector_num: usize,        // 数据区扇区数
+    pub data_cluster_num: usize,       // 数据区簇数
 }
 
 impl RawBPB {
@@ -103,7 +103,7 @@ impl RawBPB {
             / self.sector_per_cluster as usize;
         self.data_sector_num = self.data_cluster_num * self.sector_per_cluster as usize;
     }
-    pub fn cid_transform(&self, cid: CID) -> SID {
+    pub(crate) fn cid_transform(&self, cid: CID) -> SID {
         debug_assert!(cid.0 >= 2);
         SID(self.data_sector_start.0 + (cid.0 - 2) * self.sector_per_cluster as u32)
     }

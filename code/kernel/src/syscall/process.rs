@@ -98,7 +98,12 @@ impl Syscall<'_> {
 
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
-        let inode = fs::open_file(path.as_str(), fs::OpenFlags::RDONLY).await?;
+        let inode = fs::open_file(
+            &self.alive_then(|a| a.cwd.clone())?,
+            path.as_str(),
+            fs::OpenFlags::RDONLY,
+        )
+        .await?;
         let elf_data = inode.read_all().await?;
         let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -216,6 +221,21 @@ impl Syscall<'_> {
         }
         Ok(self.process.pid().into_usize())
     }
+    pub fn sys_getppid(&mut self) -> SysResult {
+        stack_trace!();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_getpid");
+        }
+        let pid = self
+            .alive_then(|a| {
+                a.parent
+                    .as_ref()
+                    .and_then(|p| p.upgrade())
+                    .map(|p| p.pid().into_usize())
+            })?
+            .unwrap_or(0); // initproc
+        Ok(pid)
+    }
     pub fn sys_getuid(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
@@ -294,7 +314,7 @@ impl Syscall<'_> {
     pub fn sys_brk(&mut self) -> SysResult {
         stack_trace!();
         let brk: usize = self.cx.para1();
-        println!("sys_brk: {:#x}", brk);
+        // println!("sys_brk: {:#x}", brk);
         let brk = if brk == 0 {
             self.alive_then(|a| a.user_space.get_brk())?
         } else {
@@ -302,7 +322,7 @@ impl Syscall<'_> {
             self.alive_then(|a| a.user_space.reset_brk(brk))??;
             brk
         };
-        println!("    -> {:#x}", brk.into_usize());
+        // println!("    -> {:#x}", brk.into_usize());
         Ok(brk.into_usize())
     }
 }

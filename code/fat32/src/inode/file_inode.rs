@@ -8,7 +8,7 @@ use super::raw_inode::RawInode;
 /// 不要在这里维护任何数据 数据都放在inode中
 #[derive(Clone)]
 pub struct FileInode {
-    inode: Arc<RwSleepMutex<RawInode>>,
+    pub(crate) inode: Arc<RwSleepMutex<RawInode>>,
 }
 
 impl FileInode {
@@ -17,6 +17,16 @@ impl FileInode {
     }
     pub fn attr(&self) -> Attr {
         unsafe { self.inode.unsafe_get().attr() }
+    }
+    pub fn bytes(&self) -> usize {
+        unsafe {
+            self.inode
+                .unsafe_get()
+                .cache
+                .inner
+                .shared_lock()
+                .file_bytes()
+        }
     }
     /// offset为字节偏移
     pub async fn read_at(
@@ -84,8 +94,8 @@ impl FileInode {
             cur += n;
             buffer_0 = &buffer_0[n..];
         }
-        debug_assert!(cur <= bytes);
-        if cur == bytes {
+        debug_assert!(cur <= end_offset);
+        if cur == end_offset {
             inode.update_access_modify_time(&manager.utc_time());
             inode.short_entry_sync(manager).await?;
             return Ok(buffer.len());

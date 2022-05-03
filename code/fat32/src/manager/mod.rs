@@ -56,6 +56,9 @@ impl Fat32Manager {
         self.utc_time = Some(utc_time);
         self.init_root();
     }
+    pub fn bpb(&self) -> &RawBPB {
+        &self.bpb
+    }
     pub async fn spawn_sync_task(
         &mut self,
         (concurrent_list, concurrent_cache): (usize, usize),
@@ -100,19 +103,22 @@ impl Fat32Manager {
         }
         Ok(cur)
     }
-    /// 搜索路径
-    async fn split_search_path<'a>(
-        &self,
-        path: &[&'a str],
-    ) -> Result<(&'a str, DirInode), SysError> {
-        match path.split_first() {
-            Some((name, path)) => Ok((name, self.search_dir(path).await?)),
-            None => Err(SysError::ENOENT),
-        }
-    }
     pub async fn search_file(&self, path: &[&str]) -> Result<FileInode, SysError> {
         let (name, dir) = self.split_search_path(path).await?;
         dir.search_file(self, name).await
+    }
+    pub async fn create_any(
+        &self,
+        path: &[&str],
+        is_dir: bool,
+        read_only: bool,
+        hidden: bool,
+    ) -> Result<(), SysError> {
+        let (name, dir) = self.split_search_path(path).await?;
+        match is_dir {
+            true => dir.create_dir(self, name, read_only, hidden).await,
+            false => dir.create_file(self, name, read_only, hidden).await,
+        }
     }
     /// 只能删除文件或空目录
     pub async fn delete_any(&self, path: &[&str]) -> Result<(), SysError> {
@@ -127,6 +133,16 @@ impl Fat32Manager {
     pub async fn delete_file(&self, path: &[&str]) -> Result<(), SysError> {
         let (name, dir) = self.split_search_path(path).await?;
         dir.delete_file(self, name).await
+    }
+    /// 搜索路径
+    async fn split_search_path<'a>(
+        &self,
+        path: &[&'a str],
+    ) -> Result<(&'a str, DirInode), SysError> {
+        match path.split_first() {
+            Some((name, path)) => Ok((name, self.search_dir(path).await?)),
+            None => Err(SysError::ENOENT),
+        }
     }
     pub fn root_dir(&self) -> DirInode {
         self.root_dir.as_ref().unwrap().clone()

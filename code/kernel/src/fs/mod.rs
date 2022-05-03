@@ -1,12 +1,16 @@
 //! 类似linux的虚拟文件系统
 
 pub mod pipe;
+pub mod stat;
 mod stdio;
 mod vfs;
 
+use alloc::boxed::Box;
+
+use self::stat::Stat;
 pub use self::{
     stdio::{Stdin, Stdout},
-    vfs::{list_apps, open_file, VfsInode},
+    vfs::inode::{create_any, list_apps, open_file, VfsInode},
 };
 
 use crate::{
@@ -31,7 +35,8 @@ bitflags! {
         const FASYNC    = 00020000;
         const DIRECT    = 00040000;
         const LARGEFILE = 00100000;
-        const DIRECTORY = 00200000;
+        // const DIRECTORY = 00200000; // LINUX
+        const DIRECTORY = 0x0200000; // test run
         const NOFOLLOW  = 00400000;
         const NOATIME   = 01000000;
         const CLOEXEC   = 02000000;
@@ -53,6 +58,9 @@ impl OpenFlags {
     }
     fn create(self) -> bool {
         self.contains(Self::CREAT)
+    }
+    fn dir(self) -> bool {
+        self.contains(Self::DIRECTORY)
     }
 }
 
@@ -80,6 +88,9 @@ pub trait File: Send + Sync + 'static {
     fn write(&self, read_only: UserData<u8>) -> AsyncFile;
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
         Ok(0)
+    }
+    fn stat<'a>(&'a self, _stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
+        Box::pin(async move { Err(SysError::EACCES) })
     }
 }
 

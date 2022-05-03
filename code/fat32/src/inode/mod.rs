@@ -1,4 +1,14 @@
-use crate::{layout::name::Attr, tools::CID, DirInode, FileInode};
+use alloc::sync::Arc;
+use ftl_util::error::SysError;
+
+use crate::{
+    layout::name::{Attr, RawShortName},
+    mutex::RwSleepMutex,
+    tools::{Align8, CID},
+    DirInode, Fat32Manager, FileInode,
+};
+
+use self::raw_inode::RawInode;
 
 pub mod dir_inode;
 pub mod file_inode;
@@ -30,6 +40,33 @@ impl AnyInode {
         match self {
             AnyInode::Dir(v) => Some(v),
             AnyInode::File(_) => None,
+        }
+    }
+    pub fn short_name(&self) -> Align8<RawShortName> {
+        unsafe {
+            self.raw_inode()
+                .unsafe_get()
+                .cache
+                .inner
+                .shared_lock()
+                .short
+        }
+    }
+    /// return None of this is dir
+    pub fn file_bytes(&self) -> Option<usize> {
+        self.file().map(|f| f.bytes())
+    }
+    pub async fn blk_num(&self, manager: &Fat32Manager) -> Result<usize, SysError> {
+        self.raw_inode()
+            .shared_lock()
+            .await
+            .blk_num(&manager.list)
+            .await
+    }
+    fn raw_inode(&self) -> &Arc<RwSleepMutex<RawInode>> {
+        match self {
+            AnyInode::Dir(v) => &v.inode,
+            AnyInode::File(v) => &v.inode,
         }
     }
 }

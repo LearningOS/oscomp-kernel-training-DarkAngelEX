@@ -43,6 +43,14 @@ impl RawInode {
     pub fn attr(&self) -> Attr {
         self.cache.inner.shared_lock().attr()
     }
+    pub async fn blk_num(&self, fat_list: &FatList) -> Result<usize, SysError> {
+        let cid = self.cache.inner.shared_lock().cid_start;
+        let n = match self.get_list_last(fat_list).await? {
+            Some((n, _)) => n + 1,
+            None => 0,
+        };
+        Ok(n)
+    }
     pub fn into_dir(p: Arc<RwSleepMutex<Self>>) -> DirInode {
         unsafe { debug_assert!(p.unsafe_get().attr().contains(Attr::DIRECTORY)) };
         DirInode::new(p)
@@ -94,14 +102,13 @@ impl RawInode {
                 }
                 return ControlFlow::Continue(this);
             })
-            .await;
+            .await?;
         let mut lock = self.cache.inner.unique_lock();
         save_list.into_iter().for_each(move |(cid, cur)| {
             lock.update_list(cid, cur);
         });
         match r {
-            ControlFlow::Break(Err(e)) => Err(e),
-            ControlFlow::Continue((off, cid)) | ControlFlow::Break(Ok((off, cid))) => {
+            ControlFlow::Continue((off, cid)) | ControlFlow::Break((off, cid)) => {
                 if off < n {
                     Ok(Err(off + 1))
                 } else {
@@ -128,14 +135,13 @@ impl RawInode {
                 }
                 ControlFlow::Continue((cur, cid))
             })
-            .await;
+            .await?;
         let mut lock = self.cache.inner.unique_lock();
         save_list.into_iter().for_each(move |(cid, cur)| {
             lock.update_list(cid, cur);
         });
         match r {
-            ControlFlow::Break(Err(e)) => Err(e),
-            ControlFlow::Continue(tup) | ControlFlow::Break(Ok(tup)) => Ok(Some(tup)),
+            ControlFlow::Continue(tup) | ControlFlow::Break(tup) => Ok(Some(tup)),
         }
     }
     /// 获取第n个簇(首个簇为0)

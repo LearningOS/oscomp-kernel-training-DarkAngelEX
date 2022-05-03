@@ -105,13 +105,13 @@ impl FatList {
     /// start_off是输入cid所在块的偏移量, op的第一次调用off将为start_off+1
     ///
     /// 假设输入cid=8 off=0 链表序列为 8->9->10->LAST 将调用: (B,9,1) (B,10,2) (B,LAST,3) break
-    pub async fn travel<B>(
+    pub async fn travel<A, B>(
         &self,
         cid: CID, // start CID
         start_off: usize,
-        init: B,
-        mut op: impl FnMut(B, CID, usize) -> ControlFlow<B, B>,
-    ) -> ControlFlow<Result<B, SysError>, B> {
+        init: A,
+        mut op: impl FnMut(A, CID, usize) -> ControlFlow<B, A>,
+    ) -> Result<ControlFlow<B, A>, SysError> {
         let mut cur = cid;
         let mut accum = init;
         let mut i = start_off + 1;
@@ -120,19 +120,18 @@ impl FatList {
             let (uid, uoff) = self.get_unit_of_cid(cur);
             let unit_cur = match unit.take() {
                 Some(unit) if unit.0 == uid => unit.1,
-                _ => self
-                    .get_unit(uid)
-                    .await
-                    .branch()
-                    .map_break(tools::err_break)?,
+                _ => self.get_unit(uid).await?,
             };
             let nxt = unit_cur.get(uoff, self.aid_alloc.alloc());
-            accum = op(accum, nxt, i).map_break(Ok)?;
+            accum = match op(accum, nxt, i) {
+                ControlFlow::Continue(a) => a,
+                b @ ControlFlow::Break(_) => return Ok(b),
+            };
             unit = Some((uid, unit_cur));
             cur = nxt;
             i += 1;
         }
-        try { accum }
+        Ok(try { accum })
     }
     pub async fn alloc_block(&self) -> Result<CID, SysError> {
         let sem = self.dirty_semaphore.take().await;

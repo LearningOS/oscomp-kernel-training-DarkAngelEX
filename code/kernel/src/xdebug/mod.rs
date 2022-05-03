@@ -29,6 +29,8 @@ pub const HEAP_PROTECT: bool = false;
 
 pub const CLOSE_TIME_INTERRUPT: bool = false;
 
+pub const NO_SYSCALL_PANIC: bool = false;
+
 #[macro_use]
 pub mod trace;
 #[macro_use]

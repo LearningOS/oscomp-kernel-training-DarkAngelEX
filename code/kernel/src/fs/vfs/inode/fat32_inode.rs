@@ -6,7 +6,8 @@ use ftl_util::{error::SysError, utc_time::UtcTime};
 
 use crate::{
     drivers, executor,
-    fs::{AsyncFile, File, OpenFlags},
+    fs::{stat::Stat, AsyncFile, File, OpenFlags},
+    tools::xasync::Async,
     user::{AutoSie, UserData, UserDataMut},
 };
 
@@ -71,29 +72,34 @@ pub async fn list_apps() {
     println!("**************/");
 }
 
-pub async fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<Fat32Inode>, SysError> {
-    stack_trace!();
-    let _sie = AutoSie::new();
-    let (f_r, f_w) = flags.read_write()?;
-    if flags.create() {
-        todo!()
-    }
-    let mut stack = Vec::new();
-    for s in name
-        .split(['/', '\\'])
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-    {
+fn walk_path<'a>(src: &'a str, dst: &mut Vec<&'a str>) {
+    for s in src.split(['/', '\\']).map(|s| s.trim()) {
         match s {
-            "." => continue,
+            "" | "." => continue,
             ".." => {
-                stack.pop();
+                dst.pop();
             }
             s => {
-                stack.push(s);
+                dst.push(s);
             }
         }
     }
+}
+
+pub async fn open_file(
+    cwd: &str,
+    path: &str,
+    flags: OpenFlags,
+) -> Result<Arc<Fat32Inode>, SysError> {
+    stack_trace!();
+    let _sie = AutoSie::new();
+    let (f_r, f_w) = flags.read_write()?;
+    let mut stack = Vec::new();
+    match path.as_bytes().first() {
+        Some(b'/') => (),
+        _ => walk_path(cwd, &mut stack),
+    }
+    walk_path(path, &mut stack);
     let inode = manager().search_any(&stack).await?;
     let attr = inode.attr();
     let writable = attr.writable();
@@ -106,6 +112,22 @@ pub async fn open_file(name: &str, flags: OpenFlags) -> Result<Arc<Fat32Inode>, 
         ptr: AtomicUsize::new(0),
         inode,
     }))
+}
+
+pub async fn create_any(cwd: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
+    stack_trace!();
+    let _sie = AutoSie::new();
+    let (f_r, f_w) = flags.read_write()?;
+    let mut stack = Vec::new();
+    match path.as_bytes().first() {
+        Some(b'/') => (),
+        _ => walk_path(cwd, &mut stack),
+    }
+    walk_path(path, &mut stack);
+    manager()
+        .create_any(&stack, flags.dir(), f_r, false)
+        .await?;
+    Ok(())
 }
 
 impl File for Fat32Inode {
@@ -161,6 +183,34 @@ impl File for Fat32Inode {
             let n = inode.write_at(manager(), offset, &*buf.access()).await?;
             self.ptr.store(offset + n, Ordering::Release);
             Ok(n)
+        })
+    }
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
+        Box::pin(async move {
+            let bpb = manager().bpb();
+            let short = self.inode.short_name();
+            let size = short.file_bytes();
+            let blk_size = bpb.cluster_bytes as u32;
+            let blk_n = self.inode.blk_num(manager()).await? as u64;
+            let access_time = short.access_time();
+            let modify_time = short.modify_time();
+            stat.st_dev = 0;
+            stat.st_ino = 0;
+            stat.st_mode = 7;
+            stat.st_nlink = 1;
+            stat.st_uid = 0;
+            stat.st_gid = 0;
+            stat.st_rdev = 0;
+            stat.st_size = size as u32;
+            stat.st_blksize = blk_size;
+            stat.st_blocks = blk_n * (blk_size / 512) as u64;
+            stat.st_atime = access_time.second() as u32;
+            stat.st_atime_nsec = access_time.nanosecond() as u32;
+            stat.st_mtime = modify_time.second() as u32;
+            stat.st_mtime_nsec = access_time.nanosecond() as u32;
+            stat.st_ctime = modify_time.second() as u32;
+            stat.st_ctime_nsec = access_time.nanosecond() as u32;
+            Ok(())
         })
     }
 }

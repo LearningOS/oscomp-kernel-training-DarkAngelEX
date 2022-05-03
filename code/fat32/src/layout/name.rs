@@ -43,7 +43,7 @@ impl Attr {
 /// 被删除后name[0]变为0xE5
 #[repr(C, packed)]
 #[derive(Clone, Copy)]
-pub(crate) struct RawShortName {
+pub struct RawShortName {
     pub name: [u8; 8],
     pub ext: [u8; 3],
     pub attributes: Attr, // 只读 隐藏 系统 卷标 目录 归档
@@ -64,7 +64,7 @@ impl RawShortName {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     /// generate ".." "."
-    pub fn init_dot_dir(&mut self, dot_n: usize, cid: CID, utc_time: &UtcTime) {
+    pub(crate) fn init_dot_dir(&mut self, dot_n: usize, cid: CID, utc_time: &UtcTime) {
         debug_assert!(self.is_free());
         self.name[..dot_n].fill(b'.');
         self.name[dot_n..].fill(0x20);
@@ -75,7 +75,13 @@ impl RawShortName {
         self.set_cluster(cid);
         self.file_bytes = 0;
     }
-    pub fn init_except_name(&mut self, cid: CID, file_bytes: u32, attr: Attr, utc_time: &UtcTime) {
+    pub(crate) fn init_except_name(
+        &mut self,
+        cid: CID,
+        file_bytes: u32,
+        attr: Attr,
+        utc_time: &UtcTime,
+    ) {
         self.reversed = 0;
         self.set_cluster(cid);
         self.attributes = attr;
@@ -126,10 +132,10 @@ impl RawShortName {
             .copied()
             .fold(0, |a, c| a.rotate_right(1).wrapping_add(c))
     }
-    pub fn cid(&self) -> CID {
+    pub(crate) fn cid(&self) -> CID {
         CID((self.cluster_h16 as u32) << 16 | self.cluster_l16 as u32)
     }
-    pub fn set_cluster(&mut self, cid: CID) {
+    pub(crate) fn set_cluster(&mut self, cid: CID) {
         self.cluster_h16 = (cid.0 >> 16) as u16;
         self.cluster_l16 = cid.0 as u16;
     }
@@ -172,6 +178,20 @@ impl RawShortName {
         let (hms, date) = Self::time_tran(&utc_time.ymd, &utc_time.hms);
         self.modify_hms = hms;
         self.modify_date = date;
+    }
+    pub fn access_time(&self) -> UtcTime {
+        let mut time = UtcTime::base();
+        time.set_ymd(self.access_date);
+        time.set_hms(0);
+        time.set_ms(0);
+        time
+    }
+    pub fn modify_time(&self) -> UtcTime {
+        let mut time = UtcTime::base();
+        time.set_ymd(self.modify_date);
+        time.set_hms(self.modify_hms);
+        time.set_ms(0);
+        time
     }
 }
 
@@ -288,16 +308,8 @@ impl RawName {
         debug_assert!(!self.is_free());
         unsafe { self.short.name[0] = 0xE5 };
     }
-    pub fn set_long(&mut self, name: &[u16; 13], order: usize, last: bool, checksum: u8) {
-        unsafe {
-            self.long.set(name, order, last, checksum);
-        }
-    }
     pub fn set_short(&mut self, short: &Align8<RawShortName>) {
         self.short = **short;
-    }
-    pub fn zeroed() -> Self {
-        unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     pub fn is_long(&self) -> bool {
         !self.is_free() && self.attributes().bits() == 0x0F

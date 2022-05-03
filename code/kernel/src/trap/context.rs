@@ -32,7 +32,7 @@ pub struct UKContext {
 #[derive(Clone, Copy)]
 pub struct FloatContext {
     pub fx: [f64; 32],
-    pub fcsr: FCSR,    // 32bit
+    pub fcsr: FCSR, // 32bit
     // because of repr(C), use u8 instead of bool
     pub need_save: u8, // become 1 when dirty, run save when switch context
     pub need_load: u8, // become 1 when switch context, run load when into user

@@ -10,7 +10,7 @@ use crate::{
         user_ptr::{UserReadPtr, UserWritePtr},
     },
     process::Process,
-    syscall::{SysError, UniqueSysError},
+    syscall::SysError,
 };
 
 use super::{check_impl::UserCheckImpl, AutoSum, UserData, UserDataMut, UserType};
@@ -75,14 +75,14 @@ impl<'a> UserCheck<'a> {
         Ok(UserData::new(slice))
     }
     /// return a slice witch len == 1
-    pub async fn translated_user_readonly_value<T: UserType>(
+    pub async fn translated_user_readonly_value<T: Copy>(
         &self,
         ptr: UserReadPtr<T>,
     ) -> Result<UserData<T>, SysError> {
         self.translated_user_readonly_slice(ptr, 1).await
     }
     /// return a slice witch len == 1
-    pub async fn translated_user_writable_value<T: UserType>(
+    pub async fn translated_user_writable_value<T: Copy>(
         &self,
         ptr: UserWritePtr<T>,
     ) -> Result<UserDataMut<T>, SysError> {
@@ -103,7 +103,7 @@ impl<'a> UserCheck<'a> {
         Ok(ret)
     }
 
-    pub async fn translated_user_readonly_slice<T: UserType>(
+    pub async fn translated_user_readonly_slice<T: Copy>(
         &self,
         ptr: UserReadPtr<T>,
         len: usize,
@@ -126,7 +126,7 @@ impl<'a> UserCheck<'a> {
         Ok(UserData::new(unsafe { &*slice }))
     }
 
-    pub async fn translated_user_writable_slice<T: UserType>(
+    pub async fn translated_user_writable_slice<T: Copy>(
         &self,
         ptr: UserWritePtr<T>,
         len: usize,

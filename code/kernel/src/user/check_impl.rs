@@ -9,18 +9,18 @@ use riscv::register::{
 use crate::{
     local,
     memory::{
-        address::{UserAddr, UserAddr4K},
+        address::UserAddr,
         user_ptr::{UserReadPtr, UserWritePtr},
         AccessType,
     },
     process::Process,
-    syscall::{SysError, UniqueSysError},
+    syscall::SysError,
     tools::xasync::TryRunFail,
     trap,
     xdebug::PRINT_PAGE_FAULT,
 };
 
-use super::{UserAccessStatus, UserType};
+use super::UserAccessStatus;
 
 global_asm!(include_str!("check_impl.S"));
 
@@ -42,7 +42,7 @@ impl<'a> UserCheckImpl<'a> {
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status
     }
-    pub async fn read_check<T: UserType>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
+    pub async fn read_check<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
@@ -52,7 +52,7 @@ impl<'a> UserCheckImpl<'a> {
         try_read_user_u8(ptr)?;
         Ok(())
     }
-    pub async fn write_check<T: UserType>(&self, ptr: UserWritePtr<T>) -> Result<(), SysError> {
+    pub async fn write_check<T: Copy>(&self, ptr: UserWritePtr<T>) -> Result<(), SysError> {
         // let ptr = ptr.raw_ptr_mut() as *mut u8;
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {

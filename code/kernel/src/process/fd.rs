@@ -7,7 +7,7 @@ use crate::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
-pub struct Fd(usize);
+pub struct Fd(pub usize);
 from_usize_impl!(Fd);
 
 impl Fd {
