@@ -22,15 +22,15 @@
 #![feature(get_mut_unchecked)]
 #![feature(split_array)]
 
+const PRINT_BLOCK_OP: bool = false;
+const PRINT_INODE_OP: bool = false;
+
+#[macro_use]
 extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;
 extern crate alloc;
 
-#[macro_use]
-mod console;
-#[macro_use]
-mod xdebug;
 mod block;
 mod block_dev;
 mod fat_list;
@@ -43,7 +43,7 @@ mod tools;
 pub mod xtest;
 
 pub use block_dev::AsyncRet;
-pub use ftl_util::{device::BlockDevice, utc_time::UtcTime};
+pub use ftl_util::{console_init, debug_init, device::BlockDevice, utc_time::UtcTime};
 pub use inode::{dir_inode::DirInode, file_inode::FileInode, AnyInode};
 pub use layout::name::Attr;
 pub use manager::Fat32Manager;

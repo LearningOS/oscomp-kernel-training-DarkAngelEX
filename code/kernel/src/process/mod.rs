@@ -4,13 +4,9 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use core::{
-    future::Future,
-    sync::atomic::{AtomicI32, AtomicUsize, Ordering},
-};
+use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 use crate::{
-    executor,
     fs::{self, Mode},
     memory::{asid::Asid, UserSpace},
     signal::SignalPack,
@@ -97,14 +93,14 @@ impl Process {
     // return Err if zombies
     #[inline(always)]
     pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, Dead> {
-        match self.alive.lock(place!()).as_mut() {
+        match self.alive.lock().as_mut() {
             Some(alive) => Ok(f(alive)),
             None => Err(Dead),
         }
     }
     // fork and release all thread except tid
     pub fn fork(self: &Arc<Self>, tid: Tid) -> Result<Arc<Self>, SysError> {
-        let mut alive_guard = self.alive.lock(place!());
+        let mut alive_guard = self.alive.lock();
         let alive = alive_guard.as_mut().unwrap();
         let mut user_space = alive.user_space.fork()?;
         let stack_id = alive.threads.map(tid).unwrap().inner().stack_id;
@@ -145,9 +141,7 @@ impl AliveProcess {
     // return parent
     pub fn clear_all(&mut self, pid: Pid) {
         let this_parent = self.parent.take().and_then(|p| p.upgrade());
-        let mut this_parent_alive = this_parent
-            .as_ref()
-            .map(|p| (&p.event_bus, p.alive.lock(place!())));
+        let mut this_parent_alive = this_parent.as_ref().map(|p| (&p.event_bus, p.alive.lock()));
         let bus = match &mut this_parent_alive {
             Some((bus, ref mut p)) if p.is_some() => {
                 // println!("origin's zombie, move:");
@@ -159,25 +153,22 @@ impl AliveProcess {
             _ => {
                 // println!("initproc's zombie");
                 let initproc = proc_table::get_initproc();
-                let mut initproc_alive = initproc.alive.lock(place!());
+                let mut initproc_alive = initproc.alive.lock();
                 let p = initproc_alive.as_mut().unwrap();
                 p.children.become_zombie(pid);
                 initproc.event_bus.clone()
             }
         };
         drop(this_parent_alive);
-        let _ = bus.as_ref().lock(place!()).set(Event::CHILD_PROCESS_QUIT);
+        let _ = bus.as_ref().lock().set(Event::CHILD_PROCESS_QUIT);
         if !self.children.is_empty() {
             let initproc = proc_table::get_initproc();
-            let mut initproc_alive = initproc.alive.lock(place!());
+            let mut initproc_alive = initproc.alive.lock();
             let ich = &mut initproc_alive.as_mut().unwrap().children;
             ich.append(self.children.take());
             if ich.have_zombies() {
                 drop(initproc_alive);
-                let _ = initproc
-                    .event_bus
-                    .lock(place!())
-                    .set(Event::CHILD_PROCESS_QUIT);
+                let _ = initproc.event_bus.lock().set(Event::CHILD_PROCESS_QUIT);
             }
         }
     }

@@ -172,18 +172,18 @@ impl AsidManager {
 static ASID_MANAGER: SpinNoIrqLock<AsidManager> = SpinNoIrqLock::new(AsidManager::new());
 
 pub fn alloc_asid() -> AsidInfoTracker {
-    ASID_MANAGER.lock(place!()).alloc()
+    ASID_MANAGER.lock().alloc()
 }
 
 pub unsafe fn dealloc_asid(asid_info: AsidInfo) {
     // 在这里调用降低锁竞争
     local::all_hart_sfence_vma_asid(asid_info.asid());
-    ASID_MANAGER.lock(place!()).dealloc(asid_info)
+    ASID_MANAGER.lock().dealloc(asid_info)
 }
 
 pub fn version_check_alloc(asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
     ASID_MANAGER
-        .lock(place!())
+        .lock()
         .version_check_alloc(asid_info, satp)
 }
 

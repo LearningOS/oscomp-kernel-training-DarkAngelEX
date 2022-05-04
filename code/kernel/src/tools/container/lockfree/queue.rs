@@ -778,8 +778,8 @@ pub mod test {
         if hart == 0 {
             println!("{}locked linked list test begin", tools::n_space(off));
         }
-        let push = |a| TEST_QUEUE_1.lock(place!()).push_back(a);
-        let pop = || TEST_QUEUE_1.lock(place!()).pop_front();
+        let push = |a| TEST_QUEUE_1.lock().push_back(a);
+        let pop = || TEST_QUEUE_1.lock().pop_front();
         group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
         group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
         group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
@@ -788,12 +788,12 @@ pub mod test {
             println!("{}locked VecDeque test begin", tools::n_space(off));
         }
         let push = |a| {
-            let v = &**TEST_QUEUE_2.lock(place!());
+            let v = &**TEST_QUEUE_2.lock();
             #[allow(clippy::cast_ref_to_mut)]
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.push_back(a)
         };
         let pop = || {
-            let v = &**TEST_QUEUE_2.lock(place!());
+            let v = &**TEST_QUEUE_2.lock();
             #[allow(clippy::cast_ref_to_mut)]
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.pop_front()
         };

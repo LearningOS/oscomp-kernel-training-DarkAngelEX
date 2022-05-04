@@ -13,12 +13,10 @@ use crate::{
     layout::bpb::RawBPB,
     mutex::{MultiplySemaphore, SemaphoreGuard, SpinMutex},
     tools::{AIDAllocator, AID, CID, SID},
-    xdebug::OPEN_DEBUG_PRINT,
+    PRINT_BLOCK_OP,
 };
 
 use super::{bcache::Cache, buffer::SharedBuffer};
-
-const PRINT_BLOCK_OP: bool = false && OPEN_DEBUG_PRINT;
 
 /// 此管理器仅用于获取块 不会进行任何读写操作 因此也不需要异步操作函数
 pub(crate) struct CacheManagerInner {

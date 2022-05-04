@@ -141,7 +141,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_wait4(&mut self) -> SysResult {
         stack_trace!();
-        let (pid, exit_code_ptr, option, rusage): (
+        let (pid, exit_code_ptr, _option, _rusage): (
             isize,
             UserWritePtr<i32>,
             u32,
@@ -199,7 +199,7 @@ impl Syscall<'_> {
             let event_bus = &self.process.event_bus;
             if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT)
                 .await
-                .and_then(|_x| event_bus.lock(place!()).clear(Event::CHILD_PROCESS_QUIT))
+                .and_then(|_x| event_bus.lock().clear(Event::CHILD_PROCESS_QUIT))
             {
                 if PRINT_SYSCALL_PROCESS {
                     println!("sys_wait4 fail by close {:?}", this_pid);
@@ -257,8 +257,8 @@ impl Syscall<'_> {
         );
         self.do_exit = true;
         let exit_code: i32 = self.cx.para1();
-        self.process.event_bus.lock(place!()).close();
-        let mut lock = self.process.alive.lock(place!());
+        self.process.event_bus.lock().close();
+        let mut lock = self.process.alive.lock();
         let alive = match lock.as_mut() {
             Some(a) => a,
             None => return Err(SysError::ESRCH),
@@ -376,13 +376,13 @@ impl Future for SleepFuture {
         if timer::get_time_ticks() >= self.deadline {
             cx.waker().wake_by_ref();
             return Poll::Ready(Ok(0));
-        } else if self.event_bus.lock(place!()).event != Event::empty() {
+        } else if self.event_bus.lock().event != Event::empty() {
             return Poll::Ready(Err(SysError::EINTR));
         }
         timer::sleep::timer_push_task(self.deadline, cx.waker().clone());
         match self
             .event_bus
-            .lock(place!())
+            .lock()
             .register(Event::all(), cx.waker().clone())
         {
             Err(_e) => Poll::Ready(Err(SysError::ESRCH)),

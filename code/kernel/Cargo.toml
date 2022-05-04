@@ -28,7 +28,9 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 
 
 [features]
+default = ["stack_trace"]
 board_qemu = []
+stack_trace = ["ftl-util/stack_trace"]
 
 # https://zhuanlan.zhihu.com/p/476524365
 [profile.dev]

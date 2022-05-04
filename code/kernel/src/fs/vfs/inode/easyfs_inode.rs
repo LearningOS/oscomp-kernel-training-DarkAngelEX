@@ -31,7 +31,7 @@ impl EasyFsInode {
         }
     }
     pub async fn read_all(&self) -> Vec<u8> {
-        let mut inner = self.inner.lock(place!());
+        let mut inner = self.inner.lock();
         let mut buffer = [0u8; 512];
         let mut v: Vec<u8> = Vec::new();
         loop {
@@ -107,7 +107,7 @@ impl File for EasyFsInode {
         self.writable
     }
     fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
-        let mut inner = self.inner.lock(place!());
+        let mut inner = self.inner.lock();
         let mut total_read_size = 0usize;
         let buffer = match frame::global::alloc() {
             Ok(f) => f,
@@ -124,7 +124,7 @@ impl File for EasyFsInode {
         Box::pin(async move { Ok(total_read_size) })
     }
     fn write(&self, buf: UserData<u8>) -> AsyncFile {
-        let mut inner = self.inner.lock(place!());
+        let mut inner = self.inner.lock();
         let mut total_write_size = 0usize;
         let buffer = match frame::global::alloc() {
             Ok(f) => f,

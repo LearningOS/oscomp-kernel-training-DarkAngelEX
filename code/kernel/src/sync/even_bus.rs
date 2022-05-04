@@ -139,7 +139,7 @@ impl Future for EventBusFuture<'_> {
     type Output = Result<Event, EvenBusClose>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mut lock = self.bus.lock(place!());
+        let mut lock = self.bus.lock();
         if lock.event.intersects(self.mask) {
             return Poll::Ready(Ok(lock.event));
         }

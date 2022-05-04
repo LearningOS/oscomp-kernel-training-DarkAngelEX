@@ -127,7 +127,7 @@ impl Drop for PipeReader {
         if let Some(w) = self
             .writer
             .upgrade()
-            .and_then(|w| w.waker.lock(place!()).take())
+            .and_then(|w| w.waker.lock().take())
         {
             w.wake()
         }
@@ -173,7 +173,7 @@ impl Drop for PipeWriter {
         if let Some(w) = self
             .reader
             .upgrade()
-            .and_then(|w| w.waker.lock(place!()).take())
+            .and_then(|w| w.waker.lock().take())
         {
             w.wake()
         }
@@ -222,7 +222,7 @@ impl ReadPipeFuture<'_> {
     }
     async fn init(&mut self) {
         let waker = ftl_util::async_tools::take_waker().await;
-        self.waker.lock(place!()).replace(waker);
+        self.waker.lock().replace(waker);
     }
 }
 impl Future for ReadPipeFuture<'_> {
@@ -246,7 +246,7 @@ impl Future for ReadPipeFuture<'_> {
 
             self.writer
                 .upgrade()
-                .and_then(|w| w.waker.lock(place!()).as_ref().map(|w| w.wake_by_ref()));
+                .and_then(|w| w.waker.lock().as_ref().map(|w| w.wake_by_ref()));
         }
     }
 }
@@ -264,7 +264,7 @@ impl WritePipeFuture<'_> {
     }
     async fn init(&mut self) {
         let waker = ftl_util::async_tools::take_waker().await;
-        self.waker.lock(place!()).replace(waker);
+        self.waker.lock().replace(waker);
     }
 }
 impl Future for WritePipeFuture<'_> {
@@ -289,7 +289,7 @@ impl Future for WritePipeFuture<'_> {
 
             self.reader
                 .upgrade()
-                .and_then(|w| w.waker.lock(place!()).as_ref().map(|w| w.wake_by_ref()));
+                .and_then(|w| w.waker.lock().as_ref().map(|w| w.wake_by_ref()));
         }
     }
 }

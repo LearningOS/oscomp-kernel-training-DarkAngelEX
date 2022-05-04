@@ -1,7 +1,7 @@
 use core::{future::Future, pin::Pin};
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
-use ftl_util::{device::BlockDevice, error::SysError, utc_time::UtcTime};
+use ftl_util::{device::BlockDevice, error::SysError, utc_time::UtcTime, xdebug};
 
 use crate::{
     block::CacheManager,
@@ -9,7 +9,6 @@ use crate::{
     inode::{inode_cache::InodeCache, manager::InodeManager, AnyInode, IID},
     layout::bpb::RawBPB,
     mutex::SpinMutex,
-    xdebug::assert_sie_closed,
     DirInode, FileInode,
 };
 
@@ -48,7 +47,7 @@ impl Fat32Manager {
         device: Arc<dyn BlockDevice>,
         utc_time: Box<dyn Fn() -> UtcTime + Send + Sync + 'static>,
     ) {
-        assert_sie_closed();
+        xdebug::assert_sie_closed();
         self.bpb.load(&*device).await;
         self.list.init(&self.bpb, 0, device.clone()).await;
         self.caches.init(&self.bpb, device.clone()).await;

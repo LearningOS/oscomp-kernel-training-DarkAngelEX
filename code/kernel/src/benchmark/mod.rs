@@ -109,7 +109,7 @@ fn atomic_test() {
     let a = SpinLock::new(0);
     for i in 0..base_n / ratio {
         let x = black_usize(i);
-        *a.lock(place!()) += x;
+        *a.lock() += x;
     }
     black(a);
     timer.check("SpinLock add", base_time, ratio);
@@ -118,7 +118,7 @@ fn atomic_test() {
     let a = SpinNoIrqLock::new(0);
     for i in 0..base_n / ratio {
         let x = black_usize(i);
-        *a.lock(place!()) += x;
+        *a.lock() += x;
     }
     black(a);
     timer.check("SpinNoIrqLock add", base_time, ratio);

@@ -1,5 +1,4 @@
 use crate::{
-    fs::stat::Stat,
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::{fs::PRINT_SYSCALL_FS, SysError, SysResult, Syscall},

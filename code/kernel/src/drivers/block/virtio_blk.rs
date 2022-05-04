@@ -30,7 +30,7 @@ impl BlockDevice for VirtIOBlock {
     fn read_block<'a>(&'a self, mut block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             stack_trace!();
-            let io = &mut *self.0.lock(place!());
+            let io = &mut *self.0.lock();
             for buf in buf.chunks_mut(self.sector_bytes()) {
                 io.read_block(block_id, buf)
                     .expect("Error when reading VirtIOBlk");
@@ -42,7 +42,7 @@ impl BlockDevice for VirtIOBlock {
     fn write_block<'a>(&'a self, mut block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             stack_trace!();
-            let io = &mut *self.0.lock(place!());
+            let io = &mut *self.0.lock();
             for buf in buf.chunks(self.sector_bytes()) {
                 io.write_block(block_id, buf)
                     .expect("Error when reading VirtIOBlk");

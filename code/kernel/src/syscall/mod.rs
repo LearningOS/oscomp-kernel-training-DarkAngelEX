@@ -178,7 +178,7 @@ impl<'a> Syscall<'a> {
         impl DerefMut<Target = AliveProcess> + 'a,
         UniqueSysError<{ SysError::ESRCH as isize }>,
     > {
-        let lock = self.process.alive.lock(place!());
+        let lock = self.process.alive.lock();
         if lock.is_none() {
             self.do_exit = true;
             return Err(UniqueSysError);

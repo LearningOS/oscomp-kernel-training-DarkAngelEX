@@ -1,5 +1,3 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
-
 use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
@@ -13,8 +11,6 @@ use crate::{
 pub struct Stdin;
 
 pub struct Stdout;
-
-static STDOUT_MUTEX: SleepMutex<()> = SleepMutex::new(());
 
 impl File for Stdin {
     fn readable(&self) -> bool {
@@ -50,6 +46,8 @@ impl File for Stdin {
     }
 }
 
+static STDOUT_MUTEX: SleepMutex<()> = SleepMutex::new(());
+
 impl File for Stdout {
     fn readable(&self) -> bool {
         false
@@ -62,7 +60,6 @@ impl File for Stdout {
     }
     fn write(&self, buf: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
-            let n = CNT.fetch_add(1, Ordering::Relaxed);
             let lock = STDOUT_MUTEX.lock().await;
             let str = buf.access();
             print_unlocked!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
@@ -72,4 +69,3 @@ impl File for Stdout {
         })
     }
 }
-static CNT: AtomicUsize = AtomicUsize::new(0);

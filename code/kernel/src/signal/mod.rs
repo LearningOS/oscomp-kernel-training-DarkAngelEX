@@ -162,7 +162,7 @@ pub fn send_signal(process: Arc<Process>, signal_set: StdSignalSet) -> Result<()
     if !signal_set.is_empty() {
         process
             .event_bus
-            .lock(place!())
+            .lock()
             .set(Event::RECEIVE_SIGNAL)?;
     }
     Ok(())

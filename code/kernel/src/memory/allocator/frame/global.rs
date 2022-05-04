@@ -201,31 +201,31 @@ pub fn init_frame_allocator() {
         fn end();
     }
     println!("[FTL OS]init_frame_allocator");
-    FRAME_ALLOCATOR.lock(place!()).init(
+    FRAME_ALLOCATOR.lock().init(
         PhyAddrRef::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
         PhyAddrRef::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
     );
 }
 // pub fn size() -> usize {
-//     FRAME_ALLOCATOR.lock(place!()).size()
+//     FRAME_ALLOCATOR.lock().size()
 // }
 
 pub fn alloc() -> Result<FrameTracker, FrameOOM> {
     let v = FRAME_ALLOCATOR
-        .lock(place!())
+        .lock()
         .alloc()
         .map(|a| unsafe { FrameTracker::new(a) })?;
     Ok(v)
 }
 
 pub fn alloc_successive(n: PageCount) -> Result<PhyAddrRef4K, FrameOOM> {
-    FRAME_ALLOCATOR.lock(place!()).alloc_successive(n)
+    FRAME_ALLOCATOR.lock().alloc_successive(n)
 }
 
 pub fn alloc_iter<'a>(
     range: impl Iterator<Item = &'a mut PhyAddrRef4K> + ExactSizeIterator,
 ) -> Result<(), FrameOOM> {
-    FRAME_ALLOCATOR.lock(place!()).alloc_iter(range)
+    FRAME_ALLOCATOR.lock().alloc_iter(range)
 }
 
 pub fn alloc_n<const N: usize>() -> Result<[FrameTracker; N], FrameOOM> {
@@ -235,5 +235,5 @@ pub fn alloc_n<const N: usize>() -> Result<[FrameTracker; N], FrameOOM> {
 }
 
 pub unsafe fn dealloc(par: PhyAddrRef4K) {
-    FRAME_ALLOCATOR.lock(place!()).dealloc(par);
+    FRAME_ALLOCATOR.lock().dealloc(par);
 }

@@ -1,117 +1,16 @@
-use core::fmt::Display;
-
-use alloc::{string::String, vec::Vec};
+use alloc::vec::Vec;
+use ftl_util::xdebug::stack::XInfo;
 
 use crate::{hart::cpu, local};
 
-/// panic时打印堆栈上全部调用了stack_trace的路径
-pub const STACK_TRACE: bool = true;
-
-#[macro_export]
-macro_rules! stack_trace {
-    () => {
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::xdebug::stack_trace::XInfo::None,
-            file!(),
-            line!(),
-        );
-    };
-    ($msg: literal) => {
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::xdebug::stack_trace::XInfo::Str($msg),
-            file!(),
-            line!(),
-        );
-    };
-    ($msg: expr) => {
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::xdebug::stack_trace::XInfo::from($msg),
-            file!(),
-            line!(),
-        );
-    };
-    ($msg: literal, $($arg:tt)*) => {
-        let _stack_trace = crate::xdebug::stack_trace::StackTracker::new(
-            crate::xdebug::stack_trace::XInfo::String(alloc::format!($msg, $($arg)*)),
-            file!(),
-            line!(),
-        );
-    };
-}
-
-pub struct StackTracker;
-
-impl StackTracker {
-    #[inline(always)]
-    pub fn new(msg: XInfo, file: &'static str, line: u32) -> Self {
-        if STACK_TRACE {
+pub fn init() {
+    ftl_util::xdebug::stack::init(
+        |msg, file, line| {
             let info = StackInfo::new(msg, file, line);
             local::always_local().stack_trace.push(info);
-        }
-        Self
-    }
-}
-
-impl Drop for StackTracker {
-    #[inline(always)]
-    fn drop(&mut self) {
-        if STACK_TRACE {
-            local::always_local().stack_trace.pop();
-        }
-    }
-}
-
-#[no_mangle]
-pub extern "C" fn global_xedbug_stack_push(
-    msg_ptr: *const u8,
-    msg_len: usize,
-    file_ptr: *const u8,
-    file_len: usize,
-    line: u32,
-) {
-    if STACK_TRACE {
-        use core::slice::from_raw_parts;
-        use core::str::from_utf8_unchecked;
-        unsafe {
-            let msg = from_utf8_unchecked(from_raw_parts(msg_ptr, msg_len));
-            let file = from_utf8_unchecked(from_raw_parts(file_ptr, file_len));
-            let info = StackInfo::new(XInfo::Str(msg), file, line);
-            local::always_local().stack_trace.push(info);
-        }
-    }
-}
-#[no_mangle]
-pub extern "C" fn global_xedbug_stack_pop() {
-    if STACK_TRACE {
-        local::always_local().stack_trace.pop();
-    }
-}
-
-pub enum XInfo {
-    None,
-    Str(&'static str),
-    Number(usize),
-    String(String),
-}
-impl From<usize> for XInfo {
-    fn from(a: usize) -> Self {
-        Self::Number(a)
-    }
-}
-impl From<&'static str> for XInfo {
-    fn from(s: &'static str) -> Self {
-        Self::Str(s)
-    }
-}
-impl Display for XInfo {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            XInfo::None => Ok(()),
-            XInfo::Str(s) => f.write_str(s),
-            XInfo::Number(x) => write!(f, "{:#x}", x),
-            XInfo::String(s) => f.write_str(s),
-        }
-    }
+        },
+        || local::always_local().stack_trace.pop(),
+    );
 }
 
 pub struct StackInfo {

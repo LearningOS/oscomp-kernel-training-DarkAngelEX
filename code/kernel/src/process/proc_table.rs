@@ -13,17 +13,15 @@ static PROC_MAP: Mutex<BTreeMap<Pid, Weak<Process>>> = Mutex::new(BTreeMap::new(
 static mut INITPROC: OnceCell<Arc<Process>> = OnceCell::new();
 
 pub fn find_proc(pid: Pid) -> Option<Arc<Process>> {
-    PROC_MAP.lock(place!()).get_mut(&pid)?.upgrade()
+    PROC_MAP.lock().get_mut(&pid)?.upgrade()
 }
 
 pub fn insert_proc(proc: &Arc<Process>) {
-    PROC_MAP
-        .lock(place!())
-        .insert(proc.pid(), Arc::downgrade(proc));
+    PROC_MAP.lock().insert(proc.pid(), Arc::downgrade(proc));
 }
 
 pub fn clear_proc(pid: Pid) {
-    PROC_MAP.lock(place!()).remove(&pid).unwrap();
+    PROC_MAP.lock().remove(&pid).unwrap();
 }
 
 pub unsafe fn set_initproc(p: Arc<Process>) {

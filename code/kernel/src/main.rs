@@ -44,9 +44,9 @@
 
 // #![allow(dead_code)]
 
-#[macro_use]
 extern crate alloc;
 extern crate async_task;
+#[macro_use]
 extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;

@@ -36,20 +36,15 @@ pub mod trace;
 #[macro_use]
 pub mod stack_trace;
 
-#[macro_export]
+pub fn init() {
+    stack_trace::init();
+    ftl_util::xdebug::sie_init(||sstatus::read().sie());
+}
+
+#[allow(unused_macros)]
 macro_rules! place {
     () => {
         concat!(file!(), ":", line!(), ":", column!())
-    };
-}
-
-#[macro_export]
-macro_rules! deubg_print_place {
-    () => {
-        println!("{}:{}", file!(), line!());
-    };
-    ($str: expr) => {
-        println!("{}:{} {}", file!(), line!(), $str);
     };
 }
 
@@ -70,9 +65,4 @@ impl NeverFail {
     pub fn assume_success(self) {
         core::mem::forget(self)
     }
-}
-
-#[no_mangle]
-pub extern "C" fn global_xedbug_get_sie() -> u8 {
-    sstatus::read().sie() as u8
 }

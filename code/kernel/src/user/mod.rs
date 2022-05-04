@@ -8,7 +8,7 @@ use alloc::vec::Vec;
 use riscv::register::scause::Exception;
 
 use crate::{
-    executor, local,
+    local,
     memory::{
         self,
         address::{OutOfUserRange, UserAddr},

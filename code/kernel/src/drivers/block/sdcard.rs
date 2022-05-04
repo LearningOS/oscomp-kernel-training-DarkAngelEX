@@ -760,7 +760,7 @@ impl BlockDevice for SDCardWrapper {
     fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             self.0
-                .lock(place!())
+                .lock()
                 .read_sector(buf, block_id as u32)
                 .unwrap();
             Ok(())
@@ -769,7 +769,7 @@ impl BlockDevice for SDCardWrapper {
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             self.0
-                .lock(place!())
+                .lock()
                 .write_sector(buf, block_id as u32)
                 .unwrap();
             Ok(())

@@ -113,7 +113,7 @@ async fn userloop(thread: Arc<Thread>) {
     if thread.process.pid() == Pid::from_usize(0) {
         panic!("initproc exit");
     }
-    if let Some(alive) = &mut *thread.process.alive.lock(place!()) {
+    if let Some(alive) = &mut *thread.process.alive.lock() {
         // TODO: just last thread exit do this.
         println!("[kernel]proc:{:?} abort", thread.process.pid());
         alive.clear_all(thread.process.pid());

@@ -1,6 +1,5 @@
 use crate::fs::File;
 use crate::memory::address::UserAddr4K;
-use crate::memory::allocator::frame;
 use crate::memory::map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler};
 use crate::memory::page_table::PTEFlags;
 use crate::memory::{AccessType, PageTable};

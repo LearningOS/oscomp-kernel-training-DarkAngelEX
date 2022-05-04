@@ -1,34 +1,18 @@
 #![allow(dead_code)]
-use core::fmt::{self, Write};
+use core::fmt;
+
+static mut WRITE_FN: Option<fn(fmt::Arguments)> = None;
+
+pub fn init(write_fn: fn(fmt::Arguments)) {
+    unsafe {
+        WRITE_FN.replace(write_fn);
+    }
+}
 
 #[inline(always)]
-pub fn console_putchar(c: char) {
-    extern "C" {
-        fn global_console_putchar(c: usize);
-    }
-    unsafe { global_console_putchar(c as usize) };
-}
-extern "C" {
-    fn global_console_lock();
-    fn global_console_unlock();
-}
-
-struct Stdout;
-
-impl Write for Stdout {
-    fn write_str(&mut self, s: &str) -> fmt::Result {
-        for c in s.chars() {
-            console_putchar(c);
-        }
-        Ok(())
-    }
-}
-
 pub fn print(args: fmt::Arguments) {
-    unsafe {
-        global_console_lock();
-        Stdout.write_fmt(args).unwrap();
-        global_console_unlock();
+    if let Some(write_fn) = unsafe { WRITE_FN } {
+        write_fn(args)
     }
 }
 

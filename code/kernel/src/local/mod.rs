@@ -84,12 +84,12 @@ impl HartLocal {
         }
     }
     fn register(&self, f: impl FnOnce() + 'static) {
-        self.pending.lock(place!()).push(Box::new(f))
+        self.pending.lock().push(Box::new(f))
     }
     fn handle(&mut self) {
         debug_assert!(self.queue.is_empty());
         // use swap instead of take bucause it can keep reverse space.
-        core::mem::swap(&mut self.queue, &mut *self.pending.lock(place!()));
+        core::mem::swap(&mut self.queue, &mut *self.pending.lock());
         while let Some(f) = self.queue.pop() {
             f()
         }

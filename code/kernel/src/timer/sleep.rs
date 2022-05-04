@@ -64,12 +64,12 @@ impl SleepQueue {
 static SLEEP_QUEUE: SpinNoIrqLock<Option<SleepQueue>> = SpinNoIrqLock::new(None);
 
 pub fn sleep_queue_init() {
-    *SLEEP_QUEUE.lock(place!()) = Some(SleepQueue::new());
+    *SLEEP_QUEUE.lock() = Some(SleepQueue::new());
 }
 
 pub fn timer_push_task(ticks: TimeTicks, waker: Waker) {
     SLEEP_QUEUE
-        .lock(place!())
+        .lock()
         .as_mut()
         .unwrap()
         .push(ticks, waker);
@@ -79,7 +79,7 @@ pub fn check_timer() {
     stack_trace!();
     let current = get_time_ticks();
     SLEEP_QUEUE
-        .lock(place!())
+        .lock()
         .as_mut()
         .unwrap()
         .check_timer(current);

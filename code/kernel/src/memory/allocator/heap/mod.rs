@@ -66,19 +66,19 @@ unsafe impl GlobalAlloc for GlobalHeap {
 impl GlobalHeap {
     // (used, allocated, total)
     pub fn info(&self) -> (usize, usize) {
-        self.heap.lock(place!()).info()
+        self.heap.lock().info()
     }
     pub fn alloc(&self, layout: Layout) -> Result<NonNull<u8>, ()> {
-        self.heap.lock(place!()).alloc(layout)
+        self.heap.lock().alloc(layout)
     }
     pub fn dealloc(&self, ptr: NonNull<u8>, layout: Layout) {
-        self.heap.lock(place!()).dealloc(ptr, layout)
+        self.heap.lock().dealloc(ptr, layout)
     }
     pub fn alloc_list(&self, layout: Layout, n: usize) -> Result<IntrusiveLinkedList, ()> {
-        self.heap.lock(place!()).alloc_list(layout, n)
+        self.heap.lock().alloc_list(layout, n)
     }
     pub fn dealloc_list(&self, list: IntrusiveLinkedList, layout: Layout) {
-        self.heap.lock(place!()).dealloc_list(list, layout)
+        self.heap.lock().dealloc_list(list, layout)
     }
 }
 
@@ -98,7 +98,7 @@ static mut HEAP_SPACE: [u8; KERNEL_HEAP_SIZE] = [0; KERNEL_HEAP_SIZE];
 pub fn init_heap() {
     println!("[FTL OS]init_heap");
     unsafe {
-        HEAP_ALLOCATOR.heap.lock(place!()).init(
+        HEAP_ALLOCATOR.heap.lock().init(
             HEAP_SPACE.as_ptr() as usize - KERNEL_OFFSET_FROM_DIRECT_MAP,
             KERNEL_HEAP_SIZE,
         );

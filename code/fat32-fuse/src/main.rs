@@ -1,12 +1,10 @@
 #![feature(trait_alias)]
 #![feature(bench_black_box)]
 
-use std::{fs::File, os::unix::prelude::FileExt, sync::Arc, time::Duration};
+use std::{fs::File, io::Write, os::unix::prelude::FileExt, sync::Arc, time::Duration};
 
 use async_std::{sync::Mutex, task::block_on};
 use clap::{Arg, Command};
-
-pub mod xglobal;
 
 extern crate async_std;
 extern crate clap;
@@ -57,7 +55,13 @@ impl BlockDevice for BlockFile {
     }
 }
 
+pub fn ftl_init() {
+    fat32::debug_init(|_, _, _| (), || (), || false);
+    fat32::console_init(|args| std::io::stdout().write_fmt(args).unwrap());
+}
+
 fn main() {
+    ftl_init();
     let matches = Command::new("fat32 packer")
         .arg(
             Arg::new("source")

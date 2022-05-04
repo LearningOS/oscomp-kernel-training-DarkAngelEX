@@ -116,10 +116,10 @@ pub trait File: Send + Sync + 'static {
     fn write_at(&self, _offset: usize, _read_only: UserData<u8>) -> AsyncFile {
         unimplemented!()
     }
-    fn read_at_kernel<'a>(&'a self, _offset: usize, buf: &'a mut [u8]) -> AsyncFile {
+    fn read_at_kernel<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
         unimplemented!()
     }
-    fn write_at_kernel<'a>(&'a self, _offset: usize, buf: &'a [u8]) -> AsyncFile {
+    fn write_at_kernel<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
         unimplemented!()
     }
     fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile;

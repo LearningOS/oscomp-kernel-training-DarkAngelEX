@@ -7,7 +7,7 @@ use crate::{
     benchmark, drivers, executor, fs, local, memory, process, timer,
     tools::{self, container},
     trap, user,
-    xdebug::CLOSE_TIME_INTERRUPT,
+    xdebug::{CLOSE_TIME_INTERRUPT, self}, console,
 };
 
 pub mod cpu;
@@ -56,6 +56,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         while !INIT_START.load(Ordering::Acquire) {}
     }
     local::init();
+    xdebug::init();
+    console::init();
     println!(
         "[FTL OS]hart {} device tree: {:#x}",
         hartid, device_tree_paddr
