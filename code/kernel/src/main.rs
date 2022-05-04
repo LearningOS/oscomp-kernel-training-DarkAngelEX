@@ -98,6 +98,7 @@ pub fn kmain(_hart_id: usize) -> ! {
     let local = local::always_local();
     assert!(local.sie_cur() == 0);
     assert!(local.sum_cur() == 0);
+
     unsafe {
         sstatus::set_sie();
         sstatus::clear_sum();

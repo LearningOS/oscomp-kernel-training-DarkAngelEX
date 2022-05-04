@@ -1,8 +1,8 @@
 #![allow(dead_code)]
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
-pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 2
-pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 4
+pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1
+pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
 
 /// ============================== KERNEL ==============================
 ///

@@ -16,6 +16,7 @@ pub fn init(push_fn: fn(XInfo, &'static str, u32), pop_fn: fn()) {
 }
 
 #[macro_export]
+#[cfg(feature = "stack_trace")]
 macro_rules! stack_trace {
     // stack_trace!()
     () => {
@@ -50,15 +51,23 @@ macro_rules! stack_trace {
         );
     };
 }
+#[cfg(not(feature = "stack_trace"))]
+macro_rules! stack_trace {
+    () => {};
+    ($msg: literal) => {};
+    ($msg: expr) => {};
+    ($msg: literal, $($arg:tt)*) => {};
+}
 
 pub struct StackTracker;
 
 impl StackTracker {
     #[inline(always)]
     pub fn new(msg: XInfo, file: &'static str, line: u32) -> Self {
-        #[cfg(feature = "stack_trace")]
-        if let Some(f) = unsafe { STACK_PUSH_FN } {
-            f(msg, file, line)
+        match unsafe { STACK_PUSH_FN } {
+            #[cfg(feature = "stack_trace")]
+            Some(f) => f(msg, file, line),
+            _ => drop((msg, file, line)),
         }
         Self
     }
@@ -67,9 +76,10 @@ impl StackTracker {
 impl Drop for StackTracker {
     #[inline(always)]
     fn drop(&mut self) {
-        #[cfg(feature = "stack_trace")]
-        if let Some(f) = unsafe { STACK_POP_FN } {
-            f()
+        match unsafe { STACK_POP_FN } {
+            #[cfg(feature = "stack_trace")]
+            Some(f) => f(),
+            _ => (),
         }
     }
 }

@@ -26,7 +26,7 @@ fn panic(info: &PanicInfo) -> ! {
     }
     trace::using_stack_size_print();
     println!("current hart {}", cpu::hart_id());
-    // #[cfg(feature = "stack_trace")]
+    #[cfg(feature = "stack_trace")]
     {
         println!("stack_trace hart: {}", cpu::hart_id());
         local::always_local().stack_trace.print_all_stack();

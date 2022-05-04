@@ -84,6 +84,7 @@ impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
             }
         }
     }
+    #[inline(always)]
     pub fn unique_lock(&self) -> impl DerefMut<Target = T> + '_ {
         let guard = S::before_lock();
         let mut cnt = 0;
@@ -122,6 +123,7 @@ impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
         S::after_unlock(&mut guard);
         None
     }
+    #[inline(always)]
     pub fn shared_lock(&self) -> impl Deref<Target = T> + '_ {
         let guard = S::before_lock();
         if self.lock.fetch_add(1, Ordering::Relaxed) >= 0 {
