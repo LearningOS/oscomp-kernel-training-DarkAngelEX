@@ -40,16 +40,6 @@ impl<T> ListNode<T> {
                     cur = nxt;
                     nxt = (*cur).next;
                 }
-                let mut cur = self as *const _ as *mut Self;
-                let mut prv = (*cur).prev;
-                assert!((*prv).next == cur);
-                cur = prv;
-                prv = (*cur).prev;
-                while cur.as_const() != self {
-                    assert!((*prv).next == cur);
-                    cur = prv;
-                    prv = (*cur).prev;
-                }
             }
         }
     }

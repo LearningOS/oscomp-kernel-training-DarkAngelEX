@@ -20,6 +20,7 @@ pub struct Semaphore<S: MutexSupport> {
 unsafe impl<S: MutexSupport> Send for Semaphore<S> {}
 unsafe impl<S: MutexSupport> Sync for Semaphore<S> {}
 
+/// inner使用Arc包围
 struct SemaphoreInner {
     cur: isize,
     max: isize,
@@ -134,39 +135,43 @@ impl<S: MutexSupport> Semaphore<S> {
     /// 获取一个信号量
     pub async fn take_n(&self, n: usize) -> MultiplySemaphore<S> {
         debug_assert!(n <= isize::MAX as usize);
-        let n = n as isize;
-        let mut node = ListNodeImpl::new((false, n, None));
-        let mut future = SemaphoreFuture::new(n, self, &mut node);
-        future.init().await;
-        future.await
+        let future = &mut SemaphoreFuture::new(n as isize, self);
+        unsafe { Pin::new_unchecked(future).init().await.await }
     }
 }
 
-struct SemaphoreFuture<'a, 'b, S: MutexSupport> {
+struct SemaphoreFuture<'a, S: MutexSupport> {
     val: isize,
     sem: &'a Semaphore<S>,
-    node: &'b mut ListNodeImpl,
+    node: ListNodeImpl,
 }
 
-impl<'a, 'b, S: MutexSupport> SemaphoreFuture<'a, 'b, S> {
-    fn new(val: isize, sem: &'a Semaphore<S>, node: &'b mut ListNodeImpl) -> Self {
-        Self { val, sem, node }
-    }
-    async fn init(&mut self) {
-        self.node.init();
-        let mut sem = unsafe { self.sem.inner.send_lock() };
-        sem.queue.lazy_init();
-        if sem.queue.is_empty() && sem.cur >= self.val {
-            sem.cur -= self.val;
-            self.node.data_mut().0 = true;
-            return;
+impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
+    fn new(val: isize, sem: &'a Semaphore<S>) -> Self {
+        Self {
+            val,
+            sem,
+            node: ListNodeImpl::new((false, val, None)),
         }
-        self.node.data_mut().2 = Some(async_tools::take_waker().await);
-        sem.queue.push_prev(self.node);
+    }
+    async fn init(self: Pin<&mut Self>) -> Pin<&mut SemaphoreFuture<'a, S>> {
+        let this = unsafe { Pin::get_unchecked_mut(self) };
+        this.node.init();
+        let mut sem = unsafe { this.sem.inner.send_lock() };
+        sem.queue.lazy_init();
+        let data = this.node.data_mut();
+        if sem.queue.is_empty() && sem.cur >= this.val {
+            sem.cur -= this.val;
+            data.0 = true;
+        } else {
+            data.2 = Some(async_tools::take_waker().await);
+            sem.queue.push_prev(&mut this.node);
+        }
+        unsafe { Pin::new_unchecked(this) }
     }
 }
 
-impl<'a, S: MutexSupport> Future for SemaphoreFuture<'a, '_, S> {
+impl<'a, S: MutexSupport> Future for SemaphoreFuture<'a, S> {
     type Output = MultiplySemaphore<S>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {

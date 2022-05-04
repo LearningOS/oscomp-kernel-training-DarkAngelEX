@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub const STACK_TRACE: bool = true;
 pub const OPEN_DEBUG_PRINT: bool = false;
 

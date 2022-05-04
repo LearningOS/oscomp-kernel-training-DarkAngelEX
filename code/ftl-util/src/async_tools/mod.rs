@@ -6,12 +6,15 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
+/// 此函数保证不会阻塞, 自旋锁可以安全跨越
 #[inline]
 pub async fn take_waker() -> Waker {
     TakeWakerFuture.await
 }
 
-/// 避免一次Waker原子递增
+/// 此函数保证不会阻塞, 自旋锁可以安全跨越
+///
+/// 相对take_waker可以避免一次Waker引用计数原子递增, 但需要注意生命周期
 #[inline]
 pub async fn take_waker_ptr() -> NonNull<Waker> {
     TakeWakerPtrFuture.await

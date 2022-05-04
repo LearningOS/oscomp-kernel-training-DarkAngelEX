@@ -16,7 +16,7 @@ pub struct SleepMutex<T: ?Sized, S: MutexSupport> {
 }
 
 struct MutexInner {
-    this_ptr: usize,
+    this_ptr: usize, // 检测睡眠锁移动并重置头节点
     status: bool,
     queue: ListNode<(bool, Option<Waker>)>,
 }
@@ -63,39 +63,41 @@ impl<T: ?Sized + Send, S: MutexSupport> SleepMutex<T, S> {
         &mut *self.data.get()
     }
     pub async fn lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
-        let mut node = ListNode::new((false, None));
-        let mut future = SleepLockFuture::new(self, &mut node);
-        future.init().await;
-        future.await
+        let future = &mut SleepLockFuture::new(self);
+        unsafe { Pin::new_unchecked(future).init().await.await }
     }
 }
 
-struct SleepLockFuture<'a, 'b, T: ?Sized, S: MutexSupport> {
+struct SleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a SleepMutex<T, S>,
-    node: &'b mut ListNode<(bool, Option<Waker>)>,
+    node: ListNode<(bool, Option<Waker>)>,
 }
 
-impl<'a, 'b, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, 'b, T, S> {
-    fn new(mutex: &'a SleepMutex<T, S>, node: &'b mut ListNode<(bool, Option<Waker>)>) -> Self {
-        SleepLockFuture { mutex, node }
+impl<'a, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, T, S> {
+    fn new(mutex: &'a SleepMutex<T, S>) -> Self {
+        SleepLockFuture {
+            mutex,
+            node: ListNode::new((false, None)),
+        }
     }
-    async fn init(&mut self) {
-        self.node.init();
-        let inner = unsafe { &mut *self.mutex.lock.send_lock() };
+    async fn init(self: Pin<&mut Self>) -> Pin<&mut SleepLockFuture<'a, T, S>> {
+        let this = unsafe { self.get_unchecked_mut() };
+        this.node.init();
+        let inner = unsafe { &mut *this.mutex.lock.send_lock() };
         inner.lazy_init();
-        let this = self.node.data_mut();
-        // empty
+        let data = this.node.data_mut();
         if !inner.status {
             inner.status = true; // lock
-            this.0 = true;
-            return;
+            data.0 = true;
+        } else {
+            data.1 = Some(async_tools::take_waker().await);
+            inner.queue.push_prev(&mut this.node);
         }
-        this.1 = Some(async_tools::take_waker().await);
-        inner.queue.push_prev(self.node);
+        unsafe { Pin::new_unchecked(this) }
     }
 }
 
-impl<'a, 'b, T: ?Sized, S: MutexSupport> Future for SleepLockFuture<'a, 'b, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Future for SleepLockFuture<'a, T, S> {
     type Output = SleepMutexGuard<'a, T, S>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {

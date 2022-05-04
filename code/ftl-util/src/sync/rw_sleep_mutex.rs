@@ -91,53 +91,54 @@ impl<T: ?Sized, S: MutexSupport> RwSleepMutex<T, S> {
         &mut *self.data.get()
     }
     pub async fn shared_lock(&self) -> impl Deref<Target = T> + '_ {
-        let mut node = ListNode::new((false, None));
-        let mut future = SharedSleepLockFuture::new(self, &mut node);
-        future.init().await;
-        future.await
+        let future = &mut SharedSleepLockFuture::new(self);
+        unsafe { Pin::new_unchecked(future).init().await.await }
     }
     #[inline(always)]
     pub async fn unique_lock(&self) -> impl DerefMut<Target = T> + '_ {
-        let mut node = ListNode::new((false, None));
-        let mut future = UniqueSleepLockFuture::new(self, &mut node);
-        future.init().await;
-        future.await
+        let future = &mut UniqueSleepLockFuture::new(self);
+        unsafe { Pin::new_unchecked(future).init().await.await }
     }
 }
 
-struct SharedSleepLockFuture<'a, 'b, T: ?Sized, S: MutexSupport> {
+struct SharedSleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a RwSleepMutex<T, S>,
-    node: &'b mut ListNodeImpl,
+    node: ListNodeImpl,
 }
 
-impl<'a, 'b, T: ?Sized, S: MutexSupport> SharedSleepLockFuture<'a, 'b, T, S> {
-    fn new(mutex: &'a RwSleepMutex<T, S>, node: &'b mut ListNodeImpl) -> Self {
-        Self { mutex, node }
+impl<'a, T: ?Sized, S: MutexSupport> SharedSleepLockFuture<'a, T, S> {
+    fn new(mutex: &'a RwSleepMutex<T, S>) -> Self {
+        Self {
+            mutex,
+            node: ListNodeImpl::new((false, None)),
+        }
     }
-    async fn init(&mut self) {
+    async fn init(self: Pin<&mut Self>) -> Pin<&mut SharedSleepLockFuture<'a, T, S>> {
         stack_trace!();
-        self.node.init();
-        let mx_list = unsafe { &mut *self.mutex.lock.send_lock() };
+        let this = unsafe { self.get_unchecked_mut() };
+        this.node.init();
+        let mx_list = unsafe { &mut *this.mutex.lock.send_lock() };
         mx_list.lazy_init();
-        let this = self.node.data_mut();
+        let data = this.node.data_mut();
         match mx_list.status {
             Status::Unlock => {
                 mx_list.status = Status::Shared(1);
-                this.0 = true;
+                data.0 = true;
             }
             Status::Shared(n) if mx_list.unique.is_empty() => {
                 mx_list.status = Status::Shared(n + 1);
-                this.0 = true;
+                data.0 = true;
             }
             _ => {
-                this.1 = Some(async_tools::take_waker().await);
-                mx_list.shared.push_prev(self.node);
+                data.1 = Some(async_tools::take_waker().await);
+                mx_list.shared.push_prev(&mut this.node);
             }
-        }
+        };
+        unsafe { Pin::new_unchecked(this) }
     }
 }
 
-impl<'a, T: ?Sized, S: MutexSupport> Future for SharedSleepLockFuture<'a, '_, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Future for SharedSleepLockFuture<'a, T, S> {
     type Output = SharedSleepMutexGuard<'a, T, S>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -148,37 +149,40 @@ impl<'a, T: ?Sized, S: MutexSupport> Future for SharedSleepLockFuture<'a, '_, T,
     }
 }
 
-struct UniqueSleepLockFuture<'a, 'b, T: ?Sized, S: MutexSupport> {
+struct UniqueSleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
     mutex: &'a RwSleepMutex<T, S>,
-    node: &'b mut ListNodeImpl,
+    node: ListNodeImpl,
 }
 
-impl<'a, 'b, T: ?Sized, S: MutexSupport> UniqueSleepLockFuture<'a, 'b, T, S> {
-    fn new(mutex: &'a RwSleepMutex<T, S>, node: &'b mut ListNodeImpl) -> Self {
-        UniqueSleepLockFuture { mutex, node }
+impl<'a, T: ?Sized, S: MutexSupport> UniqueSleepLockFuture<'a, T, S> {
+    fn new(mutex: &'a RwSleepMutex<T, S>) -> Self {
+        UniqueSleepLockFuture {
+            mutex,
+            node: ListNodeImpl::new((false, None)),
+        }
     }
-    async fn init(&mut self) {
+    async fn init(self: Pin<&mut Self>) -> Pin<&mut UniqueSleepLockFuture<'a, T, S>> {
         stack_trace!();
-        self.node.init();
-        let mx_list = unsafe { &mut *self.mutex.lock.send_lock() };
+        let this = unsafe { self.get_unchecked_mut() };
+        this.node.init();
+        let mx_list = unsafe { &mut *this.mutex.lock.send_lock() };
         mx_list.lazy_init();
-        let this = self.node.data_mut();
+        let data = this.node.data_mut();
         match mx_list.status {
             Status::Unlock => {
                 mx_list.status = Status::Unique;
-                this.0 = true;
+                data.0 = true;
             }
             _ => {
-                this.1 = Some(async_tools::take_waker().await);
-                mx_list.unique.push_prev(self.node);
+                data.1 = Some(async_tools::take_waker().await);
+                mx_list.unique.push_prev(&mut this.node);
             }
         }
-        mx_list.shared.list_check();
-        mx_list.unique.list_check();
+        unsafe { Pin::new_unchecked(this) }
     }
 }
 
-impl<'a, T: ?Sized, S: MutexSupport> Future for UniqueSleepLockFuture<'a, '_, T, S> {
+impl<'a, T: ?Sized, S: MutexSupport> Future for UniqueSleepLockFuture<'a, T, S> {
     type Output = UnqiueSleepMutexGuard<'a, T, S>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -216,8 +220,6 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedSleepMutexGuard<'a, T, S> {
             }
         }
         if let Some(mut unique) = mx_list.unique.pop_next() {
-            mx_list.shared.list_check();
-            mx_list.unique.list_check();
             mx_list.status = Status::Unique;
             drop(mx_list);
             let data = unsafe { unique.as_mut().data_mut() };
@@ -228,7 +230,6 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedSleepMutexGuard<'a, T, S> {
             waker.wake();
             return;
         }
-        stack_trace!();
         // release all shared
         let mut cnt = 0;
         while let Some(mut shared) = mx_list.shared.pop_next() {
