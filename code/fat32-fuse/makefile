@@ -22,6 +22,7 @@ endumount:
 	-sudo umount -l $(DIR_PATH)
 
 init_dir_test_caes: mount
+	@cd ../user && make build
 	@cd .. && chmod 777 ./make_test.sh && ./make_test.sh && chmod 777 ./take_case.sh && ./take_case.sh;
 #	@(find ../initproc/) && (find ../test_case/) || (cd .. && ./take_case.sh)
 	@cp -r ../initproc/. $(DIR_PATH)/
