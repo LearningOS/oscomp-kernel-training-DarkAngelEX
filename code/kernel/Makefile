@@ -81,13 +81,16 @@ ifeq ($(BOARD), qemu)
 	@echo Platform: qemu
 	@cp src/hart/boot/linker64.ld src/linker.ld
 ifeq ($(MODE), release)
-	@cargo build --release
+	@cargo build --release --offline
 else
-	@cargo build
+	@cargo build --offline
 endif
 	@rm src/linker.ld
 endif
 endif
+
+take_bin: build
+	@cp -f $(KERNEL_BIN) ./os.bin
 
 clean:
 	@cargo clean
