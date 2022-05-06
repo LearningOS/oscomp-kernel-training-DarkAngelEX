@@ -143,12 +143,18 @@ impl PageTableEntry {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
         pa.as_pte_array_mut().fill(PageTableEntry::empty());
-        *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
+        *self = Self::new(
+            PhyAddr4K::from(pa),
+            perm | PTEFlags::D | PTEFlags::A | PTEFlags::V,
+        );
         Ok(())
     }
     pub fn alloc_by_frame(&mut self, perm: PTEFlags, pa: PhyAddrRef4K) {
         assert!(!self.is_valid(), "try alloc to a valid pte");
-        *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
+        *self = Self::new(
+            PhyAddr4K::from(pa),
+            perm | PTEFlags::D | PTEFlags::A | PTEFlags::V,
+        );
     }
     /// this function will clear V flag.
     pub unsafe fn dealloc_by(&mut self, allocator: &mut impl FrameAllocator) {
@@ -298,7 +304,7 @@ impl PageTable {
     ) -> Result<(), FrameOOM> {
         let pte = self.find_pte_create(va, allocator)?;
         debug_assert!(!pte.is_valid(), "va {:?} is mapped before mapping", va);
-        *pte = PageTableEntry::new(par.into(), flags | PTEFlags::V);
+        *pte = PageTableEntry::new(par.into(), flags | PTEFlags::D | PTEFlags::A | PTEFlags::V);
         Ok(())
     }
     /// don't release space of par.

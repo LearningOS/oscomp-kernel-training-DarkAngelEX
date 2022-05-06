@@ -252,7 +252,10 @@ impl PageTable {
                 // fill zero if return Error
                 let _ = data_iter.write_to(par.as_bytes_array_mut());
                 memory_trace!("PageTable::map_user_range_2-2");
-                *pte = PageTableEntry::new(par.into(), flags | PTEFlags::V);
+                *pte = PageTableEntry::new(
+                    par.into(),
+                    flags | PTEFlags::D | PTEFlags::A | PTEFlags::V,
+                );
                 ua = ua.add_one_page();
             }
             Ok(ua)
@@ -594,7 +597,7 @@ impl PageTable {
                     // if true || PRINT_MAP_ALL {
                     //     println!("map 1GB {:?} -> {:?}", va, pa);
                     // }
-                    *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                    *pte = PageTableEntry::new(pa, flags | PTEFlags::D | PTEFlags::A | PTEFlags::V);
                     unsafe {
                         va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << (9 * 2)));
                         pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << (9 * 2)));
@@ -628,7 +631,7 @@ impl PageTable {
                     // 1MB page table
                     assert!(!pte.is_valid(), "1MB pagetable: remap");
                     debug_assert!(va.into_usize() % (PAGE_SIZE * (1 << 9)) == 0);
-                    *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                    *pte = PageTableEntry::new(pa, flags | PTEFlags::D | PTEFlags::A | PTEFlags::V);
                     unsafe {
                         va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE * (1 << 9));
                         pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE * (1 << 9));
@@ -659,7 +662,7 @@ impl PageTable {
                 // if true || PRINT_MAP_ALL {
                 //     println!("map: {:?} -> {:?}", va, pa);
                 // }
-                *pte = PageTableEntry::new(pa, flags | PTEFlags::V);
+                *pte = PageTableEntry::new(pa, flags | PTEFlags::D | PTEFlags::A | PTEFlags::V);
                 unsafe {
                     va = VirAddr4K::from_usize(va.into_usize() + PAGE_SIZE);
                     pa = PhyAddr4K::from_usize(pa.into_usize() + PAGE_SIZE);

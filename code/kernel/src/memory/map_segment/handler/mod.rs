@@ -29,7 +29,7 @@ pub trait UserAreaHandler: Send + 'static {
     fn id(&self) -> HandlerID;
     fn perm(&self) -> PTEFlags;
     fn map_perm(&self) -> PTEFlags {
-        self.perm() | PTEFlags::U | PTEFlags::V
+        self.perm() | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
     fn user_area(&self, range: URange) -> UserArea {
         UserArea::new(range, self.perm())
@@ -233,7 +233,7 @@ impl AsyncHandler for FileAsyncHandler {
         self.id
     }
     fn perm(&self) -> PTEFlags {
-        self.perm | PTEFlags::U | PTEFlags::V
+        self.perm | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
     fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<Asid> {
         Box::pin(async move {
@@ -247,7 +247,8 @@ impl AsyncHandler for FileAsyncHandler {
                 debug_assert!(addr >= self.start);
                 let offset = addr.into_usize() - self.start.into_usize() + self.offset;
                 let frame = allocator.alloc()?;
-                let n = self.file
+                let n = self
+                    .file
                     .read_at_kernel(offset, frame.data().as_bytes_array_mut())
                     .await?;
                 frame.data().as_bytes_array_mut()[n..].fill(0);
@@ -279,7 +280,8 @@ impl AsyncHandler for FileAsyncHandler {
             debug_assert!(addr >= self.start);
             let offset = addr.into_usize() - self.start.into_usize() + self.offset;
             let frame = allocator.alloc()?;
-            let n = self.file
+            let n = self
+                .file
                 .read_at_kernel(offset, frame.data().as_bytes_array_mut())
                 .await?;
             frame.data().as_bytes_array_mut()[n..].fill(0);
