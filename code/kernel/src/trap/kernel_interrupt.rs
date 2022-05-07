@@ -1,17 +1,12 @@
-use riscv::register::{scause, sstatus};
+use riscv::register::{
+    scause::{self, Interrupt},
+    sstatus,
+};
 
 use crate::{local, timer};
 
-// 中断已经被关闭。
-#[no_mangle]
-pub fn kernel_default_interrupt() {
+pub fn kernel_default_interrupt(interrupt: Interrupt) {
     stack_trace!();
-    let interrupt = match scause::read().cause() {
-        scause::Trap::Interrupt(i) => i,
-        scause::Trap::Exception(e) => {
-            panic!("should kernel_interrupt but {:?}", e);
-        }
-    };
     if cfg!(debug_assertions) {
         let it = &mut local::hart_local().interrupt;
         assert!(!*it);

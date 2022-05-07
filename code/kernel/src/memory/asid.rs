@@ -11,6 +11,8 @@ use crate::{
     tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
 };
 
+const USING_ASID: bool = false;
+
 const ASID_BIT: usize = 16;
 const MAX_ASID: usize = 1usize << ASID_BIT;
 const ASID_MASK: usize = MAX_ASID - 1;
@@ -276,7 +278,7 @@ pub fn asid_test() {
         space_2.using();
         sfence::sfence_vma_all_global();
         assert_eq!(va_get(va), 8);
-        
+
         println!("[FTL OS]asid test: flush error asid");
         space_1.using();
         sfence::sfence_vma_asid(345);
@@ -290,6 +292,29 @@ pub fn asid_test() {
         space_2.using();
         sfence::sfence_vma_asid(345);
         assert_eq!(va_get(va), 10);
+        sfence::sfence_vma_all_global();
+
+        println!("[FTL OS]asid test: just wait");
+        space_1.using();
+        for i in 0..100 {
+            core::hint::black_box(i);
+        }
+        va_set(va, 11);
+        space_2.using();
+        for i in 0..100 {
+            core::hint::black_box(i);
+        }
+        va_set(va, 12);
+        space_1.using();
+        for i in 0..100 {
+            core::hint::black_box(i);
+        }
+        assert_eq!(va_get(va), 11);
+        space_2.using();
+        for i in 0..100 {
+            core::hint::black_box(i);
+        }
+        assert_eq!(va_get(va), 12);
         sfence::sfence_vma_all_global();
 
         sfence::sfence_vma_all_global();

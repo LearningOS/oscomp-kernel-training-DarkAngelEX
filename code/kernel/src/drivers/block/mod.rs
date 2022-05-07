@@ -14,8 +14,8 @@ static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
 
 pub fn init() {
     println!("[FTL OS]driver init");
-    println!("[FTL OS]ignore dirver init");
-    // unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
+    // println!("[FTL OS]ignore dirver init");
+    unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
 }
 
 pub fn device() -> &'static Arc<dyn BlockDevice> {

@@ -1,6 +1,6 @@
 mod page_fault;
 
-use riscv::register::{scause, sepc, sstatus, stval};
+use riscv::register::{scause::{self, Exception}, sepc, sstatus, stval};
 
 use crate::{
     hart::{self, cpu},
@@ -8,8 +8,8 @@ use crate::{
     xdebug::trace,
 };
 
-#[no_mangle]
-pub fn kernel_default_exception() {
+
+pub fn kernel_default_exception(exception: Exception) {
     stack_trace!();
     trace::stack_detection();
     // 中断已经被关闭
@@ -21,10 +21,6 @@ pub fn kernel_default_exception() {
     let mut sepc = sepc::read();
     let stval = stval::read();
 
-    let exception = match scause::read().cause() {
-        scause::Trap::Exception(e) => e,
-        scause::Trap::Interrupt(i) => panic!("should kernel_exception but {:?}", i),
-    };
     match exception {
         scause::Exception::InstructionMisaligned => todo!(),
         scause::Exception::InstructionFault => todo!(),

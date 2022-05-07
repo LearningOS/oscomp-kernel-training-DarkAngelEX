@@ -2,7 +2,7 @@ use core::arch::global_asm;
 
 use riscv::register::{
     scause::{self, Exception, Scause},
-    sepc, stval, stvec,
+    sepc, sstatus, stval, stvec,
     utvec::TrapMode,
 };
 
@@ -20,11 +20,11 @@ use crate::{
     xdebug::PRINT_PAGE_FAULT,
 };
 
-use super::UserAccessStatus;
+use super::{AutoSie, UserAccessStatus};
 
 global_asm!(include_str!("check_impl.S"));
 
-pub(super) struct UserCheckImpl<'a>(&'a Process);
+pub(super) struct UserCheckImpl<'a>(&'a Process, AutoSie);
 
 impl Drop for UserCheckImpl<'_> {
     fn drop(&mut self) {
@@ -36,8 +36,9 @@ impl Drop for UserCheckImpl<'_> {
 impl<'a> UserCheckImpl<'a> {
     pub fn new(process: &'a Process) -> Self {
         assert!(Self::status().is_access());
+        let auto_size = AutoSie::new();
         unsafe { set_error_handle() };
-        Self(process)
+        Self(process, auto_size)
     }
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status
@@ -92,7 +93,16 @@ impl<'a> UserCheckImpl<'a> {
             Err(TryRunFail::Error(e)) => return Err(e),
             Err(TryRunFail::Async(a)) => a,
         };
-        let asid = a.a_page_fault(self.0, ptr).await?;
+
+        unsafe { trap::set_kernel_default_trap() };
+        let asid = match a.a_page_fault(self.0, ptr).await {
+            Ok(asid) => asid,
+            Err(e) => {
+                unsafe { set_error_handle() };
+                return Err(e);
+            }
+        };
+        unsafe { set_error_handle() };
         local::all_hart_sfence_vma_va_asid(ptr, asid);
         Ok(())
     }
@@ -144,9 +154,10 @@ fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), SysError> {
 
 unsafe fn set_error_handle() {
     extern "C" {
-        fn __try_access_user_error_vector();
+        fn __try_access_user_error_trap();
     }
-    stvec::write(__try_access_user_error_vector as usize, TrapMode::Vectored);
+    debug_assert!(!sstatus::read().sie());
+    stvec::write(__try_access_user_error_trap as usize, TrapMode::Direct);
 }
 
 // 只有check_impl.S的两个函数可以进入这里, 中断会丢失寄存器信息

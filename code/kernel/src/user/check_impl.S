@@ -2,7 +2,6 @@
     .global __try_read_user_u8
     .global __try_write_user_u8
     .global __try_access_user_error_vector
-
     .align 2
 __try_read_user_u8:
     mv a1, a0
@@ -18,7 +17,7 @@ __try_write_user_u8:
 
 // if page fault happen, a0 will become 1, a1 will become scause.
     .align 2
-try_access_user_error:
+__try_access_user_error_trap:
     addi sp, sp, -16
     sd   ra, 8(sp)
     # call try_access_user_error_debug
@@ -30,11 +29,3 @@ try_access_user_error:
     ld   ra, 8(sp)
     addi sp, sp, 16
     sret
-
-__try_access_user_error_vector:
-    .align 2
-    j try_access_user_error
-    .rept 16
-    .align 2
-    j __kernel_default_interrupt_entry
-    .endr

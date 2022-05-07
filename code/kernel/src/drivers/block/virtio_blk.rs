@@ -7,7 +7,7 @@ use crate::{
         address::{PageCount, PhyAddr, PhyAddr4K, PhyAddrRef, VirAddr},
         allocator::frame,
     },
-    sync::mutex::SpinNoIrqLock,
+    sync::SleepMutex,
 };
 
 use super::BlockDevice;
@@ -18,7 +18,7 @@ use virtio_drivers::{VirtIOBlk, VirtIOHeader};
 #[allow(unused)]
 const VIRTIO0: usize = 0x10001000;
 
-pub struct VirtIOBlock(SpinNoIrqLock<VirtIOBlk<'static>>);
+pub struct VirtIOBlock(SleepMutex<VirtIOBlk<'static>>);
 
 impl BlockDevice for VirtIOBlock {
     fn sector_bpb(&self) -> usize {
@@ -30,7 +30,7 @@ impl BlockDevice for VirtIOBlock {
     fn read_block<'a>(&'a self, mut block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             stack_trace!();
-            let io = &mut *self.0.lock();
+            let io = &mut *self.0.lock().await;
             for buf in buf.chunks_mut(self.sector_bytes()) {
                 io.read_block(block_id, buf)
                     .expect("Error when reading VirtIOBlk");
@@ -42,7 +42,7 @@ impl BlockDevice for VirtIOBlock {
     fn write_block<'a>(&'a self, mut block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             stack_trace!();
-            let io = &mut *self.0.lock();
+            let io = &mut *self.0.lock().await;
             for buf in buf.chunks(self.sector_bytes()) {
                 io.write_block(block_id, buf)
                     .expect("Error when reading VirtIOBlk");
@@ -57,7 +57,7 @@ impl VirtIOBlock {
     #[allow(unused)]
     pub fn new() -> Self {
         unsafe {
-            Self(SpinNoIrqLock::new(
+            Self(SleepMutex::new(
                 VirtIOBlk::new(&mut *((VIRTIO0 + DIRECT_MAP_OFFSET) as *mut VirtIOHeader)).unwrap(),
             ))
         }
