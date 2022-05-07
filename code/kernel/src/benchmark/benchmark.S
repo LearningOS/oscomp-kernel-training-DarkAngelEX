@@ -1,6 +1,6 @@
     .section .text
-    .global __kernel_benchmark_exception_entry
-    .global __kernel_benchmark_exception_save_entry
+    .global __kernel_benchmark_vector
+    .global __kernel_benchmark_save_vector
     .align 2
 __kernel_benchmark_exception_entry:
     addi sp, sp, -8
@@ -68,3 +68,19 @@ __kernel_benchmark_exception_save_entry:
     ld  a7, 0(sp)
     addi sp, sp, 2*8
     sret
+
+__kernel_benchmark_vector:
+    .align 7
+    j __kernel_benchmark_exception_entry
+    .rept 16
+    .align 2
+    j __kernel_default_interrupt_entry
+    .endr
+
+__kernel_benchmark_save_vector:
+    .align 7
+    j __kernel_benchmark_exception_save_entry
+    .rept 16
+    .align 2
+    j __kernel_default_interrupt_entry
+    .endr

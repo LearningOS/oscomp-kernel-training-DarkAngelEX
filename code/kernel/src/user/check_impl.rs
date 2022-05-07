@@ -24,7 +24,7 @@ use super::{AutoSie, UserAccessStatus};
 
 global_asm!(include_str!("check_impl.S"));
 
-pub(super) struct UserCheckImpl<'a>(&'a Process, AutoSie);
+pub(super) struct UserCheckImpl<'a>(&'a Process);
 
 impl Drop for UserCheckImpl<'_> {
     fn drop(&mut self) {
@@ -36,9 +36,8 @@ impl Drop for UserCheckImpl<'_> {
 impl<'a> UserCheckImpl<'a> {
     pub fn new(process: &'a Process) -> Self {
         assert!(Self::status().is_access());
-        let auto_size = AutoSie::new();
         unsafe { set_error_handle() };
-        Self(process, auto_size)
+        Self(process)
     }
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status

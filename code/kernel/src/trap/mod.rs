@@ -1,9 +1,6 @@
 use core::arch::global_asm;
 
-use riscv::register::{
-    scause::{self, Trap},
-    sstatus,
-};
+use riscv::register::sstatus;
 
 use crate::riscv::register::{
     sie,
@@ -35,21 +32,12 @@ pub fn run_user(cx: &mut UKContext) {
     };
 }
 
-#[no_mangle]
-pub extern "C" fn kernel_default_trap() {
-    stack_trace!();
-    match scause::read().cause() {
-        Trap::Exception(e) => kernel_exception::kernel_default_exception(e),
-        Trap::Interrupt(i) => kernel_interrupt::kernel_default_interrupt(i),
-    };
-}
-
 #[inline(always)]
 pub unsafe fn set_kernel_default_trap() {
     extern "C" {
-        fn __kernel_default_trap();
+        fn __kernel_default_vector();
     }
-    stvec::write(__kernel_default_trap as usize, TrapMode::Direct);
+    stvec::write(__kernel_default_vector as usize, TrapMode::Vectored);
 }
 
 #[inline(always)]
