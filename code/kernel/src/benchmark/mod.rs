@@ -183,7 +183,7 @@ fn atomic_test() {
     }
     timer.check("satp write", base_time, ratio);
 
-    if false {
+    if true {
         let ratio = 10;
         unsafe { set_benchmark_trap() };
         let ptr = 8 as *mut usize;
@@ -231,12 +231,12 @@ unsafe fn set_benchmark_trap() {
     }
     stvec::write(
         __kernel_benchmark_exception_entry as usize,
-        TrapMode::Vectored,
+        TrapMode::Direct,
     );
 }
 unsafe fn set_benchmark_save_trap() {
     extern "C" {
         fn __kernel_benchmark_save_vector();
     }
-    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Vectored);
+    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Direct);
 }

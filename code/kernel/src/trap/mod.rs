@@ -37,7 +37,7 @@ pub unsafe fn set_kernel_default_trap() {
     extern "C" {
         fn __kernel_default_vector();
     }
-    stvec::write(__kernel_default_vector as usize, TrapMode::Vectored);
+    stvec::write(__kernel_default_vector as usize, TrapMode::Direct);
 }
 
 #[inline(always)]
