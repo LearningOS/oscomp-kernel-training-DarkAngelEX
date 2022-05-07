@@ -264,9 +264,9 @@ pub fn asid_test() {
         }
         let asid_1 = space_1.asid();
         let asid_2 = space_2.asid();
-        println!("[FTL OS]asid test: flush asid: {:?} {:?}", asid_1, asid_2);
-
-        for _ in 0..100 {
+        println!("[FTL OS]asid test: flush asid");
+        println!("test case 1 {:?} {:?}", asid_1, asid_2);
+        for i in 0..100 {
             space_1.using();
             va_set(va, 7);
             sfence::sfence_vma_asid(asid_1.into_usize());
@@ -274,50 +274,106 @@ pub fn asid_test() {
             va_set(va, 8);
             sfence::sfence_vma_asid(asid_2.into_usize());
             space_1.using();
-            assert_eq!(va_get(va), 7);
+            if va_get(va) != 7 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
             sfence::sfence_vma_asid(asid_1.into_usize());
             space_2.using();
-            assert_eq!(va_get(va), 8);
+            if va_get(va) != 8 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            sfence::sfence_vma_asid(asid_2.into_usize());
+        }
+        sfence::sfence_vma_all_global();
+        let asid_1 = space_1.asid();
+        let asid_2 = space_2.asid();
+        println!("test case 2 {:?} {:?}", asid_1, asid_2);
+        for i in 0..100 {
+            let v1 = i * 2 + 1;
+            let v2 = i * 2 + 2;
+            space_1.using();
+            va_set(va, v1);
+            sfence::sfence_vma_asid(asid_1.into_usize());
+            sfence::sfence_vma_asid(asid_2.into_usize());
+            space_2.using();
+            va_set(va, v2);
+            sfence::sfence_vma_asid(asid_1.into_usize());
+            sfence::sfence_vma_asid(asid_2.into_usize());
+            space_1.using();
+            if va_get(va) != v1 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            sfence::sfence_vma_asid(asid_1.into_usize());
+            sfence::sfence_vma_asid(asid_2.into_usize());
+            space_2.using();
+            if va_get(va) != v2 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            sfence::sfence_vma_asid(asid_1.into_usize());
             sfence::sfence_vma_asid(asid_2.into_usize());
         }
         sfence::sfence_vma_all_global();
 
         println!("[FTL OS]asid test: flush error asid");
-        space_1.using();
-        sfence::sfence_vma_asid(345);
-        va_set(va, 9);
-        space_2.using();
-        sfence::sfence_vma_asid(345);
-        va_set(va, 10);
-        space_1.using();
-        sfence::sfence_vma_asid(345);
-        assert_eq!(va_get(va), 9);
-        space_2.using();
-        sfence::sfence_vma_asid(345);
-        assert_eq!(va_get(va), 10);
+        for i in 0..100 {
+            let v1 = i * 2 + 1;
+            let v2 = i * 2 + 2;
+            space_1.using();
+            va_set(va, v1);
+            sfence::sfence_vma_asid(345);
+            space_2.using();
+            va_set(va, v2);
+            sfence::sfence_vma_asid(345);
+            space_1.using();
+            if va_get(va) != v1 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            sfence::sfence_vma_asid(345);
+            space_2.using();
+            if va_get(va) != v2 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            sfence::sfence_vma_asid(345);
+        }
         sfence::sfence_vma_all_global();
 
         println!("[FTL OS]asid test: just wait");
-        space_1.using();
         for i in 0..100 {
-            core::hint::black_box(i);
+            let v1 = i * 2 + 1;
+            let v2 = i * 2 + 2;
+            space_1.using();
+            va_set(va, v1);
+            for j in 0..100 {
+                core::hint::black_box(j);
+            }
+            space_2.using();
+            va_set(va, v2);
+            for j in 0..100 {
+                core::hint::black_box(j);
+            }
+            space_1.using();
+            if va_get(va) != v1 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            for j in 0..100 {
+                core::hint::black_box(j);
+            }
+            space_2.using();
+            if va_get(va) != v2 {
+                println!("error in iter:{} line: {}", i, line!());
+                break;
+            }
+            for j in 0..100 {
+                core::hint::black_box(j);
+            }
         }
-        va_set(va, 11);
-        space_2.using();
-        for i in 0..100 {
-            core::hint::black_box(i);
-        }
-        va_set(va, 12);
-        space_1.using();
-        for i in 0..100 {
-            core::hint::black_box(i);
-        }
-        assert_eq!(va_get(va), 11);
-        space_2.using();
-        for i in 0..100 {
-            core::hint::black_box(i);
-        }
-        assert_eq!(va_get(va), 12);
         sfence::sfence_vma_all_global();
 
         sfence::sfence_vma_all_global();

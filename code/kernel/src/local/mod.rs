@@ -121,7 +121,7 @@ impl HartLocal {
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
         }
-        hart::sfence::sfence_vma_asid(1); // 反正不支持ASID
+        // hart::sfence::sfence_vma_asid(1); // 反正不支持ASID
     }
     pub fn leave_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Task(_)));
