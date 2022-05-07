@@ -182,9 +182,7 @@ pub unsafe fn dealloc_asid(asid_info: AsidInfo) {
 }
 
 pub fn version_check_alloc(asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
-    ASID_MANAGER
-        .lock()
-        .version_check_alloc(asid_info, satp)
+    ASID_MANAGER.lock().version_check_alloc(asid_info, satp)
 }
 
 pub fn asid_test() {
@@ -217,15 +215,84 @@ pub fn asid_test() {
     let old_satp = unsafe { csr::get_satp() };
 
     unsafe {
+        use crate::hart::sfence;
+
+        println!("[FTL OS]asid test: flush all");
         space_1.using();
+        sfence::sfence_vma_all_global();
         va_set(va, 1);
         space_2.using();
+        sfence::sfence_vma_all_global();
         va_set(va, 2);
         space_1.using();
+        sfence::sfence_vma_all_global();
         assert_eq!(va_get(va), 1);
         space_2.using();
+        sfence::sfence_vma_all_global();
         assert_eq!(va_get(va), 2);
+        sfence::sfence_vma_all_global();
+        println!("[FTL OS]asid test: flush one");
+        space_1.using();
+        sfence::sfence_vma_va_global(va.into_usize());
+        va_set(va, 3);
+        space_2.using();
+        sfence::sfence_vma_va_global(va.into_usize());
+        va_set(va, 4);
+        space_1.using();
+        sfence::sfence_vma_va_global(va.into_usize());
+        assert_eq!(va_get(va), 3);
+        space_2.using();
+        sfence::sfence_vma_va_global(va.into_usize());
+        assert_eq!(va_get(va), 4);
+        sfence::sfence_vma_all_global();
+        if false {
+            println!("[FTL OS]asid test: flush error one");
+            space_1.using();
+            sfence::sfence_vma_va_global(0x80000);
+            va_set(va, 5);
+            space_2.using();
+            sfence::sfence_vma_va_global(0x80000);
+            va_set(va, 6);
+            space_1.using();
+            sfence::sfence_vma_va_global(0x80000);
+            assert_eq!(va_get(va), 5);
+            space_2.using();
+            sfence::sfence_vma_va_global(0x80000);
+            assert_eq!(va_get(va), 6);
+            sfence::sfence_vma_all_global();
+        }
+        println!("[FTL OS]asid test: flush asid");
+        let asid_1 = space_1.asid();
+        let asid_2 = space_2.asid();
+        space_1.using();
+        sfence::sfence_vma_asid(asid_1.into_usize());
+        va_set(va, 7);
+        space_2.using();
+        sfence::sfence_vma_asid(asid_2.into_usize());
+        va_set(va, 8);
+        space_1.using();
+        sfence::sfence_vma_asid(asid_1.into_usize());
+        assert_eq!(va_get(va), 7);
+        space_2.using();
+        sfence::sfence_vma_all_global();
+        assert_eq!(va_get(va), 8);
+        
+        println!("[FTL OS]asid test: flush error asid");
+        space_1.using();
+        sfence::sfence_vma_asid(345);
+        va_set(va, 9);
+        space_2.using();
+        sfence::sfence_vma_asid(345);
+        va_set(va, 10);
+        space_1.using();
+        sfence::sfence_vma_asid(345);
+        assert_eq!(va_get(va), 9);
+        space_2.using();
+        sfence::sfence_vma_asid(345);
+        assert_eq!(va_get(va), 10);
+        sfence::sfence_vma_all_global();
 
+        sfence::sfence_vma_all_global();
         csr::set_satp(old_satp);
         space_1.unmap_par(va4k, pa1);
         space_2.unmap_par(va4k, pa2);

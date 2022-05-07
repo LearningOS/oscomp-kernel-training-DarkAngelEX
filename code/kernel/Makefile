@@ -62,6 +62,7 @@ sdcard: fs-img
 
 $(KERNEL_BIN): kernel
 	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
+	@cp -f $(KERNEL_BIN) ./os.bin
 
 fs-img-prev: $(APPS)
 	@cd ../user && make build
@@ -89,8 +90,8 @@ endif
 endif
 endif
 
-take_bin: build
-	@cp -f $(KERNEL_BIN) ./os.bin
+take_bin: $(KERNEL_BIN)
+	
 
 clean:
 	@cargo clean

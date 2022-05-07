@@ -4,10 +4,10 @@ use core::{
 };
 
 use crate::{
-    benchmark, drivers, executor, fs, local, memory, process, timer,
+    benchmark, console, drivers, executor, fs, local, memory, process, timer,
     tools::{self, container},
     trap, user,
-    xdebug::{CLOSE_TIME_INTERRUPT, self}, console,
+    xdebug::{self, CLOSE_TIME_INTERRUPT},
 };
 
 pub mod cpu;
@@ -20,6 +20,7 @@ pub mod sfence;
 global_asm!(include_str!("./boot/entry64.asm"));
 
 static INIT_START: AtomicBool = AtomicBool::new(false);
+static INIT_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
 static AP_CAN_INIT: AtomicBool = AtomicBool::new(false);
 #[link_section = "data"]
 static FIRST_HART: AtomicBool = AtomicBool::new(false);
@@ -50,8 +51,9 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         .is_ok()
     {
         clear_bss();
+        INIT_HART.store(hartid, Ordering::Release);
         INIT_START.store(true, Ordering::Release);
-        // println!("[FTL OS]clear bss using hart {}", hartid);
+        println!("[FTL OS]version 0.0.1");
     } else {
         while !INIT_START.load(Ordering::Acquire) {}
     }
@@ -63,13 +65,12 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         hartid, device_tree_paddr
     );
     if device_tree_paddr != 0 {
-        // DEVICE_TREE_PADDR.compare_exchange(current, new, success, failure);
         DEVICE_TREE_PADDR.store(device_tree_paddr, Ordering::Release);
     }
 
     unsafe { cpu::increase_cpu() };
     local::set_stack();
-    if hartid != BOOT_HART_ID {
+    if hartid != INIT_HART.load(Ordering::Acquire) {
         while !AP_CAN_INIT.load(Ordering::Acquire) {}
         println!("[FTL OS]hart {} started", hartid);
         others_main(hartid); // -> !!!!!!!!!!!!!!! main !!!!!!!!!!!!!!!

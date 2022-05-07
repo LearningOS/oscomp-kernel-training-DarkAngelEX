@@ -13,7 +13,7 @@ use crate::{
     user::AutoSie,
 };
 
-const BENCHMARK: bool = false;
+const BENCHMARK: bool = true;
 
 global_asm!(include_str!("benchmark.S"));
 
@@ -85,7 +85,7 @@ impl BenchmarkTimer {
 #[inline(never)]
 fn atomic_test() {
     let mut timer = BenchmarkTimer::new();
-    let base_n = 10000000;
+    let base_n = 100000000;
     let a = 0;
     for _i in 0..base_n {
         unsafe { asm!("") };
@@ -132,7 +132,7 @@ fn atomic_test() {
     }
     timer.check("CAS", base_time, ratio);
 
-    let ratio = 1;
+    let ratio = 3;
     for _i in 0..base_n / ratio {
         sfence::fence_i();
     }
@@ -183,23 +183,28 @@ fn atomic_test() {
     }
     timer.check("satp write", base_time, ratio);
 
-    let ratio = 10;
-    unsafe { set_benchmark_trap() };
-    let ptr = 8 as *mut usize;
-    for _i in 0..base_n / ratio {
+    if false {
+        let ratio = 10;
+        unsafe { set_benchmark_trap() };
+        let ptr = 8 as *mut usize;
+        println!("vector trap test start 0");
         unsafe { ptr.read_volatile() };
-    }
-    unsafe { trap::set_kernel_default_trap() };
-    timer.check("benchmark_trap", base_time, ratio);
+        println!("vector trap test start 1");
+        for _i in 0..base_n / ratio {
+            unsafe { ptr.read_volatile() };
+        }
+        unsafe { trap::set_kernel_default_trap() };
+        timer.check("benchmark_trap", base_time, ratio);
 
-    let ratio = 10;
-    unsafe { set_benchmark_save_trap() };
-    let ptr = 8 as *mut usize;
-    for _i in 0..base_n / ratio {
-        unsafe { ptr.read_volatile() };
+        let ratio = 10;
+        unsafe { set_benchmark_save_trap() };
+        let ptr = 8 as *mut usize;
+        for _i in 0..base_n / ratio {
+            unsafe { ptr.read_volatile() };
+        }
+        unsafe { trap::set_kernel_default_trap() };
+        timer.check("benchmark_save_trap", base_time, ratio);
     }
-    unsafe { trap::set_kernel_default_trap() };
-    timer.check("benchmark_save_trap", base_time, ratio);
 
     let ratio = 50;
     for _i in 0..base_n / ratio {
