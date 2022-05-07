@@ -227,10 +227,10 @@ fn atomic_test() {
 
 unsafe fn set_benchmark_trap() {
     extern "C" {
-        fn __kernel_benchmark_exception_entry();
+        fn __kernel_benchmark_vector();
     }
     stvec::write(
-        __kernel_benchmark_exception_entry as usize,
+        __kernel_benchmark_vector as usize,
         TrapMode::Vectored,
     );
 }
