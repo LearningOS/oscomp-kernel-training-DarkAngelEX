@@ -1,6 +1,6 @@
 # Building
 ARCH ?= riscv64
-TARGET := riscv64gc-unknown-none-elf
+TARGET := riscv64imac-unknown-none-elf
 MODE := debug
 
 KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
@@ -50,7 +50,7 @@ else ifeq ($(BOARD), k210)
 endif
 
 env:
-	(rustup target list | grep "riscv64gc-unknown-none-elf (installed)") || rustup target add $(TARGET)
+	(rustup target list | grep "riscv64imac-unknown-none-elf (installed)") || rustup target add $(TARGET)
 	cargo install cargo-binutils --vers =0.3.3
 	rustup component add rust-src
 	rustup component add llvm-tools-preview
@@ -67,8 +67,8 @@ $(KERNEL_BIN): kernel
 fs-img-prev: $(APPS)
 	@cd ../user && make build
 	@rm -f $(FS_IMG)
-#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64gc-unknown-none-elf/release/ -o ../user/target/riscv64gc-unknown-none-elf/release/
-#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64gc-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/src/bin/ -t ../user/target/riscv64imac-unknown-none-elf/release/ -o ../user/target/riscv64imac-unknown-none-elf/release/
+#	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64imac-unknown-none-elf/release/
 
 fs-img:
 	@cd $(FS_IMG_BUILD) && make init
@@ -91,7 +91,7 @@ endif
 endif
 
 take_bin: $(KERNEL_BIN)
-	
+
 
 clean:
 	@cargo clean
