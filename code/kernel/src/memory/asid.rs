@@ -19,7 +19,7 @@ const ASID_MASK: usize = MAX_ASID - 1;
 const ASID_VERSION_MASK: usize = !ASID_MASK;
 
 /// raw asid, assume self & ASID_MASK == self
-#[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 pub struct Asid(usize);
 #[derive(Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
 /// raw asid, assume self & ASID_VERSION_MASK == self
@@ -191,12 +191,10 @@ pub fn asid_test() {
     use crate::memory::{address::VirAddr4K, allocator::frame, page_table::PTEFlags};
 
     fn va_set(va: VirAddr, value: usize) {
-        unsafe {
-            *va.as_mut() = value;
-        }
+        unsafe { core::ptr::write_volatile(va.as_mut(), value) }
     }
     fn va_get(va: VirAddr) -> usize {
-        unsafe { *va.as_ref() }
+        unsafe { core::ptr::read_volatile(va.as_ref()) }
     }
 
     println!("[FTL OS]asid test");
@@ -247,6 +245,7 @@ pub fn asid_test() {
         sfence::sfence_vma_va_global(va.into_usize());
         assert_eq!(va_get(va), 4);
         sfence::sfence_vma_all_global();
+        // pnaic in hifive unmatched
         if false {
             println!("[FTL OS]asid test: flush error one");
             space_1.using();
@@ -263,21 +262,25 @@ pub fn asid_test() {
             assert_eq!(va_get(va), 6);
             sfence::sfence_vma_all_global();
         }
-        println!("[FTL OS]asid test: flush asid");
         let asid_1 = space_1.asid();
         let asid_2 = space_2.asid();
-        space_1.using();
-        sfence::sfence_vma_asid(asid_1.into_usize());
-        va_set(va, 7);
-        space_2.using();
-        sfence::sfence_vma_asid(asid_2.into_usize());
-        va_set(va, 8);
-        space_1.using();
-        sfence::sfence_vma_asid(asid_1.into_usize());
-        assert_eq!(va_get(va), 7);
-        space_2.using();
+        println!("[FTL OS]asid test: flush asid: {:?} {:?}", asid_1, asid_2);
+
+        for _ in 0..100 {
+            space_1.using();
+            va_set(va, 7);
+            sfence::sfence_vma_asid(asid_1.into_usize());
+            space_2.using();
+            va_set(va, 8);
+            sfence::sfence_vma_asid(asid_2.into_usize());
+            space_1.using();
+            assert_eq!(va_get(va), 7);
+            sfence::sfence_vma_asid(asid_1.into_usize());
+            space_2.using();
+            assert_eq!(va_get(va), 8);
+            sfence::sfence_vma_asid(asid_2.into_usize());
+        }
         sfence::sfence_vma_all_global();
-        assert_eq!(va_get(va), 8);
 
         println!("[FTL OS]asid test: flush error asid");
         space_1.using();

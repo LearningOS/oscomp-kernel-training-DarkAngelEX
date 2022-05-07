@@ -53,13 +53,15 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         clear_bss();
         INIT_HART.store(hartid, Ordering::Release);
         INIT_START.store(true, Ordering::Release);
-        println!("[FTL OS]version 0.0.1");
     } else {
         while !INIT_START.load(Ordering::Acquire) {}
     }
-    local::init();
-    xdebug::init();
-    console::init();
+    if hartid == INIT_HART.load(Ordering::Acquire) {
+        local::init();
+        xdebug::init();
+        console::init();
+        println!("[FTL OS]version 0.0.1");
+    }
     println!(
         "[FTL OS]hart {} device tree: {:#x}",
         hartid, device_tree_paddr
@@ -67,7 +69,6 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     if device_tree_paddr != 0 {
         DEVICE_TREE_PADDR.store(device_tree_paddr, Ordering::Release);
     }
-
     unsafe { cpu::increase_cpu() };
     local::set_stack();
     if hartid != INIT_HART.load(Ordering::Acquire) {
