@@ -69,7 +69,7 @@ __kernel_benchmark_exception_save_entry:
     addi sp, sp, 2*8
     sret
 
-    .align 7
+    .align 8
 __kernel_benchmark_vector:
     j __kernel_benchmark_exception_entry
     .rept 16
@@ -77,7 +77,7 @@ __kernel_benchmark_vector:
     j __kernel_default_interrupt_entry
     .endr
 
-    .align 7
+    .align 8
 __kernel_benchmark_save_vector:
     j __kernel_benchmark_exception_save_entry
     .rept 16

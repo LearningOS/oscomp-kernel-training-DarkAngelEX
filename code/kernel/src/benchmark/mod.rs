@@ -229,11 +229,11 @@ unsafe fn set_benchmark_trap() {
     extern "C" {
         fn __kernel_benchmark_vector();
     }
-    stvec::write(__kernel_benchmark_vector as usize, TrapMode::Direct);
+    stvec::write(__kernel_benchmark_vector as usize, TrapMode::Vectored);
 }
 unsafe fn set_benchmark_save_trap() {
     extern "C" {
         fn __kernel_benchmark_save_vector();
     }
-    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Direct);
+    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Vectored);
 }
