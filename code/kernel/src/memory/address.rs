@@ -90,7 +90,7 @@ macro_rules! send_sync {
         impl<$T> PartialOrd for $name {
             fn partial_cmp(&self, r: &Self) -> Option<core::cmp::Ordering> {
                 self.0.partial_cmp(&r.0)
-             }
+            }
         }
     };
 }
@@ -473,6 +473,14 @@ impl<T> PhyAddr<T> {
     }
     pub fn into_ref(self) -> PhyAddrRef<T> {
         PhyAddrRef::from(self)
+    }
+}
+impl<T> PhyAddrRef<T> {
+    pub unsafe fn get(self) -> &'static T {
+        &*(self.0 as *const T)
+    }
+    pub unsafe fn get_mut(self) -> &'static mut T {
+        &mut *(self.0 as *mut T)
     }
 }
 impl PhyAddr4K {

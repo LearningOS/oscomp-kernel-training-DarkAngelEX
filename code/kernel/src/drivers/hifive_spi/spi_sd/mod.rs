@@ -743,7 +743,6 @@ impl SDCardWrapper {
     pub fn new() -> Self {
         Self(SleepMutex::new(init_sdcard()))
     }
-    pub fn init(&self) {}
 }
 
 impl BlockDevice for SDCardWrapper {

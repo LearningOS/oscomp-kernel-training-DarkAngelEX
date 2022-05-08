@@ -5,6 +5,8 @@ pub use registers::Mode;
 pub use registers::Protocol;
 pub use registers::Reset;
 
+use crate::memory::address::PhyAddr;
+
 use super::super::abstraction::SPIActions;
 
 /** SPI registers encapsulation */
@@ -18,27 +20,26 @@ pub enum SPIDevice {
 }
 
 impl SPIDevice {
-    fn base_addr(&self) -> *const RegisterBlock {
+    fn base_addr(&self) -> PhyAddr<RegisterBlock> {
         let a = match self {
             SPIDevice::QSPI0 => 0x10040000usize,
             SPIDevice::QSPI1 => 0x10041000usize,
             SPIDevice::QSPI2 => 0x10050000usize,
             SPIDevice::Other(val) => val.clone(),
         };
-        a as *const _
+        PhyAddr::from_usize(a)
     }
 }
 
 impl Deref for SPIDevice {
     type Target = RegisterBlock;
     fn deref(&self) -> &Self::Target {
-        unsafe { &*self.base_addr() }
+        unsafe { &*self.base_addr().into_ref().get_mut() }
     }
 }
 
 #[doc = "For more information, see: https://sifive.cdn.prismic.io/sifive/d3ed5cd0-6e74-46b2-a12d-72b06706513e_fu540-c000-manual-v1p4.pdf"]
 #[repr(C)]
-#[repr(packed)]
 pub struct RegisterBlock {
     #[doc = "0x00: Serial clock divisor register"]
     pub sckdiv: SCKDIV,
@@ -112,7 +113,6 @@ mod registers {
 
     #[doc = "Universal register structure"]
     #[repr(C)]
-    #[repr(packed)]
     pub struct Reg<T: Sized + Clone + Copy, U> {
         value: T,
         p: PhantomData<U>,
@@ -527,6 +527,7 @@ impl SPIImpl {
 impl SPIActions for SPIImpl {
     // This function references spi-sifive.c:sifive_spi_init()
     fn init(&self) {
+        stack_trace!();
         let spi = self.spi;
 
         //  Watermark interrupts are disabled by default
