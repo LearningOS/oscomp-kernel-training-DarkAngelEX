@@ -13,7 +13,7 @@ use crate::{
     user::AutoSie,
 };
 
-const BENCHMARK: bool = false;
+const BENCHMARK: bool = true;
 
 global_asm!(include_str!("benchmark.S"));
 
