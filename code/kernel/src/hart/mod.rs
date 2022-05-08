@@ -97,8 +97,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     executor::init();
     trap::init();
     floating::init();
-    drivers::init();
     benchmark::run_all();
+    drivers::init();
     #[cfg(test)]
     crate::test_main();
     executor::kernel_spawn(async move {
