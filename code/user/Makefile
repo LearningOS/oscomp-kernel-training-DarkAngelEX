@@ -11,9 +11,9 @@ OBJCOPY := rust-objcopy --binary-architecture=riscv64
 
 elf: $(APPS)
 ifeq ($(MODE), release)
-	@cargo build --release --offline
+	@cargo build --release
 else
-	@cargo build --offline
+	@cargo build
 endif
 binary: elf
 	$(foreach elf, $(ELFS), $(OBJCOPY) $(elf) --strip-all -O binary $(patsubst $(TARGET_DIR)/%, $(TARGET_DIR)/%.bin, $(elf));)

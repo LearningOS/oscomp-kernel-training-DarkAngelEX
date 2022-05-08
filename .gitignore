@@ -13,6 +13,7 @@ Cargo.lock
 login_gitee.sh
 **/kernel/disasm.sh
 **/kernel/kernel.asm
+**/.vscode
 # Disassembly
 busybox.S
 **/os.bin

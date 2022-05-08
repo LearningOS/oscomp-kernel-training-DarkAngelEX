@@ -2,8 +2,9 @@
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
 MODE := debug
-ARGS += --offline
-# ARGS += --features board_hifive
+ADD_ARGS :=
+ARGS :=
+ARGS += $(ADD_ARGS)
 
 KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
@@ -86,7 +87,7 @@ ifeq ($(BOARD), qemu)
 ifeq ($(MODE), release)
 	@cargo build --release $(ARGS)
 else
-	@cargo build $(ARGS)
+	cargo build $(ARGS)
 endif
 	@rm src/linker.ld
 endif

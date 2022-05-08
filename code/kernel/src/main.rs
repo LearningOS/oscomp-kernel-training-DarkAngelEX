@@ -40,6 +40,7 @@
 #![feature(allocator_api)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
+#![allow(dead_code)]
 
 // #![allow(dead_code)]
 
