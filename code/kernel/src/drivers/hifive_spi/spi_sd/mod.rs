@@ -463,7 +463,8 @@ impl<T: SPIActions> SDCard<T> {
         expect: u8,
         retry_times: u32,
     ) -> Result<(), ()> {
-        for _ in 0..retry_times {
+        for i in 0..retry_times {
+            println!("retry_cmd: {}", i);
             self.send_cmd(cmd, arg, crc);
             let resp = self.get_response();
             self.end_cmd();
@@ -494,13 +495,17 @@ impl<T: SPIActions> SDCard<T> {
         /* Send dummy byte 0xFF, 10 times with CS high */
         /* Rise CS and MOSI for 80 clocks cycles */
         /* Send dummy byte 0xFF */
+        println!("SDCard init 0");
         self.spi.switch_cs(false, 0);
+        println!("SDCard init 1");
         self.spi.configure(
             2,    // use lines
             8,    // bits per word
             true, // endian: big-endian
         );
+        println!("SDCard init 2");
         self.write_data(&[0xff; 10]);
+        println!("SDCard init 3");
         /*------------Put SD in SPI mode--------------*/
         /* SD initialized and set to SPI mode properly */
 
@@ -508,10 +513,11 @@ impl<T: SPIActions> SDCard<T> {
         let mut result = 0;
         let mut retry_times = 0;
         if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 0x01, 200) {
+            println!("SDCard init error in retry_cmd");
             return Err(InitError::CMDFailed(CMD::CMD0, 0));
         }
 
-        println!("SDCard init 0");
+        println!("SDCard init 4");
 
         /* Check voltage range */
         self.send_cmd(CMD::CMD8, 0x01AA, 0x87);
@@ -576,7 +582,7 @@ impl<T: SPIActions> SDCard<T> {
             }
         }
 
-        println!("SDCard init 1");
+        println!("SDCard init 5");
 
         self.spi.switch_cs(false, 0);
         self.write_data(&[0xff; 10]);
