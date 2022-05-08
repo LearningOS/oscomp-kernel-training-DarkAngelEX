@@ -11,7 +11,7 @@ use crate::{
     tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
 };
 
-const USING_ASID: bool = false;
+pub const USING_ASID: bool = false;
 
 const ASID_BIT: usize = 16;
 const MAX_ASID: usize = 1usize << ASID_BIT;
@@ -40,6 +40,7 @@ impl Drop for AsidInfoTracker {
 }
 
 impl AtomicAsidInfo {
+    const ZERO: Self = AtomicAsidInfo(AtomicUsize::new(0));
     pub fn new(ai: AsidInfo) -> Self {
         Self(AtomicUsize::new(ai.into_usize()))
     }
@@ -52,6 +53,9 @@ impl AtomicAsidInfo {
 }
 
 impl AsidInfoTracker {
+    const ZERO: Self = AsidInfoTracker {
+        asid_info: AtomicAsidInfo::ZERO,
+    };
     fn alloc() -> Self {
         alloc_asid()
     }
@@ -85,6 +89,7 @@ impl_usize_from!(AsidVersion, v, v.0);
 impl_usize_from!(AsidInfo, v, v.0);
 
 impl Asid {
+    // const ZERO: Self = Asid(0);
     fn is_valid(&self) -> bool {
         self.into_usize() < MAX_ASID
     }
@@ -174,17 +179,27 @@ impl AsidManager {
 static ASID_MANAGER: SpinNoIrqLock<AsidManager> = SpinNoIrqLock::new(AsidManager::new());
 
 pub fn alloc_asid() -> AsidInfoTracker {
-    ASID_MANAGER.lock().alloc()
+    if USING_ASID {
+        ASID_MANAGER.lock().alloc()
+    } else {
+        AsidInfoTracker::ZERO
+    }
 }
 
 pub unsafe fn dealloc_asid(asid_info: AsidInfo) {
-    // 在这里调用降低锁竞争
-    local::all_hart_sfence_vma_asid(asid_info.asid());
-    ASID_MANAGER.lock().dealloc(asid_info)
+    if USING_ASID {
+        // 在这里调用降低锁竞争
+        local::all_hart_sfence_vma_asid(asid_info.asid());
+        ASID_MANAGER.lock().dealloc(asid_info)
+    } else {
+        local::all_hart_sfence_vma_all_no_global();
+    }
 }
 
 pub fn version_check_alloc(asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
-    ASID_MANAGER.lock().version_check_alloc(asid_info, satp)
+    if USING_ASID {
+        ASID_MANAGER.lock().version_check_alloc(asid_info, satp)
+    }
 }
 
 pub fn asid_test() {
@@ -198,6 +213,12 @@ pub fn asid_test() {
     }
 
     println!("[FTL OS]asid test");
+
+    if !USING_ASID {
+        println!("[FTL OS]don't use asid, skip test");
+        return;
+    }
+
     let mut space_1 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let mut space_2 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let va4k: VirAddr4K = unsafe { VirAddr4K::from_usize(0x1000) };

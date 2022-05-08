@@ -14,8 +14,8 @@ static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
 
 pub fn init() {
     println!("[FTL OS]driver init");
-    println!("[FTL OS]ignore dirver init");
-    // unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
+    // println!("[FTL OS]ignore dirver init");
+    unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
 }
 
 pub fn device() -> &'static Arc<dyn BlockDevice> {
@@ -24,7 +24,6 @@ pub fn device() -> &'static Arc<dyn BlockDevice> {
 
 #[allow(unused)]
 pub fn block_device_test() {
-    let x = core::lazy::Lazy::<usize>::new(|| 3);
     let block_device = device().clone();
     let mut write_buffer = [0u8; 512];
     let mut read_buffer = [0u8; 512];

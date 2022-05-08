@@ -2,7 +2,7 @@ use riscv::register::{scause, sstatus};
 
 use crate::{local, timer};
 
-// 中断已经被关闭。
+
 #[no_mangle]
 pub fn kernel_default_interrupt() {
     stack_trace!();

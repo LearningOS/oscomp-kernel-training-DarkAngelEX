@@ -13,7 +13,7 @@ use crate::{
     user::AutoSie,
 };
 
-const BENCHMARK: bool = true;
+const BENCHMARK: bool = false;
 
 global_asm!(include_str!("benchmark.S"));
 
@@ -229,14 +229,11 @@ unsafe fn set_benchmark_trap() {
     extern "C" {
         fn __kernel_benchmark_vector();
     }
-    stvec::write(
-        __kernel_benchmark_vector as usize,
-        TrapMode::Vectored,
-    );
+    stvec::write(__kernel_benchmark_vector as usize, TrapMode::Direct);
 }
 unsafe fn set_benchmark_save_trap() {
     extern "C" {
         fn __kernel_benchmark_save_vector();
     }
-    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Vectored);
+    stvec::write(__kernel_benchmark_save_vector as usize, TrapMode::Direct);
 }

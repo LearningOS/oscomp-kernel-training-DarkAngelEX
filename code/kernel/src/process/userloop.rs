@@ -18,7 +18,7 @@ use crate::{
     syscall::Syscall,
     timer,
     tools::allocator::from_usize_allocator::FromUsize,
-    user::{trap_handler, AutoSie},
+    user::{trap_handler, AutoSie}, memory::asid::USING_ASID,
 };
 
 use super::thread::Thread;
@@ -156,6 +156,9 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
         let local = local::hart_local();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
+        if USING_ASID {
+            sfence::sfence_vma_all_no_global();
+        }
         let ret = unsafe { Pin::new_unchecked(&mut this.future).poll(cx) };
         local.leave_task_switch(&mut this.local_switch);
         ret

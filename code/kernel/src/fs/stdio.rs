@@ -62,6 +62,13 @@ impl File for Stdout {
         Box::pin(async move {
             let lock = STDOUT_MUTEX.lock().await;
             let str = buf.access();
+            let str_u8 = &*str;
+            if str_u8.is_empty() {
+                return Ok(0);
+            }
+            // for ch in str_u8 {
+            //     print_unlocked!("{}", unsafe { char::from_u32_unchecked(*ch as u32) });
+            // }
             print_unlocked!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
             let len = buf.len();
             drop(lock);

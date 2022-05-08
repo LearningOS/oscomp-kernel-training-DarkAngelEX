@@ -21,6 +21,19 @@ pub fn sfence_vma_asid(asid: usize) {
         asm!("sfence.vma x0, {}", in(reg)asid);
     }
 }
+#[inline(always)]
+pub fn sfence_vma_all_no_global() {
+    #[allow(unused_assignments)]
+    unsafe {
+        #[allow(clippy::uninit_assumed_init)]
+        let mut x: usize = MaybeUninit::uninit().assume_init();
+        asm!("mv {0}, zero",
+            "sfence.vma x0, {0}",
+            inout(reg)x
+        );
+    }
+}
+
 ///
 /// no fflush global TLB.
 ///
@@ -43,10 +56,9 @@ pub fn sfence_vma_va(va: usize) {
 /// no fflush global TLB.
 ///
 #[inline(always)]
-#[allow(unused_assignments)]
 pub fn sfence_vma_va_asid(va: usize, asid: usize) {
+    #[allow(unused_assignments)]
     unsafe {
-        // alloc a register, assume rs2 != x0
         #[allow(clippy::uninit_assumed_init)]
         let mut x: usize = MaybeUninit::uninit().assume_init();
         asm!(

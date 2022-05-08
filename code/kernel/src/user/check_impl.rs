@@ -94,7 +94,7 @@ impl<'a> UserCheckImpl<'a> {
         };
 
         unsafe { trap::set_kernel_default_trap() };
-        let asid = match a.a_page_fault(self.0, ptr).await {
+        match a.a_page_fault(self.0, ptr).await {
             Ok(asid) => asid,
             Err(e) => {
                 unsafe { set_error_handle() };
@@ -102,7 +102,6 @@ impl<'a> UserCheckImpl<'a> {
             }
         };
         unsafe { set_error_handle() };
-        local::all_hart_sfence_vma_va_asid(ptr, asid);
         Ok(())
     }
 }
@@ -155,7 +154,7 @@ unsafe fn set_error_handle() {
     extern "C" {
         fn __try_access_user_error_trap();
     }
-    debug_assert!(!sstatus::read().sie());
+    // debug_assert!(!sstatus::read().sie());
     stvec::write(__try_access_user_error_trap as usize, TrapMode::Direct);
 }
 

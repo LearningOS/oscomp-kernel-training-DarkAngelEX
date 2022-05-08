@@ -121,7 +121,6 @@ impl HartLocal {
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
         }
-        // hart::sfence::sfence_vma_asid(1); // 反正不支持ASID
     }
     pub fn leave_task_switch(&mut self, task: &mut LocalNow) {
         assert!(matches!(&mut self.local_now, LocalNow::Task(_)));
@@ -223,4 +222,8 @@ pub fn all_hart_sfence_vma_asid(asid: Asid) {
 
 pub fn all_hart_sfence_vma_va_asid(va: UserAddr4K, asid: Asid) {
     all_hart_fn(|| move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()));
+}
+
+pub fn all_hart_sfence_vma_all_no_global() {
+    all_hart_fn(|| sfence::sfence_vma_all_no_global);
 }

@@ -3,7 +3,6 @@
 #![feature(panic_info_message)]
 #![feature(const_slice_from_raw_parts)]
 #![feature(alloc_error_handler)]
-#![feature(const_fn_trait_bound)]
 #![feature(default_free_fn)]
 #![feature(bench_black_box)]
 #![feature(split_array)]

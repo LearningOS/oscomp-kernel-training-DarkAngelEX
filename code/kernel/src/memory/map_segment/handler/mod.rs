@@ -2,6 +2,7 @@ use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     fs::File,
+    local,
     memory::{
         address::UserAddr4K,
         allocator::frame,
@@ -199,8 +200,8 @@ pub trait UserAreaHandler: Send + 'static {
 pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
     fn perm(&self) -> PTEFlags;
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<'a, Asid>;
-    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<'a, Asid>;
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<'a, ()>;
+    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<'a, ()>;
 }
 
 pub struct FileAsyncHandler {
@@ -235,7 +236,7 @@ impl AsyncHandler for FileAsyncHandler {
     fn perm(&self) -> PTEFlags {
         self.perm | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<Asid> {
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<()> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -263,14 +264,13 @@ impl AsyncHandler for FileAsyncHandler {
                     Ok(a.asid())
                 })??);
             }
-            let asid = match asid {
-                None => process.alive_then(|a| a.asid())?,
-                Some(asid) => asid,
-            };
-            Ok(asid)
+            if let Some(asid) = asid {
+                local::all_hart_sfence_vma_asid(asid);
+            }
+            Ok(())
         })
     }
-    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<Asid> {
+    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<()> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -295,7 +295,8 @@ impl AsyncHandler for FileAsyncHandler {
                 }
                 Ok(a.asid())
             })??;
-            Ok(asid)
+            local::all_hart_sfence_vma_va_asid(addr, asid);
+            Ok(())
         })
     }
 }
