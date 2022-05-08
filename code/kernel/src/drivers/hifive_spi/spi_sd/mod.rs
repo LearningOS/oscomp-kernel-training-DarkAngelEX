@@ -211,13 +211,14 @@ impl<T: SPIActions> SDCard<T> {
         self.spi.recv_data(self.spi_cs, data);
     }
 
-    /*
-     * Send 5 bytes command to the SD card.
-     * @param  cmd: The user expected command to send to SD card.
-     * @param  arg: The command argument.
-     * @param  crc: The CRC.
-     * @retval None
-     */
+    ///Send 5 bytes command to the SD card.
+    ///
+    /// cmd: The user expected command to send to SD card.
+    ///
+    /// arg: The command argument.
+    ///
+    /// crc: The CRC.
+    ///
     fn send_cmd(&self, cmd: CMD, arg: u32, crc: u8) {
         self.CS_LOW();
         /* Send the Cmd bytes */
