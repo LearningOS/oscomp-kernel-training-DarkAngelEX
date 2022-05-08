@@ -186,8 +186,11 @@ impl<T: SPIActions> SDCard<T> {
     fn lowlevel_init(&self) {
         // gpiohs::set_direction(self.cs_gpionum, gpio::direction::OUTPUT);
         // at first clock rate shall be low (below 200khz)
+        println!("lowlevel_init start");
         self.spi.init();
+        println!("lowlevel_init 0");
         self.spi.set_clk_rate(150000);
+        println!("lowlevel_init end");
     }
 
     fn write_data(&self, data: &[u8]) {
@@ -478,6 +481,7 @@ impl<T: SPIActions> SDCard<T> {
      */
     pub fn init(&mut self) -> Result<SDCardInfo, InitError> {
         stack_trace!();
+        println!("SDCard init start");
         /* Initialize SD_SPI */
         self.lowlevel_init();
         /* An empty frame for commands */
@@ -506,6 +510,8 @@ impl<T: SPIActions> SDCard<T> {
         if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 0x01, 200) {
             return Err(InitError::CMDFailed(CMD::CMD0, 0));
         }
+
+        println!("SDCard init 0");
 
         /* Check voltage range */
         self.send_cmd(CMD::CMD8, 0x01AA, 0x87);
@@ -569,6 +575,8 @@ impl<T: SPIActions> SDCard<T> {
                 self.is_hc = true;
             }
         }
+
+        println!("SDCard init 1");
 
         self.spi.switch_cs(false, 0);
         self.write_data(&[0xff; 10]);
@@ -728,12 +736,13 @@ pub fn init_sdcard() -> SDCard<SPIImpl> {
     // wait previous output
     // usleep(100000);
 
+    println!("[FTL OS] init sdcard start");
     let spi = SPIImpl::new(abstraction::SPIDevice::QSPI2);
     let mut sd = SDCard::new(spi, SD_CS);
     let info = sd.init().unwrap();
     // assert!(num_sectors > 0);
 
-    println!("[kernel] init sdcard!");
+    println!("[FTL OS] init sdcard end");
     sd
 }
 

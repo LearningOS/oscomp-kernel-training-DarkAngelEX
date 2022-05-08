@@ -528,10 +528,12 @@ impl SPIActions for SPIImpl {
     // This function references spi-sifive.c:sifive_spi_init()
     fn init(&self) {
         stack_trace!();
+        println!("SPIImpl init start");
         let spi = self.spi;
 
         //  Watermark interrupts are disabled by default
         spi.ie.set_transmit_watermark(false);
+        println!("SPIImpl init 0");
         spi.ie.set_receive_watermark(false);
 
         // Default watermark FIFO threshold values
@@ -546,6 +548,7 @@ impl SPIActions for SPIImpl {
 
         // Exit specialized memory-mapped SPI flash mode
         spi.fctrl.set_flash_mode(false);
+        println!("SPIImpl init end");
     }
 
     fn configure(&self, use_lines: u8, data_bit_length: u8, msb_first: bool) {
