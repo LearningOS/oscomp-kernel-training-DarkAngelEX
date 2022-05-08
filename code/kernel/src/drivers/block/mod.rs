@@ -13,9 +13,15 @@ use super::BlockDevice;
 static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
 
 pub fn init() {
-    println!("[FTL OS]driver init");
-    // println!("[FTL OS]ignore dirver init");
-    unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
+    #[cfg(not(feature = "board_hifive"))]
+    {
+        println!("[FTL OS]qemu driver init");
+        unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
+    }
+    #[cfg(feature = "board_hifive")]
+    {
+        super::hifive_spi::init_sdcard();
+    }
 }
 
 pub fn device() -> &'static Arc<dyn BlockDevice> {

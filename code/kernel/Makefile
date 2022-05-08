@@ -2,6 +2,7 @@
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
 MODE := debug
+ARGS := --offline
 
 KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
@@ -40,7 +41,7 @@ OBJCOPY := rust-objcopy --binary-architecture=riscv64
 # Disassembly
 DISASM ?= -x
 
-build: env switch-check $(KERNEL_BIN)
+build: env switch-check binary
 
 switch-check:
 ifeq ($(BOARD), qemu)
@@ -60,8 +61,8 @@ sdcard: fs-img
 	@sudo dd if=/dev/zero of=$(SDCARD) bs=1048576 count=32
 	@sudo dd if=$(FS_IMG) of=$(SDCARD)
 
-$(KERNEL_BIN): kernel
-	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $@
+binary: kernel
+	@$(OBJCOPY) $(KERNEL_ELF) --strip-all -O binary $(KERNEL_BIN)
 	@cp -f $(KERNEL_BIN) ./os.bin
 
 fs-img-prev: $(APPS)
@@ -82,16 +83,18 @@ ifeq ($(BOARD), qemu)
 	@echo Platform: qemu
 	@cp src/hart/boot/linker64.ld src/linker.ld
 ifeq ($(MODE), release)
-	@cargo build --release --offline
+	@cargo build --release $(ARGS)
 else
-	@cargo build --offline
+	@cargo build $(ARGS)
 endif
 	@rm src/linker.ld
 endif
 endif
 
-take_bin: $(KERNEL_BIN)
+hifive_board:
+ARGS += --features board_hifive
 
+take_bin: hifive_board binary
 
 clean:
 	@cargo clean
