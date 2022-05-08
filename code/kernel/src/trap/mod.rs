@@ -18,6 +18,18 @@ global_asm!(include_str!("trap.S"));
 pub fn init() {
     println!("[FTL OS]trap init");
     unsafe { set_kernel_default_trap() };
+    test_interrupt();
+}
+
+pub fn test_interrupt() {
+    println!("[FTL OS]trap init");
+    let sie = sstatus::read().sie();
+    unsafe { sstatus::set_sie() };
+    // 给自己发个中断!!!
+
+    if !sie {
+        unsafe { sstatus::clear_sie() };
+    }
 }
 
 #[inline(always)]
@@ -47,7 +59,7 @@ pub unsafe fn set_kernel_default_trap() {
         fn __kernel_default_vector();
         fn __kernel_default_trap_entry();
     }
-    if false {
+    if true {
         stvec::write(__kernel_default_vector as usize, TrapMode::Vectored);
     } else {
         stvec::write(__kernel_default_trap_entry as usize, TrapMode::Direct);

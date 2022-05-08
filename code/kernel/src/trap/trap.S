@@ -199,7 +199,7 @@ __kernel_default_interrupt_entry:
     addi sp, sp, 17*8
     sret
 
-    .align 7
+    .align 8
 __kernel_default_vector:
     j __kernel_default_exception_entry
     .rept 16

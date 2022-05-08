@@ -155,7 +155,10 @@ unsafe fn set_error_handle() {
         fn __try_access_user_error_trap();
     }
     // debug_assert!(!sstatus::read().sie());
-    stvec::write(__try_access_user_error_trap as usize, TrapMode::Direct);
+    if true {
+    } else {
+        stvec::write(__try_access_user_error_trap as usize, TrapMode::Direct);
+    }
 }
 
 // 只有check_impl.S的两个函数可以进入这里, 中断会丢失寄存器信息
