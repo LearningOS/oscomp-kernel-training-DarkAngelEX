@@ -32,7 +32,6 @@ impl Syscall<'_> {
         let prot = MmapProt::from_bits_truncate(prot);
         let flags = MmapFlags::from_bits(flags).unwrap();
         let page_count = PageCount::page_ceil(len);
-        println!("sys_mmap 0");
         let shared = match (
             flags.contains(MmapFlags::PRIVATE),
             flags.contains(MmapFlags::SHARED),
@@ -92,16 +91,17 @@ impl Syscall<'_> {
     pub fn sys_munmap(&mut self) -> SysResult {
         stack_trace!();
         let (addr, len): (UserInOutPtr<()>, usize) = self.cx.into();
-        if PRINT_SYSCALL_MMAP {
+        const PRINT_THIS: bool = false;
+        if PRINT_SYSCALL_MMAP || PRINT_THIS {
             let addr = addr.as_usize();
             println!("sys_munmap addr:{:#x} len:{}", addr, len);
         }
         let addr = addr.as_uptr_nullable().ok_or(SysError::EFAULT)?;
         let start = addr.floor();
-        let end = UserAddr::try_from((addr.into_usize() + len) as *const u8)?.floor();
+        let end = UserAddr::try_from((addr.into_usize() + len) as *const u8)?.ceil();
         let mut alive = self.alive_lock()?;
         let manager = &mut alive.user_space.map_segment;
-        manager.free_range_check(start..end).map_err(|()|SysError::EINVAL)?;
+        manager.unmap(start..end);
         Ok(0)
     }
     pub fn sys_mprotect(&mut self) -> SysResult {

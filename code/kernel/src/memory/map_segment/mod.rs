@@ -73,7 +73,7 @@ impl MapSegment {
         pt: &'a mut PageTable,
         sc_manager: &'a mut SCManager,
     ) -> impl FnMut(Box<dyn UserAreaHandler>, URange) + 'a {
-        move |h, r: URange| {
+        move |h: Box<dyn UserAreaHandler>, r: URange| {
             let pt = pt as *mut PageTable;
             macro_rules! pt {
                 () => {
@@ -87,6 +87,7 @@ impl MapSegment {
             };
             let unique_release = |addr| h.unmap_ua(pt!(), addr);
             sc_manager.remove_release(r.clone(), shared_release, unique_release);
+            // 共享页管理器只包括共享页，因此还要释放本进程分配的页面
             h.unmap(pt!(), r);
         }
     }

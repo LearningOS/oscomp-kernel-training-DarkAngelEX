@@ -536,7 +536,7 @@ impl PageTable {
                 if pte.is_valid() {
                     assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
                     unsafe { pte.dealloc_by(allocator) };
-                    page_count += PageCount(0);
+                    page_count += PageCount(1);
                 }
                 ua = ua.add_one_page();
             }

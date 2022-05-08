@@ -215,22 +215,20 @@ impl Thread {
 }
 
 pub async fn yield_now() {
-    YieldFuture { flag: false }.await
+    YieldFuture(false).await
 }
 
-struct YieldFuture {
-    flag: bool,
-}
+struct YieldFuture(bool);
 
 impl Future for YieldFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
         use core::sync::atomic;
-        if self.flag {
+        if self.0 {
             Poll::Ready(())
         } else {
-            self.flag = true;
+            self.0 = true;
             atomic::fence(atomic::Ordering::SeqCst);
             cx.waker().wake_by_ref();
             Poll::Pending
