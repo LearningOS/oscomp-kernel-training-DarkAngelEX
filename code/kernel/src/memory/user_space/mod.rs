@@ -260,7 +260,7 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-    ) -> Result<(Self, StackID, UserAddr4K, UserAddr, Vec<AuxHeader>), SysError> {
+    ) -> Result<(Self, StackID, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
         stack_trace!();
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
@@ -280,8 +280,8 @@ impl UserSpace {
         for i in 0..ph_count {
             let ph = elf.program_header(i).map_err(elf_fail)?;
             if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
-                let start_va: UserAddr = (ph.virtual_addr() as usize).into();
-                let end_va: UserAddr = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+                let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
+                let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
                 if start_va.is_4k_align() {
                     head_va = start_va.into_usize();
                 }
@@ -400,7 +400,7 @@ impl UserSpace {
         envp: &[String],
         auxv: &[AuxHeader],
         reverse: PageCount,
-    ) -> (UserAddr, usize, usize, usize) {
+    ) -> (UserAddr<u8>, usize, usize, usize) {
         fn size_of_usize() -> usize {
             core::mem::size_of::<usize>()
         }

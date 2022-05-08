@@ -182,7 +182,7 @@ impl<T: Clone + 'static> UserDataMut<T> {
 pub enum UserAccessStatus {
     Forbid,
     Access,
-    Error(UserAddr, Exception), // stval, Excetion
+    Error(UserAddr<u8>, Exception), // stval, Excetion
 }
 
 #[derive(Debug)]
@@ -225,7 +225,7 @@ impl UserAccessStatus {
     pub fn is_access(&self) -> bool {
         matches!(self.get(), UserAccessStatus::Access)
     }
-    pub fn set_error(&mut self, stval: UserAddr, e: Exception) {
+    pub fn set_error(&mut self, stval: UserAddr<u8>, e: Exception) {
         self.set(UserAccessStatus::Error(stval, e))
     }
 }

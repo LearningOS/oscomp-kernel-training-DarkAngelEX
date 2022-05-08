@@ -28,7 +28,7 @@ pub const fn bool_result(x: bool) -> Result<(), ()> {
 
 #[macro_export]
 macro_rules! impl_usize_from {
-    ($name: ident, $v: ident, $body: stmt) => {
+    ($name: ty, $v: ident, $body: stmt) => {
         impl From<$name> for usize {
             fn from($v: $name) -> Self {
                 $body

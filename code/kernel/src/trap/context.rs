@@ -161,8 +161,8 @@ impl UKContext {
 
     pub fn exec_init(
         &mut self,
-        user_sp: UserAddr,
-        sepc: UserAddr,
+        user_sp: UserAddr<u8>,
+        sepc: UserAddr<u8>,
         sstatus: Sstatus,
         fcsr: FCSR,
         argc: usize,

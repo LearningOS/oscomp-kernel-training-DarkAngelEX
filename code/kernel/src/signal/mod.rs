@@ -135,16 +135,16 @@ impl SignalSet {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub union SigActionUnion {
-    handler: UserAddr,   // (u32) -> ()
-    sigaction: UserAddr, // (u32, *siginfo_t, *()) -> ()
+    handler: UserAddr<fn(u32)>,                         // (u32) -> ()
+    sigaction: UserAddr<fn(u32, *const (), *const ())>, // (u32, *siginfo_t, *()) -> ()
 }
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SigAction {
     union: SigActionUnion,
-    mask: StdSignalSet, //
-    flags: u32,         //
-    restorer: UserAddr, // () -> ()
+    mask: StdSignalSet,       //
+    flags: u32,               //
+    restorer: UserAddr<fn()>, // () -> ()
 }
 
 pub struct SignalPack {
@@ -160,10 +160,7 @@ pub fn send_signal(process: Arc<Process>, signal_set: StdSignalSet) -> Result<()
     }
     process.alive_then(|a| a.signal_queue.append(&mut signal_queue))?;
     if !signal_set.is_empty() {
-        process
-            .event_bus
-            .lock()
-            .set(Event::RECEIVE_SIGNAL)?;
+        process.event_bus.lock().set(Event::RECEIVE_SIGNAL)?;
     }
     Ok(())
 }

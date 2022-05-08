@@ -444,11 +444,11 @@ pub unsafe fn translated_byte_buffer_force(
     let end = start + len;
     let mut v = Vec::new();
     while start < end {
-        let start_va = VirAddr::from(start);
+        let start_va = VirAddr::<u8>::from(start);
         let mut va4k = start_va.floor();
         let par: PhyAddrRef4K = page_table.translate(va4k).unwrap().phy_addr().into(); // unsafe
         va4k.step();
-        let end_va = VirAddr::from(va4k).min(VirAddr::from(end));
+        let end_va = VirAddr::<u8>::from(va4k).min(VirAddr::from(end));
         if end_va.page_offset() == 0 {
             v.push(&mut par.as_bytes_array_mut()[start_va.page_offset()..]);
         } else {

@@ -9,13 +9,15 @@
 pub mod abstraction;
 pub mod platform;
 
+use crate::sync::SleepMutex;
+
 use super::BlockDevice;
 use abstraction::*;
 use alloc::boxed::Box;
 use core::convert::TryInto;
 use ftl_util::device::AsyncRet;
 
-pub struct SDCard<T> {
+pub struct SDCard<T: SPIActions> {
     spi: T,
     spi_cs: u32,
     is_hc: bool,
@@ -163,8 +165,8 @@ pub struct SDCardInfo {
 impl<T: SPIActions> SDCard<T> {
     pub fn new(spi: T, spi_cs: u32) -> Self {
         Self {
-            spi: spi,
-            spi_cs: spi_cs,
+            spi,
+            spi_cs,
             is_hc: false,
         }
     }
@@ -475,6 +477,7 @@ impl<T: SPIActions> SDCard<T> {
      * @retval The SD Response info if succeeeded, otherwise Err
      */
     pub fn init(&mut self) -> Result<SDCardInfo, InitError> {
+        stack_trace!();
         /* Initialize SD_SPI */
         self.lowlevel_init();
         /* An empty frame for commands */
@@ -585,7 +588,7 @@ impl<T: SPIActions> SDCard<T> {
      *         - `Err(())`: Sequence failed
      *         - `Ok(())`: Sequence succeed
      */
-    pub fn read_sector(&self, data_buf: &mut [u8], sector: u32) -> Result<(), ()> {
+    pub fn read_sector(&mut self, data_buf: &mut [u8], sector: u32) -> Result<(), ()> {
         assert!(data_buf.len() >= SEC_LEN && (data_buf.len() % SEC_LEN) == 0);
         let sector: u32 = match self.is_hc {
             true => sector << 9,
@@ -646,7 +649,7 @@ impl<T: SPIActions> SDCard<T> {
      *         - `Err(())`: Sequence failed
      *         - `Ok(())`: Sequence succeed
      */
-    pub fn write_sector(&self, data_buf: &[u8], sector: u32) -> Result<(), ()> {
+    pub fn write_sector(&mut self, data_buf: &[u8], sector: u32) -> Result<(), ()> {
         assert!(data_buf.len() >= SEC_LEN && (data_buf.len() % SEC_LEN) == 0);
         let sector: u32 = match self.is_hc {
             true => sector << 9,
@@ -721,6 +724,7 @@ impl<T: SPIActions> SDCard<T> {
 const SD_CS: u32 = 0;
 
 pub fn init_sdcard() -> SDCard<SPIImpl> {
+    stack_trace!();
     // wait previous output
     // usleep(100000);
 
@@ -733,28 +737,27 @@ pub fn init_sdcard() -> SDCard<SPIImpl> {
     sd
 }
 
-pub struct SDCardWrapper(SDCard<SPIImpl>);
+pub struct SDCardWrapper(SleepMutex<SDCard<SPIImpl>>);
 
 impl SDCardWrapper {
     pub fn new() -> Self {
-        Self(init_sdcard())
+        Self(SleepMutex::new(init_sdcard()))
     }
-
     pub fn init(&self) {}
 }
 
 impl BlockDevice for SDCardWrapper {
     fn sector_bpb(&self) -> usize {
-        todo!()
+        0
     }
-
     fn sector_bytes(&self) -> usize {
-        todo!()
+        512
     }
     fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
+            let lock = &mut *self.0.lock().await;
             println!("read block {}", block_id / 512);
-            if let Err(_) = self.0.read_sector(buf, block_id as u32) {
+            if let Err(_) = lock.read_sector(buf, block_id as u32) {
                 panic!("read_block invalid {}", block_id);
             }
             Ok(())
@@ -762,8 +765,9 @@ impl BlockDevice for SDCardWrapper {
     }
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
+            let lock = &mut *self.0.lock().await;
             println!("write block {}", block_id);
-            if let Err(_) = self.0.write_sector(buf, block_id as u32) {
+            if let Err(_) = lock.write_sector(buf, block_id as u32) {
                 panic!("write_block invalid {}", block_id / 512);
             }
             Ok(())

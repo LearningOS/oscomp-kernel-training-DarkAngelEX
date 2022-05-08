@@ -92,6 +92,7 @@ impl RawBPB {
         load!(self.volume_label);
         load!(self.system_id);
         debug_assert_eq!(offset, 0x5A);
+        println!("{}", self);
         self.sector_bytes_log2 = self.sector_bytes.log2();
         self.cluster_bytes = self.sector_bytes as usize * self.sector_per_cluster as usize;
         self.cluster_bytes_log2 = self.cluster_bytes.log2();

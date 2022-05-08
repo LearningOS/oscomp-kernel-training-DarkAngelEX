@@ -13,15 +13,13 @@ use super::BlockDevice;
 static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
 
 pub fn init() {
-    #[cfg(not(feature = "board_hifive"))]
-    {
-        println!("[FTL OS]qemu driver init");
-        unsafe { BLOCK_DEVICE = Some(Arc::new(BlockDeviceImpl::new())) }
-    }
-    #[cfg(feature = "board_hifive")]
-    {
-        super::hifive_spi::init_sdcard();
-    }
+    let device = match () {
+        #[cfg(not(feature = "board_hifive"))]
+        () => Arc::new(BlockDeviceImpl::new()),
+        #[cfg(feature = "board_hifive")]
+        () => super::hifive_spi::init_sdcard(),
+    };
+    unsafe { BLOCK_DEVICE = Some(device) }
 }
 
 pub fn device() -> &'static Arc<dyn BlockDevice> {
@@ -29,17 +27,23 @@ pub fn device() -> &'static Arc<dyn BlockDevice> {
 }
 
 #[allow(unused)]
-pub fn block_device_test() {
-    let block_device = device().clone();
-    let mut write_buffer = [0u8; 512];
-    let mut read_buffer = [0u8; 512];
+pub async fn block_device_test() {
+    stack_trace!();
+    println!("block device test begin");
+    println!("block device test skip");
+    let device = device();
+    let mut buf0 = [0u8; 512];
+    let mut buf1 = [0u8; 512];
+    let mut buf2 = [0u8; 512];
     for i in 0..512 {
-        for byte in write_buffer.iter_mut() {
+        for byte in buf0.iter_mut() {
             *byte = i as u8;
         }
-        block_device.write_block(i as usize, &write_buffer);
-        block_device.read_block(i as usize, &mut read_buffer);
-        assert_eq!(write_buffer, read_buffer);
+        device.read_block(i as usize, &mut buf2).await.unwrap();
+        device.write_block(i as usize, &buf0).await.unwrap();
+        device.read_block(i as usize, &mut buf1).await.unwrap();
+        device.write_block(i as usize, &buf2).await.unwrap();
+        assert_eq!(buf0, buf1);
     }
     println!("block device test passed!");
 }

@@ -79,12 +79,12 @@ pub extern "C" fn virtio_dma_dealloc(mut pa: PhyAddr4K, pages: usize) -> i32 {
 }
 
 #[no_mangle]
-pub extern "C" fn virtio_phys_to_virt(paddr: PhyAddr) -> PhyAddrRef {
+pub extern "C" fn virtio_phys_to_virt(paddr: PhyAddr<u8>) -> PhyAddrRef<u8> {
     paddr.into()
 }
 
 #[no_mangle]
-pub extern "C" fn virtio_virt_to_phys(vaddr: VirAddr) -> PhyAddr {
+pub extern "C" fn virtio_virt_to_phys(vaddr: VirAddr<u8>) -> PhyAddr<u8> {
     //println!("v:{:x}",vaddr);
     let vaddr = vaddr.into_usize();
     let pa = match vaddr {

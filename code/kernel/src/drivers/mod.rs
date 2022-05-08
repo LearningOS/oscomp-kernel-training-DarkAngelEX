@@ -9,3 +9,7 @@ pub fn init() {
     println!("[FTL OS]driver init");
     block::init();
 }
+
+pub async fn test() {
+    block::block_device_test().await;
+}

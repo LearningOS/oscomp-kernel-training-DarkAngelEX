@@ -105,7 +105,7 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     fn alloc(&mut self) -> Result<PhyAddrRef4K, FrameOOM> {
         fn pa_check(pa: PhyAddrRef4K) {
             assert!(pa.into_usize() > DIRECT_MAP_BEGIN && pa.into_usize() < DIRECT_MAP_END);
-            if OPEN_MEMORY_TRACE && pa == PhyAddrRef::from(TRACE_ADDR).floor() {
+            if OPEN_MEMORY_TRACE && pa == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
                 trace::call_when_alloc();
             }
         }
@@ -124,7 +124,7 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     }
 
     fn dealloc(&mut self, addr: PhyAddrRef4K) {
-        if OPEN_MEMORY_TRACE && addr == PhyAddrRef::from(TRACE_ADDR).floor() {
+        if OPEN_MEMORY_TRACE && addr == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
             trace::call_when_dealloc();
         }
         if FRAME_DEALLOC_OVERWRITE {
@@ -202,8 +202,8 @@ pub fn init_frame_allocator() {
     }
     println!("[FTL OS]init_frame_allocator");
     FRAME_ALLOCATOR.lock().init(
-        PhyAddrRef::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
-        PhyAddrRef::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
+        PhyAddrRef::<u8>::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
+        PhyAddrRef::<u8>::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
     );
 }
 // pub fn size() -> usize {

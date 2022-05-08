@@ -73,9 +73,9 @@ pub const USER_MMAP_SEARCH: usize = 0x20_0000_0000;
 pub const USER_MMAP_END: usize = USER_END;
 
 pub const USER_MMAP_RANGE: URange =
-    UserAddr::from(USER_MMAP_BEGIN).floor()..UserAddr::from(USER_MMAP_END).ceil();
+    UserAddr::<u8>::from(USER_MMAP_BEGIN).floor()..UserAddr::<u8>::from(USER_MMAP_END).ceil();
 
 pub const USER_MMAP_SEARCH_RANGE: URange =
-    UserAddr::from(USER_MMAP_SEARCH).floor()..UserAddr::from(USER_MMAP_END).ceil();
+    UserAddr::<u8>::from(USER_MMAP_SEARCH).floor()..UserAddr::<u8>::from(USER_MMAP_END).ceil();
 
 pub const USER_END: usize = 0x40_0000_0000;

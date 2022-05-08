@@ -103,6 +103,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     crate::test_main();
     executor::kernel_spawn(async move {
         println!("[FTL OS]running async init");
+        drivers::test().await;
         fs::init().await;
         fs::list_apps().await;
         process::init().await;

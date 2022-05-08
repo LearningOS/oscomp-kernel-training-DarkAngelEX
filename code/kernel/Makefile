@@ -2,7 +2,8 @@
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
 MODE := debug
-ARGS := --offline
+ARGS += --offline
+# ARGS += --features board_hifive
 
 KERNEL_ELF := target/$(TARGET)/$(MODE)/kernel
 KERNEL_BIN := $(KERNEL_ELF).bin
@@ -91,10 +92,8 @@ endif
 endif
 endif
 
-hifive_board:
-ARGS += --features board_hifive
 
-take_bin: hifive_board binary
+take_bin: binary
 
 clean:
 	@cargo clean

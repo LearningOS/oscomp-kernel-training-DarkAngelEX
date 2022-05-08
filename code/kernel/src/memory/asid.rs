@@ -205,10 +205,10 @@ pub fn version_check_alloc(asid_info: &AsidInfoTracker, satp: &AtomicUsize) {
 pub fn asid_test() {
     use crate::memory::{address::VirAddr4K, allocator::frame, page_table::PTEFlags};
 
-    fn va_set(va: VirAddr, value: usize) {
+    fn va_set(va: VirAddr<usize>, value: usize) {
         unsafe { core::ptr::write_volatile(va.as_mut(), value) }
     }
-    fn va_get(va: VirAddr) -> usize {
+    fn va_get(va: VirAddr<usize>) -> usize {
         unsafe { core::ptr::read_volatile(va.as_ref()) }
     }
 
@@ -222,7 +222,7 @@ pub fn asid_test() {
     let mut space_1 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let mut space_2 = PageTable::from_global(AsidInfoTracker::alloc()).unwrap();
     let va4k: VirAddr4K = unsafe { VirAddr4K::from_usize(0x1000) };
-    let va: VirAddr = va4k.into();
+    let va: VirAddr<usize> = va4k.into();
     let pax1 = frame::global::alloc().unwrap();
     let pax2 = frame::global::alloc().unwrap();
     let pa1 = pax1.data();
