@@ -38,6 +38,7 @@
 #![feature(maybe_uninit_as_bytes)]
 #![feature(custom_test_frameworks)]
 #![feature(allocator_api)]
+#![feature(str_internals)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![allow(dead_code)]

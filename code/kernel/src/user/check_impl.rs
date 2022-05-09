@@ -20,7 +20,7 @@ use crate::{
     xdebug::PRINT_PAGE_FAULT,
 };
 
-use super::{AutoSie, UserAccessStatus};
+use super::UserAccessStatus;
 
 global_asm!(include_str!("check_impl.S"));
 
@@ -95,7 +95,7 @@ impl<'a> UserCheckImpl<'a> {
 
         unsafe { trap::set_kernel_default_trap() };
         match a.a_page_fault(self.0, ptr).await {
-            Ok(asid) => asid,
+            Ok(()) => (),
             Err(e) => {
                 unsafe { set_error_handle() };
                 return Err(e);
@@ -153,9 +153,11 @@ fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), SysError> {
 unsafe fn set_error_handle() {
     extern "C" {
         fn __try_access_user_error_trap();
+        fn __try_access_user_error_vector();
     }
     // debug_assert!(!sstatus::read().sie());
     if true {
+        stvec::write(__try_access_user_error_vector as usize, TrapMode::Vectored);
     } else {
         stvec::write(__try_access_user_error_trap as usize, TrapMode::Direct);
     }

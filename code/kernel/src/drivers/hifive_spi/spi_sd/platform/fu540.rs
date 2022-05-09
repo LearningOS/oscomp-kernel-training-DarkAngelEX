@@ -1,4 +1,5 @@
 use core::ops::Deref;
+use core::ops::DerefMut;
 use registers::*;
 
 pub use registers::Mode;
@@ -19,6 +20,19 @@ pub enum SPIDevice {
     Other(usize),
 }
 
+impl Deref for SPIDevice {
+    type Target = RegisterBlock;
+    fn deref(&self) -> &Self::Target {
+        unsafe { &*self.base_addr().into_ref().get() }
+    }
+}
+
+impl DerefMut for SPIDevice {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { &mut *self.base_addr().into_ref().get_mut() }
+    }
+}
+
 impl SPIDevice {
     fn base_addr(&self) -> PhyAddr<RegisterBlock> {
         let a = match self {
@@ -28,13 +42,6 @@ impl SPIDevice {
             SPIDevice::Other(val) => val.clone(),
         };
         PhyAddr::from_usize(a)
-    }
-}
-
-impl Deref for SPIDevice {
-    type Target = RegisterBlock;
-    fn deref(&self) -> &Self::Target {
-        unsafe { &*self.base_addr().into_ref().get_mut() }
     }
 }
 
@@ -108,7 +115,7 @@ mod registers {
     use core::marker::PhantomData;
 
     pub trait Reset {
-        fn reset(&self);
+        fn reset(&mut self);
     }
 
     #[doc = "Universal register structure"]
@@ -132,8 +139,8 @@ mod registers {
             let ptr: *const T = &self.value;
             unsafe { ptr.read_volatile() }
         }
-        pub fn write(&self, val: T) {
-            let ptr: *mut T = &self.value as *const _ as usize as *mut T;
+        pub fn write(&mut self, val: T) {
+            let ptr: *mut T = &mut self.value;
             unsafe {
                 ptr.write_volatile(val);
             }
@@ -146,7 +153,7 @@ mod registers {
     pub struct _SCKDIV;
     pub type SCKDIV = Reg<u32, _SCKDIV>;
     impl Reset for SCKDIV {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(3u32);
         }
     }
@@ -154,12 +161,12 @@ mod registers {
     pub struct _SCKMODE;
     pub type SCKMODE = Reg<u32, _SCKMODE>;
     impl Reset for SCKMODE {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0u32);
         }
     }
     impl SCKMODE {
-        pub fn set_phase(&self, phasebit: bool) {
+        pub fn set_phase(&mut self, phasebit: bool) {
             let mut data = self.read();
             data = if phasebit {
                 data | 0x1u32
@@ -168,7 +175,7 @@ mod registers {
             };
             self.write(data);
         }
-        pub fn set_polarity(&self, polbit: bool) {
+        pub fn set_polarity(&mut self, polbit: bool) {
             let mut data = self.read();
             data = if polbit {
                 data | 0x2u32
@@ -182,7 +189,7 @@ mod registers {
     pub struct _CSID;
     pub type CSID = Reg<u32, _CSID>;
     impl Reset for CSID {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0u32);
         }
     }
@@ -190,15 +197,15 @@ mod registers {
     pub struct _CSDEF;
     pub type CSDEF = Reg<u32, _CSDEF>;
     impl Reset for CSDEF {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(1u32);
         }
     }
     impl CSDEF {
-        pub fn CS_active_low(&self) {
+        pub fn CS_active_low(&mut self) {
             self.write(1u32);
         }
-        pub fn CS_active_high(&self) {
+        pub fn CS_active_high(&mut self) {
             self.write(0u32);
         }
     }
@@ -206,7 +213,7 @@ mod registers {
     pub struct _CSMODE;
     pub type CSMODE = Reg<u32, _CSMODE>;
     impl Reset for CSMODE {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0u32);
         }
     }
@@ -217,7 +224,7 @@ mod registers {
         OFF,
     }
     impl CSMODE {
-        pub fn switch_csmode(&self, mode: Mode) {
+        pub fn switch_csmode(&mut self, mode: Mode) {
             self.write(match mode {
                 Mode::AUTO => 0u32,
                 Mode::HOLD => 2u32,
@@ -229,7 +236,7 @@ mod registers {
     pub struct _DELAY0;
     pub type DELAY0 = Reg<u32, _DELAY0>;
     impl Reset for DELAY0 {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0x00010001u32);
         }
     }
@@ -238,7 +245,7 @@ mod registers {
             let data = self.read();
             data as u8
         }
-        pub fn set_cssck(&self, value: u8) {
+        pub fn set_cssck(&mut self, value: u8) {
             let mut data = self.read();
             data = (data & 0xffff0000u32) | value as u32;
             self.write(data);
@@ -248,7 +255,7 @@ mod registers {
             let data = self.read();
             (data >> 16) as u8
         }
-        pub fn set_sckcs(&self, value: u8) {
+        pub fn set_sckcs(&mut self, value: u8) {
             let mut data = self.read();
             data = (data & 0x0000ffffu32) | ((value as u32) << 16);
             self.write(data);
@@ -258,7 +265,7 @@ mod registers {
     pub struct _DELAY1;
     pub type DELAY1 = Reg<u32, _DELAY1>;
     impl Reset for DELAY1 {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0x00000001u32);
         }
     }
@@ -267,7 +274,7 @@ mod registers {
             let data = self.read();
             data as u8
         }
-        pub fn set_intercs(&self, value: u8) {
+        pub fn set_intercs(&mut self, value: u8) {
             let mut data = self.read();
             data = (data & 0xffff0000u32) | value as u32;
             self.write(data);
@@ -277,7 +284,7 @@ mod registers {
             let data = self.read();
             (data >> 16) as u8
         }
-        pub fn set_interxfr(&self, value: u8) {
+        pub fn set_interxfr(&mut self, value: u8) {
             let mut data = self.read();
             data = (data & 0x0000ffffu32) | ((value as u32) << 16);
             self.write(data);
@@ -293,12 +300,12 @@ mod registers {
         Quad,
     }
     impl Reset for FMT {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0x00080000u32);
         }
     }
     impl FMT {
-        pub fn switch_protocol(&self, proto: Protocol) {
+        pub fn switch_protocol(&mut self, proto: Protocol) {
             let p = match proto {
                 Protocol::Single => 0u32,
                 Protocol::Dual => 1u32,
@@ -309,19 +316,19 @@ mod registers {
         }
 
         // TODO FIX BITWISE OPS
-        pub fn set_endian(&self, msb: bool) {
+        pub fn set_endian(&mut self, msb: bool) {
             let end = if msb { 0b100u32 } else { 0u32 };
             let r = self.read();
             self.write((r & (!0b100u32)) | end);
         }
 
-        pub fn set_direction(&self, tx: bool) {
+        pub fn set_direction(&mut self, tx: bool) {
             let dir = if tx { 0b1000u32 } else { 0u32 };
             let r = self.read();
             self.write((r & (!0b1000u32)) | dir);
         }
 
-        pub fn set_len(&self, frame_size: u8) {
+        pub fn set_len(&mut self, frame_size: u8) {
             let fs = (frame_size as u32 & 0x0fu32) << 16;
             let mask = 0xfu32 << 16;
             let r = self.read();
@@ -350,7 +357,7 @@ mod registers {
     pub struct _TXMARK;
     pub type TXMARK = Reg<u32, _TXMARK>;
     impl Reset for TXMARK {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0u32);
         }
     }
@@ -358,7 +365,7 @@ mod registers {
     pub struct _RXMARK;
     pub type RXMARK = Reg<u32, _RXMARK>;
     impl Reset for RXMARK {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0u32);
         }
     }
@@ -366,12 +373,12 @@ mod registers {
     pub struct _FCTRL;
     pub type FCTRL = Reg<u32, _FCTRL>;
     impl Reset for FCTRL {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(1u32);
         }
     }
     impl FCTRL {
-        pub fn set_flash_mode(&self, mmio_enable: bool) {
+        pub fn set_flash_mode(&mut self, mmio_enable: bool) {
             let v = if mmio_enable { 1u32 } else { 0u32 };
             self.write(v);
         }
@@ -380,61 +387,61 @@ mod registers {
     pub struct _FFMT;
     pub type FFMT = Reg<u32, _FFMT>;
     impl Reset for FFMT {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0x00030007);
         }
     }
     impl FFMT {
-        fn set_cmden(&self, en: bool) {
+        fn set_cmden(&mut self, en: bool) {
             let v = if en { 1u32 } else { 0u32 };
             let mask = 1u32;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_addrlen(&self, len: u8) {
+        fn set_addrlen(&mut self, len: u8) {
             let v = (len as u32 & 0x7u32) << 1;
             let mask = 0xeu32;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_padcnt(&self, padcnt: u8) {
+        fn set_padcnt(&mut self, padcnt: u8) {
             let v = (padcnt as u32 & 0xfu32) << 4;
             let mask = 0xf0u32;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_cmdproto(&self, proto: u8) {
+        fn set_cmdproto(&mut self, proto: u8) {
             let v = (proto as u32 & 0x3u32) << 8;
             let mask = 0x300u32;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_addrproto(&self, proto: u8) {
+        fn set_addrproto(&mut self, proto: u8) {
             let v = (proto as u32 & 0x3u32) << 10;
             let mask = 0xc00u32;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_dataproto(&self, proto: u8) {
+        fn set_dataproto(&mut self, proto: u8) {
             let v = (proto as u32 & 0x3u32) << 12;
             let mask = 0x3000u32;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_cmdcode(&self, code: u8) {
+        fn set_cmdcode(&mut self, code: u8) {
             let v = (code as u32) << 16;
             let mask = 0xfu32 << 16;
             let r = self.read();
             self.write((r & !mask) | v);
         }
 
-        fn set_padcode(&self, code: u8) {
+        fn set_padcode(&mut self, code: u8) {
             let v = (code as u32) << 24;
             let mask = 0xfu32 << 24;
             let r = self.read();
@@ -445,18 +452,18 @@ mod registers {
     pub struct _IE;
     pub type IE = Reg<u32, _IE>;
     impl Reset for IE {
-        fn reset(&self) {
+        fn reset(&mut self) {
             self.write(0u32);
         }
     }
     impl IE {
-        pub fn set_transmit_watermark(&self, enable: bool) {
+        pub fn set_transmit_watermark(&mut self, enable: bool) {
             let en = if enable { 1u32 } else { 0u32 };
             let r = self.read();
             self.write((r & (!1u32)) | en);
         }
 
-        pub fn set_receive_watermark(&self, enable: bool) {
+        pub fn set_receive_watermark(&mut self, enable: bool) {
             let en = if enable { 2u32 } else { 0u32 };
             let r = self.read();
             self.write((r & (!2u32)) | en);
@@ -493,14 +500,14 @@ impl SPIImpl {
 }
 
 impl SPIImpl {
-    fn tx_enque(&self, data: u8) {
+    fn tx_enque(&mut self, data: u8) {
         if self.spi.txdata.is_full() {
             println!("[kernel] spi warning: overwritting existing data to transmit");
         }
         self.spi.txdata.write(data as u32);
     }
 
-    fn rx_deque(&self) -> u8 {
+    fn rx_deque(&mut self) -> u8 {
         /*if self.spi.rxdata.is_empty() {
           println!("spi warning: attempting to read empty fifo");
         }*/
@@ -526,10 +533,10 @@ impl SPIImpl {
 
 impl SPIActions for SPIImpl {
     // This function references spi-sifive.c:sifive_spi_init()
-    fn init(&self) {
+    fn init(&mut self) {
         stack_trace!();
         println!("SPIImpl init start");
-        let spi = self.spi;
+        let spi = &mut *self.spi;
 
         //  Watermark interrupts are disabled by default
         spi.ie.set_transmit_watermark(false);
@@ -551,8 +558,8 @@ impl SPIActions for SPIImpl {
         println!("SPIImpl init end");
     }
 
-    fn configure(&self, use_lines: u8, data_bit_length: u8, msb_first: bool) {
-        let spi = self.spi;
+    fn configure(&mut self, use_lines: u8, data_bit_length: u8, msb_first: bool) {
+        let spi = &mut *self.spi;
         // bit per word
         spi.fmt.set_len(data_bit_length);
         // switch protocol (QSPI, DSPI, SPI)
@@ -568,7 +575,7 @@ impl SPIActions for SPIImpl {
         spi.sckmode.reset();
     }
 
-    fn switch_cs(&self, enable: bool, csid: u32) {
+    fn switch_cs(&mut self, enable: bool, csid: u32) {
         // manual cs
         self.spi
             .csmode
@@ -576,14 +583,14 @@ impl SPIActions for SPIImpl {
         self.spi.csid.write(csid);
     }
 
-    fn set_clk_rate(&self, spi_clk: u32) -> u32 {
+    fn set_clk_rate(&mut self, spi_clk: u32) -> u32 {
         // calculate clock rate
         let div = TLCLK_FREQ / 2u32 / spi_clk - 1u32;
         self.spi.sckdiv.write(div);
         TLCLK_FREQ / 2 / div
     }
 
-    fn recv_data(&self, chip_select: u32, rx_buf: &mut [u8]) {
+    fn recv_data(&mut self, chip_select: u32, rx_buf: &mut [u8]) {
         // direction
         self.spi.fmt.set_direction(false);
         // select the correct device
@@ -594,7 +601,7 @@ impl SPIActions for SPIImpl {
 
         while remaining != 0usize {
             // words need to be transferred in a single round
-            let n_words = if 8usize < remaining { 8 } else { remaining };
+            let n_words = remaining.min(8);
             // enqueue n_words junk for transmission
             for i in 0..n_words {
                 self.tx_enque(0xffu8);
@@ -612,7 +619,7 @@ impl SPIActions for SPIImpl {
         }
     }
 
-    fn send_data(&self, chip_select: u32, tx_buf: &[u8]) {
+    fn send_data(&mut self, chip_select: u32, tx_buf: &[u8]) {
         // direction
         self.spi.fmt.set_direction(true);
         // select the correct device

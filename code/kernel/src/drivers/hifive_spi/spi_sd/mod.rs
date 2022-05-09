@@ -171,19 +171,19 @@ impl<T: SPIActions> SDCard<T> {
         }
     }
 
-    fn HIGH_SPEED_ENABLE(&self) {
+    fn HIGH_SPEED_ENABLE(&mut self) {
         self.spi.set_clk_rate(10000000);
     }
 
-    fn CS_HIGH(&self) {
+    fn CS_HIGH(&mut self) {
         self.spi.switch_cs(false, 0);
     }
 
-    fn CS_LOW(&self) {
+    fn CS_LOW(&mut self) {
         self.spi.switch_cs(true, 0);
     }
 
-    fn lowlevel_init(&self) {
+    fn lowlevel_init(&mut self) {
         // gpiohs::set_direction(self.cs_gpionum, gpio::direction::OUTPUT);
         // at first clock rate shall be low (below 200khz)
         println!("lowlevel_init start");
@@ -191,289 +191,6 @@ impl<T: SPIActions> SDCard<T> {
         println!("lowlevel_init 0");
         self.spi.set_clk_rate(150000);
         println!("lowlevel_init end");
-    }
-
-    fn write_data(&self, data: &[u8]) {
-        self.spi.configure(
-            2,    // use lines
-            8,    // bits per word
-            true, // endian: big-endian
-        );
-        self.spi.send_data(self.spi_cs, data);
-    }
-
-    fn read_data(&self, data: &mut [u8]) {
-        self.spi.configure(
-            2,    // use lines
-            8,    // bits per word
-            true, // endian: big-endian
-        );
-        self.spi.recv_data(self.spi_cs, data);
-    }
-
-    ///Send 5 bytes command to the SD card.
-    ///
-    /// cmd: The user expected command to send to SD card.
-    ///
-    /// arg: The command argument.
-    ///
-    /// crc: The CRC.
-    ///
-    fn send_cmd(&self, cmd: CMD, arg: u32, crc: u8) {
-        self.CS_LOW();
-        /* Send the Cmd bytes */
-        self.write_data(&[
-            /* Construct byte 1 */
-            ((cmd as u8) | 0x40),
-            /* Construct byte 2 */
-            (arg >> 24) as u8,
-            /* Construct byte 3 */
-            ((arg >> 16) & 0xff) as u8,
-            /* Construct byte 4 */
-            ((arg >> 8) & 0xff) as u8,
-            /* Construct byte 5 */
-            (arg & 0xff) as u8,
-            /* CRC */
-            crc,
-        ]);
-    }
-
-    /* Send end-command sequence to SD card */
-    fn end_cmd(&self) {
-        // TODO Does end operation need to deassert CS?
-        self.CS_HIGH();
-        /* Send the cmd byte */
-        self.write_data(&[0xff; 4]);
-    }
-
-    /*
-     * Returns the SD response.
-     * @param  None
-     * @retval The SD Response:
-     *         - 0xFF: Sequence failed
-     *         - 0: Sequence succeed
-     */
-    fn get_response(&self) -> u8 {
-        let result = &mut [0xffu8];
-        let mut timeout = 0x0FFF;
-        /* Check if response is got or a timeout is happen */
-        while timeout != 0 {
-            self.read_data(result);
-            /* Right response got */
-            if result[0] != 0xFF {
-                return result[0];
-            }
-            timeout -= 1;
-        }
-        /* After time out */
-        return 0xFF;
-    }
-
-    /*
-     * Get SD card data response.
-     * @param  None
-     * @retval The SD status: Read data response xxx0<status>1
-     *         - status 010: Data accecpted
-     *         - status 101: Data rejected due to a crc error
-     *         - status 110: Data rejected due to a Write error.
-     *         - status 111: Data rejected due to other error.
-     */
-    fn get_dataresponse(&self) -> u8 {
-        let response = &mut [0u8];
-        /* Read resonse */
-        self.read_data(response);
-        /* Mask unused bits */
-        response[0] &= 0x1F;
-        if response[0] != 0x05 {
-            return 0xFF;
-        }
-        /* Wait null data */
-        self.read_data(response);
-        while response[0] == 0 {
-            self.read_data(response);
-        }
-        /* Return response */
-        return 0;
-    }
-
-    /*
-     * Read the CSD card register
-     *         Reading the contents of the CSD register in SPI mode is a simple
-     *         read-block transaction.
-     * @param  SD_csd: pointer on an SCD register structure
-     * @retval The SD Response:
-     *         - `Err()`: Sequence failed
-     *         - `Ok(info)`: Sequence succeed
-     */
-    fn get_csdregister(&self) -> Result<SDCardCSD, ()> {
-        let mut csd_tab = [0u8; 18];
-        /* Send CMD9 (CSD register) */
-        self.send_cmd(CMD::CMD9, 0, 0);
-        /* Wait for response in the R1 format (0x00 is no errors) */
-        if self.get_response() != 0x00 {
-            self.end_cmd();
-            return Err(());
-        }
-        if self.get_response() != SD_START_DATA_SINGLE_BLOCK_READ {
-            self.end_cmd();
-            return Err(());
-        }
-        /* Store CSD register value on csd_tab */
-        /* Get CRC bytes (not really needed by us, but required by SD) */
-        self.read_data(&mut csd_tab);
-        self.end_cmd();
-        self.end_cmd();
-        /* see also: https://cdn-shop.adafruit.com/datasheets/TS16GUSDHC6.pdf */
-        return Ok(SDCardCSD {
-            /* Byte 0 */
-            CSDStruct: (csd_tab[0] & 0xC0) >> 6,
-            SysSpecVersion: (csd_tab[0] & 0x3C) >> 2,
-            Reserved1: csd_tab[0] & 0x03,
-            /* Byte 1 */
-            TAAC: csd_tab[1],
-            /* Byte 2 */
-            NSAC: csd_tab[2],
-            /* Byte 3 */
-            MaxBusClkFrec: csd_tab[3],
-            /* Byte 4, 5 */
-            CardComdClasses: (u16::from(csd_tab[4]) << 4) | ((u16::from(csd_tab[5]) & 0xF0) >> 4),
-            /* Byte 5 */
-            RdBlockLen: csd_tab[5] & 0x0F,
-            /* Byte 6 */
-            PartBlockRead: (csd_tab[6] & 0x80) >> 7,
-            WrBlockMisalign: (csd_tab[6] & 0x40) >> 6,
-            RdBlockMisalign: (csd_tab[6] & 0x20) >> 5,
-            DSRImpl: (csd_tab[6] & 0x10) >> 4,
-            Reserved2: 0,
-            // DeviceSize: (csd_tab[6] & 0x03) << 10,
-            /* Byte 7, 8, 9 */
-            DeviceSize: ((u32::from(csd_tab[7]) & 0x3F) << 16)
-                | (u32::from(csd_tab[8]) << 8)
-                | u32::from(csd_tab[9]),
-            /* Byte 10 */
-            EraseGrSize: (csd_tab[10] & 0x40) >> 6,
-            /* Byte 10, 11 */
-            EraseGrMul: ((csd_tab[10] & 0x3F) << 1) | ((csd_tab[11] & 0x80) >> 7),
-            /* Byte 11 */
-            WrProtectGrSize: (csd_tab[11] & 0x7F),
-            /* Byte 12 */
-            WrProtectGrEnable: (csd_tab[12] & 0x80) >> 7,
-            ManDeflECC: (csd_tab[12] & 0x60) >> 5,
-            WrSpeedFact: (csd_tab[12] & 0x1C) >> 2,
-            /* Byte 12,13 */
-            MaxWrBlockLen: ((csd_tab[12] & 0x03) << 2) | ((csd_tab[13] & 0xC0) >> 6),
-            /* Byte 13 */
-            WriteBlockPaPartial: (csd_tab[13] & 0x20) >> 5,
-            Reserved3: 0,
-            ContentProtectAppli: (csd_tab[13] & 0x01),
-            /* Byte 14 */
-            FileFormatGroup: (csd_tab[14] & 0x80) >> 7,
-            CopyFlag: (csd_tab[14] & 0x40) >> 6,
-            PermWrProtect: (csd_tab[14] & 0x20) >> 5,
-            TempWrProtect: (csd_tab[14] & 0x10) >> 4,
-            FileFormat: (csd_tab[14] & 0x0C) >> 2,
-            ECC: (csd_tab[14] & 0x03),
-            /* Byte 15 */
-            CSD_CRC: (csd_tab[15] & 0xFE) >> 1,
-            Reserved4: 1,
-            /* Return the reponse */
-        });
-    }
-
-    /*
-     * Read the CID card register.
-     *         Reading the contents of the CID register in SPI mode is a simple
-     *         read-block transaction.
-     * @param  SD_cid: pointer on an CID register structure
-     * @retval The SD Response:
-     *         - `Err()`: Sequence failed
-     *         - `Ok(info)`: Sequence succeed
-     */
-    fn get_cidregister(&self) -> Result<SDCardCID, ()> {
-        let mut cid_tab = [0u8; 18];
-        /* Send CMD10 (CID register) */
-        self.send_cmd(CMD::CMD10, 0, 0);
-        /* Wait for response in the R1 format (0x00 is no errors) */
-        if self.get_response() != 0x00 {
-            self.end_cmd();
-            return Err(());
-        }
-        if self.get_response() != SD_START_DATA_SINGLE_BLOCK_READ {
-            self.end_cmd();
-            return Err(());
-        }
-        /* Store CID register value on cid_tab */
-        /* Get CRC bytes (not really needed by us, but required by SD) */
-        self.read_data(&mut cid_tab);
-        self.end_cmd();
-        return Ok(SDCardCID {
-            /* Byte 0 */
-            ManufacturerID: cid_tab[0],
-            /* Byte 1, 2 */
-            OEM_AppliID: (u16::from(cid_tab[1]) << 8) | u16::from(cid_tab[2]),
-            /* Byte 3, 4, 5, 6 */
-            ProdName1: (u32::from(cid_tab[3]) << 24)
-                | (u32::from(cid_tab[4]) << 16)
-                | (u32::from(cid_tab[5]) << 8)
-                | u32::from(cid_tab[6]),
-            /* Byte 7 */
-            ProdName2: cid_tab[7],
-            /* Byte 8 */
-            ProdRev: cid_tab[8],
-            /* Byte 9, 10, 11, 12 */
-            ProdSN: (u32::from(cid_tab[9]) << 24)
-                | (u32::from(cid_tab[10]) << 16)
-                | (u32::from(cid_tab[11]) << 8)
-                | u32::from(cid_tab[12]),
-            /* Byte 13, 14 */
-            Reserved1: (cid_tab[13] & 0xF0) >> 4,
-            ManufactDate: ((u16::from(cid_tab[13]) & 0x0F) << 8) | u16::from(cid_tab[14]),
-            /* Byte 15 */
-            CID_CRC: (cid_tab[15] & 0xFE) >> 1,
-            Reserved2: 1,
-        });
-    }
-
-    /*
-     * Returns information about specific card.
-     * @param  cardinfo: pointer to a SD_CardInfo structure that contains all SD
-     *         card information.
-     * @retval The SD Response:
-     *         - `Err(())`: Sequence failed
-     *         - `Ok(info)`: Sequence succeed
-     */
-    fn get_cardinfo(&self) -> Result<SDCardInfo, ()> {
-        let mut info = SDCardInfo {
-            SD_csd: self.get_csdregister()?,
-            SD_cid: self.get_cidregister()?,
-            CardCapacity: 0,
-            CardBlockSize: 0,
-            is_hc: false,
-        };
-        info.CardBlockSize = 1 << u64::from(info.SD_csd.RdBlockLen);
-        info.CardCapacity = (u64::from(info.SD_csd.DeviceSize) + 1) * 1024 * info.CardBlockSize;
-
-        Ok(info)
-    }
-
-    fn retry_cmd(
-        &self,
-        cmd: CMD,
-        arg: u32,
-        crc: u8,
-        expect: u8,
-        retry_times: u32,
-    ) -> Result<(), ()> {
-        for i in 0..retry_times {
-            println!("retry_cmd: {}", i);
-            self.send_cmd(cmd, arg, crc);
-            let resp = self.get_response();
-            self.end_cmd();
-            if resp == expect {
-                return Ok(());
-            }
-        }
-        return Err(());
     }
 
     /*
@@ -593,6 +310,289 @@ impl<T: SPIActions> SDCard<T> {
             Ok(info) => Ok(info),
             Err(_) => Err(InitError::CannotGetCardInfo),
         }
+    }
+
+    fn write_data(&mut self, data: &[u8]) {
+        self.spi.configure(
+            2,    // use lines
+            8,    // bits per word
+            true, // endian: big-endian
+        );
+        self.spi.send_data(self.spi_cs, data);
+    }
+
+    fn read_data(&mut self, data: &mut [u8]) {
+        self.spi.configure(
+            2,    // use lines
+            8,    // bits per word
+            true, // endian: big-endian
+        );
+        self.spi.recv_data(self.spi_cs, data);
+    }
+
+    ///Send 5 bytes command to the SD card.
+    ///
+    /// cmd: The user expected command to send to SD card.
+    ///
+    /// arg: The command argument.
+    ///
+    /// crc: The CRC.
+    ///
+    fn send_cmd(&mut self, cmd: CMD, arg: u32, crc: u8) {
+        self.CS_LOW();
+        /* Send the Cmd bytes */
+        self.write_data(&[
+            /* Construct byte 1 */
+            ((cmd as u8) | 0x40),
+            /* Construct byte 2 */
+            (arg >> 24) as u8,
+            /* Construct byte 3 */
+            ((arg >> 16) & 0xff) as u8,
+            /* Construct byte 4 */
+            ((arg >> 8) & 0xff) as u8,
+            /* Construct byte 5 */
+            (arg & 0xff) as u8,
+            /* CRC */
+            crc,
+        ]);
+    }
+
+    /* Send end-command sequence to SD card */
+    fn end_cmd(&mut self) {
+        // TODO Does end operation need to deassert CS?
+        self.CS_HIGH();
+        /* Send the cmd byte */
+        self.write_data(&[0xff; 4]);
+    }
+
+    /*
+     * Returns the SD response.
+     * @param  None
+     * @retval The SD Response:
+     *         - 0xFF: Sequence failed
+     *         - 0: Sequence succeed
+     */
+    fn get_response(&mut self) -> u8 {
+        let result = &mut [0xffu8];
+        let mut timeout = 0x0FFF;
+        /* Check if response is got or a timeout is happen */
+        while timeout != 0 {
+            self.read_data(result);
+            /* Right response got */
+            if result[0] != 0xFF {
+                return result[0];
+            }
+            timeout -= 1;
+        }
+        /* After time out */
+        return 0xFF;
+    }
+
+    /*
+     * Get SD card data response.
+     * @param  None
+     * @retval The SD status: Read data response xxx0<status>1
+     *         - status 010: Data accecpted
+     *         - status 101: Data rejected due to a crc error
+     *         - status 110: Data rejected due to a Write error.
+     *         - status 111: Data rejected due to other error.
+     */
+    fn get_dataresponse(&mut self) -> u8 {
+        let response = &mut [0u8];
+        /* Read resonse */
+        self.read_data(response);
+        /* Mask unused bits */
+        response[0] &= 0x1F;
+        if response[0] != 0x05 {
+            return 0xFF;
+        }
+        /* Wait null data */
+        self.read_data(response);
+        while response[0] == 0 {
+            self.read_data(response);
+        }
+        /* Return response */
+        return 0;
+    }
+
+    /*
+     * Read the CSD card register
+     *         Reading the contents of the CSD register in SPI mode is a simple
+     *         read-block transaction.
+     * @param  SD_csd: pointer on an SCD register structure
+     * @retval The SD Response:
+     *         - `Err()`: Sequence failed
+     *         - `Ok(info)`: Sequence succeed
+     */
+    fn get_csdregister(&mut self) -> Result<SDCardCSD, ()> {
+        let mut csd_tab = [0u8; 18];
+        /* Send CMD9 (CSD register) */
+        self.send_cmd(CMD::CMD9, 0, 0);
+        /* Wait for response in the R1 format (0x00 is no errors) */
+        if self.get_response() != 0x00 {
+            self.end_cmd();
+            return Err(());
+        }
+        if self.get_response() != SD_START_DATA_SINGLE_BLOCK_READ {
+            self.end_cmd();
+            return Err(());
+        }
+        /* Store CSD register value on csd_tab */
+        /* Get CRC bytes (not really needed by us, but required by SD) */
+        self.read_data(&mut csd_tab);
+        self.end_cmd();
+        self.end_cmd();
+        /* see also: https://cdn-shop.adafruit.com/datasheets/TS16GUSDHC6.pdf */
+        return Ok(SDCardCSD {
+            /* Byte 0 */
+            CSDStruct: (csd_tab[0] & 0xC0) >> 6,
+            SysSpecVersion: (csd_tab[0] & 0x3C) >> 2,
+            Reserved1: csd_tab[0] & 0x03,
+            /* Byte 1 */
+            TAAC: csd_tab[1],
+            /* Byte 2 */
+            NSAC: csd_tab[2],
+            /* Byte 3 */
+            MaxBusClkFrec: csd_tab[3],
+            /* Byte 4, 5 */
+            CardComdClasses: (u16::from(csd_tab[4]) << 4) | ((u16::from(csd_tab[5]) & 0xF0) >> 4),
+            /* Byte 5 */
+            RdBlockLen: csd_tab[5] & 0x0F,
+            /* Byte 6 */
+            PartBlockRead: (csd_tab[6] & 0x80) >> 7,
+            WrBlockMisalign: (csd_tab[6] & 0x40) >> 6,
+            RdBlockMisalign: (csd_tab[6] & 0x20) >> 5,
+            DSRImpl: (csd_tab[6] & 0x10) >> 4,
+            Reserved2: 0,
+            // DeviceSize: (csd_tab[6] & 0x03) << 10,
+            /* Byte 7, 8, 9 */
+            DeviceSize: ((u32::from(csd_tab[7]) & 0x3F) << 16)
+                | (u32::from(csd_tab[8]) << 8)
+                | u32::from(csd_tab[9]),
+            /* Byte 10 */
+            EraseGrSize: (csd_tab[10] & 0x40) >> 6,
+            /* Byte 10, 11 */
+            EraseGrMul: ((csd_tab[10] & 0x3F) << 1) | ((csd_tab[11] & 0x80) >> 7),
+            /* Byte 11 */
+            WrProtectGrSize: (csd_tab[11] & 0x7F),
+            /* Byte 12 */
+            WrProtectGrEnable: (csd_tab[12] & 0x80) >> 7,
+            ManDeflECC: (csd_tab[12] & 0x60) >> 5,
+            WrSpeedFact: (csd_tab[12] & 0x1C) >> 2,
+            /* Byte 12,13 */
+            MaxWrBlockLen: ((csd_tab[12] & 0x03) << 2) | ((csd_tab[13] & 0xC0) >> 6),
+            /* Byte 13 */
+            WriteBlockPaPartial: (csd_tab[13] & 0x20) >> 5,
+            Reserved3: 0,
+            ContentProtectAppli: (csd_tab[13] & 0x01),
+            /* Byte 14 */
+            FileFormatGroup: (csd_tab[14] & 0x80) >> 7,
+            CopyFlag: (csd_tab[14] & 0x40) >> 6,
+            PermWrProtect: (csd_tab[14] & 0x20) >> 5,
+            TempWrProtect: (csd_tab[14] & 0x10) >> 4,
+            FileFormat: (csd_tab[14] & 0x0C) >> 2,
+            ECC: (csd_tab[14] & 0x03),
+            /* Byte 15 */
+            CSD_CRC: (csd_tab[15] & 0xFE) >> 1,
+            Reserved4: 1,
+            /* Return the reponse */
+        });
+    }
+
+    /*
+     * Read the CID card register.
+     *         Reading the contents of the CID register in SPI mode is a simple
+     *         read-block transaction.
+     * @param  SD_cid: pointer on an CID register structure
+     * @retval The SD Response:
+     *         - `Err()`: Sequence failed
+     *         - `Ok(info)`: Sequence succeed
+     */
+    fn get_cidregister(&mut self) -> Result<SDCardCID, ()> {
+        let mut cid_tab = [0u8; 18];
+        /* Send CMD10 (CID register) */
+        self.send_cmd(CMD::CMD10, 0, 0);
+        /* Wait for response in the R1 format (0x00 is no errors) */
+        if self.get_response() != 0x00 {
+            self.end_cmd();
+            return Err(());
+        }
+        if self.get_response() != SD_START_DATA_SINGLE_BLOCK_READ {
+            self.end_cmd();
+            return Err(());
+        }
+        /* Store CID register value on cid_tab */
+        /* Get CRC bytes (not really needed by us, but required by SD) */
+        self.read_data(&mut cid_tab);
+        self.end_cmd();
+        return Ok(SDCardCID {
+            /* Byte 0 */
+            ManufacturerID: cid_tab[0],
+            /* Byte 1, 2 */
+            OEM_AppliID: (u16::from(cid_tab[1]) << 8) | u16::from(cid_tab[2]),
+            /* Byte 3, 4, 5, 6 */
+            ProdName1: (u32::from(cid_tab[3]) << 24)
+                | (u32::from(cid_tab[4]) << 16)
+                | (u32::from(cid_tab[5]) << 8)
+                | u32::from(cid_tab[6]),
+            /* Byte 7 */
+            ProdName2: cid_tab[7],
+            /* Byte 8 */
+            ProdRev: cid_tab[8],
+            /* Byte 9, 10, 11, 12 */
+            ProdSN: (u32::from(cid_tab[9]) << 24)
+                | (u32::from(cid_tab[10]) << 16)
+                | (u32::from(cid_tab[11]) << 8)
+                | u32::from(cid_tab[12]),
+            /* Byte 13, 14 */
+            Reserved1: (cid_tab[13] & 0xF0) >> 4,
+            ManufactDate: ((u16::from(cid_tab[13]) & 0x0F) << 8) | u16::from(cid_tab[14]),
+            /* Byte 15 */
+            CID_CRC: (cid_tab[15] & 0xFE) >> 1,
+            Reserved2: 1,
+        });
+    }
+
+    /*
+     * Returns information about specific card.
+     * @param  cardinfo: pointer to a SD_CardInfo structure that contains all SD
+     *         card information.
+     * @retval The SD Response:
+     *         - `Err(())`: Sequence failed
+     *         - `Ok(info)`: Sequence succeed
+     */
+    fn get_cardinfo(&mut self) -> Result<SDCardInfo, ()> {
+        let mut info = SDCardInfo {
+            SD_csd: self.get_csdregister()?,
+            SD_cid: self.get_cidregister()?,
+            CardCapacity: 0,
+            CardBlockSize: 0,
+            is_hc: false,
+        };
+        info.CardBlockSize = 1 << u64::from(info.SD_csd.RdBlockLen);
+        info.CardCapacity = (u64::from(info.SD_csd.DeviceSize) + 1) * 1024 * info.CardBlockSize;
+
+        Ok(info)
+    }
+
+    fn retry_cmd(
+        &mut self,
+        cmd: CMD,
+        arg: u32,
+        crc: u8,
+        expect: u8,
+        retry_times: u32,
+    ) -> Result<(), ()> {
+        for i in 0..retry_times {
+            println!("retry_cmd: {}", i);
+            self.send_cmd(cmd, arg, crc);
+            let resp = self.get_response();
+            self.end_cmd();
+            if resp == expect {
+                return Ok(());
+            }
+        }
+        return Err(());
     }
 
     /*

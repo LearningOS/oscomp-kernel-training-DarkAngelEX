@@ -66,7 +66,7 @@ pub fn print_unlocked(args: fmt::Arguments) {
 }
 
 macro_rules! print_unlocked {
-    ($fmt: literal $(, $($arg: tt)+)?) => {
+    ($fmt: literal $(, $($arg: tt)+)?) => {{
         $crate::console::print_unlocked(format_args!($fmt $(, $($arg)+)?));
-    }
+    }}
 }

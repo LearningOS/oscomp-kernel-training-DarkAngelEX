@@ -1,4 +1,4 @@
-use alloc::boxed::Box;
+use alloc::{borrow::Cow, boxed::Box, string::String};
 
 use super::{AsyncFile, File};
 use crate::{
@@ -60,19 +60,20 @@ impl File for Stdout {
     }
     fn write(&self, buf: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
+            use core::str::lossy;
             let lock = STDOUT_MUTEX.lock().await;
             let str = buf.access();
-            let str_u8 = &*str;
-            if str_u8.is_empty() {
-                return Ok(0);
+            let iter = lossy::Utf8Lossy::from_bytes(&*str).chunks();
+            for lossy::Utf8LossyChunk { valid, broken } in iter {
+                if !valid.is_empty() {
+                    print_unlocked!("{}", valid);
+                }
+                if !broken.is_empty() {
+                    print_unlocked!("{}", core::char::REPLACEMENT_CHARACTER);
+                }
             }
-            // for ch in str_u8 {
-            //     print_unlocked!("{}", unsafe { char::from_u32_unchecked(*ch as u32) });
-            // }
-            print_unlocked!("{}", unsafe { core::str::from_utf8_unchecked(&*str) });
-            let len = buf.len();
             drop(lock);
-            Ok(len)
+            Ok(buf.len())
         })
     }
 }
