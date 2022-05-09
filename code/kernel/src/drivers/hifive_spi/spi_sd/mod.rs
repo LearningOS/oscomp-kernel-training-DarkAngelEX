@@ -230,7 +230,7 @@ impl<T: SPIActions> SDCard<T> {
         /* Send software reset */
         let mut result = 0;
         let mut retry_times = 0;
-        if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 0x01, 200) {
+        if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 0x01, 2000) {
             println!("SDCard init error in retry_cmd");
             return Err(InitError::CMDFailed(CMD::CMD0, 0));
         }
@@ -499,15 +499,17 @@ impl<T: SPIActions> SDCard<T> {
         });
     }
 
-    /*
-     * Read the CID card register.
-     *         Reading the contents of the CID register in SPI mode is a simple
-     *         read-block transaction.
-     * @param  SD_cid: pointer on an CID register structure
-     * @retval The SD Response:
-     *         - `Err()`: Sequence failed
-     *         - `Ok(info)`: Sequence succeed
-     */
+    ///
+    /// Read the CID card register.
+    ///         Reading the contents of the CID register in SPI mode is a simple
+    ///         read-block transaction.
+    ///
+    /// @param  SD_cid: pointer on an CID register structure
+    ///
+    /// @retval The SD Response:
+    ///         - `Err()`: Sequence failed
+    ///         - `Ok(info)`: Sequence succeed
+    ///
     fn get_cidregister(&mut self) -> Result<SDCardCID, ()> {
         let mut cid_tab = [0u8; 18];
         /* Send CMD10 (CID register) */
@@ -553,14 +555,16 @@ impl<T: SPIActions> SDCard<T> {
         });
     }
 
-    /*
-     * Returns information about specific card.
-     * @param  cardinfo: pointer to a SD_CardInfo structure that contains all SD
-     *         card information.
-     * @retval The SD Response:
-     *         - `Err(())`: Sequence failed
-     *         - `Ok(info)`: Sequence succeed
-     */
+    ///
+    /// Returns information about specific card.
+    ///
+    /// cardinfo: pointer to a SD_CardInfo structure that contains all SD
+    ///         card information.
+    ///
+    /// return: The SD Response:
+    ///         - `Err(())`: Sequence failed
+    ///         - `Ok(info)`: Sequence succeed
+    ///
     fn get_cardinfo(&mut self) -> Result<SDCardInfo, ()> {
         let mut info = SDCardInfo {
             SD_csd: self.get_csdregister()?,
@@ -584,12 +588,14 @@ impl<T: SPIActions> SDCard<T> {
         retry_times: u32,
     ) -> Result<(), ()> {
         for i in 0..retry_times {
-            println!("retry_cmd: {}", i);
             self.send_cmd(cmd, arg, crc);
             let resp = self.get_response();
             self.end_cmd();
             if resp == expect {
                 return Ok(());
+            }
+            if i % 10 == 0 {
+                println!("retry_cmd: {} -> {}", i, resp);
             }
         }
         return Err(());

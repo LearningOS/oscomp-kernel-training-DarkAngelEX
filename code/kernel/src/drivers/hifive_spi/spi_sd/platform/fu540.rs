@@ -636,7 +636,7 @@ impl SPIActions for SPIImpl {
         let mut remaining = len;
         while remaining != 0usize {
             // words need to be transferred in a single round
-            let n_words = if 8usize < remaining { 8 } else { remaining };
+            let n_words = remaining.min(8);
             // set watermark
             self.spi.txmark.write(1);
             // wait for spi
