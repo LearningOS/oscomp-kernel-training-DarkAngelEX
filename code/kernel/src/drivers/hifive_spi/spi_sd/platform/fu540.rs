@@ -538,9 +538,16 @@ impl SPIActions for SPIImpl {
         println!("SPIImpl init start");
         let spi = &mut *self.spi;
 
+        let inactive = spi.csdef.read();
+        spi.csdef.write(u32::MAX);
+        let cs_bit = spi.csdef.read();
+        spi.csdef.write(inactive);
+        println!("### cs_bit: {:#x} ###", cs_bit);
+
+        println!("SPIImpl init 0");
         //  Watermark interrupts are disabled by default
         spi.ie.set_transmit_watermark(false);
-        println!("SPIImpl init 0");
+        println!("SPIImpl init 1");
         spi.ie.set_receive_watermark(false);
 
         // Default watermark FIFO threshold values

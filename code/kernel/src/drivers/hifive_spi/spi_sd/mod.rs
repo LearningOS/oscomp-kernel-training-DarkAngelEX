@@ -188,7 +188,7 @@ impl<T: SPIActions> SDCard<T> {
         // at first clock rate shall be low (below 200khz)
         println!("lowlevel_init start");
         self.spi.init();
-        println!("lowlevel_init 0");
+        println!("lowlevel_init 1");
         self.spi.set_clk_rate(150000);
         println!("lowlevel_init end");
     }
