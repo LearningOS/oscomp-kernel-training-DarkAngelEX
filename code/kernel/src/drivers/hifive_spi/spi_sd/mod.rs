@@ -594,9 +594,7 @@ impl<T: SPIActions> SDCard<T> {
             if resp == expect {
                 return Ok(());
             }
-            if i % 10 == 0 {
-                println!("retry_cmd: {} -> {}", i, resp);
-            }
+            println!("retry_cmd: {} -> {}", i, resp);
         }
         return Err(());
     }
