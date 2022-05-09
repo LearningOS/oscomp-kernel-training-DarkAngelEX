@@ -189,7 +189,7 @@ impl<T: SPIActions> SDCard<T> {
         println!("lowlevel_init start");
         self.spi.init();
         println!("lowlevel_init 1");
-        self.spi.set_clk_rate(150000);
+        self.spi.set_clk_rate(15000);
         println!("lowlevel_init end");
     }
 
