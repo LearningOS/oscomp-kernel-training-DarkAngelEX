@@ -180,7 +180,7 @@ impl<T: SPIActions> SDCard<T> {
     }
 
     fn HIGH_SPEED_ENABLE(&mut self) {
-        self.spi.set_clk_rate(12_000_000);
+        self.spi.set_clk_rate(10_000_000);
     }
 
     fn CS_HIGH(&mut self) {
