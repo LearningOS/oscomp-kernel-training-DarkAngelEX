@@ -47,6 +47,12 @@ pub struct RawShortName {
     pub name: [u8; 8],
     pub ext: [u8; 3],
     pub attributes: Attr, // 只读 隐藏 系统 卷标 目录 归档
+    // 这个位默认为0,只有短文件名时才有用.
+    // 0x00时为文件名全大写
+    // 0x08时为文件名全小写
+    // 0x10时扩展名全大写
+    // 0x00扩展名全小写
+    // 0x18时为文件名全小写,扩展名全大写
     pub reversed: u8,
     pub create_ms: u8,    // 创建文件时间 单位为10ms
     pub create_hms: u16,  // [hour|minutes|seconds/2]=[5|6|5]

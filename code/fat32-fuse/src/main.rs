@@ -5,12 +5,13 @@ use std::{fs::File, io::Write, os::unix::prelude::FileExt, sync::Arc, time::Dura
 
 use async_std::{sync::Mutex, task::block_on};
 use clap::{Arg, Command};
+use fat32::{AsyncRet, BlockDevice};
 
 extern crate async_std;
 extern crate clap;
 extern crate fat32;
 
-use fat32::{AsyncRet, BlockDevice};
+pub const BPB_CID: usize = 10274;
 
 #[derive(Clone)]
 struct BlockFile {
@@ -35,7 +36,7 @@ impl BlockDevice for BlockFile {
         Box::pin(async move {
             assert!(buf.len() % self.sector_bytes() == 0);
             let file = self.file.lock().await;
-            let offset = (block_id * self.sector_bytes()) as u64;
+            let offset = ((block_id + BPB_CID) * self.sector_bytes()) as u64;
             file.read_exact_at(buf, offset).unwrap();
             let n = buf.len() / self.sector_bytes();
             println!("driver read  sid: {:>4} n:{}", block_id, n);
@@ -46,7 +47,7 @@ impl BlockDevice for BlockFile {
         Box::pin(async move {
             assert!(buf.len() % self.sector_bytes() == 0);
             let file = self.file.lock().await;
-            let offset = (block_id * self.sector_bytes()) as u64;
+            let offset = ((block_id + BPB_CID) * self.sector_bytes()) as u64;
             file.write_all_at(buf, offset).unwrap();
             let n = buf.len() / self.sector_bytes();
             println!("driver write sid: {:>4} n:{}", block_id, n);

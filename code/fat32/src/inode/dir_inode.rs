@@ -620,19 +620,24 @@ impl LongNameBuilder {
         self.long.clear();
     }
     fn push_long(&mut self, s: &RawLongName, start_place: EntryPlace) {
+        println!("push_long 0");
         if s.is_last() {
+            println!("**push_long is last");
             self.current = s.order_num();
             self.start_place.replace(start_place);
             self.checksum = s.checksum();
         } else if self.current != s.order_num() + 1 || self.checksum != s.checksum() {
+            println!("**reset because self.current != s.order_num() + 1 || self.checksum != s.checksum()");
             self.current = 0;
         }
         if self.current == 0 {
+            println!("****reset beause self.current == 0");
             self.long.clear();
             self.start_place = None;
             self.checksum = 0;
             return;
         }
+        println!("****success push");
         self.current = s.order_num();
         self.long.push([0; 13]);
         s.store_name(self.long.last_mut().unwrap());

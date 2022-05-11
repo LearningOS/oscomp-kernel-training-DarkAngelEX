@@ -51,6 +51,7 @@ macro_rules! stack_trace {
         );
     };
 }
+#[macro_export]
 #[cfg(not(feature = "stack_trace"))]
 macro_rules! stack_trace {
     () => {};
