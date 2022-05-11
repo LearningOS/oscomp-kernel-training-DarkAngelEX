@@ -174,18 +174,27 @@ impl AliveProcess {
     }
 }
 
+static RUN_ALL_CASE: &'static [u8] = include_bytes!("../../run_all_case");
+
 pub async fn init() {
-    // let initproc = "initproc";
     let initproc = "/initproc";
-    println!("load initporc: {}", initproc);
-    let inode = fs::open_file("", initproc, fs::OpenFlags::RDONLY, Mode(0o500))
-        .await
-        .unwrap();
-    let elf_data = inode.read_all().await.unwrap();
-    let mut args = Vec::new();
-    args.push(initproc.to_string());
-    let envp = Vec::new();
-    let thread = Thread::new_initproc(elf_data.as_slice(), args, envp);
-    userloop::spawn(thread);
+    if cfg!(feature = "submit") || true {
+        let mut args = Vec::new();
+        args.push(initproc.to_string());
+        let envp = Vec::new();
+        let thread = Thread::new_initproc(RUN_ALL_CASE, args, envp);
+        userloop::spawn(thread);
+    } else {
+        println!("load initporc: {}", initproc);
+        let inode = fs::open_file("", initproc, fs::OpenFlags::RDONLY, Mode(0o500))
+            .await
+            .unwrap();
+        let elf_data = inode.read_all().await.unwrap();
+        let mut args = Vec::new();
+        args.push(initproc.to_string());
+        let envp = Vec::new();
+        let thread = Thread::new_initproc(elf_data.as_slice(), args, envp);
+        userloop::spawn(thread);
+    }
     println!("spawn initporc");
 }

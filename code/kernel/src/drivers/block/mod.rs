@@ -19,7 +19,7 @@ pub fn init() {
     stack_trace!();
     let device = match () {
         #[cfg(not(feature = "board_hifive"))]
-        () => Arc::new(BlockDeviceImpl::new()),
+        () => Arc::new(crate::board::BlockDeviceImpl::new()),
         #[cfg(feature = "board_hifive")]
         () => {
             Arc::new(super::spi_sd::SDCardWrapper::new())
@@ -34,6 +34,7 @@ pub fn device() -> &'static Arc<dyn BlockDevice> {
 }
 
 #[allow(unused)]
+#[inline(never)]
 pub async fn block_device_test() {
     stack_trace!();
     if cfg!(not(feature = "board_hifive")) {
@@ -48,9 +49,10 @@ pub async fn block_device_test() {
     let mut buf0 = [0u8; 512];
     let mut buf1 = [0u8; 512];
     let mut buf2 = [0u8; 512];
-    device.read_block(0, &mut buf2).await.unwrap();
-    println!("0: {:?}", buf2);
-
+    if false {
+        device.read_block(0, &mut buf2).await.unwrap();
+        println!("0: {:?}", buf2);
+    }
     buf0.fill(123);
     device.write_block(10000, &buf0).await.unwrap();
     device.read_block(10000, &mut buf1).await.unwrap();

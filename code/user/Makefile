@@ -1,4 +1,5 @@
 TARGET := riscv64imac-unknown-none-elf
+ADD_ARGS := ""
 MODE := release
 APP_DIR := src/bin
 TARGET_DIR := target/$(TARGET)/$(MODE)
@@ -11,14 +12,18 @@ OBJCOPY := rust-objcopy --binary-architecture=riscv64
 
 elf: $(APPS)
 ifeq ($(MODE), release)
-	@cargo build --release
+	@cargo build --release $(ADD_ARGS)
 else
-	@cargo build
+	@cargo build $(ADD_ARGS)
 endif
+
 binary: elf
 	$(foreach elf, $(ELFS), $(OBJCOPY) $(elf) --strip-all -O binary $(patsubst $(TARGET_DIR)/%, $(TARGET_DIR)/%.bin, $(elf));)
 
 build: binary
+
+submit: build
+	cp -f $(TARGET_DIR)/run_all_case ../kernel/run_all_case
 
 clean:
 	@cargo clean
