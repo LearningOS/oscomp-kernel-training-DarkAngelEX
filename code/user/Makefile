@@ -23,6 +23,7 @@ binary: elf
 build: binary
 
 submit: build
+	@-(find ../kernel/run_all_case) && (rm -rf ../kernel/run_all_case)
 	cp -f $(TARGET_DIR)/run_all_case ../kernel/run_all_case
 
 clean:
