@@ -1,5 +1,5 @@
 TARGET := riscv64imac-unknown-none-elf
-ADD_ARGS := ""
+ADD_ARGS := 
 MODE := release
 APP_DIR := src/bin
 TARGET_DIR := target/$(TARGET)/$(MODE)
