@@ -32,6 +32,7 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 default = ["stack_trace", "board_hifive"]
 board_qemu = []
 board_hifive = []
+submit = []
 stack_trace = ["ftl-util/stack_trace", "fat32/stack_trace"]
 
 # https://zhuanlan.zhihu.com/p/476524365

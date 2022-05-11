@@ -4,7 +4,10 @@ mod virtio_blk;
 pub use sdcard::SDCardWrapper;
 pub use virtio_blk::VirtIOBlock;
 
+#[cfg(not(feature = "submit"))]
 pub const BPB_CID: usize = 10274;
+#[cfg(feature = "submit")]
+pub const BPB_CID: usize = 0;
 
 use alloc::sync::Arc;
 
