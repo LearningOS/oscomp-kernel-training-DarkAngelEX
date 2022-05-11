@@ -4,6 +4,8 @@ mod virtio_blk;
 pub use sdcard::SDCardWrapper;
 pub use virtio_blk::VirtIOBlock;
 
+pub const BPB_CID: usize = 10274;
+
 use alloc::sync::Arc;
 
 use super::BlockDevice;
@@ -35,8 +37,11 @@ pub async fn block_device_test() {
         println!("block device test skip");
         return;
     }
+
+    let test_cnt = 3;
+
     println!("block device test begin");
-    let device = &**device();
+    let device = device().as_ref();
     let mut buf0 = [0u8; 512];
     let mut buf1 = [0u8; 512];
     let mut buf2 = [0u8; 512];
@@ -48,7 +53,7 @@ pub async fn block_device_test() {
     device.read_block(10000, &mut buf1).await.unwrap();
     println!("10000: {:?}", buf1);
 
-    for i in 1..512 {
+    for i in 1..test_cnt {
         for (j, byte) in buf0.iter_mut().enumerate() {
             *byte = (i + j) as u8;
         }

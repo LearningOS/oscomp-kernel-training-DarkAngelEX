@@ -1,5 +1,6 @@
 pub mod block;
 pub mod spi_sd;
+pub mod crc;
 // mod blockdev;
 
 pub use block::device;

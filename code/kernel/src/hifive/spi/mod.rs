@@ -13,6 +13,6 @@ pub trait SPIActions {
     );
     fn switch_cs(&mut self, enable: bool, csid: u32);
     fn set_clk_rate(&mut self, spi_clk: usize);
-    fn recv_data(&mut self, chip_select: u32, rx: &mut [u8]);
     fn send_data(&mut self, chip_select: u32, tx: &[u8]);
+    fn recv_data(&mut self, chip_select: u32, rx: &mut [u8]);
 }

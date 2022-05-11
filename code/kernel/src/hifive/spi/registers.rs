@@ -245,7 +245,7 @@ impl TXMARK {
     /// 实际写入值为n-1
     pub fn set_wait_num(&mut self, n: usize) {
         debug_assert!(n != 0 && n <= 8);
-        self.write((n - 1) as u32);
+        self.write((9 - n).min(7) as u32);
     }
 }
 

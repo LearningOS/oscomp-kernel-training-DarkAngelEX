@@ -118,11 +118,16 @@ impl SPIImpl {
 }
 
 impl SPIImpl {
+    fn tx_fill(&mut self, data: u8, mut n: usize) {
+        while n != 0 && !self.spi.txdata.is_full() {
+            self.spi.txdata.write(data as u32);
+            n -= 1;
+        }
+    }
     fn tx_enque(&mut self, data: u8) {
         debug_assert!(!self.spi.txdata.is_full());
         self.spi.txdata.write(data as u32);
     }
-
     fn rx_deque(&mut self) -> u8 {
         match self.spi.rxdata.flag_read() {
             (false, result) => return result,
@@ -221,9 +226,10 @@ impl SPIActions for SPIImpl {
 
         for s in rx_buf.chunks_mut(8) {
             let n = s.len();
-            self.spi.txmark.set_wait_num(n);
-            self.tx_wait();
-            (0..n).for_each(|_| self.tx_enque(0xff));
+            self.tx_fill(0xff, n);
+            // self.spi.txmark.set_wait_num(n);
+            // self.tx_wait();
+            // (0..n).for_each(|_| self.tx_enque(0xff));
             self.spi.rxmark.set_wait_num(n);
             self.rx_wait();
             s.fill_with(|| self.rx_deque());

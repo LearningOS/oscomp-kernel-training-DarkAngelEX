@@ -39,6 +39,7 @@
 #![feature(custom_test_frameworks)]
 #![feature(allocator_api)]
 #![feature(str_internals)]
+#![feature(array_chunks)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![allow(dead_code)]
