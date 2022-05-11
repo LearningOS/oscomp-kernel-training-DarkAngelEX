@@ -1,7 +1,7 @@
 use super::registers::*;
 use core::ops::{Deref, DerefMut};
 
-use crate::{hifive::clock::HF_CLK, memory::address::PhyAddr};
+use crate::{hifive::clock::HFPCLKPLL, memory::address::PhyAddr};
 
 use super::SPIActions;
 
@@ -157,14 +157,10 @@ impl SPIActions for SPIImpl {
 
         let inactive = spi.csdef.read();
         spi.csdef.write(u32::MAX);
-        let cs_bit = spi.csdef.read();
         spi.csdef.write(inactive);
-        println!("### cs_bit: {:#x} ###", cs_bit);
 
-        println!("SPIImpl init 0");
         //  Watermark interrupts are disabled by default
         spi.ie.set_transmit_watermark(false);
-        println!("SPIImpl init 1");
         spi.ie.set_receive_watermark(false);
 
         // Default watermark FIFO threshold values
@@ -212,7 +208,7 @@ impl SPIActions for SPIImpl {
     /// when div = 3000, f_out = 4kHz
     fn set_clk_rate(&mut self, spi_clk: usize) {
         // calculate clock rate
-        let div = HF_CLK / (2 * spi_clk) - 1;
+        let div = HFPCLKPLL / (2 * spi_clk) - 1;
         debug_assert!(div < 1 << 12); //
         self.spi.sckdiv.write(div as u32);
     }

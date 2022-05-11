@@ -3,6 +3,7 @@ use crate::config::DIRECT_MAP_OFFSET;
 pub const PRCI_ADDR: usize = 0x1000_0000 + DIRECT_MAP_OFFSET;
 
 pub const HF_CLK: usize = 26_000_000;
+pub const HFPCLKPLL: usize = 104_000_000;
 
 /// 对HF_CLK = 26MHz 时钟倍频 输出范围 20MHz ~ 2.4GHz
 ///

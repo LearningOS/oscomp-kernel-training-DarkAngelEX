@@ -180,7 +180,7 @@ impl<T: SPIActions> SDCard<T> {
     }
 
     fn HIGH_SPEED_ENABLE(&mut self) {
-        self.spi.set_clk_rate(1000000);
+        self.spi.set_clk_rate(12_000_000);
     }
 
     fn CS_HIGH(&mut self) {
@@ -193,12 +193,9 @@ impl<T: SPIActions> SDCard<T> {
 
     fn lowlevel_init(&mut self) {
         // gpiohs::set_direction(self.cs_gpionum, gpio::direction::OUTPUT);
-        // at first clock rate shall be low (below 200khz)
-        println!("lowlevel_init start");
+        // at first clock rate shall be low (below 400khz)
         self.spi.init();
-        println!("lowlevel_init 1");
-        self.spi.set_clk_rate(250000);
-        println!("lowlevel_init end");
+        self.spi.set_clk_rate(250_000);
     }
 
     /*
@@ -221,47 +218,34 @@ impl<T: SPIActions> SDCard<T> {
         /* Send dummy byte 0xFF, 10 times with CS high */
         /* Rise CS and MOSI for 80 clocks cycles */
         /* Send dummy byte 0xFF */
-        println!("SDCard init 0");
         self.spi.switch_cs(false, 0);
-        println!("SDCard init 1");
         self.spi.configure(
             1,    // use lines
             8,    // bits per word
             true, // endian: big-endian
         );
-        println!("SDCard init 2");
         self.write_data(&[0xff; 10]);
-        println!("SDCard init 3");
         /*------------Put SD in SPI mode--------------*/
         /* SD initialized and set to SPI mode properly */
 
         /* Send software reset */
-        let mut result = 0;
-        let mut retry_times = 0;
         if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 2000, |x| x == 0x01) {
             println!("SDCard init error in retry_cmd CMD::CMD0");
             return Err(InitError::CMDFailed(CMD::CMD0, 0));
         }
 
-        println!("SDCard init 4");
-
         /* Check voltage range */
         // self.send_cmd(CMD::CMD8, 0x01AA, 0x87);
 
-        result = self
+        let mut result = self
             .retry_cmd(CMD::CMD8, 0x01AA, 0x87, 2000, |x| [0x01, 0x05].contains(&x))
             .unwrap();
 
-        println!("SDCard init 4.2");
         self.read_data(&mut frame);
-        println!("SDCard init 4.3");
         self.end_cmd();
-        println!("SDCard init 4.4");
         self.end_cmd();
 
-        println!("SDCard init 5 -> {:#x}", result);
         if result != 0x01 {
-            println!("SDCard init 6");
             // Standard Capacity Card
             result = 0xff;
 
@@ -275,8 +259,6 @@ impl<T: SPIActions> SDCard<T> {
             }
         } else {
             debug_assert_eq!(result, 0x01);
-            // run this !!!
-            println!("SDCard init 7");
             // Need further discrimination
             let mut cnt = 0;
             while result != 0x00 {
@@ -286,14 +268,11 @@ impl<T: SPIActions> SDCard<T> {
                 self.send_cmd(CMD::ACMD41, 0x40000000, 0);
                 result = self.get_response();
                 self.end_cmd();
-
-                println!("result {} -> {}", cnt, result);
                 if cnt == 0xff {
                     return Err(InitError::CMDFailed(CMD::ACMD41, 0));
                 }
                 cnt += 1;
             }
-            println!("SDCard init 8");
 
             cnt = 0xff;
             result = 0xff;
@@ -309,31 +288,15 @@ impl<T: SPIActions> SDCard<T> {
                     cnt -= 1;
                 }
             }
-
-            println!("SDCard init 9");
-
-            for i in 0..4 {
-                println!("OCR[{}]: 0x{:x}", i, frame[i]);
-            }
-
-            if (frame[0] & 0x40) != 0 {
-                println!("SDCard init 9.1 is_hc = true");
-                self.is_hc = true;
-            } else {
-                self.is_hc = false;
-            }
+            // for i in 0..4 {
+            //     println!("OCR[{}]: 0x{:x}", i, frame[i]);
+            // }
+            self.is_hc = (frame[0] & 0x40) != 0;
         }
-
-        println!("SDCard init 10");
-
         self.spi.switch_cs(false, 0);
         self.write_data(&[0xff; 10]);
 
-        println!("SDCard init 11");
-
-        // self.HIGH_SPEED_ENABLE();
-
-        println!("SDCard init 12");
+        self.HIGH_SPEED_ENABLE();
 
         match self.get_cardinfo() {
             Ok(info) => Ok(info),
