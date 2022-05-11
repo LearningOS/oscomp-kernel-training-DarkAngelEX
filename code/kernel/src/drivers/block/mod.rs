@@ -53,11 +53,6 @@ pub async fn block_device_test() {
         device.read_block(0, &mut buf2).await.unwrap();
         println!("0: {:?}", buf2);
     }
-    buf0.fill(123);
-    device.write_block(10000, &buf0).await.unwrap();
-    device.read_block(10000, &mut buf1).await.unwrap();
-    println!("10000: {:?}", buf1);
-
     for i in 1..test_cnt {
         for (j, byte) in buf0.iter_mut().enumerate() {
             *byte = (i + j) as u8;

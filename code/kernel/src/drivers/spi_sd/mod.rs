@@ -758,7 +758,6 @@ impl BlockDevice for SDCardWrapper {
     fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
-            println!("read block {}", block_id);
             if let Err(_) = lock.read_sector(buf, (block_id + BPB_CID) as u32) {
                 panic!("read_block invalid {}", block_id);
             }
@@ -768,7 +767,6 @@ impl BlockDevice for SDCardWrapper {
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
-            println!("write block {}", block_id);
             if let Err(_) = lock.write_sector(buf, (block_id + BPB_CID) as u32) {
                 panic!("write_block invalid {}", block_id);
             }
