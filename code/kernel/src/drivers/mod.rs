@@ -1,5 +1,6 @@
 pub mod block;
-mod hifive_spi;
+pub mod spi_sd;
+// mod blockdev;
 
 pub use block::device;
 

@@ -746,6 +746,7 @@ pub struct SDCardWrapper(SpinNoIrqLock<SDCard<SPIImpl<SPI0>>>);
 
 impl SDCardWrapper {
     pub fn new() -> Self {
+        stack_trace!();
         unsafe { Self(SpinNoIrqLock::new(init_sdcard())) }
     }
 }

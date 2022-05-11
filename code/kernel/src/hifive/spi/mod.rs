@@ -1,7 +1,7 @@
-use super::platform::fu540 as SPIPlatform;
+mod layout;
+pub mod registers;
 
-pub type SPIImpl = SPIPlatform::SPIImpl;
-pub type SPIDevice = SPIPlatform::SPIDevice;
+pub use layout::{SPIDevice, SPIImpl};
 
 pub trait SPIActions {
     fn init(&mut self);
@@ -12,7 +12,7 @@ pub trait SPIActions {
         msb_first: bool,     // endianness
     );
     fn switch_cs(&mut self, enable: bool, csid: u32);
-    fn set_clk_rate(&mut self, spi_clk: u32) -> u32;
+    fn set_clk_rate(&mut self, spi_clk: usize);
     fn recv_data(&mut self, chip_select: u32, rx: &mut [u8]);
     fn send_data(&mut self, chip_select: u32, tx: &[u8]);
 }

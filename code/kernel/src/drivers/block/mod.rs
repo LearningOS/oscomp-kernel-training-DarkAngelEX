@@ -6,18 +6,20 @@ pub use virtio_blk::VirtIOBlock;
 
 use alloc::sync::Arc;
 
-use crate::board::BlockDeviceImpl;
-
 use super::BlockDevice;
 
 static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
 
 pub fn init() {
+    stack_trace!();
     let device = match () {
         #[cfg(not(feature = "board_hifive"))]
         () => Arc::new(BlockDeviceImpl::new()),
         #[cfg(feature = "board_hifive")]
-        () => super::hifive_spi::init_sdcard(),
+        () => {
+            Arc::new(super::spi_sd::SDCardWrapper::new())
+            // super::blockdev::init_sdcard()
+        }
     };
     unsafe { BLOCK_DEVICE = Some(device) }
 }
@@ -29,20 +31,32 @@ pub fn device() -> &'static Arc<dyn BlockDevice> {
 #[allow(unused)]
 pub async fn block_device_test() {
     stack_trace!();
+    if cfg!(not(feature = "board_hifive")) {
+        println!("block device test skip");
+        return;
+    }
     println!("block device test begin");
-    println!("block device test skip");
-    let device = device();
+    let device = &**device();
     let mut buf0 = [0u8; 512];
     let mut buf1 = [0u8; 512];
     let mut buf2 = [0u8; 512];
-    for i in 0..512 {
-        for byte in buf0.iter_mut() {
-            *byte = i as u8;
+    device.read_block(0, &mut buf2).await.unwrap();
+    println!("0: {:?}", buf2);
+
+    buf0.fill(123);
+    device.write_block(10000, &buf0).await.unwrap();
+    device.read_block(10000, &mut buf1).await.unwrap();
+    println!("10000: {:?}", buf1);
+
+    for i in 1..512 {
+        for (j, byte) in buf0.iter_mut().enumerate() {
+            *byte = (i + j) as u8;
         }
-        device.read_block(i as usize, &mut buf2).await.unwrap();
-        device.write_block(i as usize, &buf0).await.unwrap();
-        device.read_block(i as usize, &mut buf1).await.unwrap();
-        device.write_block(i as usize, &buf2).await.unwrap();
+        let bid = i + 10000;
+        device.read_block(bid, &mut buf2).await.unwrap();
+        device.write_block(bid, &buf0).await.unwrap();
+        device.read_block(bid, &mut buf1).await.unwrap();
+        device.write_block(bid, &buf2).await.unwrap();
         assert_eq!(buf0, buf1);
     }
     println!("block device test passed!");

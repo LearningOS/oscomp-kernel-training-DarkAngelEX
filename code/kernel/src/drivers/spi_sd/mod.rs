@@ -3,18 +3,14 @@
 // Distributed under GPLv3
 
 #![allow(non_snake_case)]
-// pub mod abstraction;
-// pub mod platform;
 
-pub mod abstraction;
-pub mod platform;
-
-use crate::sync::SleepMutex;
+use crate::{
+    hifive::spi::{SPIActions, SPIDevice, SPIImpl},
+    sync::SleepMutex,
+};
 
 use super::BlockDevice;
-use abstraction::*;
 use alloc::boxed::Box;
-use core::convert::TryInto;
 use ftl_util::device::AsyncRet;
 
 pub struct SDCard<T: SPIActions> {
@@ -172,7 +168,7 @@ impl<T: SPIActions> SDCard<T> {
     }
 
     fn HIGH_SPEED_ENABLE(&mut self) {
-        self.spi.set_clk_rate(10000000);
+        self.spi.set_clk_rate(1000000);
     }
 
     fn CS_HIGH(&mut self) {
@@ -189,7 +185,7 @@ impl<T: SPIActions> SDCard<T> {
         println!("lowlevel_init start");
         self.spi.init();
         println!("lowlevel_init 1");
-        self.spi.set_clk_rate(15000);
+        self.spi.set_clk_rate(250000);
         println!("lowlevel_init end");
     }
 
@@ -217,7 +213,7 @@ impl<T: SPIActions> SDCard<T> {
         self.spi.switch_cs(false, 0);
         println!("SDCard init 1");
         self.spi.configure(
-            2,    // use lines
+            1,    // use lines
             8,    // bits per word
             true, // endian: big-endian
         );
@@ -230,21 +226,30 @@ impl<T: SPIActions> SDCard<T> {
         /* Send software reset */
         let mut result = 0;
         let mut retry_times = 0;
-        if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 0x01, 2000) {
-            println!("SDCard init error in retry_cmd");
+        if let Err(()) = self.retry_cmd(CMD::CMD0, 0, 0x95, 2000, |x| x == 0x01) {
+            println!("SDCard init error in retry_cmd CMD::CMD0");
             return Err(InitError::CMDFailed(CMD::CMD0, 0));
         }
 
         println!("SDCard init 4");
 
         /* Check voltage range */
-        self.send_cmd(CMD::CMD8, 0x01AA, 0x87);
-        result = self.get_response(); // 0x01 or 0x05
+        // self.send_cmd(CMD::CMD8, 0x01AA, 0x87);
+
+        result = self
+            .retry_cmd(CMD::CMD8, 0x01AA, 0x87, 2000, |x| [0x01, 0x05].contains(&x))
+            .unwrap();
+
+        println!("SDCard init 4.2");
         self.read_data(&mut frame);
+        println!("SDCard init 4.3");
         self.end_cmd();
+        println!("SDCard init 4.4");
         self.end_cmd();
 
+        println!("SDCard init 5 -> {:#x}", result);
         if result != 0x01 {
+            println!("SDCard init 6");
             // Standard Capacity Card
             result = 0xff;
 
@@ -257,10 +262,11 @@ impl<T: SPIActions> SDCard<T> {
                 self.end_cmd();
             }
         } else {
+            debug_assert_eq!(result, 0x01);
+            // run this !!!
+            println!("SDCard init 7");
             // Need further discrimination
             let mut cnt = 0;
-
-            cnt = 0xff;
             while result != 0x00 {
                 self.send_cmd(CMD::CMD55, 0, 0);
                 self.get_response();
@@ -269,12 +275,13 @@ impl<T: SPIActions> SDCard<T> {
                 result = self.get_response();
                 self.end_cmd();
 
-                if cnt == 0 {
+                println!("result {} -> {}", cnt, result);
+                if cnt == 0xff {
                     return Err(InitError::CMDFailed(CMD::ACMD41, 0));
-                } else {
-                    cnt -= 1;
                 }
+                cnt += 1;
             }
+            println!("SDCard init 8");
 
             cnt = 0xff;
             result = 0xff;
@@ -291,21 +298,31 @@ impl<T: SPIActions> SDCard<T> {
                 }
             }
 
+            println!("SDCard init 9");
+
             for i in 0..4 {
                 println!("OCR[{}]: 0x{:x}", i, frame[i]);
             }
 
             if (frame[0] & 0x40) != 0 {
+                println!("SDCard init 9.1 is_hc = true");
                 self.is_hc = true;
+            } else {
+                self.is_hc = false;
             }
         }
 
-        println!("SDCard init 5");
+        println!("SDCard init 10");
 
         self.spi.switch_cs(false, 0);
         self.write_data(&[0xff; 10]);
 
-        self.HIGH_SPEED_ENABLE();
+        println!("SDCard init 11");
+
+        // self.HIGH_SPEED_ENABLE();
+
+        println!("SDCard init 12");
+
         match self.get_cardinfo() {
             Ok(info) => Ok(info),
             Err(_) => Err(InitError::CannotGetCardInfo),
@@ -314,7 +331,7 @@ impl<T: SPIActions> SDCard<T> {
 
     fn write_data(&mut self, data: &[u8]) {
         self.spi.configure(
-            2,    // use lines
+            1,    // use lines
             8,    // bits per word
             true, // endian: big-endian
         );
@@ -323,7 +340,7 @@ impl<T: SPIActions> SDCard<T> {
 
     fn read_data(&mut self, data: &mut [u8]) {
         self.spi.configure(
-            2,    // use lines
+            1,    // use lines
             8,    // bits per word
             true, // endian: big-endian
         );
@@ -584,15 +601,15 @@ impl<T: SPIActions> SDCard<T> {
         cmd: CMD,
         arg: u32,
         crc: u8,
-        expect: u8,
         retry_times: u32,
-    ) -> Result<(), ()> {
+        mut success: impl FnMut(u8) -> bool,
+    ) -> Result<u8, ()> {
         for i in 0..retry_times {
             self.send_cmd(cmd, arg, crc);
             let resp = self.get_response();
             self.end_cmd();
-            if resp == expect {
-                return Ok(());
+            if success(resp) {
+                return Ok(resp);
             }
             println!("retry_cmd: {} -> {}", i, resp);
         }
@@ -609,38 +626,29 @@ impl<T: SPIActions> SDCard<T> {
      */
     pub fn read_sector(&mut self, data_buf: &mut [u8], sector: u32) -> Result<(), ()> {
         assert!(data_buf.len() >= SEC_LEN && (data_buf.len() % SEC_LEN) == 0);
-        let sector: u32 = match self.is_hc {
-            true => sector << 9,
-            _ => sector,
+        let (sector, step) = match self.is_hc {
+            false => (sector << 9, 1 << 9),
+            true => (sector, 1),
         };
 
         let mut cur_sector = sector;
 
         for chunk in data_buf.chunks_mut(SEC_LEN) {
-            /* Send CMD17 to read one block */
             self.send_cmd(CMD::CMD17, cur_sector, 0);
-            /* Check if the SD acknowledged the read block command: R1 response (0x00: no errors) */
             let res = self.get_response();
             if res != 0x00 {
-                self.end_cmd();
-                return Err(());
+                panic!("read_sector send_cmd CMD17 return {:#x}", res);
             }
-
             //let mut dma_chunk = [0u32; SEC_LEN];
             let mut tmp_chunk = [0u8; SEC_LEN];
-            let mut count = 0;
-            let mut resp = self.get_response();
+            let resp = self.get_response();
             if resp != SD_START_DATA_SINGLE_BLOCK_READ {
-                resp = self.get_response();
-                break;
+                panic!("resp: {:#x}", resp);
             }
 
             /* Read the SD block data : read NumByteToRead data */
             self.read_data(&mut tmp_chunk);
-            /* Place the data received as u32 units from DMA into the u8 target buffer */
-            for (a, b) in chunk.iter_mut().zip(/*dma_chunk*/ tmp_chunk.iter()) {
-                *a = *b;
-            }
+            chunk.clone_from_slice(&tmp_chunk[0..chunk.len()]);
             /* Get CRC bytes (not really needed by us, but required by SD) */
             let mut frame = [0u8; 2];
             self.read_data(&mut frame);
@@ -649,7 +657,7 @@ impl<T: SPIActions> SDCard<T> {
             self.end_cmd();
             self.end_cmd();
 
-            cur_sector += SEC_LEN as u32;
+            cur_sector += step;
         }
 
         // put some dummy bytes
@@ -670,70 +678,46 @@ impl<T: SPIActions> SDCard<T> {
      */
     pub fn write_sector(&mut self, data_buf: &[u8], sector: u32) -> Result<(), ()> {
         assert!(data_buf.len() >= SEC_LEN && (data_buf.len() % SEC_LEN) == 0);
-        let sector: u32 = match self.is_hc {
-            true => sector << 9,
-            _ => sector,
+        let (sector, step) = match self.is_hc {
+            false => (sector << 9, 1 << 9),
+            true => (sector, 1),
         };
 
-        let mut frame = [0xff, 0x00];
-        if data_buf.len() == SEC_LEN {
-            frame[1] = SD_START_DATA_SINGLE_BLOCK_WRITE;
-            self.send_cmd(CMD::CMD24, sector, 0);
-        } else {
-            frame[1] = SD_START_DATA_MULTIPLE_BLOCK_WRITE;
-            self.send_cmd(CMD::CMD55, 0, 0x01);
-            self.get_response();
-            self.end_cmd();
-            self.send_cmd(
-                CMD::ACMD23,
-                (data_buf.len() / SEC_LEN).try_into().unwrap(),
-                0,
-            );
-            self.get_response();
-            self.end_cmd();
-            self.send_cmd(CMD::CMD25, sector, 0);
-        }
-        /* Check if the SD acknowledged the write block command: R1 response (0x00: no errors) */
-        if self.get_response() != 0x00 {
-            //self.end_cmd();
-            // return Err(());
-        }
-        //let mut dma_chunk = [0u32; SEC_LEN];
-        let mut tmp_chunk = [0u8; SEC_LEN];
-        for chunk in data_buf.chunks(SEC_LEN) {
-            /* Send the data token to signify the start of the data */
-            self.write_data(&frame);
-            /* Write the block data to SD : write count data by block */
-            for (a, &b) in /*dma_chunk*/ tmp_chunk.iter_mut().zip(chunk.iter()) {
-                //*a = b.into();
-                *a = b;
+        let mut cur_sector = sector;
+
+        for trunk in data_buf.chunks(SEC_LEN) {
+            let mut count = 1;
+            loop {
+                self.send_cmd(CMD::CMD24, cur_sector, 0);
+                /* Check if the SD acknowledged the read block command: R1 response (0x00: no errors) */
+                let res = self.get_response();
+
+                if count == 0 {
+                    panic!("cmd 24 returned error code {:#x}", res);
+                }
+
+                if res == 0x0 {
+                    break;
+                }
+
+                self.end_cmd();
+                count -= 1;
             }
-            //self.write_data_dma(&mut dma_chunk);
-            self.write_data(&mut tmp_chunk);
-            /* Put dummy CRC bytes */
-            self.write_data(&[0xff, 0xff]);
-            /* Read data response */
-            if self.get_dataresponse() != 0x05 {
-                //self.end_cmd();
-                //return Err(());
+
+            self.write_data(&[0xff, SD_START_DATA_SINGLE_BLOCK_WRITE]);
+            self.write_data(trunk);
+            self.write_data(&[0xff, 0xff]); // dummy crc
+
+            let resp = self.get_response() & 0x1F;
+            if resp != 0x5 {
+                panic!("unknown sec: {:#x}, resp: {}", cur_sector, resp);
             }
+
+            self.end_cmd();
+            self.end_cmd();
+
+            cur_sector += step;
         }
-
-        if frame[1] == SD_START_DATA_MULTIPLE_BLOCK_WRITE {
-            frame[1] = SD_STOP_DATA_MULTIPLE_BLOCK_WRITE;
-            self.write_data(&frame);
-        }
-
-        self.end_cmd();
-        self.end_cmd();
-
-        /*
-        self.send_cmd(CMD::CMD12, 0, 0);
-        self.get_response();
-        self.end_cmd();
-        self.end_cmd();
-        */
-
         Ok(())
     }
 }
@@ -748,7 +732,7 @@ pub fn init_sdcard() -> SDCard<SPIImpl> {
     // usleep(100000);
 
     println!("[FTL OS] init sdcard start");
-    let spi = SPIImpl::new(abstraction::SPIDevice::QSPI2);
+    let spi = SPIImpl::new(SPIDevice::QSPI2);
     let mut sd = SDCard::new(spi, SD_CS);
     let info = sd.init().unwrap();
     // assert!(num_sectors > 0);
@@ -775,7 +759,7 @@ impl BlockDevice for SDCardWrapper {
     fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
-            println!("read block {}", block_id / 512);
+            println!("read block {}", block_id);
             if let Err(_) = lock.read_sector(buf, block_id as u32) {
                 panic!("read_block invalid {}", block_id);
             }
@@ -787,7 +771,7 @@ impl BlockDevice for SDCardWrapper {
             let lock = &mut *self.0.lock().await;
             println!("write block {}", block_id);
             if let Err(_) = lock.write_sector(buf, block_id as u32) {
-                panic!("write_block invalid {}", block_id / 512);
+                panic!("write_block invalid {}", block_id);
             }
             Ok(())
         })

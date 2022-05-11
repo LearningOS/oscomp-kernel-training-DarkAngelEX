@@ -86,6 +86,7 @@ mod syscall;
 mod timer;
 mod trap;
 mod user;
+pub mod hifive;
 
 use riscv::register::sstatus;
 

@@ -1,6 +1,8 @@
     .section .text
+    .global __time_frequent_test_impl
     .global __kernel_benchmark_vector
     .global __kernel_benchmark_save_vector
+
     .align 2
 __kernel_benchmark_exception_entry:
     addi sp, sp, -8
@@ -76,6 +78,15 @@ __kernel_benchmark_vector:
     .align 2
     j __kernel_default_interrupt_entry
     .endr
+
+    # using nop space to run frequent test
+    .align 2
+__time_frequent_test_impl:
+    .rept 100
+    addi a0, a0, -1
+    .endr
+    bge a0, zero, __time_frequent_test_impl
+    ret
 
     .align 8
 __kernel_benchmark_save_vector:

@@ -6,6 +6,7 @@ use core::{
 use riscv::register::{stvec, utvec::TrapMode};
 
 use crate::{
+    board::CLOCK_FREQ,
     hart::{sbi, sfence},
     sync::mutex::{SpinLock, SpinNoIrqLock},
     timer::{self, TimeTicks},
@@ -29,6 +30,7 @@ fn black_usize(a: usize) -> usize {
 }
 
 pub fn run_all() {
+    frequent_test();
     if BENCHMARK {
         stack_trace!();
         println!("[FTL OS]branchmark_all begin");
@@ -83,9 +85,34 @@ impl BenchmarkTimer {
 }
 
 #[inline(never)]
+fn frequent_test() {
+    extern "C" {
+        fn __time_frequent_test_impl(cnt: usize);
+    }
+    println!("[FTL OS]frequent test begin");
+    const BASE: usize = 200_000_000;
+    let start = timer::get_time_ticks();
+    unsafe { __time_frequent_test_impl(BASE) };
+    let dur = (timer::get_time_ticks() - start).into_usize();
+    println!(
+        "run {}M using {} ticks time: {}ms",
+        BASE / 1000_000,
+        dur,
+        dur * 1000 / CLOCK_FREQ
+    );
+    print!("{}", to_yellow!());
+    println!(
+        "clock: {}KHz, core: {}MHz",
+        CLOCK_FREQ / 1000,
+        BASE * CLOCK_FREQ / dur / 1000_000
+    );
+    print!("{}", reset_color!());
+}
+
+#[inline(never)]
 fn atomic_test() {
     let mut timer = BenchmarkTimer::new();
-    let base_n = 100000000;
+    let base_n = 100_000_000;
     let a = 0;
     for _i in 0..base_n {
         unsafe { asm!("") };
