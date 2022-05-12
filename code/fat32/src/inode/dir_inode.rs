@@ -498,21 +498,8 @@ impl DirInode {
         name: &str,
     ) -> Result<Option<(Align8<RawShortName>, (EntryPlace, EntryPlace))>, SysError> {
         stack_trace!();
-        if let Some(short) = &str_to_just_short(name) {
-            let r = Self::name_try_fold(inode, manager, (), |(), b| {
-                if b.short_same(short) {
-                    return ControlFlow::Break((b.short, b.place()));
-                }
-                try { () }
-            })
-            .await?;
-            return match r {
-                ControlFlow::Continue(()) => Ok(None),
-                ControlFlow::Break(b) => Ok(Some(b)),
-            };
-        }
         let r = Self::name_try_fold(inode, manager, (), |(), b| {
-            if b.long_same(name) {
+            if b.is_same(name) {
                 return ControlFlow::Break((b.short, b.place()));
             }
             try { () }
@@ -735,7 +722,10 @@ impl DirName {
     }
     // 存粹的短文件名没有小写字母
     fn short_same(&self, short: &([u8; 8], [u8; 3])) -> bool {
-        self.long.is_empty() && &(self.short.name, self.short.ext) == short
+        if !self.long.is_empty() {
+            return false;
+        }
+        &(self.short.name, self.short.ext) == short
     }
     // ".." or "."
     fn is_dot(&self) -> bool {
@@ -750,6 +740,20 @@ impl DirName {
         }
         self.long
             .bytes()
+            .zip(str.bytes())
+            .all(|(a, b)| a.eq_ignore_ascii_case(&b))
+    }
+    fn is_same(&self, str: &str) -> bool {
+        if self.long.len() != 0 {
+            return self.long_same(str);
+        }
+        let buf = &mut [0; 12];
+        let short = self.short.get_name(buf);
+        if str.len() != short.len() {
+            return false;
+        }
+        short
+            .iter()
             .zip(str.bytes())
             .all(|(a, b)| a.eq_ignore_ascii_case(&b))
     }

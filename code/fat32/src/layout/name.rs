@@ -110,11 +110,16 @@ impl RawShortName {
     }
     pub fn get_name<'a>(&self, buf: &'a mut [u8; 12]) -> &'a [u8] {
         let mut n = 0;
+        let name_lower = self.reversed & 0x08 != 0;
+        let ext_upper = self.reversed & 0x10 != 0;
         for &ch in &self.name {
             if ch == 0x20 {
                 break;
             }
-            buf[n] = ch;
+            buf[n] = match name_lower {
+                true => ch.to_ascii_lowercase(),
+                false => ch,
+            };
             n += 1;
         }
         if self.ext[0] == 0x20 {
@@ -126,7 +131,10 @@ impl RawShortName {
             if ch == 0x20 {
                 break;
             }
-            buf[n] = ch;
+            buf[n] = match ext_upper {
+                true => ch.to_ascii_uppercase(),
+                false => ch,
+            };
             n += 1;
         }
         &buf[0..n]

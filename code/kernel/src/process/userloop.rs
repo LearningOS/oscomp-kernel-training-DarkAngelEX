@@ -156,7 +156,7 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
         let local = local::hart_local();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
-        if USING_ASID {
+        if !USING_ASID {
             sfence::sfence_vma_all_no_global();
         }
         let ret = unsafe { Pin::new_unchecked(&mut this.future).poll(cx) };

@@ -226,9 +226,9 @@ impl ListManager {
     pub async fn get_unit(&mut self, uid: UnitID) -> Result<Arc<ListUnit>, SysError> {
         stack_trace!();
         debug_assert!(
-            uid.0 < self.max_unit_num as u32,
+            uid.0 < self.sector_per_fat as u32,
             "{:?}",
-            (uid, self.u32_per_sector_log2, self.max_unit_num)
+            (uid, self.u32_per_sector_log2, self.sector_per_fat)
         );
         if let Some((_aid, unit)) = self.search.get(&uid) {
             return Ok(unit.clone());
