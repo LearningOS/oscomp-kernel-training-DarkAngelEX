@@ -147,7 +147,7 @@ impl Syscall<'_> {
         stack_trace!();
         let (pid, exit_code_ptr, _option, _rusage): (
             isize,
-            UserWritePtr<i32>,
+            UserWritePtr<u32>,
             u32,
             UserWritePtr<u8>,
         ) = self.cx.into();
@@ -183,20 +183,23 @@ impl Syscall<'_> {
                 p
             };
             if let Some(process) = process {
-                if let Some(exit_code_ptr) = exit_code_ptr.transmute::<u8>().nonnull_mut() {
+                if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
                     // assert!(alive.user_space.in_using());
                     let access = UserCheck::new(self.process)
-                        .translated_user_writable_slice(exit_code_ptr, 4)
+                        .translated_user_writable_value(exit_code_ptr)
                         .await?;
-                    let exit_code_slice =
-                        core::ptr::slice_from_raw_parts(&exit_code as *const _ as *const u8, 4);
-                    access
-                        .access_mut()
-                        .copy_from_slice(unsafe { &*exit_code_slice });
+                    let status: u8 = 0;
+                    let wstatus = ((exit_code as u32 & 0xff) << 8) | (status as u32);
+                    access.store(wstatus);
                 }
                 if PRINT_SYSCALL_PROCESS {
-                    println!("sys_wait4 success {:?} <- {:?}", this_pid, process.pid());
+                    println!(
+                        "sys_wait4 success {:?} <- {:?} (exit code {})",
+                        this_pid,
+                        process.pid(),
+                        process.exit_code.load(Ordering::Relaxed)
+                    );
                 }
                 return Ok(process.pid().into_usize());
             }

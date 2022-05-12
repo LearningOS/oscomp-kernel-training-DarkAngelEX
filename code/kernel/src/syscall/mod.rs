@@ -42,7 +42,7 @@ const SYSCALL_RT_SIGACTION: usize = 134;
 const SYSCALL_RT_SIGPROCMASK: usize = 135;
 const SYSCALL_TIMES: usize = 153;
 const SYSCALL_UNAME: usize = 160;
-const SYSCALL_GET_TIME: usize = 169;
+const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
 const SYSCALL_GETUID: usize = 174;
@@ -121,7 +121,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_RT_SIGPROCMASK => self.sys_rt_sigprocmask().await,
             SYSCALL_TIMES => self.sys_times().await,
             SYSCALL_UNAME => self.sys_uname().await,
-            SYSCALL_GET_TIME => self.sys_gettime(),
+            SYSCALL_GETTIMEOFDAY => self.sys_gettimeofday().await,
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETPPID => self.sys_getppid(),
             SYSCALL_GETUID => self.sys_getuid(),

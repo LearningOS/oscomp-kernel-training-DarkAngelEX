@@ -164,7 +164,7 @@ fn multi_thread_performance_test(hart: usize) {
                     unsafe { asm!("nop") }
                 }
                 let end = timer::get_time_ticks();
-                let total = (end - begin).into_millisecond();
+                let total = (end - begin).millisecond();
                 println!("loop {:#x}({}) using {}ms", cnt, cnt, total);
                 if total > 1000 {
                     break;

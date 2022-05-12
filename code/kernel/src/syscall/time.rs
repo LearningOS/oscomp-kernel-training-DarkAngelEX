@@ -1,6 +1,6 @@
 use crate::{
     memory::user_ptr::UserWritePtr,
-    timer::{self, Tms},
+    timer::{self, TimeVal, TimeZone, Tms},
     user::check::UserCheck,
 };
 
@@ -17,11 +17,32 @@ impl Syscall<'_> {
             let tms = Tms::zeroed();
             dst.store(tms);
         }
-        Ok(timer::get_time_ticks().into_second())
+        Ok(timer::get_time_ticks().second())
     }
-    pub fn sys_gettime(&mut self) -> SysResult {
+    pub async fn sys_gettimeofday(&mut self) -> SysResult {
         stack_trace!();
-        let time = timer::get_time_ticks().into_millisecond();
-        Ok(time)
+        let (tv, tz): (UserWritePtr<TimeVal>, UserWritePtr<TimeZone>) = self.cx.into();
+        let u_tv = if !tv.is_null() {
+            Some(
+                UserCheck::new(self.process)
+                    .translated_user_writable_value(tv)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let u_tz = if !tz.is_null() {
+            Some(
+                UserCheck::new(self.process)
+                    .translated_user_writable_value(tz)
+                    .await?,
+            )
+        } else {
+            None
+        };
+        let (tv, tz) = timer::get_time_ticks().into_tv_tz();
+        u_tv.map(|p| p.store(tv));
+        u_tz.map(|p| p.store(tz));
+        Ok(0)
     }
 }

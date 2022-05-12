@@ -10,11 +10,13 @@ pub mod sleep;
 /// how many time interrupt per second
 const TIME_INTERRUPT_PER_SEC: usize = 20;
 const MILLISECOND_PER_SEC: usize = 1000;
+const MICROSECOND_PER_SEC: usize = 1000_000;
 
 pub fn init() {
     sleep::sleep_queue_init();
 }
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Tms {
     pub tms_utime: usize,  // 当前进程的用户态花费时间
@@ -36,6 +38,20 @@ impl Tms {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TimeVal {
+    tv_sec: usize,
+    tv_usec: usize, // 微妙
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct TimeZone {
+    tz_minuteswest: u32,
+    tz_dsttime: u32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct TimeTicks(usize);
 
@@ -49,11 +65,25 @@ impl TimeTicks {
     pub fn from_millisecond(ms: usize) -> Self {
         Self(ms * (CLOCK_FREQ / MILLISECOND_PER_SEC))
     }
-    pub fn into_millisecond(self) -> usize {
+    pub fn microsecond(self) -> usize {
+        self.0 / (CLOCK_FREQ / MICROSECOND_PER_SEC)
+    }
+    pub fn millisecond(self) -> usize {
         self.0 / (CLOCK_FREQ / MILLISECOND_PER_SEC)
     }
-    pub fn into_second(self) -> usize {
+    pub fn second(self) -> usize {
         self.0 / CLOCK_FREQ
+    }
+    pub fn into_tv_tz(self) -> (TimeVal, TimeZone) {
+        let tv = TimeVal {
+            tv_sec: self.second(),
+            tv_usec: self.microsecond(),
+        };
+        let tz = TimeZone {
+            tz_minuteswest: 0,
+            tz_dsttime: 0,
+        };
+        (tv, tz)
     }
 }
 impl Add for TimeTicks {

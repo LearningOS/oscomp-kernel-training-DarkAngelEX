@@ -490,7 +490,7 @@ pub mod test {
                     tools::n_space(off),
                     hart,
                     n,
-                    (end - begin).into_millisecond()
+                    (end - begin).millisecond()
                 );
             }
         }
@@ -541,7 +541,7 @@ pub mod test {
         let t1 = timer::get_time_ticks();
         tools::wait_all_hart();
         if hart == 0 {
-            let ms = (t1 - t0).into_millisecond();
+            let ms = (t1 - t0).millisecond();
             println!("{}time: {}ms", tools::n_space(off), ms);
             if false {
                 println!("{}check begin", tools::n_space(off));
@@ -604,7 +604,7 @@ pub mod test {
         let t1 = timer::get_time_ticks();
         tools::wait_all_hart();
         if hart == 0 {
-            let ms = (t1 - t0).into_millisecond();
+            let ms = (t1 - t0).millisecond();
             println!("{}time: {}ms", tools::n_space(off), ms);
             assert_eq!(TEST_QUEUE_0.pop().unwrap(), None);
             if false {
@@ -736,7 +736,7 @@ pub mod test {
         let t1 = timer::get_time_ticks();
         tools::wait_all_hart();
         if hart == 0 {
-            let ms = (t1 - t0).into_millisecond();
+            let ms = (t1 - t0).millisecond();
             println!("{}time: {}ms", tools::n_space(off), ms);
             assert_eq!(TEST_QUEUE_0.pop().unwrap(), None);
             if false {

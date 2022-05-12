@@ -60,7 +60,7 @@ impl BenchmarkTimer {
         println!("    {}", msg);
         print!(
             "        {:>5}ms {:>4}.{:0<2}",
-            dur.into_millisecond(),
+            dur.millisecond(),
             base / 100,
             base % 100
         );
