@@ -413,6 +413,9 @@ add_sub_impl!(PhyAddr4K);
 add_sub_impl!(PhyAddrRef4K);
 
 impl<T> UserAddr<T> {
+    pub const fn null() -> Self {
+        unsafe { Self::from_usize(0) }
+    }
     pub const fn is_4k_align(self) -> bool {
         (self.into_usize() % PAGE_SIZE) == 0
     }

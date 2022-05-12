@@ -221,10 +221,10 @@ impl UserSpace {
             self.map_segment.unmap(user_area.range_all());
         }
     }
-    pub fn get_brk(&self) -> UserAddr4K {
-        self.heap.brk_end()
+    pub fn get_brk(&self) -> UserAddr<u8> {
+        self.heap.brk()
     }
-    pub fn reset_brk(&mut self, new_brk: UserAddr4K) -> Result<(), SysError> {
+    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> Result<(), SysError> {
         let ms = &mut self.map_segment;
         self.heap.set_brk(new_brk, move |r, f| {
             if f {

@@ -3,11 +3,26 @@
 
 extern crate user_lib;
 
-use user_lib::{exec, fork, wait, yield_};
+use user_lib::{exec, exit, fork, wait};
 
 #[no_mangle]
 fn main() -> i32 {
-    let all_case = [
+    match fork() {
+        0 => {
+            run_all_case();
+            exit(0);
+        }
+        1.. => {
+            let mut exit_code: i32 = 0;
+            let pid = wait(&mut exit_code);
+        }
+        _ => panic!("initproc fork error"),
+    }
+    exit(0)
+}
+
+fn run_all_case() {
+    let all_case = &[
         "brk\0",
         "chdir\0",
         "clone\0",
@@ -52,5 +67,4 @@ fn main() -> i32 {
         let mut exit_code: i32 = 0;
         let pid = wait(&mut exit_code);
     }
-    0
 }

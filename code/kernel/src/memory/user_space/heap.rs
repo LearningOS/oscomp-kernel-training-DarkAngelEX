@@ -1,6 +1,6 @@
 use crate::{
     memory::{
-        address::{PageCount, UserAddr4K},
+        address::{PageCount, UserAddr, UserAddr4K},
         page_table::PTEFlags,
         user_space::UserArea,
     },
@@ -9,6 +9,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct HeapManager {
+    brk: UserAddr<u8>,
     brk_end: UserAddr4K,
     brk_base: UserAddr4K,
 }
@@ -18,6 +19,7 @@ impl Drop for HeapManager {
 impl HeapManager {
     pub fn new() -> Self {
         Self {
+            brk: UserAddr::null(),
             brk_end: UserAddr4K::null(),
             brk_base: UserAddr4K::null(),
         }
@@ -28,35 +30,39 @@ impl HeapManager {
     pub fn init(&mut self, base: UserAddr4K, init_size: PageCount) -> UserArea {
         self.brk_base = base;
         self.brk_end = base.add_page(init_size);
+        self.brk = self.brk_end.into();
         UserArea {
             range: self.brk_base..self.brk_end,
             perm: PTEFlags::R | PTEFlags::W | PTEFlags::U,
         }
     }
-    pub fn brk_end(&self) -> UserAddr4K {
-        self.brk_end
+    pub fn brk(&self) -> UserAddr<u8> {
+        self.brk
     }
     /// bool: is increase
     pub fn set_brk(
         &mut self,
-        brk: UserAddr4K,
+        brk: UserAddr<u8>,
         oper: impl FnOnce(UserArea, bool) -> Result<(), SysError>,
     ) -> Result<(), SysError> {
+        let brk_end_next = brk.ceil();
         let cur_end = self.brk_end;
-        if brk < self.brk_base {
+        if brk_end_next < self.brk_base {
             return Err(SysError::EINVAL);
         }
-        if brk == cur_end {
-            return Ok(());
-        }
-        if brk < cur_end {
+        if brk_end_next == cur_end {
+        } else if brk_end_next < cur_end {
             // unmap
-            oper(UserArea::new_urw(brk.max(self.brk_base)..cur_end), false)?;
+            oper(
+                UserArea::new_urw(brk_end_next.max(self.brk_base)..cur_end),
+                false,
+            )?;
         } else {
             // map
-            oper(UserArea::new_urw(cur_end..brk), true)?;
+            oper(UserArea::new_urw(cur_end..brk_end_next), true)?;
         }
-        self.brk_end = brk;
+        self.brk = brk;
+        self.brk_end = brk_end_next;
         Ok(())
     }
 }

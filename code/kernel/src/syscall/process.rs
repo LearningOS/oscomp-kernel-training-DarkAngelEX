@@ -14,6 +14,7 @@ use crate::{
     memory::{
         self,
         address::{PageCount, UserAddr},
+        asid::USING_ASID,
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
@@ -136,6 +137,9 @@ impl Syscall<'_> {
             .get_context()
             .exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
         local::all_hart_fence_i();
+        if !USING_ASID {
+            local::all_hart_sfence_vma_all_no_global();
+        }
         check.assume_success();
         Ok(argc)
     }
@@ -320,11 +324,11 @@ impl Syscall<'_> {
         let brk = if brk == 0 {
             self.alive_then(|a| a.user_space.get_brk())?
         } else {
-            let brk = UserAddr::try_from(brk as *const ())?.ceil();
+            let brk = UserAddr::try_from(brk as *const u8)?;
             self.alive_then(|a| a.user_space.reset_brk(brk))??;
             brk
         };
-        // println!("    -> {:#x}", brk.into_usize());
+        // println!("    -> {:#x}", brk);
         Ok(brk.into_usize())
     }
     pub async fn sys_uname(&mut self) -> SysResult {
