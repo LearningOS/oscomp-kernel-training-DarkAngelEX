@@ -74,6 +74,7 @@ fs-img-prev: $(APPS)
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64imac-unknown-none-elf/release/
 
 fs-img:
+	@cd ../user && make submit
 	@cd $(FS_IMG_BUILD) && make init
 	@cp $(FS_IMG_SRC) $(FS_IMG)
 
