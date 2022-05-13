@@ -1,11 +1,14 @@
 use alloc::boxed::Box;
 
 use crate::{
-    memory::{address::UserAddr4K, page_table::PTEFlags, user_space::AccessType, PageTable},
+    memory::{
+        address::UserAddr4K, asid::Asid, page_table::PTEFlags, user_space::AccessType, PageTable,
+    },
     syscall::SysError,
     tools::{
         range::URange,
         xasync::{TryR, TryRunFail},
+        DynDropRun,
     },
 };
 
@@ -69,7 +72,7 @@ impl UserAreaHandler for MapAllHandler {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>> {
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
         self.default_page_fault(pt, addr, access)
     }

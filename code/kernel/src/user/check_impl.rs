@@ -100,13 +100,16 @@ impl<'a> UserCheckImpl<'a> {
                 .page_fault(ptr, AccessType::write())
         })?;
         let a = match r {
-            Ok(()) => return Ok(()),
+            Ok(flush) => {
+                flush.run();
+                return Ok(());
+            }
             Err(TryRunFail::Error(e)) => return Err(e),
             Err(TryRunFail::Async(a)) => a,
         };
         unsafe { trap::set_kernel_default_trap() };
         match a.a_page_fault(self.0, ptr).await {
-            Ok(()) => (),
+            Ok(flush) => flush.run(),
             Err(e) => {
                 unsafe { set_error_handle() };
                 return Err(e);

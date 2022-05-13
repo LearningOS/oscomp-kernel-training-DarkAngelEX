@@ -117,7 +117,7 @@ impl Syscall<'_> {
         }
         let check = NeverFail::new();
         if !USING_ASID {
-            local::all_hart_sfence_vma_all_no_global();
+            local::all_hart_sfence_vma_asid(alive.asid());
         }
         unsafe { user_space.using() };
         let (user_sp, argc, argv, envp) =

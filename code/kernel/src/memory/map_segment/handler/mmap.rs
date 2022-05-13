@@ -1,11 +1,13 @@
 use crate::fs::File;
 use crate::memory::address::UserAddr4K;
+use crate::memory::asid::Asid;
 use crate::memory::map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler};
 use crate::memory::page_table::PTEFlags;
 use crate::memory::{AccessType, PageTable};
 use crate::syscall::SysError;
 use crate::tools::range::URange;
 use crate::tools::xasync::{HandlerID, TryR, TryRunFail};
+use crate::tools::DynDropRun;
 use alloc::boxed::Box;
 use alloc::sync::Arc;
 
@@ -100,7 +102,7 @@ impl UserAreaHandler for MmapHandler {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>> {
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         access
             .check(self.perm())
             .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;

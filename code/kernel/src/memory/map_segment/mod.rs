@@ -9,7 +9,7 @@ use crate::{
         container::sync_unsafe_cell::SyncUnsafeCell,
         range::URange,
         xasync::{HandlerID, TryR, TryRunFail},
-        ForwardWrapper,
+        DynDropRun, ForwardWrapper,
     },
     xdebug::PRINT_PAGE_FAULT,
 };
@@ -22,6 +22,7 @@ use self::{
 use super::{
     address::{PageCount, UserAddr4K},
     allocator::frame::iter::FrameDataIter,
+    asid::Asid,
     AccessType, PTEFlags, PageTable,
 };
 
@@ -141,7 +142,7 @@ impl MapSegment {
         &mut self,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>> {
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         debug_assert!(access.user);
         let h = self
             .handlers
@@ -169,7 +170,7 @@ impl MapSegment {
             }
             pte.clear_shared();
             pte.set_writable();
-            return Ok(());
+            return Ok(pt!(self).flush_va_asid_fn(addr));
         }
         if PRINT_PAGE_FAULT {
             println!("copy to new page");
@@ -186,7 +187,7 @@ impl MapSegment {
             unsafe { pte.dealloc_by(allocator) };
         }
         *pte = PageTableEntry::new(x.consume().into(), h.map_perm());
-        Ok(())
+        Ok(pt!(self).flush_va_asid_fn(addr))
     }
     /// 必须区间内全部内存页都存在, 否则操作失败
     ///
@@ -262,7 +263,8 @@ impl MapSegment {
         let mut dst = PageTable::from_global(asid::alloc_asid())?;
         let allocator = &mut frame::defualt_allocator();
         let mut new_sm = SCManager::new();
-
+        // flush 析构时将刷表
+        let flush = src.flush_asid_fn();
         let mut err_1 = Ok(());
         for (r, h) in self.handlers.iter() {
             match h.may_shared() {
@@ -350,6 +352,7 @@ impl MapSegment {
                 }
             }
         }
+        drop(flush);
         Err(e)
     }
 }

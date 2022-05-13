@@ -18,6 +18,7 @@ use crate::{
         allocator::TrackerAllocator,
         range::URange,
         xasync::{AsyncR, HandlerID, TryR, TryRunFail},
+        DynDropRun,
     },
 };
 
@@ -91,7 +92,7 @@ pub trait UserAreaHandler: Send + 'static {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>>;
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>>;
     /// 所有权取消映射
     ///
     /// 不保证范围内全部映射
@@ -166,7 +167,7 @@ pub trait UserAreaHandler: Send + 'static {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>> {
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
         access
             .check(self.perm())
@@ -181,8 +182,7 @@ pub trait UserAreaHandler: Send + 'static {
             },
             &mut frame::defualt_allocator(),
         )?;
-        local::all_hart_sfence_vma_va_global(addr);
-        Ok(())
+        Ok(pt.flush_va_asid_fn(addr))
     }
     /// 所有权释放页表中存在映射的空间
     fn default_unmap(&self, pt: &mut PageTable, range: URange) {
@@ -201,8 +201,13 @@ pub trait UserAreaHandler: Send + 'static {
 pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
     fn perm(&self) -> PTEFlags;
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<'a, ()>;
-    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<'a, ()>;
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange)
+        -> AsyncR<Option<DynDropRun<Asid>>>;
+    fn a_page_fault<'a>(
+        &'a self,
+        process: &'a Process,
+        addr: UserAddr4K,
+    ) -> AsyncR<DynDropRun<(UserAddr4K, Asid)>>;
 }
 
 pub struct FileAsyncHandler {
@@ -237,13 +242,17 @@ impl AsyncHandler for FileAsyncHandler {
     fn perm(&self) -> PTEFlags {
         self.perm | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> AsyncR<()> {
+    fn a_map<'a>(
+        &'a self,
+        process: &'a Process,
+        range: URange,
+    ) -> AsyncR<Option<DynDropRun<Asid>>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
                 return Err(SysError::EACCES);
             }
-            let mut asid = None;
+            let mut flush = None;
             let allocator = &mut frame::defualt_allocator();
             for addr in tools::range::ur_iter(range) {
                 debug_assert!(addr >= self.start);
@@ -254,7 +263,7 @@ impl AsyncHandler for FileAsyncHandler {
                     .read_at_kernel(offset, frame.data().as_bytes_array_mut())
                     .await?;
                 frame.data().as_bytes_array_mut()[n..].fill(0);
-                asid = Some(process.alive_then(|a| -> Result<Asid, SysError> {
+                flush = Some(process.alive_then(|a| -> Result<_, SysError> {
                     let pte = a
                         .user_space
                         .page_table_mut()
@@ -262,16 +271,17 @@ impl AsyncHandler for FileAsyncHandler {
                     if !pte.is_valid() {
                         pte.alloc_by_frame(self.perm(), frame.consume());
                     }
-                    Ok(a.asid())
+                    Ok(a.user_space.page_table_mut().flush_asid_fn())
                 })??);
             }
-            if let Some(asid) = asid {
-                local::all_hart_sfence_vma_asid(asid);
-            }
-            Ok(())
+            Ok(flush)
         })
     }
-    fn a_page_fault<'a>(&'a self, process: &'a Process, addr: UserAddr4K) -> AsyncR<()> {
+    fn a_page_fault<'a>(
+        &'a self,
+        process: &'a Process,
+        addr: UserAddr4K,
+    ) -> AsyncR<DynDropRun<(UserAddr4K, Asid)>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -286,7 +296,7 @@ impl AsyncHandler for FileAsyncHandler {
                 .read_at_kernel(offset, frame.data().as_bytes_array_mut())
                 .await?;
             frame.data().as_bytes_array_mut()[n..].fill(0);
-            let asid = process.alive_then(|a| -> Result<Asid, SysError> {
+            let flush = process.alive_then(|a| -> Result<_, SysError> {
                 let pte = a
                     .user_space
                     .page_table_mut()
@@ -294,10 +304,9 @@ impl AsyncHandler for FileAsyncHandler {
                 if !pte.is_valid() {
                     pte.alloc_by_frame(self.perm(), frame.consume());
                 }
-                Ok(a.asid())
+                Ok(a.user_space.page_table_mut().flush_va_asid_fn(addr))
             })??;
-            local::all_hart_sfence_vma_va_asid(addr, asid);
-            Ok(())
+            Ok(flush)
         })
     }
 }

@@ -7,7 +7,7 @@ use alloc::vec::Vec;
 use bitflags::bitflags;
 
 use super::{
-    address::{PhyAddr4K, PhyAddrRef4K, StepByOne, VirAddr, VirAddr4K},
+    address::{PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
     allocator::frame::{self, iter::FrameDataIter, FrameAllocator},
     asid::{self, Asid, AsidInfoTracker},
     user_space::UserArea,
@@ -17,7 +17,8 @@ use crate::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
     hart::{csr, sfence},
-    tools::error::FrameOOM,
+    local,
+    tools::{error::FrameOOM, DynDropRun},
 };
 
 mod map_impl;
@@ -245,6 +246,18 @@ impl PageTable {
     pub unsafe fn using(&self) {
         self.version_check();
         self.set_satp_register_uncheck();
+    }
+    /// 返回值析构时将刷表
+    pub fn flush_asid_fn(&self) -> DynDropRun<Asid> {
+        DynDropRun::new(self.asid(), |asid| {
+            local::all_hart_sfence_vma_asid(asid)
+        })
+    }
+    /// 返回值析构时将刷表
+    pub fn flush_va_asid_fn(&self, va: UserAddr4K) -> DynDropRun<(UserAddr4K, Asid)> {
+        DynDropRun::new((va, self.asid()), |(va, asid)| {
+            local::all_hart_sfence_vma_va_asid(va, asid)
+        })
     }
     fn version_check(&self) {
         asid::version_check_alloc(&self.asid_tracker, &self.satp);

@@ -43,6 +43,25 @@ macro_rules! impl_usize_from {
     };
 }
 
+pub struct DynDropRun<T>(Option<(T, fn(T))>);
+impl<T> Drop for DynDropRun<T> {
+    #[inline(always)]
+    fn drop(&mut self) {
+        self.0.take().map(|(v, f)| f(v));
+    }
+}
+impl<T> DynDropRun<T> {
+    pub fn new(v: T, f: fn(T)) -> Self {
+        Self(Some((v, f)))
+    }
+    pub fn run(self) {
+        drop(self)
+    }
+    pub fn cancel(mut self) {
+        self.0.take();
+    }
+}
+
 pub struct FailRun<T: FnOnce()> {
     drop_run: Option<T>,
 }

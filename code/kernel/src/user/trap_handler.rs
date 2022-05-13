@@ -46,33 +46,36 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             reset_color!()
         );
     }
-    let handle = || {
-        stack_trace!();
-        let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
-        let perm = AccessType::from_exception(e).unwrap();
-        let addr = addr.floor();
-        match thread
-            .process
-            .alive_then(|a| a.user_space.page_fault(addr, perm))
-            .map_err(|_| ())?
-        {
-            Ok(x) => Ok(Ok(x)),
-            Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
-            Err(TryRunFail::Error(_e)) => Err(()),
+    let rv = {
+        || {
+            stack_trace!();
+            let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
+            let perm = AccessType::from_exception(e).unwrap();
+            let addr = addr.floor();
+            match thread
+                .process
+                .alive_then(|a| a.user_space.page_fault(addr, perm))
+                .map_err(|_| ())?
+            {
+                Ok(x) => Ok(Ok(x)),
+                Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
+                Err(TryRunFail::Error(_e)) => Err(()),
+            }
         }
-    };
-    match handle() {
+    }();
+    match rv {
         Err(()) => user_fatal_error(),
-        Ok(Ok((addr, asid))) => {
+        Ok(Ok(flush)) => {
             if PRINT_PAGE_FAULT {
                 println!("{}", to_green!("success handle exception"));
             }
-            local::all_hart_sfence_vma_va_asid(addr, asid);
+            flush.run();
         }
         Ok(Err((addr, a))) => {
             stack_trace!();
             match a.a_page_fault(&thread.process, addr).await {
-                Ok(()) => {
+                Ok(flush) => {
+                    flush.run();
                     if PRINT_PAGE_FAULT {
                         println!("{}", to_green!("success handle exception by async"));
                     }

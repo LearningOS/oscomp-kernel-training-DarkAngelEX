@@ -1,9 +1,11 @@
 use alloc::boxed::Box;
 
 use crate::{
-    memory::{address::UserAddr4K, page_table::PTEFlags, user_space::AccessType, PageTable},
+    memory::{
+        address::UserAddr4K, asid::Asid, page_table::PTEFlags, user_space::AccessType, PageTable,
+    },
     syscall::SysError,
-    tools::{range::URange, xasync::TryR},
+    tools::{range::URange, xasync::TryR, DynDropRun},
 };
 
 use super::{map_all::MapAllHandler, AsyncHandler, HandlerID, UserAreaHandler};
@@ -57,7 +59,7 @@ impl UserAreaHandler for DelayHandler {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(), Box<dyn AsyncHandler>> {
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
         self.inner.page_fault(pt, addr, access)
     }

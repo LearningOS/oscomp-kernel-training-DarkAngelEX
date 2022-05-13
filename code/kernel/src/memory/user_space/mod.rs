@@ -15,6 +15,7 @@ use crate::{
     syscall::SysError,
     tools::{
         container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange, xasync::TryR,
+        DynDropRun,
     },
     user::AutoSum,
 };
@@ -185,10 +186,9 @@ impl UserSpace {
         &mut self,
         addr: UserAddr4K,
         access: AccessType,
-    ) -> TryR<(UserAddr4K, Asid), Box<dyn AsyncHandler>> {
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
-        self.map_segment.page_fault(addr, access)?;
-        Ok((addr, self.page_table().asid()))
+        self.map_segment.page_fault(addr, access)
     }
     async fn a_page_fault(&mut self) {
         todo!()

@@ -202,14 +202,10 @@ impl Thread {
             thread.inner().uk_context.set_user_sp(new_sp);
         }
         thread.inner().uk_context.set_user_a0(0);
-        let asid = thread
+        thread
             .process
-            .alive_then(|a| {
-                a.threads.push(&thread);
-                a.asid()
-            })
+            .alive_then(|a| a.threads.push(&thread))
             .unwrap();
-        local::all_hart_sfence_vma_asid(asid);
         Ok(thread)
     }
 }
