@@ -220,7 +220,7 @@ impl SPIActions for SPIImpl {
         // select the correct device
         self.spi.csid.write(chip_select);
 
-        for s in rx_buf.chunks_mut(8) {
+        for s in rx_buf.chunks_mut(4) {
             let n = s.len();
             self.tx_fill(0xff, n);
             // self.spi.txmark.set_wait_num(n);
@@ -239,7 +239,7 @@ impl SPIActions for SPIImpl {
         // select the correct device
         self.spi.csid.write(chip_select);
 
-        for s in tx_buf.chunks(8) {
+        for s in tx_buf.chunks(4) {
             let n = s.len();
             self.spi.txmark.set_wait_num(n);
             self.tx_wait();

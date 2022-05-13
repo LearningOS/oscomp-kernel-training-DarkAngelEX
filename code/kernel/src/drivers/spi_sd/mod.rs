@@ -195,7 +195,7 @@ impl<T: SPIActions> SDCard<T> {
         // gpiohs::set_direction(self.cs_gpionum, gpio::direction::OUTPUT);
         // at first clock rate shall be low (below 400khz)
         self.spi.init();
-        self.spi.set_clk_rate(250_000);
+        self.spi.set_clk_rate(100_000);
     }
 
     /*
@@ -697,7 +697,15 @@ pub fn init_sdcard() -> SDCard<SPIImpl> {
     println!("[FTL OS] init sdcard start");
     let spi = SPIImpl::new(SPIDevice::QSPI2);
     let mut sd = SDCard::new(spi, SD_CS);
-    let _info = sd.init().unwrap();
+    for i in 0..100 {
+        let _info = match sd.init() {
+            Ok(info) => info,
+            Err(err) => {
+                println!("sd init error! nth:{} cause: {:?}", i, err);
+                continue;
+            }
+        };
+    }
     // assert!(num_sectors > 0);
     println!("[FTL OS] init sdcard end");
     sd
