@@ -101,7 +101,9 @@ impl PageTable {
                 debug_assert!($a);
             };
         }
-        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        fn next_pte(a: PhyAddr4K, i: usize) -> &'static mut PageTableEntry {
+            &mut a.into_ref().as_pte_array_mut()[i]
+        }
         let x = &addr.indexes();
         let pte = next_pte(self.root_pa(), x[0]);
         return_or_check!(pte, pte.is_directory());
@@ -121,7 +123,9 @@ impl PageTable {
                 debug_assert!($a);
             };
         }
-        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        fn next_pte(a: PhyAddr4K, i: usize) -> &'static mut PageTableEntry {
+            &mut a.into_ref().as_pte_array_mut()[i]
+        }
         let x = &addr.indexes();
         let pte = next_pte(self.root_pa(), x[0]);
         return_or_check!(pte, pte.is_directory());
@@ -136,7 +140,9 @@ impl PageTable {
         addr: UserAddr4K,
         allocator: &mut impl FrameAllocator,
     ) -> Result<&mut PageTableEntry, FrameOOM> {
-        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
+        fn next_pte(a: PhyAddr4K, i: usize) -> &'static mut PageTableEntry {
+            &mut a.into_ref().as_pte_array_mut()[i]
+        }
         stack_trace!();
         let x = &addr.indexes();
         let pte = next_pte(self.root_pa(), x[0]);

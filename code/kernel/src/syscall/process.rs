@@ -186,7 +186,11 @@ impl Syscall<'_> {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
                     let access = UserCheck::new(self.process)
                         .translated_user_writable_value(exit_code_ptr)
-                        .await?;
+                        .await
+                        .map_err(|e| {
+                            println!("[FTL OS]wait4 fail because {:?}", e);
+                            e
+                        })?;
                     let status: u8 = 0;
                     let wstatus = ((exit_code as u32 & 0xff) << 8) | (status as u32);
                     access.store(wstatus);

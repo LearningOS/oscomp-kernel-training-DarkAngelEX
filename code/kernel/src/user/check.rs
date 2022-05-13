@@ -140,7 +140,6 @@ impl<'a> UserCheck<'a> {
             );
             return Err(SysError::EFAULT);
         }
-        // println!("tran 1");
         let ubegin = UserAddr::try_from(ptr)?;
         let uend = UserAddr::try_from(ptr.offset(len as isize))?;
         let mut cur = ubegin.floor();
@@ -152,7 +151,6 @@ impl<'a> UserCheck<'a> {
             cur.add_page_assign(PageCount(1));
         }
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
-        // println!("tran 2");
         Ok(UserDataMut::new(slice))
     }
 }

@@ -62,17 +62,23 @@ impl<'a> UserCheckImpl<'a> {
                     println!("write_check fail!(0) ptr: {:#x} cause: {}", ptr, e);
                     e
                 })?;
-                try_read_user_u8(ptr)?
+                try_read_user_u8(ptr).map_err(|e| {
+                    println!("write_check fail!(1) ptr: {:#x} cause: {}", ptr, e);
+                    e
+                })?
             }
         };
         match try_write_user_u8(ptr, v) {
             Ok(_v) => return Ok(()),
             Err(_e) => {
                 self.handle_write_fault(ptr).await.map_err(|e| {
-                    println!("write_check fail!(1) ptr: {:#x} cause: {}", ptr, e);
+                    println!("write_check fail!(2) ptr: {:#x} cause: {}", ptr, e);
                     e
                 })?;
-                try_write_user_u8(ptr, v)?
+                try_write_user_u8(ptr, v).map_err(|e| {
+                    println!("write_check fail!(3) ptr: {:#x} cause: {}", ptr, e);
+                    e
+                })?
             }
         }
         Ok(())
