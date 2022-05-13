@@ -83,6 +83,7 @@ impl Syscall<'_> {
                 .await?
                 .to_vec(),
         )?;
+        stack_trace!("sys_exec path: {}", path);
         let args: Vec<String> = user_check
             .translated_user_2d_array_zero_end(args)
             .await?

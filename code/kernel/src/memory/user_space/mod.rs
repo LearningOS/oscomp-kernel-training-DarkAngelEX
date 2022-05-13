@@ -278,6 +278,7 @@ impl UserSpace {
         let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
 
         for i in 0..ph_count {
+            stack_trace!();
             let ph = elf.program_header(i).map_err(elf_fail)?;
             if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
                 let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
@@ -315,13 +316,15 @@ impl UserSpace {
                 assert!(start_va.floor() >= max_end_4k);
                 let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
                 max_end_4k = map_area.end();
+                stack_trace!();
                 let data = &elf.input[ph.offset() as usize - start_va.page_offset()
                     ..(ph.offset() + ph.file_size()) as usize];
+                stack_trace!();
                 let slice_iter = SliceFrameDataIter::new(data);
                 space.force_map_delay_write(map_area, slice_iter)?;
             }
         }
-
+        stack_trace!();
         let mut auxv = AuxHeader::generate(
             elf_header.pt2.ph_entry_size() as usize,
             ph_count as usize,
