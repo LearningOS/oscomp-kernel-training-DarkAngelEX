@@ -176,6 +176,7 @@ impl Syscall<'_> {
                     WaitFor::AnyChildInGroup => unimplemented!(),
                 };
                 if p.is_none() && alive.children.is_empty() {
+                    println!("[FTL OS]wait4 fail: no child");
                     return Err(SysError::ECHILD);
                 }
                 p
@@ -190,7 +191,7 @@ impl Syscall<'_> {
                     let wstatus = ((exit_code as u32 & 0xff) << 8) | (status as u32);
                     access.store(wstatus);
                 }
-                if PRINT_SYSCALL_PROCESS {
+                if PRINT_SYSCALL_PROCESS || true {
                     println!(
                         "sys_wait4 success {:?} <- {:?} (exit code {})",
                         this_pid,

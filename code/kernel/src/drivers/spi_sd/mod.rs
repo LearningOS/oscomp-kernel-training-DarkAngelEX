@@ -705,6 +705,7 @@ pub fn init_sdcard() -> SDCard<SPIImpl> {
                 continue;
             }
         };
+        break;
     }
     // assert!(num_sectors > 0);
     println!("[FTL OS] init sdcard end");
