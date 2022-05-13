@@ -273,6 +273,7 @@ impl<T: Clone + Copy + 'static, P: Policy + 'static> UserType for UserPtr<T, P> 
 //     }
 // }
 
+/// 持有 `AutoSie` 将关闭中断, 可以嵌套或使用在异步上下文
 pub struct AutoSie;
 
 unsafe impl Send for AutoSie {}
@@ -292,7 +293,7 @@ impl Drop for AutoSie {
     }
 }
 
-/// access user data and close interrupt.
+/// 持有 `AutoSum` 将允许在内核态访问用户态数据, 可以嵌套或使用在异步上下文
 pub struct AutoSum;
 
 unsafe impl Send for AutoSum {}

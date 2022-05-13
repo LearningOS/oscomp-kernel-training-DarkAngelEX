@@ -9,7 +9,7 @@ use crate::{
     sync::SleepMutex,
 };
 
-use super::{block::BPB_CID, BlockDevice};
+use super::{block::BPB_CID, BlockDevice, crc};
 use alloc::boxed::Box;
 use ftl_util::device::AsyncRet;
 
@@ -332,21 +332,41 @@ impl<T: SPIActions> SDCard<T> {
     ///
     fn send_cmd(&mut self, cmd: CMD, arg: u32, crc: u8) {
         self.CS_LOW();
-        /* Send the Cmd bytes */
-        self.write_data(&[
-            /* Construct byte 1 */
-            ((cmd as u8) | 0x40),
-            /* Construct byte 2 */
-            (arg >> 24) as u8,
-            /* Construct byte 3 */
-            ((arg >> 16) & 0xff) as u8,
-            /* Construct byte 4 */
-            ((arg >> 8) & 0xff) as u8,
-            /* Construct byte 5 */
-            (arg & 0xff) as u8,
-            /* CRC */
-            crc,
-        ]);
+        if true {
+            let s = &mut [
+                /* Construct byte 1 */
+                ((cmd as u8) | 0x40),
+                /* Construct byte 2 */
+                (arg >> 24) as u8,
+                /* Construct byte 3 */
+                ((arg >> 16) & 0xff) as u8,
+                /* Construct byte 4 */
+                ((arg >> 8) & 0xff) as u8,
+                /* Construct byte 5 */
+                (arg & 0xff) as u8,
+                /* CRC */
+                0,
+            ];
+            let crc = crc::crc7_be(0, &s[0..5]);
+            s[5] = crc | 1;
+            self.write_data(s);
+        } else {
+            /* Send the Cmd bytes */
+            self.write_data(&[
+                /* Construct byte 1 */
+                ((cmd as u8) | 0x40),
+                /* Construct byte 2 */
+                (arg >> 24) as u8,
+                /* Construct byte 3 */
+                ((arg >> 16) & 0xff) as u8,
+                /* Construct byte 4 */
+                ((arg >> 8) & 0xff) as u8,
+                /* Construct byte 5 */
+                (arg & 0xff) as u8,
+                /* CRC */
+                crc | 1,
+            ]);
+        }
     }
 
     /* Send end-command sequence to SD card */
