@@ -227,3 +227,7 @@ pub fn all_hart_sfence_vma_va_asid(va: UserAddr4K, asid: Asid) {
 pub fn all_hart_sfence_vma_all_no_global() {
     all_hart_fn(|| sfence::sfence_vma_all_no_global);
 }
+
+pub fn all_hart_sfence_vma_va_global(va: UserAddr4K) {
+    all_hart_fn(|| move || sfence::sfence_vma_va_global(va.into_usize()));
+}

@@ -58,14 +58,20 @@ impl<'a> UserCheckImpl<'a> {
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
             Err(_e) => {
-                self.handle_write_fault(ptr).await?;
+                self.handle_write_fault(ptr).await.map_err(|e| {
+                    println!("write_check fail!(0) ptr: {:#x} cause: {}", ptr, e);
+                    e
+                })?;
                 try_read_user_u8(ptr)?
             }
         };
         match try_write_user_u8(ptr, v) {
             Ok(_v) => return Ok(()),
             Err(_e) => {
-                self.handle_write_fault(ptr).await?;
+                self.handle_write_fault(ptr).await.map_err(|e| {
+                    println!("write_check fail!(1) ptr: {:#x} cause: {}", ptr, e);
+                    e
+                })?;
                 try_write_user_u8(ptr, v)?
             }
         }
@@ -92,7 +98,6 @@ impl<'a> UserCheckImpl<'a> {
             Err(TryRunFail::Error(e)) => return Err(e),
             Err(TryRunFail::Async(a)) => a,
         };
-
         unsafe { trap::set_kernel_default_trap() };
         match a.a_page_fault(self.0, ptr).await {
             Ok(()) => (),

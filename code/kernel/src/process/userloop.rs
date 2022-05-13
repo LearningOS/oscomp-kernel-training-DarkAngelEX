@@ -160,6 +160,9 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
             sfence::sfence_vma_all_no_global();
         }
         let ret = unsafe { Pin::new_unchecked(&mut this.future).poll(cx) };
+        if !USING_ASID {
+            sfence::sfence_vma_all_no_global();
+        }
         local.leave_task_switch(&mut this.local_switch);
         ret
     }

@@ -181,6 +181,7 @@ pub trait UserAreaHandler: Send + 'static {
             },
             &mut frame::defualt_allocator(),
         )?;
+        local::all_hart_sfence_vma_va_global(addr);
         Ok(())
     }
     /// 所有权释放页表中存在映射的空间

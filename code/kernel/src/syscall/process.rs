@@ -89,8 +89,6 @@ impl Syscall<'_> {
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
             .collect();
-        // println!("args ptr: {:#x}", args as usize);
-        // let args = Vec::new();
         let envp = user_check
             .translated_user_2d_array_zero_end(envp)
             .await?
@@ -118,6 +116,9 @@ impl Syscall<'_> {
             todo!();
         }
         let check = NeverFail::new();
+        if !USING_ASID {
+            local::all_hart_sfence_vma_all_no_global();
+        }
         unsafe { user_space.using() };
         let (user_sp, argc, argv, envp) =
             user_space.push_args(user_sp.into(), &args, &alive.envp, &auxv, args_size);
@@ -137,9 +138,6 @@ impl Syscall<'_> {
             .get_context()
             .exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
         local::all_hart_fence_i();
-        if !USING_ASID {
-            local::all_hart_sfence_vma_all_no_global();
-        }
         check.assume_success();
         Ok(argc)
     }
@@ -185,7 +183,6 @@ impl Syscall<'_> {
             if let Some(process) = process {
                 if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
-                    // assert!(alive.user_space.in_using());
                     let access = UserCheck::new(self.process)
                         .translated_user_writable_value(exit_code_ptr)
                         .await?;

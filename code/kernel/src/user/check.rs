@@ -131,9 +131,16 @@ impl<'a> UserCheck<'a> {
         ptr: UserWritePtr<T>,
         len: usize,
     ) -> Result<UserDataMut<T>, SysError> {
+        // println!("tran 0");
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
+            println!(
+                "[kernel]user write ptr check fail: no align. ptr: {:#x} align: {}",
+                ptr.as_usize(),
+                core::mem::align_of::<T>()
+            );
             return Err(SysError::EFAULT);
         }
+        // println!("tran 1");
         let ubegin = UserAddr::try_from(ptr)?;
         let uend = UserAddr::try_from(ptr.offset(len as isize))?;
         let mut cur = ubegin.floor();
@@ -145,6 +152,7 @@ impl<'a> UserCheck<'a> {
             cur.add_page_assign(PageCount(1));
         }
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
+        // println!("tran 2");
         Ok(UserDataMut::new(slice))
     }
 }
