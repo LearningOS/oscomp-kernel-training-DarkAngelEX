@@ -195,7 +195,7 @@ impl Syscall<'_> {
                     let wstatus = ((exit_code as u32 & 0xff) << 8) | (status as u32);
                     access.store(wstatus);
                 }
-                if PRINT_SYSCALL_PROCESS || true {
+                if PRINT_SYSCALL_PROCESS {
                     println!(
                         "sys_wait4 success {:?} <- {:?} (exit code {})",
                         this_pid,
