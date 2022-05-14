@@ -7,8 +7,7 @@ use alloc::{
     vec::Vec,
 };
 use fat32::Fat32Manager;
-use ftl_util::{error::SysError, utc_time::UtcTime};
-
+use ftl_util::{error::SysError, fs::DentryType, utc_time::UtcTime};
 use crate::{
     drivers, executor,
     fs::{stat::Stat, AsyncFile, File, OpenFlags},
@@ -48,6 +47,10 @@ impl Fat32Inode {
         v.shrink_to_fit();
         Ok(v)
     }
+    pub async fn list(&self) -> Result<Vec<(DentryType, String)>, SysError> {
+        let dir = self.inode.dir().ok_or(SysError::ENOTDIR)?;
+        dir.list(manager()).await
+    }
 }
 
 static mut MANAGER: Option<Fat32Manager> = None;
@@ -75,8 +78,8 @@ pub async fn list_apps() {
     stack_trace!();
     let _sie = AutoSie::new();
     println!("/**** APPS ****");
-    for app in manager().root_dir().list(manager()).await.unwrap() {
-        println!("{}", app);
+    for (dt, name) in manager().root_dir().list(manager()).await.unwrap() {
+        println!("{} {:?}", name, dt);
     }
     println!("**************/");
 }

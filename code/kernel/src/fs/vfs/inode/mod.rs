@@ -6,6 +6,8 @@ use crate::{
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 
+use ftl_util::fs::DentryType;
+
 // type InodeImpl = easyfs_inode::EasyFsInode;
 type InodeImpl = fat32_inode::Fat32Inode;
 
@@ -32,6 +34,9 @@ impl VfsInode {
         &self,
     ) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator<Item = &str> {
         self.path().iter().map(|s| s.as_str())
+    }
+    pub async fn list(&self) -> Result<Vec<(DentryType, String)>, SysError> {
+        self.inode.list().await
     }
 }
 

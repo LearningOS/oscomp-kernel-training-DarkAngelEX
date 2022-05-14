@@ -29,8 +29,8 @@ fn system_test(
     spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
 ) -> impl Future<Output = ()> + Send + 'static {
     async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
-        for (i, name) in dir.list(&manager).await.unwrap().into_iter().enumerate() {
-            println!("{:>2} <{}>", i, name);
+        for (i, (dt, name)) in dir.list(&manager).await.unwrap().into_iter().enumerate() {
+            println!("{:>2} <{}> {:?}", i, name, dt);
         }
     }
     async move {

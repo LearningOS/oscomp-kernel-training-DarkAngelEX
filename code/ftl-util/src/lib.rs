@@ -17,6 +17,7 @@ pub mod error;
 pub mod list;
 pub mod sync;
 pub mod utc_time;
+pub mod fs;
 
 extern crate alloc;
 

@@ -72,27 +72,61 @@ impl Syscall<'_> {
         Ok(new_fd.to_usize())
     }
     pub async fn sys_getdents64(&mut self) -> SysResult {
+        stack_trace!();
+
+        #[repr(C)]
         struct Ddirent {
             d_ino: u64,    /* Inode number */
             d_off: u64,    /* Offset to next linux_dirent */
             d_reclen: u16, /* Length of this linux_dirent */
             d_type: u8,
             d_name: (),
-            // file_name
-            /* Filename (null-terminated) */
-            /* length is actually (d_reclen - 2 - offsetof(struct linux_dirent, d_name)) */
-            /*
-            char           pad;       // Zero padding byte
-            char           d_type;    // File type (only since Linux
-                                      // 2.6.4); offset is (d_reclen - 1)
-            */
         }
-        if PRINT_SYSCALL_FS {}
-        println!("sys_getdents64 unimplement!");
-        if NO_SYSCALL_PANIC {
-            todo!()
+        let (fd, dirp, count): (Fd, UserWritePtr<u8>, usize) = self.cx.into();
+        let align = core::mem::align_of::<Ddirent>();
+        if dirp.as_usize() % align != 0 {
+            return Err(SysError::EFAULT);
         }
-        return Err(SysError::ENOSYS);
+        let dirp = UserCheck::new(self.process)
+            .translated_user_writable_slice(dirp, count)
+            .await?;
+        let file = self
+            .alive_then(|a| a.fd_table.get(fd).cloned())?
+            .ok_or(SysError::EBADF)?;
+        let file = file.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        let list = file.list().await?;
+
+        let mut buffer = &mut *dirp.access_mut();
+        let mut cnt = 0;
+        let mut d_off_ptr: *mut u64 = core::ptr::null_mut();
+        for (dt, name) in list {
+            let ptr = buffer.as_mut_ptr();
+            debug_assert_eq!(ptr as usize % align, 0);
+            unsafe {
+                let dirent_ptr: *mut Ddirent = core::mem::transmute(ptr);
+                let name_ptr = &mut (*dirent_ptr).d_name as *mut _ as *mut u8;
+                let end_ptr = name_ptr.add(name.len() + 1);
+                let align_add = end_ptr.align_offset(align);
+                let len = end_ptr.add(align_add).offset_from(ptr) as usize;
+                if len > buffer.len() {
+                    break;
+                }
+                let dirent = &mut *dirent_ptr;
+                dirent.d_ino = 0;
+                if d_off_ptr != core::ptr::null_mut() {
+                    *d_off_ptr = (&dirent.d_off as *const _ as usize - d_off_ptr as usize) as u64;
+                }
+                d_off_ptr = &mut dirent.d_off;
+                dirent.d_reclen = len as u16;
+                dirent.d_type = dt as u8; // <- no implement
+                let name_buf = core::ptr::slice_from_raw_parts_mut(name_ptr, name.len() + 1);
+                (&mut *name_buf)[..name.len()].copy_from_slice(name.as_bytes());
+                (&mut *name_buf)[name.len()] = b'\0';
+                buffer = &mut buffer[len..];
+            }
+            cnt += 1;
+        }
+        Ok(cnt)
     }
     pub async fn sys_read(&mut self) -> SysResult {
         stack_trace!();

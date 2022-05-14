@@ -209,20 +209,6 @@ impl AIDAllocator {
         AID(self.0.fetch_add(1, Ordering::Relaxed))
     }
 }
-pub struct MIDAllocator<T>(AtomicUsize, PhantomData<T>);
-
-impl<T> MIDAllocator<T> {
-    pub const fn new() -> Self {
-        Self(AtomicUsize::new(0), PhantomData)
-    }
-    pub fn alloc(&self) -> AID {
-        AID(self.0.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-pub fn err_break<B, E>(e: Result<Infallible, E>) -> Result<B, E> {
-    Err(e.err().unwrap())
-}
 
 pub struct SyncUnsafeCell<T: ?Sized> {
     data: UnsafeCell<T>,

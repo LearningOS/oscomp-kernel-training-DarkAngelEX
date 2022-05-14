@@ -1,7 +1,7 @@
 use core::{convert::Infallible, ops::ControlFlow};
 
 use alloc::{string::String, sync::Arc, vec::Vec};
-use ftl_util::error::SysError;
+use ftl_util::{error::SysError, fs::DentryType};
 
 use crate::{
     layout::name::{Attr, Name, RawLongName, RawName, RawShortName},
@@ -55,11 +55,18 @@ impl DirInode {
     pub fn attr(&self) -> Attr {
         unsafe { self.inode.unsafe_get().attr() }
     }
-    pub async fn list(&self, manager: &Fat32Manager) -> Result<Vec<String>, SysError> {
+    pub async fn list(
+        &self,
+        manager: &Fat32Manager,
+    ) -> Result<Vec<(DentryType, String)>, SysError> {
         let inode = &*self.inode.shared_lock().await;
         let mut set = Vec::new();
         Self::name_try_fold(inode, manager, (), |(), dir| {
-            set.push(dir.take_name());
+            let dt = match dir.short.is_dir() {
+                true => DentryType::DIR,
+                false => DentryType::REG,
+            };
+            set.push((dt, dir.take_name()));
             ControlFlow::<Infallible>::Continue(())
         })
         .await?;
