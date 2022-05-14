@@ -46,6 +46,7 @@ fn run_all_case() {
         "open\0",
         "pipe\0",
         "read\0",
+        "sleep\0",
         "times\0",
         "umount\0",
         "uname\0",

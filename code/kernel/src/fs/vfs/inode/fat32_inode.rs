@@ -1,13 +1,18 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use fat32::Fat32Manager;
 use ftl_util::{error::SysError, utc_time::UtcTime};
 
 use crate::{
     drivers, executor,
     fs::{stat::Stat, AsyncFile, File, OpenFlags},
-    tools::xasync::Async,
+    tools::{path, xasync::Async},
     user::{AutoSie, UserData, UserDataMut},
 };
 
@@ -18,9 +23,13 @@ pub struct Fat32Inode {
     writable: AtomicBool,
     ptr: AtomicUsize,
     inode: AnyInode,
+    path: Vec<String>,
 }
 
 impl Fat32Inode {
+    pub fn path(&self) -> &[String] {
+        &self.path
+    }
     pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
         stack_trace!();
         let buffer_size = 4096;
@@ -72,23 +81,9 @@ pub async fn list_apps() {
     println!("**************/");
 }
 
-fn walk_path<'a>(src: &'a str, dst: &mut Vec<&'a str>) {
-    for s in src.split(['/', '\\']).map(|s| s.trim()) {
-        match s {
-            "" | "." => continue,
-            ".." => {
-                dst.pop();
-            }
-            s => {
-                dst.push(s);
-            }
-        }
-    }
-}
-
-pub async fn open_file(
-    base: &str,
-    path: &str,
+pub async fn open_file<'a>(
+    base: impl Iterator<Item = &'a str>,
+    path: &'a str,
     flags: OpenFlags,
 ) -> Result<Arc<Fat32Inode>, SysError> {
     stack_trace!();
@@ -97,9 +92,9 @@ pub async fn open_file(
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => walk_path(base, &mut stack),
+        _ => path::walk_iter_path(base, &mut stack),
     }
-    walk_path(path, &mut stack);
+    path::walk_path(path, &mut stack);
     // println!("open_file {:?} flags: {:#x}, create: {}", stack, flags, flags.create());
     if flags.create() {
         match manager().create_any(&stack, flags.dir(), !f_w, false).await {
@@ -118,35 +113,45 @@ pub async fn open_file(
     if !inode.attr().writable() && f_w {
         return Err(SysError::EACCES);
     }
+    let path = stack.into_iter().map(|s| s.to_string()).collect();
     Ok(Arc::new(Fat32Inode {
         readable: AtomicBool::new(f_r),
         writable: AtomicBool::new(f_w),
         ptr: AtomicUsize::new(0),
         inode,
+        path,
     }))
 }
 
-pub async fn unlink(base: &str, path: &str, _flags: OpenFlags) -> Result<(), SysError> {
+pub async fn unlink<'a>(
+    base: impl Iterator<Item = &'a str>,
+    path: &'a str,
+    _flags: OpenFlags,
+) -> Result<(), SysError> {
     stack_trace!();
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => walk_path(base, &mut stack),
+        _ => path::walk_iter_path(base, &mut stack),
     }
-    walk_path(path, &mut stack);
+    path::walk_path(path, &mut stack);
     manager().delete_any(&stack).await
 }
 
-pub async fn create_any(base: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
+pub async fn create_any<'a>(
+    base: impl Iterator<Item = &'a str>,
+    path: &'a str,
+    flags: OpenFlags,
+) -> Result<(), SysError> {
     stack_trace!();
     let _sie = AutoSie::new();
-    let (f_r, f_w) = flags.read_write()?;
+    let (f_r, _f_w) = flags.read_write()?;
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => walk_path(base, &mut stack),
+        _ => path::walk_iter_path(base, &mut stack),
     }
-    walk_path(path, &mut stack);
+    path::walk_path(path, &mut stack);
     manager()
         .create_any(&stack, flags.dir(), f_r, false)
         .await?;

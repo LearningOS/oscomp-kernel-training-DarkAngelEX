@@ -1,4 +1,4 @@
-use alloc::{borrow::Cow, boxed::Box, string::String};
+use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
 use crate::{

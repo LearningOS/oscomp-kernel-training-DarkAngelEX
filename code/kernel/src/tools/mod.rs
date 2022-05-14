@@ -17,6 +17,7 @@ pub mod container;
 pub mod error;
 pub mod range;
 pub mod xasync;
+pub mod path;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
     if x {

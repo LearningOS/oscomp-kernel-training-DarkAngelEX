@@ -4,7 +4,7 @@ use alloc::collections::BinaryHeap;
 
 use crate::sync::mutex::SpinNoIrqLock;
 
-use super::{get_time_ticks, TimeTicks};
+use super::TimeTicks;
 
 struct TimerCondVar {
     expire_ticks: TimeTicks,
@@ -68,19 +68,11 @@ pub fn sleep_queue_init() {
 }
 
 pub fn timer_push_task(ticks: TimeTicks, waker: Waker) {
-    SLEEP_QUEUE
-        .lock()
-        .as_mut()
-        .unwrap()
-        .push(ticks, waker);
+    SLEEP_QUEUE.lock().as_mut().unwrap().push(ticks, waker);
 }
 
 pub fn check_timer() {
     stack_trace!();
-    let current = get_time_ticks();
-    SLEEP_QUEUE
-        .lock()
-        .as_mut()
-        .unwrap()
-        .check_timer(current);
+    let current = super::get_time_ticks();
+    SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current);
 }

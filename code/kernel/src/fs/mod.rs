@@ -99,6 +99,10 @@ impl OpenFlags {
 pub type AsyncFile<'a> = Async<'a, Result<usize, SysError>>;
 
 pub trait File: Send + Sync + 'static {
+    // 这个文件的工作路径
+    fn to_vfs_inode(&self) -> Option<&VfsInode> {
+        None
+    }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn can_mmap(&self) -> bool {

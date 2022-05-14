@@ -1,7 +1,7 @@
-use alloc::string::String;
+use alloc::{string::String, sync::Arc};
 
 use crate::{
-    fs::{self, pipe, Mode, OpenFlags},
+    fs::{self, pipe, File, Mode, OpenFlags},
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::SysError,
@@ -19,7 +19,7 @@ const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_
 const AT_FDCWD: isize = -100;
 
 impl Syscall<'_> {
-    pub async fn getcwd(&mut self) -> SysResult {
+    pub async fn sys_getcwd(&mut self) -> SysResult {
         stack_trace!();
         let (buf_in, len): (UserWritePtr<u8>, usize) = self.cx.into();
         if buf_in.is_null() {
@@ -29,13 +29,20 @@ impl Syscall<'_> {
             .translated_user_writable_slice(buf_in, len)
             .await?;
         let lock = self.alive_lock()?;
-        let cwd = &lock.cwd;
-        if buf.len() <= cwd.len() {
+        let cwd_len = lock.cwd.path_iter().fold(0, |a, b| a + b.len() + 1) + 1;
+        if buf.len() <= cwd_len {
             return Err(SysError::ERANGE);
         }
-        let mut buf = buf.access_mut();
-        buf[0..cwd.len()].copy_from_slice(cwd.as_bytes());
-        buf[cwd.len()] = 0;
+        let buf = &mut *buf.access_mut();
+        let mut buf = &mut buf[..cwd_len];
+        for s in lock.cwd.path_iter() {
+            buf[0] = b'/';
+            buf = buf.split_at_mut(1).1;
+            buf[..s.len()].copy_from_slice(s.as_bytes());
+            buf = buf.split_at_mut(s.len()).1;
+        }
+        debug_assert_eq!(buf.len(), 1);
+        buf[0] = b'\0';
         return Ok(buf_in.as_usize());
     }
     pub fn sys_dup(&mut self) -> SysResult {
@@ -138,42 +145,40 @@ impl Syscall<'_> {
             .translated_user_array_zero_end(path)
             .await?
             .to_vec();
+        let path = String::from_utf8(path)?;
         // 当path为绝对路径时fd被忽略
         // 当path为相对路径时, 如果fd为AT_FDCWD则使用进程工作目录, 否则使用fd
-        if fd != AT_FDCWD {
-            todo!();
-        }
-        let path = String::from_utf8(path)?;
         let flags = fs::OpenFlags::RDWR | fs::OpenFlags::CREAT | fs::OpenFlags::DIRECTORY;
-        fs::create_any(
-            &self.alive_then(|a| a.cwd.clone())?,
-            path.as_str(),
-            flags,
-            mode,
-        )
-        .await?;
+
+        let base: Arc<dyn File> = match fd {
+            AT_FDCWD => self.alive_then(|a| a.cwd.clone())?,
+            fd => self
+                .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
+                .ok_or(SysError::EBADF)?,
+        };
+        let base = base.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        fs::create_any(base.path_iter(), path.as_str(), flags, mode).await?;
         Ok(0)
     }
     pub async fn sys_unlinkat(&mut self) -> SysResult {
         stack_trace!();
         let (fd, path, flags): (isize, UserReadPtr<u8>, u32) = self.cx.into();
-        if fd != AT_FDCWD {
-            todo!();
+        if flags != 0 {
+            panic!("sys_unlinkat flags: {:#x}", flags);
         }
         let path = UserCheck::new(self.process)
             .translated_user_array_zero_end(path)
             .await?
             .to_vec();
         let path = String::from_utf8(path)?;
-        if flags != 0 {
-            panic!();
-        }
-        fs::unlink(
-            &self.alive_then(|a| a.cwd.clone())?,
-            &path,
-            OpenFlags::empty(),
-        )
-        .await?;
+        let base: Arc<dyn File> = match fd {
+            AT_FDCWD => self.alive_then(|a| a.cwd.clone())?,
+            fd => self
+                .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
+                .ok_or(SysError::EBADF)?,
+        };
+        let base = base.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        fs::unlink(base.path_iter(), &path, OpenFlags::empty()).await?;
         Ok(0)
     }
     pub async fn sys_chdir(&mut self) -> SysResult {
@@ -185,14 +190,14 @@ impl Syscall<'_> {
             .to_vec();
         let path = String::from_utf8(path)?;
         let flags = OpenFlags::RDONLY | fs::OpenFlags::DIRECTORY;
-        fs::open_file(
-            &self.alive_then(|a| a.cwd.clone())?,
+        let inode = fs::open_file(
+            self.alive_then(|a| a.cwd.clone())?.path_iter(),
             path.as_str(),
             flags,
             Mode(0o600),
         )
         .await?;
-        self.alive_then(|a| a.cwd = path)?;
+        self.alive_then(|a| a.cwd = inode)?;
         Ok(0)
     }
     pub async fn sys_openat(&mut self) -> SysResult {
@@ -213,25 +218,17 @@ impl Syscall<'_> {
             .to_vec();
         let path = String::from_utf8(path)?;
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
-        let inode = fs::open_file(
-            &self.alive_then(|a| a.cwd.clone())?,
-            path.as_str(),
-            flags,
-            mode,
-        )
-        .await?;
+        let base: Arc<dyn File> = match fd {
+            AT_FDCWD => self.alive_then(|a| a.cwd.clone())?,
+            fd => self
+                .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
+                .ok_or(SysError::EBADF)?,
+        };
+        let base = base.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        let inode = fs::open_file(base.path_iter(), path.as_str(), flags, mode).await?;
         let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
-
-        let mut alive = self.alive_lock()?;
-        if fd == AT_FDCWD {
-            let fd = alive.fd_table.insert(inode, close_on_exec);
-            Ok(fd.to_usize())
-        } else {
-            let fd = Fd::new(fd as usize);
-            fd.in_range()?;
-            alive.fd_table.set_insert(fd, inode, close_on_exec);
-            Ok(fd.to_usize())
-        }
+        let fd = self.alive_lock()?.fd_table.insert(inode, close_on_exec);
+        Ok(fd.to_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {
         stack_trace!();

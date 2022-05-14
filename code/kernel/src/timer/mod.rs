@@ -1,5 +1,7 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
+use ftl_util::error::SysError;
+
 use crate::board::CLOCK_FREQ;
 use crate::hart::sbi;
 
@@ -9,8 +11,6 @@ pub mod sleep;
 
 /// how many time interrupt per second
 const TIME_INTERRUPT_PER_SEC: usize = 20;
-const MILLISECOND_PER_SEC: usize = 1000;
-const MICROSECOND_PER_SEC: usize = 1000_000;
 
 pub fn init() {
     sleep::sleep_queue_init();
@@ -40,9 +40,41 @@ impl Tms {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
+pub struct TimeSpec {
+    pub tv_sec: usize,
+    pub tv_nsec: usize, // 纳秒
+}
+
+impl TimeSpec {
+    pub fn valid(&self) -> Result<(), SysError> {
+        if self.tv_nsec >= 1000_000_000 {
+            return Err(SysError::EINVAL);
+        }
+        Ok(())
+    }
+    pub fn from_ticks(ticks: TimeTicks) -> Self {
+        let nsec = ticks.nanosecond();
+        TimeSpec {
+            tv_sec: (nsec / 1000_000_000) as usize,
+            tv_nsec: (nsec % 1000_000_000) as usize,
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
 pub struct TimeVal {
-    tv_sec: usize,
-    tv_usec: usize, // 微妙
+    pub tv_sec: usize,
+    pub tv_usec: usize, // 微妙
+}
+impl TimeVal {
+    pub fn from_ticks(ticks: TimeTicks) -> Self {
+        let usec = ticks.microsecond();
+        Self {
+            tv_sec: (usec / 1000_000) as usize,
+            tv_usec: (usec % 1000_000) as usize,
+        }
+    }
 }
 
 #[repr(C)]
@@ -53,32 +85,48 @@ pub struct TimeZone {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TimeTicks(usize);
+pub struct TimeTicks(u128);
 
 impl TimeTicks {
+    pub const ZERO: Self = Self(0);
     pub fn from_usize(ticks: usize) -> Self {
-        Self(ticks)
+        Self(ticks as u128)
     }
     pub fn into_usize(self) -> usize {
-        self.0
+        self.0 as usize
     }
-    pub fn from_millisecond(ms: usize) -> Self {
-        Self(ms * (CLOCK_FREQ / MILLISECOND_PER_SEC))
+    pub fn from_time_spec(ts: TimeSpec) -> Self {
+        Self::from_second(ts.tv_sec as u128) + Self::from_nanosecond(ts.tv_nsec as u128)
     }
-    pub fn microsecond(self) -> usize {
-        self.0 / (CLOCK_FREQ / MICROSECOND_PER_SEC)
+    pub fn time_sepc(self) -> TimeSpec {
+        TimeSpec::from_ticks(self)
     }
-    pub fn millisecond(self) -> usize {
-        self.0 / (CLOCK_FREQ / MILLISECOND_PER_SEC)
+    pub fn from_second(v: u128) -> Self {
+        Self(v * CLOCK_FREQ)
     }
-    pub fn second(self) -> usize {
+    pub fn from_millisecond(v: u128) -> Self {
+        Self((v * CLOCK_FREQ) / 1000)
+    }
+    pub fn from_microsecond(v: u128) -> Self {
+        Self((v * CLOCK_FREQ) / 1000_000)
+    }
+    pub fn from_nanosecond(v: u128) -> Self {
+        Self((v * CLOCK_FREQ) / 1000_000_000)
+    }
+    pub fn second(self) -> u128 {
         self.0 / CLOCK_FREQ
     }
+    pub fn millisecond(self) -> u128 {
+        (self.0 * 1000) / CLOCK_FREQ
+    }
+    pub fn microsecond(self) -> u128 {
+        (self.0 * 1000_000) / CLOCK_FREQ
+    }
+    pub fn nanosecond(self) -> u128 {
+        (self.0 * 1000_000_000) / CLOCK_FREQ
+    }
     pub fn into_tv_tz(self) -> (TimeVal, TimeZone) {
-        let tv = TimeVal {
-            tv_sec: self.second(),
-            tv_usec: self.microsecond(),
-        };
+        let tv = TimeVal::from_ticks(self);
         let tz = TimeZone {
             tz_minuteswest: 0,
             tz_dsttime: 0,
@@ -125,7 +173,7 @@ pub fn set_time_ticks(ticks: TimeTicks) {
 }
 
 pub fn set_next_trigger() {
-    set_time_ticks(get_time_ticks() + TimeTicks::from(CLOCK_FREQ / TIME_INTERRUPT_PER_SEC));
+    set_time_ticks(get_time_ticks() + TimeTicks(CLOCK_FREQ / TIME_INTERRUPT_PER_SEC as u128));
 }
 
 pub fn tick() {

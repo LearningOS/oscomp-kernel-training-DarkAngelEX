@@ -7,7 +7,7 @@ use alloc::{
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 
 use crate::{
-    fs::{self, Mode},
+    fs::{self, Mode, VfsInode},
     memory::{asid::Asid, UserSpace},
     signal::SignalPack,
     sync::{
@@ -60,7 +60,7 @@ impl Drop for Process {
 
 pub struct AliveProcess {
     pub user_space: UserSpace,
-    pub cwd: String,
+    pub cwd: Arc<VfsInode>,
     pub exec_path: String,
     pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.
@@ -178,22 +178,25 @@ static RUN_ALL_CASE: &'static [u8] = include_bytes!("../../run_all_case");
 
 pub async fn init() {
     let initproc = "/initproc";
+    let cwd = fs::open_file([].into_iter(), "/", fs::OpenFlags::RDONLY, Mode(0o500))
+        .await
+        .unwrap();
     if cfg!(feature = "submit") || true {
         let mut args = Vec::new();
         args.push(initproc.to_string());
         let envp = Vec::new();
-        let thread = Thread::new_initproc(RUN_ALL_CASE, args, envp);
+        let thread = Thread::new_initproc(cwd, RUN_ALL_CASE, args, envp);
         userloop::spawn(thread);
     } else {
         println!("load initporc: {}", initproc);
-        let inode = fs::open_file("", initproc, fs::OpenFlags::RDONLY, Mode(0o500))
+        let inode = fs::open_file([].into_iter(), initproc, fs::OpenFlags::RDONLY, Mode(0o500))
             .await
             .unwrap();
         let elf_data = inode.read_all().await.unwrap();
         let mut args = Vec::new();
         args.push(initproc.to_string());
         let envp = Vec::new();
-        let thread = Thread::new_initproc(elf_data.as_slice(), args, envp);
+        let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
         userloop::spawn(thread);
     }
     println!("spawn initporc");

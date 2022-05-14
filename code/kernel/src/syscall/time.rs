@@ -17,7 +17,7 @@ impl Syscall<'_> {
             let tms = Tms::zeroed();
             dst.store(tms);
         }
-        Ok(timer::get_time_ticks().second())
+        Ok(timer::get_time_ticks().second() as usize)
     }
     pub async fn sys_gettimeofday(&mut self) -> SysResult {
         stack_trace!();

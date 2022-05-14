@@ -1,8 +1,3 @@
-use alloc::sync::Arc;
-use ftl_util::error::SysError;
-
-use super::OpenFlags;
-
 mod dentry;
 pub(super) mod inode;
 mod manager;

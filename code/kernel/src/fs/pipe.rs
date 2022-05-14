@@ -124,11 +124,7 @@ pub struct PipeReader {
 
 impl Drop for PipeReader {
     fn drop(&mut self) {
-        if let Some(w) = self
-            .writer
-            .upgrade()
-            .and_then(|w| w.waker.lock().take())
-        {
+        if let Some(w) = self.writer.upgrade().and_then(|w| w.waker.lock().take()) {
             w.wake()
         }
     }
@@ -170,11 +166,7 @@ pub struct PipeWriter {
 
 impl Drop for PipeWriter {
     fn drop(&mut self) {
-        if let Some(w) = self
-            .reader
-            .upgrade()
-            .and_then(|w| w.waker.lock().take())
-        {
+        if let Some(w) = self.reader.upgrade().and_then(|w| w.waker.lock().take()) {
             w.wake()
         }
     }

@@ -23,7 +23,7 @@ use crate::{
         even_bus::{self, Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
     },
-    timer::{self, TimeTicks},
+    timer::{self, TimeSpec, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -100,12 +100,15 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
-            &self.alive_then(|a| a.cwd.clone())?,
+            self.alive_then(|a| a.cwd.clone())?.path_iter(),
             path.as_str(),
             fs::OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await?;
+        let mut iter = inode.path_iter();
+        iter.next_back();
+        let dir = fs::open_file(iter, "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
         let elf_data = inode.read_all().await?;
         let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -129,7 +132,7 @@ impl Syscall<'_> {
         alive.fd_table.exec_run();
         alive.exec_path = path;
         alive.user_space = user_space;
-        alive.cwd = String::new();
+        alive.cwd = dir;
         drop(alive);
         self.thread.inner().stack_id = stack_id;
         let cx = self.thread.get_context();
@@ -288,15 +291,40 @@ impl Syscall<'_> {
         thread::yield_now().await;
         Ok(0)
     }
-    pub async fn sys_sleep(&mut self) -> SysResult {
-        let millisecond: usize = self.cx.para1();
-        let time_now = timer::get_time_ticks();
-        let deadline = time_now + TimeTicks::from_millisecond(millisecond);
+    pub async fn sys_nanosleep(&mut self) -> SysResult {
+        let (req, rem): (UserReadPtr<TimeSpec>, UserWritePtr<TimeSpec>) = self.cx.into();
+        if req.is_null() {
+            return Err(SysError::EINVAL);
+        }
+        let req = UserCheck::new(self.process)
+            .translated_user_readonly_value(req)
+            .await?
+            .load();
+        req.valid()?;
+        let rem = match rem.nonnull_mut() {
+            None => None,
+            Some(rem) => Some(
+                UserCheck::new(self.process)
+                    .translated_user_writable_value(rem)
+                    .await?,
+            ),
+        };
+        let deadline = timer::get_time_ticks() + TimeTicks::from_time_spec(req);
         let future = SleepFuture {
             deadline,
             event_bus: self.process.event_bus.clone(),
         };
-        future.await
+        let ret = future.await;
+        if let Some(rem) = rem {
+            let time_end = timer::get_time_ticks();
+            let time_rem = if time_end < deadline {
+                deadline - time_end
+            } else {
+                TimeTicks::ZERO
+            };
+            rem.store(time_rem.time_sepc());
+        }
+        ret
     }
     pub fn sys_kill(&mut self) -> SysResult {
         stack_trace!();
@@ -384,7 +412,6 @@ impl Future for SleepFuture {
     fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         stack_trace!();
         if timer::get_time_ticks() >= self.deadline {
-            cx.waker().wake_by_ref();
             return Poll::Ready(Ok(0));
         } else if self.event_bus.lock().event != Event::empty() {
             return Poll::Ready(Err(SysError::EINTR));

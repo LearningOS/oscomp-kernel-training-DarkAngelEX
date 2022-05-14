@@ -35,7 +35,7 @@ const SYSCALL_FSTAT: usize = 80;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_EXIT_GROUP: usize = 94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
-const SYSCALL_SLEEP: usize = 101;
+const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_SCHED_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_RT_SIGACTION: usize = 134;
@@ -96,7 +96,7 @@ impl<'a> Syscall<'a> {
         stack_trace!();
         self.cx.set_next_instruction();
         let result: SysResult = match self.cx.a7() {
-            SYSCALL_GETCWD => self.getcwd().await,
+            SYSCALL_GETCWD => self.sys_getcwd().await,
             SYSCALL_DUP => self.sys_dup(),
             SYSCALL_DUP3 => self.sys_dup3(),
             SYSCALL_IOCTL => self.sys_ioctl(),
@@ -114,7 +114,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_EXIT => self.sys_exit(),
             SYSCALL_EXIT_GROUP => self.sys_exit_group(),
             SYSCALL_SET_TID_ADDRESS => self.sys_set_tid_address(),
-            SYSCALL_SLEEP => self.sys_sleep().await,
+            SYSCALL_NANOSLEEP => self.sys_nanosleep().await,
             SYSCALL_SCHED_YIELD => self.sys_sched_yield().await,
             SYSCALL_KILL => self.sys_kill(),
             SYSCALL_RT_SIGACTION => self.sys_rt_sigaction().await,

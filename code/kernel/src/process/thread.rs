@@ -16,8 +16,8 @@ use alloc::{
 use riscv::register::sstatus;
 
 use crate::{
+    fs::VfsInode,
     hart::floating,
-    local,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
     signal::SignalSet,
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
@@ -99,7 +99,12 @@ pub struct ThreadInner {
 }
 
 impl Thread {
-    pub fn new_initproc(elf_data: &[u8], args: Vec<String>, envp: Vec<String>) -> Arc<Self> {
+    pub fn new_initproc(
+        cwd: Arc<VfsInode>,
+        elf_data: &[u8],
+        args: Vec<String>,
+        envp: Vec<String>,
+    ) -> Arc<Self> {
         let reverse_stack = PageCount::from_usize(2);
         let (user_space, stack_id, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data, reverse_stack).unwrap();
@@ -107,7 +112,6 @@ impl Thread {
         let (user_sp, argc, argv, xenvp) =
             user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
-        let cwd = String::new();
         drop(args);
         let pid = pid_alloc();
         let tid = Tid::from_usize(pid.get_usize());

@@ -98,13 +98,13 @@ fn frequent_test() {
         "run {}M using {} ticks time: {}ms",
         BASE / 1000_000,
         dur,
-        dur * 1000 / CLOCK_FREQ
+        dur * 1000 / CLOCK_FREQ as usize
     );
     print!("{}", to_yellow!());
     println!(
         "clock: {}KHz, core: {}MHz",
         CLOCK_FREQ / 1000,
-        BASE * CLOCK_FREQ / dur / 1000_000
+        BASE * CLOCK_FREQ as usize / dur / 1000_000
     );
     print!("{}", reset_color!());
 }

@@ -4,7 +4,7 @@ use crate::{
     tools::xasync::Async,
     user::{UserData, UserDataMut},
 };
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 // type InodeImpl = easyfs_inode::EasyFsInode;
 type InodeImpl = fat32_inode::Fat32Inode;
@@ -25,6 +25,14 @@ impl VfsInode {
     pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
         self.inode.read_all().await
     }
+    pub fn path(&self) -> &[String] {
+        self.inode.path()
+    }
+    pub fn path_iter(
+        &self,
+    ) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator<Item = &str> {
+        self.path().iter().map(|s| s.as_str())
+    }
 }
 
 pub async fn init() {
@@ -35,18 +43,18 @@ pub async fn list_apps() {
     fat32_inode::list_apps().await
 }
 
-pub async fn create_any(
-    base: &str,
-    path: &str,
+pub async fn create_any<'a>(
+    base: impl Iterator<Item = &'a str>,
+    path: &'a str,
     flags: OpenFlags,
     _mode: Mode,
 ) -> Result<(), SysError> {
     stack_trace!();
     fat32_inode::create_any(base, path, flags).await
 }
-pub async fn open_file(
-    base: &str,
-    path: &str,
+pub async fn open_file<'a>(
+    base: impl Iterator<Item = &'a str>,
+    path: &'a str,
     flags: OpenFlags,
     _mode: Mode,
 ) -> Result<Arc<VfsInode>, SysError> {
@@ -54,12 +62,20 @@ pub async fn open_file(
     let inode = fat32_inode::open_file(base, path, flags).await?;
     Ok(Arc::new(VfsInode { inode }))
 }
-pub async fn unlink(base: &str, path: &str, flags: OpenFlags) -> Result<(), SysError> {
+
+pub async fn unlink<'a>(
+    base: impl Iterator<Item = &'a str>,
+    path: &'a str,
+    flags: OpenFlags,
+) -> Result<(), SysError> {
     stack_trace!();
     fat32_inode::unlink(base, path, flags).await
 }
 
 impl File for VfsInode {
+    fn to_vfs_inode(&self) -> Option<&VfsInode> {
+        Some(self)
+    }
     fn readable(&self) -> bool {
         self.inode.readable()
     }
