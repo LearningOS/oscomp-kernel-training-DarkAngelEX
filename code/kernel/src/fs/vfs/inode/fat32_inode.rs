@@ -224,7 +224,7 @@ impl File for Fat32Inode {
     }
     fn write(&self, buf: UserData<u8>) -> AsyncFile {
         Box::pin(async move {
-            println!("write: {}", buf.len());
+            // println!("write: {}", buf.len());
             let offset = self.ptr.load(Ordering::Acquire);
             let inode = match &self.inode {
                 AnyInode::Dir(_) => return Err(SysError::EISDIR),
