@@ -241,7 +241,7 @@ impl UserSpace {
             .force_push(map_area.range, DelayHandler::box_new(map_area.perm))
             .unwrap();
     }
-    pub fn heap_resize(&mut self, page_count: PageCount) {
+    pub fn heap_resize(&mut self, _page_count: PageCount) {
         stack_trace!();
         todo!()
         // if page_count >= self.heap.size() {

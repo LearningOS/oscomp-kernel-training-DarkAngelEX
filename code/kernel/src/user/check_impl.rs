@@ -2,7 +2,7 @@ use core::arch::global_asm;
 
 use riscv::register::{
     scause::{self, Exception, Scause},
-    sepc, sstatus, stval, stvec,
+    sepc, stval, stvec,
     utvec::TrapMode,
 };
 

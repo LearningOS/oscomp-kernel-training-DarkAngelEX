@@ -2,7 +2,6 @@ use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
     fs::File,
-    local,
     memory::{
         address::UserAddr4K,
         allocator::frame,

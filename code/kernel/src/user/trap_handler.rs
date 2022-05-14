@@ -6,7 +6,6 @@ use alloc::sync::Arc;
 use riscv::register::scause::Exception;
 
 use crate::{
-    local,
     memory::{address::UserAddr, AccessType},
     process::thread::Thread,
     tools::xasync::TryRunFail,

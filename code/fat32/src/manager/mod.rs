@@ -88,7 +88,7 @@ impl Fat32Manager {
         self.rcu_handler.replace(rcu_handler);
     }
     pub async fn search_any(&self, path: &[&str]) -> Result<AnyInode, SysError> {
-        let (name, dir) = match path.split_first() {
+        let (name, dir) = match path.split_last() {
             Some((name, path)) => (name, self.search_dir(path).await?),
             None => return Ok(AnyInode::Dir(self.root_dir())),
         };
@@ -138,7 +138,7 @@ impl Fat32Manager {
         &self,
         path: &[&'a str],
     ) -> Result<(&'a str, DirInode), SysError> {
-        match path.split_first() {
+        match path.split_last() {
             Some((name, path)) => Ok((name, self.search_dir(path).await?)),
             None => Err(SysError::ENOENT),
         }

@@ -2,7 +2,6 @@
 //!
 
 use alloc::{
-    boxed::Box,
     collections::LinkedList,
     string::String,
     sync::{Arc, Weak},

@@ -110,7 +110,7 @@ pub async fn open_file<'a>(
         }
     }
     let inode = manager().search_any(&stack).await?;
-    if !inode.attr().writable() && f_w {
+    if f_w && !inode.attr().writable() {
         return Err(SysError::EACCES);
     }
     let path = stack.into_iter().map(|s| s.to_string()).collect();

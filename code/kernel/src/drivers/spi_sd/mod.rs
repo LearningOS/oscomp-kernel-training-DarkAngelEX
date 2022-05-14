@@ -211,7 +211,7 @@ impl<T: SPIActions> SDCard<T> {
         /* An empty frame for commands */
         let mut frame = [0u8; 4];
         /* is hc card */
-        let mut is_hc = false;
+        // let mut is_hc = false;
         /* NOTE: this reset doesn't always seem to work if the SD access was broken off in the
          * middle of an operation: CMDFailed(CMD0, 127). */
 
