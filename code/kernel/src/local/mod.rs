@@ -26,6 +26,7 @@ static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 ///
 /// access other local must through function below.
 pub struct HartLocal {
+    enable: bool,
     always_local: AlwaysLocal,
     local_now: LocalNow,
     queue: Vec<Box<dyn FnOnce()>>,
@@ -72,6 +73,7 @@ impl LocalNow {
 impl HartLocal {
     const fn new() -> Self {
         Self {
+            enable: false,
             always_local: AlwaysLocal::new(),
             local_now: LocalNow::Idle,
             queue: Vec::new(),
@@ -84,7 +86,9 @@ impl HartLocal {
         }
     }
     fn register(&self, f: impl FnOnce() + 'static) {
-        self.pending.lock().push(Box::new(f))
+        if self.enable {
+            self.pending.lock().push(Box::new(f))
+        }
     }
     fn handle(&mut self) {
         debug_assert!(self.queue.is_empty());
@@ -154,7 +158,7 @@ impl HartLocal {
     }
 }
 pub fn init() {
-    // hart_local().init()
+    hart_local().enable = true;
 }
 #[inline(always)]
 pub fn hart_local() -> &'static mut HartLocal {
@@ -203,7 +207,7 @@ pub fn asid_version_update(latest_version: AsidVersion) {
 #[inline(always)]
 pub fn all_hart_fn(f: impl Fn<(), Output = impl FnOnce() + 'static>) {
     let cur = cpu::hart_id();
-    for i in 0..cpu::count() {
+    for i in cpu::hart_range() {
         if i == cur {
             continue;
         }

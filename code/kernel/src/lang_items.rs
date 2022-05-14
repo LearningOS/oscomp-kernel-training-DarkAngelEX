@@ -30,17 +30,15 @@ fn panic(info: &PanicInfo) -> ! {
     {
         println!("stack_trace hart: {}", cpu::hart_id());
         local::always_local().stack_trace.print_all_stack();
-        for i in 0..cpu::count() {
+        for i in cpu::hart_range() {
             if i == cpu::hart_id() {
                 continue;
             }
             println!("stack_trace hart: {}", i);
-            unsafe {
-                local::get_local_by_id(i)
-                    .always_ref()
-                    .stack_trace
-                    .print_all_stack()
-            };
+            unsafe { local::get_local_by_id(i) }
+                .always_ref()
+                .stack_trace
+                .print_all_stack();
         }
     }
     println!("shutdown!!");

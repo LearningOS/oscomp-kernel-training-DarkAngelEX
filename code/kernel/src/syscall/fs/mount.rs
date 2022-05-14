@@ -1,9 +1,7 @@
 use crate::{
-    memory::user_ptr::{UserReadPtr, UserWritePtr},
-    process::fd::Fd,
+    memory::user_ptr::UserReadPtr,
     syscall::{fs::PRINT_SYSCALL_FS, SysError, SysResult, Syscall},
     user::check::UserCheck,
-    xdebug::NO_SYSCALL_PANIC,
 };
 
 impl Syscall<'_> {

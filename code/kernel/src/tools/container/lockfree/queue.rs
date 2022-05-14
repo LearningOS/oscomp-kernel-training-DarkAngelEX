@@ -418,6 +418,7 @@ pub mod test {
     };
 
     use crate::{
+        hart::cpu,
         sync::mutex::SpinNoIrqLock,
         timer,
         tools::{
@@ -439,8 +440,6 @@ pub mod test {
         pop: impl Fn() -> Option<usize>,
         off: usize,
     ) {
-        use crate::hart::cpu;
-
         assert!(producer + consumer <= cpu::count());
         tools::wait_all_hart();
         let begin = timer::get_time_ticks();
@@ -770,20 +769,32 @@ pub mod test {
             TEST_QUEUE_0.push(a).unwrap();
         };
         let pop = || TEST_QUEUE_0.pop().unwrap();
-        group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        if cpu::count() == 4 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        } else if cpu::count() == 3 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 1, TOTAL, push, pop, off + 4);
+        }
         tools::wait_all_hart();
         if hart == 0 {
             println!("{}locked linked list test begin", tools::n_space(off));
         }
         let push = |a| TEST_QUEUE_1.lock().push_back(a);
         let pop = || TEST_QUEUE_1.lock().pop_front();
-        group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        if cpu::count() == 4 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        } else if cpu::count() == 3 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 1, TOTAL, push, pop, off + 4);
+        }
         if hart == 0 {
             println!("{}locked VecDeque test begin", tools::n_space(off));
         }
@@ -797,20 +808,32 @@ pub mod test {
             #[allow(clippy::cast_ref_to_mut)]
             unsafe { &mut *(v as *const _ as *mut VecDeque<usize>) }.pop_front()
         };
-        group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        if cpu::count() == 4 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        } else if cpu::count() == 3 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 1, TOTAL, push, pop, off + 4);
+        }
         tools::wait_all_hart();
         if hart == 0 {
             println!("{}lock_free stack test begin", tools::n_space(off));
         }
         let push = |a| TEST_QUEUE_3.push(a).unwrap();
         let pop = || TEST_QUEUE_3.pop().unwrap();
-        group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
-        group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        if cpu::count() == 4 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 3, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 3, 1, TOTAL, push, pop, off + 4);
+        } else if cpu::count() == 3 {
+            group_test_impl(hart, 1, 1, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 1, 2, TOTAL, push, pop, off + 4);
+            group_test_impl(hart, 2, 1, TOTAL, push, pop, off + 4);
+        }
         tools::wait_all_hart();
         if hart == 0 {
             println!(

@@ -6,7 +6,8 @@ use core::{
 use crate::{
     benchmark, console, drivers, executor, fs, local, memory, process, timer,
     tools::{self, container},
-    trap, user,
+    trap,
+    user::{self, AutoSie},
     xdebug::{self, CLOSE_TIME_INTERRUPT},
 };
 
@@ -51,17 +52,23 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         .is_ok()
     {
         clear_bss();
+        xdebug::init();
+        console::init();
+        println!("[FTL OS]version 0.0.1");
         INIT_HART.store(hartid, Ordering::Release);
+        #[cfg(feature = "board_hifive")]
+        {
+            for i in (1..=4).filter(|&i| i != hartid) {
+                let status = sbi::sbi_hart_get_status(i);
+                println!("hart {} status {}", i, status);
+                sbi::sbi_hart_start(i, 0x80200000, 0);
+            }
+        }
         INIT_START.store(true, Ordering::Release);
     } else {
         while !INIT_START.load(Ordering::Acquire) {}
     }
-    if hartid == INIT_HART.load(Ordering::Acquire) {
-        local::init();
-        xdebug::init();
-        console::init();
-        println!("[FTL OS]version 0.0.1");
-    }
+    local::init();
     println!(
         "[FTL OS]hart {} device tree: {:#x}",
         hartid, device_tree_paddr
@@ -69,7 +76,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     if device_tree_paddr != 0 {
         DEVICE_TREE_PADDR.store(device_tree_paddr, Ordering::Release);
     }
-    unsafe { cpu::increase_cpu() };
+    unsafe { cpu::init(hartid) };
     local::set_stack();
     if hartid != INIT_HART.load(Ordering::Acquire) {
         while !AP_CAN_INIT.load(Ordering::Acquire) {}
@@ -112,7 +119,10 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         sfence::fence_i();
         println!("init complete! weakup the other cores.");
         AP_CAN_INIT.store(true, Ordering::Release);
-        tools::multi_thread_test(hartid);
+        {
+            let _sie = AutoSie::new();
+            tools::multi_thread_test(hartid);
+        }
         if !CLOSE_TIME_INTERRUPT {
             trap::enable_timer_interrupt();
             timer::set_next_trigger();
