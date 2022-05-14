@@ -7,7 +7,7 @@ use crate::{
     syscall::SysError,
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
-    xdebug::{NO_SYSCALL_PANIC, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
+    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 pub mod mount;
 pub mod stat;
@@ -30,16 +30,22 @@ impl Syscall<'_> {
             .await?;
         let lock = self.alive_lock()?;
         let cwd_len = lock.cwd.path_iter().fold(0, |a, b| a + b.len() + 1) + 1;
+        let cwd_len = cwd_len.max(2);
         if buf.len() <= cwd_len {
             return Err(SysError::ERANGE);
         }
         let buf = &mut *buf.access_mut();
         let mut buf = &mut buf[..cwd_len];
-        for s in lock.cwd.path_iter() {
+        let iter = lock.cwd.path_iter();
+        if iter.len() == 0 {
             buf[0] = b'/';
-            buf = buf.split_at_mut(1).1;
+            buf = &mut buf[1..];
+        }
+        for s in iter {
+            buf[0] = b'/';
+            buf = &mut buf[1..];
             buf[..s.len()].copy_from_slice(s.as_bytes());
-            buf = buf.split_at_mut(s.len()).1;
+            buf = &mut buf[s.len()..];
         }
         debug_assert_eq!(buf.len(), 1);
         buf[0] = b'\0';

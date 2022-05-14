@@ -23,6 +23,7 @@ const SYSCALL_DUP3: usize = 24;
 const SYSCALL_IOCTL: usize = 29;
 const SYSCALL_MKDIRAT: usize = 34;
 const SYSCALL_UNLINKAT: usize = 35;
+const SYSCALL_UMOUNT2: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
 const SYSCALL_CHDIR: usize = 49;
 const SYSCALL_OPENAT: usize = 56;
@@ -102,6 +103,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_IOCTL => self.sys_ioctl(),
             SYSCALL_MKDIRAT => self.sys_mkdirat().await,
             SYSCALL_UNLINKAT => self.sys_unlinkat().await,
+            SYSCALL_UMOUNT2 => self.sys_umount2().await,
             SYSCALL_MOUNT => self.sys_mount().await,
             SYSCALL_CHDIR => self.sys_chdir().await,
             SYSCALL_OPENAT => self.sys_openat().await,

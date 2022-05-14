@@ -599,12 +599,18 @@ impl<T: SPIActions> SDCard<T> {
         self.send_cmd(CMD::CMD17, cur_sector);
         let res = self.get_response(); // R1
         if res != 0x00 {
-            panic!("read_sector send_cmd CMD17 return {:#x}", res);
+            self.end_cmd();
+            self.end_cmd();
+            return Err(());
+            // panic!("read_sector send_cmd CMD17 return {:#x}", res);
         }
         //let mut dma_chunk = [0u32; SEC_LEN];
         let resp = self.get_response();
         if resp != SD_START_DATA_SINGLE_BLOCK_READ {
-            panic!("resp: {:#x}", resp);
+            self.end_cmd();
+            self.end_cmd();
+            return Err(());
+            // panic!("resp: {:#x}", resp);
         }
         /* Read the SD block data : read NumByteToRead data */
         self.read_data(chunk);
