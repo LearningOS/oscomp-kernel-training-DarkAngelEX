@@ -22,3 +22,4 @@ int main(void) {
 	test_getppid();
 	return 0;
 }
+

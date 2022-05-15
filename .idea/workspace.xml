@@ -1,0 +1,216 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="CMakeSettings">
+    <configurations>
+      <configuration PROFILE_NAME="Debug" ENABLED="true" CONFIG_NAME="Debug" />
+    </configurations>
+  </component>
+  <component name="CargoProjects">
+    <cargoProject FILE="$PROJECT_DIR$/code/simple_fat32/Cargo.toml" />
+    <cargoProject FILE="$PROJECT_DIR$/code/fat32/Cargo.toml" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="3faedbaa-0aeb-481d-9f2f-7012fc5e42a5" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/code/make_test.sh" beforeDir="false" afterPath="$PROJECT_DIR$/code/make_test.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/code/take_case.sh" beforeDir="false" afterPath="$PROJECT_DIR$/code/take_case.sh" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/code/testsuits-for-oskernel/riscv-syscalls-testing/user/src/oscomp/getppid.c" beforeDir="false" afterPath="$PROJECT_DIR$/code/testsuits-for-oskernel/riscv-syscalls-testing/user/src/oscomp/getppid.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/code/testsuits-for-oskernel/riscv-syscalls-testing/user/src/oscomp/waitpid.c" beforeDir="false" afterPath="$PROJECT_DIR$/code/testsuits-for-oskernel/riscv-syscalls-testing/user/src/oscomp/waitpid.c" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/doc/总体设计.md" beforeDir="false" afterPath="$PROJECT_DIR$/doc/总体设计.md" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="ClangdSettings">
+    <option name="formatViaClangd" value="false" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Rust File" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_BRANCH_BY_REPOSITORY">
+      <map>
+        <entry key="$PROJECT_DIR$" value="fat32" />
+      </map>
+    </option>
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="GitSEFilterConfiguration">
+    <file-type-list>
+      <filtered-out-file-type name="LOCAL_BRANCH" />
+      <filtered-out-file-type name="REMOTE_BRANCH" />
+      <filtered-out-file-type name="TAG" />
+      <filtered-out-file-type name="COMMIT_BY_MESSAGE" />
+    </file-type-list>
+  </component>
+  <component name="GitToolBoxStore">
+    <option name="recentBranches">
+      <RecentBranches>
+        <option name="branchesForRepo">
+          <list>
+            <RecentBranchesForRepo>
+              <option name="branches">
+                <list>
+                  <RecentBranch>
+                    <option name="branchName" value="design_doc" />
+                    <option name="lastUsedInstant" value="1652581422" />
+                  </RecentBranch>
+                  <RecentBranch>
+                    <option name="branchName" value="master" />
+                    <option name="lastUsedInstant" value="1652353581" />
+                  </RecentBranch>
+                  <RecentBranch>
+                    <option name="branchName" value="fat32" />
+                    <option name="lastUsedInstant" value="1649411562" />
+                  </RecentBranch>
+                  <RecentBranch>
+                    <option name="branchName" value="syscall" />
+                    <option name="lastUsedInstant" value="1649369467" />
+                  </RecentBranch>
+                  <RecentBranch>
+                    <option name="branchName" value="fs-dev" />
+                    <option name="lastUsedInstant" value="1648979962" />
+                  </RecentBranch>
+                </list>
+              </option>
+              <option name="repositoryRootUrl" value="file://$PROJECT_DIR$" />
+            </RecentBranchesForRepo>
+          </list>
+        </option>
+      </RecentBranches>
+    </option>
+  </component>
+  <component name="HighlightingSettingsPerFile">
+    <setting file="file://$PROJECT_DIR$/code/easy-fs/Cargo.toml" root0="FORCE_HIGHLIGHTING" />
+  </component>
+  <component name="MacroExpansionManager">
+    <option name="directoryName" value="0an4hqlt" />
+  </component>
+  <component name="ProjectId" id="26zzjZuziAq2VIidOljGVKXHzc5" />
+  <component name="ProjectLevelVcsManager" settingsEditedManually="true" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent">
+    <property name="RunOnceActivity.OpenProjectViewOnStart" value="true" />
+    <property name="RunOnceActivity.ShowReadmeOnStart" value="true" />
+    <property name="RunOnceActivity.cidr.known.project.marker" value="true" />
+    <property name="WebServerToolWindowFactoryState" value="false" />
+    <property name="cf.first.check.clang-format" value="false" />
+    <property name="cidr.known.project.marker" value="true" />
+    <property name="last_opened_file_path" value="$PROJECT_DIR$/code/fat32/Cargo.toml" />
+    <property name="node.js.detected.package.eslint" value="true" />
+    <property name="node.js.detected.package.tslint" value="true" />
+    <property name="node.js.selected.package.eslint" value="(autodetect)" />
+    <property name="node.js.selected.package.tslint" value="(autodetect)" />
+    <property name="nodejs_package_manager_path" value="npm" />
+    <property name="org.rust.cargo.project.model.PROJECT_DISCOVERY" value="true" />
+    <property name="settings.editor.selected.configurable" value="preferences.pluginManager" />
+  </component>
+  <component name="RecentsManager">
+    <key name="MoveFile.RECENT_KEYS">
+      <recent name="\\wsl$\Ubuntu\home\vpt\ftl-os\doc" />
+    </key>
+  </component>
+  <component name="RunManager" selected="Cargo.Test short_name_generator::tests">
+    <configuration name="Test short_name_generator::tests" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package fat32 --lib short_name_generator::tests" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/code/fat32" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <configuration name="Test short_name_generator::tests::test_generate_short_name" type="CargoCommandRunConfiguration" factoryName="Cargo Command" temporary="true">
+      <option name="command" value="test --package fat32 --lib short_name_generator::tests::test_generate_short_name -- --exact" />
+      <option name="workingDirectory" value="file://$PROJECT_DIR$/code/fat32" />
+      <option name="channel" value="DEFAULT" />
+      <option name="requiredFeatures" value="true" />
+      <option name="allFeatures" value="false" />
+      <option name="emulateTerminal" value="false" />
+      <option name="withSudo" value="false" />
+      <option name="backtrace" value="SHORT" />
+      <envs />
+      <option name="isRedirectInput" value="false" />
+      <option name="redirectInputPath" value="" />
+      <method v="2">
+        <option name="CARGO.BUILD_TASK_PROVIDER" enabled="true" />
+      </method>
+    </configuration>
+    <recent_temporary>
+      <list>
+        <item itemvalue="Cargo.Test short_name_generator::tests::test_generate_short_name" />
+        <item itemvalue="Cargo.Test short_name_generator::tests" />
+      </list>
+    </recent_temporary>
+  </component>
+  <component name="RustProjectSettings">
+    <option name="toolchainHomeDirectory" value="$USER_HOME$/.cargo/bin" />
+    <option name="version" value="2" />
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="3faedbaa-0aeb-481d-9f2f-7012fc5e42a5" name="Changes" comment="" />
+      <created>1648441341741</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1648441341741</updated>
+      <workItem from="1648441343856" duration="300000" />
+      <workItem from="1648508235418" duration="18000" />
+      <workItem from="1648799854506" duration="3783000" />
+      <workItem from="1648940889047" duration="278000" />
+      <workItem from="1648941182847" duration="660000" />
+      <workItem from="1648978254804" duration="430000" />
+      <workItem from="1648979698226" duration="455000" />
+      <workItem from="1649369428132" duration="10925000" />
+      <workItem from="1649408599733" duration="4017000" />
+      <workItem from="1649469249183" duration="5829000" />
+      <workItem from="1649479859779" duration="1000" />
+      <workItem from="1649484187367" duration="3242000" />
+      <workItem from="1649577306602" duration="14707000" />
+      <workItem from="1650002969006" duration="49000" />
+      <workItem from="1652348985920" duration="20000" />
+      <workItem from="1652353550469" duration="12798000" />
+      <workItem from="1652578102789" duration="4749000" />
+      <workItem from="1652584311522" duration="3000" />
+    </task>
+    <servers />
+  </component>
+  <component name="TypeScriptGeneratedFilesManager">
+    <option name="version" value="3" />
+  </component>
+  <component name="Vcs.Log.Tabs.Properties">
+    <option name="TAB_STATES">
+      <map>
+        <entry key="MAIN">
+          <value>
+            <State />
+          </value>
+        </entry>
+      </map>
+    </option>
+    <option name="oldMeFiltersMigrated" value="true" />
+  </component>
+  <component name="XSLT-Support.FileAssociations.UIState">
+    <expand />
+    <select />
+  </component>
+</project>

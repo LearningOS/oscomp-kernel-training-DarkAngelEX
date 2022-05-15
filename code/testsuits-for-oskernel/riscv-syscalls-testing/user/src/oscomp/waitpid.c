@@ -13,14 +13,20 @@ void test_waitpid(void){
 	sched_yield();
 	printf("This is child process\n");
         exit(3);
-    }else{
-	pid_t ret = waitpid(cpid, &wstatus, 0);
-	assert(ret != -1);
-	if(ret == cpid && WEXITSTATUS(wstatus) == 3)
-	    printf("waitpid successfully.\nwstatus: %x\n", WEXITSTATUS(wstatus));
-	else
-	    printf("waitpid error.\n");
-
+    }else {
+        pid_t ret = waitpid(cpid, &wstatus, 0);
+        assert(ret != -1);
+        if (ret == cpid && WEXITSTATUS(wstatus) == 3)
+            printf("waitpid successfully.\nwstatus: %x\n", WEXITSTATUS(wstatus));
+        else {
+            printf("waitpid error.\n");
+        if(ret != cpid){
+            printf("waitpid error1.\n");
+        }
+        if(WEXITSTATUS(wstatus) != 3){
+            printf("waitpid error2.\n");
+        }
+        }
     }
     TEST_END(__func__);
 }
