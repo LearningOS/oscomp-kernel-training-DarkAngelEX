@@ -153,8 +153,8 @@ pub fn n_space(n: usize) -> String {
 }
 
 const COLOR_TEST: bool = false;
-const MULTI_THREAD_PERFORMANCE_TEST: bool = true;
-const MULTI_THREAD_STRESS_TEST: bool = true;
+const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
+const MULTI_THREAD_STRESS_TEST: bool = false;
 
 static HART_ALLOC: AtomicUsize = AtomicUsize::new(0);
 
@@ -167,7 +167,7 @@ pub fn multi_thread_test(hart: usize) {
     }
     let hart = HART_ALLOC.fetch_add(1, Ordering::Relaxed);
     wait_all_hart();
-    // multi_thread_performance_test(hart);
+    multi_thread_performance_test(hart);
     multi_thread_stress_test(hart);
 }
 
