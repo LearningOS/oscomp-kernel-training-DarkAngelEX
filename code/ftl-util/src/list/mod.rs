@@ -1,11 +1,17 @@
+pub mod access;
+#[macro_use]
+mod intrusive;
+
 use core::{marker::PhantomPinned, ptr::NonNull};
+
+pub use intrusive::InListNode;
 
 /// 侵入式链表节点
 ///
 /// ListNode 必须在使用前使用 init 或 lazy_init 初始化
 pub struct ListNode<T> {
-    pub prev: *mut ListNode<T>,
-    pub next: *mut ListNode<T>,
+    prev: *mut ListNode<T>,
+    next: *mut ListNode<T>,
     data: T,
     _marker: PhantomPinned,
 }
@@ -25,6 +31,13 @@ impl<T> ListNode<T> {
         self.prev = self;
         self.next = self;
     }
+    pub fn lazy_init(&mut self) {
+        if self.prev.is_null() {
+            debug_assert!(self.next.is_null());
+            self.init();
+        }
+        debug_assert!(!self.next.is_null());
+    }
     pub fn list_check(&self) {
         if cfg!(debug_assertions) {
             unsafe {
@@ -43,13 +56,6 @@ impl<T> ListNode<T> {
             }
         }
     }
-    pub fn lazy_init(&mut self) {
-        if self.prev.is_null() {
-            debug_assert!(self.next.is_null());
-            self.init();
-        }
-        debug_assert!(!self.next.is_null());
-    }
     pub fn data(&self) -> &T {
         &self.data
     }
@@ -57,7 +63,6 @@ impl<T> ListNode<T> {
         &mut self.data
     }
     pub fn is_empty(&self) -> bool {
-        self.list_check();
         if self.prev.as_const() == self {
             debug_assert!(self.next.as_const() == self);
             true
