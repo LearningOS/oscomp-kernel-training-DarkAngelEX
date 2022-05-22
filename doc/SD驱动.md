@@ -1,9 +1,9 @@
 # SD卡驱动的结构:
-hifive ---- spi ---- layout.rs : 内存映像抽象及通信
-                |
-                ---- mod.rs : SPIActions
-                |
-                ---- registers.rs : spi控制寄存器抽象
+|   文件   |   实现   |
+| -------  |: --------|
+|layout.rs | 内存映像抽象及通信|
+|  mod.rs  | SPIActions接口定义|
+| registers.rs | spi控制寄存器抽象|
 按照registers.rs,mod.rs,layout.rs依次介绍
 
 ## 1. registers.rs
