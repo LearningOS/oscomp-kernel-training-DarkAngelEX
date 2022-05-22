@@ -10,16 +10,16 @@ hifive ---- spi ---- layout.rs : 内存映像抽象及通信
 
 首先定义一个通用的寄存器结构体Reg
 
-`
+```rust
 pub struct Reg<T: Sized + Clone + Copy, U> {
     value: T,
     p: PhantomData<U>,
 }
-`
+```
 
 然后实现new,以及一些读写的基本操作
 
-`
+```rust
 impl<T: Sized + Clone + Copy, U> Reg<T, U> {
     pub fn new(initval: T) -> Self {
         Self {
@@ -41,7 +41,7 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
         }
     }
 }
-`
+```
 
 随后逐个实现SPI协议中控制寄存器的实例,有关其中具体的值可以参考文档
 [SD卡中的SPI协议控制寄存器](https://sifive.cdn.prismic.io/sifive/1a82e600-1f93-4f41-b2d8-86ed8b16acba_fu740-c000-manual-v1p6.pdf)
@@ -108,7 +108,7 @@ txwm悬挂字段:当FIFO中有充足的数据被写入并且超过了txmark时�
 rxwm悬挂字段:当FIFO中有充足的数据被读出并且少于rxmark时，rxwm的悬挂位被清除
 
 ## 2. mod.rs中的SPIActions
-`
+```rust
 pub trait SPIActions {
     fn init(&mut self);
     fn configure(
@@ -122,7 +122,7 @@ pub trait SPIActions {
     fn send_data(&mut self, chip_select: u32, tx: &[u8]);
     fn recv_data(&mut self, chip_select: u32, rx: &mut [u8]);
 }
-`
+```
 
 一个接口，用于实现SPI协议的一些动作：
 init:初始化
@@ -138,18 +138,18 @@ recv_data:接收数据
 
 ### SPI设备的三种实例
 
-`
+```rust
 pub enum SPIDevice {
     QSPI0,
     QSPI1,
     QSPI2,
     Other(usize),
 }
-`
+```
 
 这三种不同的实例分别对应了SPI设备在内存中的不同起始位置:
 
-`
+```rust
 impl SPIDevice {
     fn base_addr(&self) -> PhyAddr<RegisterBlock> {
         let a = match self {
@@ -161,14 +161,14 @@ impl SPIDevice {
         PhyAddr::from_usize(a)
     }
 }
-`
+```
 
 RegisterBlock就是利用了之前registers中实现的寄存器定义的一个结构体,也就是SPI协议控制器块
 
 ### SPIImpl结构体
 用SPIImpl结构体实现对SPIDevice的进一步封装，这一层封装主要实现了数据的收发，以及在中断悬挂位没有挂起时的循环等待
 
-`
+```rust
 pub struct SPIImpl {
     spi: SPIDevice,
 }
@@ -202,7 +202,7 @@ impl SPIImpl {
         }
     }
 }
-`
+```
 
 ### 实现SPIActions的接口
 #### init:
