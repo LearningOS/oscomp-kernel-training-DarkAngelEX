@@ -11,8 +11,12 @@ pub fn init(write_fn: fn(fmt::Arguments)) {
 
 #[inline(always)]
 pub fn print(args: fmt::Arguments) {
-    if let Some(write_fn) = unsafe { WRITE_FN } {
-        write_fn(args)
+    match unsafe { WRITE_FN } {
+        Some(write_fn) => write_fn(args),
+        #[cfg(not(debug_assertions))]
+        None => core::hint::unreachable_unchecked(),
+        #[cfg(debug_assertions)]
+        None => unimplemented!(),
     }
 }
 

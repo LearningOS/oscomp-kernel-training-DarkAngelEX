@@ -43,7 +43,7 @@ debug-assertions = true # 断言标志
 overflow-checks = true  # 算数溢出检测
 lto = false             # 链接期优化
 incremental = true      # 增量编译
-codegen-units = 128     # 代码生成单元
+codegen-units = 10000   # 代码生成单元
 
 [profile.release]
 opt-level = 3

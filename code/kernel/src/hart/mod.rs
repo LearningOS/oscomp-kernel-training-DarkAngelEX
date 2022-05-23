@@ -8,7 +8,7 @@ use crate::{
     tools::{self, container},
     trap,
     user::{self, AutoSie},
-    xdebug::{self, CLOSE_TIME_INTERRUPT}, hifive,
+    xdebug::{self, CLOSE_TIME_INTERRUPT},
 };
 
 pub mod cpu;
@@ -106,7 +106,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     floating::init();
     benchmark::run_all();
     #[cfg(feature = "board_hifive")]
-    hifive::prci::overclock_1500mhz();
+    crate::hifive::prci::overclock_1500mhz();
     benchmark::run_all();
     drivers::init();
     #[cfg(test)]
