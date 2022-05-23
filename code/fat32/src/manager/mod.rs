@@ -139,7 +139,7 @@ impl Fat32Manager {
         path: &[&'a str],
     ) -> Result<(&'a str, DirInode), SysError> {
         match path.split_last() {
-            Some((name, path)) => Ok((name, self.search_dir(path).await?)),
+            Some((&name, path)) => Ok((name, self.search_dir(path).await?)),
             None => Err(SysError::ENOENT),
         }
     }

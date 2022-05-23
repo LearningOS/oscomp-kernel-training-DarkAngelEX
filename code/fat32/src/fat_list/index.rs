@@ -13,6 +13,8 @@ use crate::mutex::RwSpinMutex;
 
 use super::unit::ListUnit;
 
+const USING_RCU: bool = false;
+
 /// 一个扇区缓存的索引
 ///
 /// 不使用任何异步操作
@@ -45,12 +47,26 @@ impl ListIndex {
         }
     }
     pub fn get(&self, index: usize) -> Option<Arc<ListUnit>> {
-        let _lock = self.lock[index].shared_lock();
-        unsafe { (*self.weak[index].get()).upgrade() }
+        match USING_RCU {
+            false => {
+                let _lock = self.lock[index].shared_lock();
+                unsafe { (*self.weak[index].get()).upgrade() }
+            }
+            true => {
+                todo!()
+            }
+        }
     }
     pub fn set(&self, index: usize, arc: &Arc<ListUnit>) {
-        let _lock = self.lock[index].unique_lock();
-        unsafe { *self.weak[index].get() = Arc::downgrade(arc) }
+        match USING_RCU {
+            false => {
+                let _lock = self.lock[index].unique_lock();
+                unsafe { *self.weak[index].get() = Arc::downgrade(arc) }
+            }
+            true => {
+                todo!()
+            }
+        }
     }
     // pub fn reset(&self, index: usize) {
     //     let _lock = self.lock[index].unique_lock();

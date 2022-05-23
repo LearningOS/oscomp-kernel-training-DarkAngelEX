@@ -56,8 +56,9 @@ impl CacheManager {
             return Ok(c);
         }
         stack_trace!();
-        let c = self.inner.lock().await.get_block(cid).await?;
-        self.index.insert(cid, Arc::downgrade(&c));
+        let (c, replace_cid) = self.inner.lock().await.get_block(cid).await?;
+        self.index
+            .may_clear_insert(replace_cid, cid, Arc::downgrade(&c));
         Ok(c)
     }
     /// 不从磁盘加载数据 而是使用init函数初始化
@@ -72,7 +73,7 @@ impl CacheManager {
             if inner.have_block_of(cid) {
                 inner.release_block(cid);
             }
-            inner.get_new_uninit_block()?
+            inner.get_new_uninit_block()?.0
         };
         let sem = self.dirty_semaphore.take().await;
         init(blk.init_buffer()?);
@@ -92,9 +93,9 @@ impl CacheManager {
         let r = cache.access_rw(op).await?;
         stack_trace!();
         self.inner
-        .lock()
-        .await
-        .become_dirty(cid, &mut sem.into_multiply());
+            .lock()
+            .await
+            .become_dirty(cid, &mut sem.into_multiply());
         Ok(r)
     }
     /// 从缓存块中释放块并取消同步任务
@@ -131,7 +132,6 @@ impl CacheManager {
                     let device = device.clone();
                     let sem = sem.clone();
                     let waker = waker.clone();
-                    let buffer = buffer.clone();
                     let sid = CacheManagerInner::raw_get_sid_of_cid(data_sector_start, spcl2, cid);
                     spawn_fn_x(Box::pin(async move {
                         device.write_block(sid.0 as usize, &*buffer).await.unwrap();

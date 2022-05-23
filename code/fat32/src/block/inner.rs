@@ -96,17 +96,19 @@ impl CacheManagerInner {
         Self::raw_get_sid_of_cid(self.data_sector_start, self.sector_per_cluster_log2, cid)
     }
     /// 如果缓存块不存在将从磁盘加载数据
-    pub async fn get_block(&mut self, cid: CID) -> Result<Arc<Cache>, SysError> {
+    /// 
+    /// 如果替换了缓存块则返回它的CID
+    pub async fn get_block(&mut self, cid: CID) -> Result<(Arc<Cache>, Option<CID>), SysError> {
         stack_trace!();
         debug_assert!(cid.0 >= 2 && cid < self.max_cid);
         if let Some((c, _aid)) = self.search.get(&cid) {
-            return Ok(c.clone());
+            return Ok((c.clone(), None));
         }
-        let mut cache = self.get_new_uninit_block()?;
+        let (mut cache, replace_cid) = self.get_new_uninit_block()?;
         self.device
             .read_block(self.get_sid_of_cid(cid).0 as usize, cache.init_buffer()?)
             .await?;
-        Ok(self.force_insert_block(cache, cid))
+        Ok((self.force_insert_block(cache, cid), replace_cid))
     }
     pub fn have_block_of(&self, cid: CID) -> bool {
         self.search.contains_key(&cid)
@@ -115,10 +117,12 @@ impl CacheManagerInner {
         self.dirty.get(&cid).unwrap().0.shared().await
     }
     /// 分配一个已经分配了内存但没有加载数据的cache
-    pub fn get_new_uninit_block(&mut self) -> Result<Cache, SysError> {
+    ///
+    /// 如果替换了一个块将返回它的CID
+    pub fn get_new_uninit_block(&mut self) -> Result<(Cache, Option<CID>), SysError> {
         stack_trace!();
         if self.search.len() < self.max_cache_num {
-            return Ok(Cache::new(Buffer::new(self.cluster_bytes)?));
+            return Ok((Cache::new(Buffer::new(self.cluster_bytes)?), None));
         }
         assert!(!self.clean.is_empty());
         // 扫描结束判断
@@ -159,7 +163,7 @@ impl CacheManagerInner {
                     self.clean.try_insert(aid, (cid, cache)).ok().unwrap();
                     continue;
                 }
-                Ok(cache) => return Ok(cache),
+                Ok(cache) => return Ok((cache, Some(cid))),
             }
         }
     }
@@ -178,7 +182,7 @@ impl CacheManagerInner {
         }
         let aid = self.aid_alloc.alloc();
         cache.update_aid(aid);
-        let mut cache = Arc::new(cache);
+        let cache = Arc::new(cache);
         self.search
             .try_insert(cid, (cache.clone(), aid))
             .ok()
@@ -224,12 +228,13 @@ impl CacheManagerInner {
                 set.push(cid);
             }
             debug_assert!(self.dirty.contains_key(&cid));
-            if !sync_pending.contains(&cid) {
-                let unit = self.dirty.remove(&cid).unwrap().0;
-                let aid = self.aid_alloc.alloc();
-                self.clean.try_insert(aid, (cid, unit)).ok().unwrap();
-                self.search.get_mut(&cid).unwrap().1 = aid;
+            if sync_pending.contains(&cid) {
+                continue;
             }
+            let unit = self.dirty.remove(&cid).unwrap().0;
+            let aid = self.aid_alloc.alloc();
+            self.clean.try_insert(aid, (cid, unit)).ok().unwrap();
+            self.search.get_mut(&cid).unwrap().1 = aid;
         }
         if PRINT_BLOCK_OP {
             println!("dirty_suspend: {:?}", set.as_slice());

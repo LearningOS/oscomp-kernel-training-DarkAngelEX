@@ -20,9 +20,9 @@ impl CacheIndex {
         let _ = self.0.unique_lock().insert(cid, weak);
     }
     /// 两次操作在一次加锁中完成
-    pub fn clear_insert(&self, clear: CID, cid: CID, weak: Weak<Cache>) {
+    pub fn may_clear_insert(&self, clear: Option<CID>, cid: CID, weak: Weak<Cache>) {
         let mut m = self.0.unique_lock();
-        let _ = m.remove(&clear).unwrap();
+        clear.and_then(|clear| m.remove(&clear));
         let _ = m.insert(cid, weak);
     }
     /// 需要保证此块存在

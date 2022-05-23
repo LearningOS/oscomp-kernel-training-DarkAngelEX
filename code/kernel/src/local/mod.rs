@@ -25,6 +25,9 @@ static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 /// any hart can only access each unit so didn't need mutex.
 ///
 /// access other local must through function below.
+/// 
+/// use align(64) to avoid false share 
+#[repr(align(64))]
 pub struct HartLocal {
     enable: bool,
     always_local: AlwaysLocal,
