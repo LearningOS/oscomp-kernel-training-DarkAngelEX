@@ -50,64 +50,30 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 中的第19章
 
 这里仅列出寄存器的相关功能(按照registers中寄存器的实现顺序):
-### SCKDIV:
-控制串行时钟的频率
 
-### SCKMODE:
-控制数据采样和切换数据和时钟上升下降沿的关系
+|   控制寄存器   |   相关字段及功能   |
+| :-------:|:--------|
+|SCKDIV | 控制串行时钟的频率|
+|SCKMODE | 控制数据采样和切换数据和时钟上升下降沿的关系|
+|CSID | 片选寄存器,实现SD卡的选择,这里由于只有一块SD卡,只实现了寄存器的reset|
+|CSDEF | 设定片选线|
+|CSMODE | 设置片选模式<br>1.AUTO：使CS生效或者失效在帧的开始或结束阶段<br>2.HOLD: 保持CS在初始帧之后一直有效<br>3.OFF：使得硬件失去对CSpin的掌控|
+|DELAY0 | cssck字段：控制CS有效和SCK第一次上升沿之间的时延<br>sckcs字段：控制SCK最后的下降沿和CS失效之间的时延|
+|DELAY1 | cssck字段：intercs字段：控制最小CS失效时间<br>interxfr字段：控制两个连续帧在不丢弃CS的情况下之间的延迟，只有在sckmod寄存器是HOLD或者OFF模式用|
+|FMT | 设置协议，大小端和方向等，传输数据的长度|
+|TXDATA | data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端<br>full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据这些数据自然也就无法FIFO|
+|RXDATA | data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端<br>full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据这些数据自然也就无法FIFO|
+|TXMARK | 决定传输的FIFO的中断在低于多少阈值下进行触发<br>txmark字段:当FIFO中的数据少于设置阈值时会触发中断，导致txmark向FIFO中写入数据|
+|RXMARK | 决定接收的FIFO的中断在高于多少阈值时触发<br>rxmark字段：当FIFO中的数据超出阈值时会从FIFO中读取数据|
+|FCTRL | 控制memory-mapped和programmed-I/O两种模式的切换|
+|FFMT | 定义指令的一些格式例如指令协议，地址长度等等|
+|IE | txwm字段：当FIFO中的数据少于txmark中设定的阈值时，txwm被设置<br>rxwm字段：当FIFO中的数据多余rxmark中设定的阈值时，rxwm被设置|
+|IP | txwm悬挂字段:当FIFO中有充足的数据被写入并且超过了txmark时，txwm的悬挂位被清除<br>rxwm悬挂字段:当FIFO中有充足的数据被读出并且少于rxmark时，rxwm的悬挂位被清除|
 
-### CSID:
-片选寄存器,实现SD卡的选择,这里由于只有一块SD卡,只实现了寄存器的reset
 
-### CSDEF:
-设定片选线
 
-### CSMODE:
-设置片选模式
-1.AUTO：使CS生效或者失效在帧的开始或结束阶段
-2.HOLD: 保持CS在初始帧之后一直有效
-3.OFF：使得硬件失去对CSpin的掌控
 
-### DELAY0:
-cssck字段：控制CS有效和SCK第一次上升沿之间的时延
-sckcs字段：控制SCK最后的下降沿和CS失效之间的时延
 
-### DELAY1:
-intercs字段：控制最小CS失效时间
-interxfr字段：控制两个连续帧在不丢弃CS的情况下之间的延迟，只有在sckmod寄存器是HOLD或者OFF模式下才有用
-
-### FMT:
-设置协议，大小端和方向等，传输数据的长度
-
-### TXDATA:
-data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端
-full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据，这些数据自然也就无法写入FIFO
-
-### rxdata:
-data字段：从FIFO中接收的一个字节数据，注意大小端
-empty字段：当empty位被设置时，无法从FIFO中获取有效帧/数据
-
-### txmark:
-决定传输的FIFO的中断在低于多少阈值下进行触发
-txmark字段:当FIFO中的数据少于设置阈值时会触发中断，导致txmark向FIFO中写入数据
-
-### rxmark:
-决定接收的FIFO的中断在高于多少阈值时触发
-rxmark字段：当FIFO中的数据超出阈值时会从FIFO中读取数据
-
-### fctrl:
-控制memory-mapped和programmed-I/O两种模式的切换
-
-### ffmt:
-定义指令的一些格式例如指令协议，地址长度等等
-
-### ie:
-txwm字段：当FIFO中的数据少于txmark中设定的阈值时，txwm被设置
-rxwm字段：当FIFO中的数据多余rxmark中设定的阈值时，rxwm被设置
-
-### ip:
-txwm悬挂字段:当FIFO中有充足的数据被写入并且超过了txmark时，txwm的悬挂位被清除
-rxwm悬挂字段:当FIFO中有充足的数据被读出并且少于rxmark时，rxwm的悬挂位被清除
 
 ## 2. mod.rs中的SPIActions
 ```rust
