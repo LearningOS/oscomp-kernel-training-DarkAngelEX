@@ -47,25 +47,22 @@ impl ListIndex {
         }
     }
     pub fn get(&self, index: usize) -> Option<Arc<ListUnit>> {
-        match USING_RCU {
-            false => {
-                let _lock = self.lock[index].shared_lock();
-                unsafe { (*self.weak[index].get()).upgrade() }
-            }
-            true => {
-                todo!()
-            }
+        use ftl_util::rcu::RcuCollect;
+        if USING_RCU {
+            unsafe { &(*self.weak[index].get()) }.rcu_read().upgrade()
+        } else {
+            let _lock = self.lock[index].shared_lock();
+            unsafe { (*self.weak[index].get()).upgrade() }
         }
     }
     pub fn set(&self, index: usize, arc: &Arc<ListUnit>) {
-        match USING_RCU {
-            false => {
-                let _lock = self.lock[index].unique_lock();
-                unsafe { *self.weak[index].get() = Arc::downgrade(arc) }
-            }
-            true => {
-                todo!()
-            }
+        use ftl_util::rcu::RcuCollect;
+        if USING_RCU {
+            let _lock = self.lock[index].unique_lock();
+            unsafe { (&(*self.weak[index].get())).rcu_write(Arc::downgrade(arc)) }
+        } else {
+            let _lock = self.lock[index].unique_lock();
+            unsafe { *self.weak[index].get() = Arc::downgrade(arc) }
         }
     }
     // pub fn reset(&self, index: usize) {

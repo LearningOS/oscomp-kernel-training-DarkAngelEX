@@ -64,12 +64,15 @@ impl<T, S: MutexSupport> SpinMutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
+    #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
@@ -124,9 +127,11 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
             support_guard,
         }
     }
+    #[inline(always)]
     pub unsafe fn send_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
         SendWraper::new(self.lock())
     }
+    #[inline(always)]
     pub fn get_ptr(&self) -> *mut T {
         self.data.get()
     }
@@ -138,12 +143,14 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
     /// lock to FFI that doesn't know how to deal with RAII.
     ///
     /// If the lock isn't held, this is a no-op.
+    #[inline(always)]
     pub unsafe fn force_unlock(&self) {
         self.lock.store(false, Ordering::Release);
     }
 
     /// Tries to lock the mutex. If it is already locked, it will return None. Otherwise it returns
     /// a guard within Some.
+    #[inline(always)]
     pub fn try_lock(&self) -> Option<impl DerefMut<Target = T> + '_> {
         let mut support_guard = S::before_lock();
         if self
@@ -179,12 +186,14 @@ impl<T: ?Sized + ~const Default, S: MutexSupport> const Default for SpinMutex<T,
 
 impl<'a, T: ?Sized, S: MutexSupport> Deref for MutexGuard<'a, T, S> {
     type Target = T;
+    #[inline(always)]
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> DerefMut for MutexGuard<'a, T, S> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mutex.data.get() }
     }
@@ -192,6 +201,7 @@ impl<'a, T: ?Sized, S: MutexSupport> DerefMut for MutexGuard<'a, T, S> {
 
 impl<'a, T: ?Sized, S: MutexSupport> Drop for MutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
+    #[inline(always)]
     fn drop(&mut self) {
         debug_assert!(self.mutex.lock.load(Ordering::Relaxed));
         self.mutex.lock.store(false, Ordering::Release);

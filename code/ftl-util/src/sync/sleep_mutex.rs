@@ -29,6 +29,7 @@ impl MutexInner {
             queue: ListNode::new((false, None)),
         }
     }
+    #[inline(always)]
     fn lazy_init(&mut self) {
         if self.this_ptr != self as *mut _ as usize {
             self.queue.init();
@@ -41,27 +42,33 @@ unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for SleepMutex<T, S> {}
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for SleepMutex<T, S> {}
 
 impl<T, S: MutexSupport> SleepMutex<T, S> {
+    #[inline(always)]
     pub const fn new(user_data: T) -> Self {
         Self {
             lock: SpinMutex::new(MutexInner::new()),
             data: UnsafeCell::new(user_data),
         }
     }
+    #[inline(always)]
     pub fn into_inner(self) -> T {
         let Self { data, .. } = self;
         data.into_inner()
     }
 }
 impl<T: ?Sized + Send, S: MutexSupport> SleepMutex<T, S> {
+    #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
+    #[inline]
     pub async fn lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
         let future = &mut SleepLockFuture::new(self);
         unsafe { Pin::new_unchecked(future).init().await.await }
@@ -74,12 +81,14 @@ struct SleepLockFuture<'a, T: ?Sized, S: MutexSupport> {
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, T, S> {
+    #[inline(always)]
     fn new(mutex: &'a SleepMutex<T, S>) -> Self {
         SleepLockFuture {
             mutex,
             node: ListNode::new((false, None)),
         }
     }
+    #[inline]
     async fn init(self: Pin<&mut Self>) -> Pin<&mut SleepLockFuture<'a, T, S>> {
         let this = unsafe { self.get_unchecked_mut() };
         this.node.init();
@@ -99,7 +108,7 @@ impl<'a, T: ?Sized, S: MutexSupport> SleepLockFuture<'a, T, S> {
 
 impl<'a, T: ?Sized, S: MutexSupport> Future for SleepLockFuture<'a, T, S> {
     type Output = SleepMutexGuard<'a, T, S>;
-
+    #[inline(always)]
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         let ptr = &self.node.data().0;
         match *ptr {
@@ -118,18 +127,21 @@ unsafe impl<'a, T: ?Sized + Send, S: MutexSupport> Sync for SleepMutexGuard<'a, 
 
 impl<'a, T: ?Sized, S: MutexSupport> Deref for SleepMutexGuard<'a, T, S> {
     type Target = T;
+    #[inline(always)]
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> DerefMut for SleepMutexGuard<'a, T, S> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mutex.data.get() }
     }
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> Drop for SleepMutexGuard<'a, T, S> {
+    #[inline]
     fn drop(&mut self) {
         let mut inner = self.mutex.lock.lock();
         debug_assert!(inner.status);

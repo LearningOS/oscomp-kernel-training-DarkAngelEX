@@ -2,6 +2,7 @@
 
 use core::{
     arch::asm,
+    ops::{Deref, DerefMut},
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -15,9 +16,9 @@ pub mod color;
 pub mod allocator;
 pub mod container;
 pub mod error;
+pub mod path;
 pub mod range;
 pub mod xasync;
-pub mod path;
 
 pub const fn bool_result(x: bool) -> Result<(), ()> {
     if x {
@@ -95,6 +96,25 @@ impl<T> Wrapper<T> for ForwardWrapper {
     type Output = T;
     fn wrapper(a: T) -> T {
         a
+    }
+}
+
+#[repr(align(64))]
+pub struct AlignCacheWrapper<T>(T);
+impl<T> AlignCacheWrapper<T> {
+    pub fn new(v: T) -> Self {
+        Self(v)
+    }
+}
+impl<T> Deref for AlignCacheWrapper<T> {
+    type Target = T;
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+impl<T> DerefMut for AlignCacheWrapper<T> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

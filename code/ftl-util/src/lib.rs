@@ -2,9 +2,8 @@
 #![feature(allocator_api)]
 #![feature(negative_impls)]
 #![feature(const_trait_impl)]
-#![feature(const_fn_trait_bound)]
 #![feature(ptr_const_cast)]
-#![feature(const_fn_fn_ptr_basics)]
+#![feature(if_let_guard)]
 
 use xdebug::stack::XInfo;
 
@@ -23,6 +22,7 @@ pub mod fs;
 pub mod rcu;
 pub mod sync;
 pub mod utc_time;
+pub mod container;
 
 extern crate alloc;
 

@@ -727,13 +727,6 @@ impl DirName {
     fn place(&self) -> (EntryPlace, EntryPlace) {
         (self.start_place, self.end_place)
     }
-    // 存粹的短文件名没有小写字母
-    fn short_same(&self, short: &([u8; 8], [u8; 3])) -> bool {
-        if !self.long.is_empty() {
-            return false;
-        }
-        &(self.short.name, self.short.ext) == short
-    }
     // ".." or "."
     fn is_dot(&self) -> bool {
         self.long.is_empty()

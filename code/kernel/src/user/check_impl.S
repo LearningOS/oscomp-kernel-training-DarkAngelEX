@@ -3,7 +3,7 @@
     .global __try_write_user_u8
     .global __try_access_user_error_trap
     .global __try_access_user_error_vector
-    .align 2
+    .align 6
 __try_read_user_u8:
     mv a1, a0
     mv a0, zero
@@ -17,7 +17,7 @@ __try_write_user_u8:
     ret
 
 // if page fault happen, a0 will become 1, a1 will become scause.
-    .align 2
+    .align 6
 __try_access_user_error_trap:
     addi sp, sp, -16
     sd   ra, 8(sp)

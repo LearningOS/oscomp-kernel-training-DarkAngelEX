@@ -9,7 +9,7 @@
     # .global __store_fx
 .altmacro
 // a0(user_context)
-    .align 2
+    .align 6
 __entry_user:
     sd  s0, 34*8(a0)
     sd  s1, 35*8(a0)
@@ -65,6 +65,7 @@ __entry_user:
     ld  a0, 10*8(a0) // load a0
     sret
     // (running in user...)
+    .align 6
 __return_from_user:
     csrrw a0, sscratch, a0
     sd  ra,  1*8(a0)
@@ -120,7 +121,7 @@ __return_from_user:
     ld  tp, 48*8(a0)
     ret
 
-    .align 2
+    .align 6
 // using current stack
 __kernel_default_exception_entry:
     addi sp, sp, -17*8
@@ -160,7 +161,7 @@ __kernel_default_exception_entry:
     addi sp, sp, 17*8
     sret
 
-    .align 2
+    .align 6
 __kernel_default_interrupt_entry:
     addi sp, sp, -17*8
     sd  ra,  1*8(sp)
@@ -207,7 +208,7 @@ __kernel_default_vector:
     j __kernel_default_interrupt_entry
     .endr
 
-    .align 2
+    .align 6
 __kernel_default_trap_entry:
     addi sp, sp, -17*8
     sd  ra,  1*8(sp)

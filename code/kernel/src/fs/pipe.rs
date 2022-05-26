@@ -1,7 +1,7 @@
 use core::{
     future::Future,
     pin::Pin,
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{self, AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
@@ -75,7 +75,7 @@ impl Pipe {
             buffer[cur..cur + n].copy_from_slice(ran);
             cur += n;
             self.read_at
-                .store((read_at + cur) % RING_SIZE, Ordering::SeqCst);
+                .store((read_at + cur) % RING_SIZE, Ordering::Release);
         }
         assert!(cur == len);
         len
@@ -93,7 +93,7 @@ impl Pipe {
             ran.copy_from_slice(&buffer[cur..cur + n]);
             cur += n;
             self.write_at
-                .store((write_at + cur) % RING_SIZE, Ordering::SeqCst);
+                .store((write_at + cur) % RING_SIZE, Ordering::Release);
         }
         assert!(cur == len);
         len

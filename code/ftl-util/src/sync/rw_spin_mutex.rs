@@ -41,6 +41,7 @@ impl<T, S: MutexSupport> RwSpinMutex<T, S> {
     ///     drop(lock);
     /// }
     /// ```
+    #[inline(always)]
     pub const fn new(user_data: T) -> Self {
         RwSpinMutex {
             lock: AtomicIsize::new(0),
@@ -50,6 +51,7 @@ impl<T, S: MutexSupport> RwSpinMutex<T, S> {
     }
 
     /// Consumes this mutex, returning the underlying data.
+    #[inline(always)]
     pub fn into_inner(self) -> T {
         // We know statically that there are no outstanding references to
         // `self` so there's no need to lock.
@@ -59,15 +61,19 @@ impl<T, S: MutexSupport> RwSpinMutex<T, S> {
 }
 
 impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
+    #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
+    #[inline(always)]
     pub fn try_unique_lock(&self) -> Option<impl DerefMut<Target = T> + '_> {
         let mut guard = S::before_lock();
         if self.lock.load(Ordering::Relaxed) != 0 {
@@ -87,16 +93,14 @@ impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
     #[inline(always)]
     pub fn unique_lock(&self) -> impl DerefMut<Target = T> + '_ {
         let guard = S::before_lock();
-        let mut cnt = 0;
         loop {
-            let cur = self.lock.load(Ordering::Relaxed);
-            if cur != 0 {
-                cnt += 1;
+            let mut cnt = 0;
+            while self.lock.load(Ordering::Relaxed) != 0 {
                 core::hint::spin_loop();
+                cnt += 1;
                 if cnt == 0x10000000 {
                     panic!("dead lock");
                 }
-                continue;
             }
             if self
                 .lock
@@ -108,6 +112,7 @@ impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
             return UniqueRwMutexGuard { mutex: self, guard };
         }
     }
+    #[inline(always)]
     pub fn try_shared_lock(&self) -> Option<impl Deref<Target = T> + '_> {
         let mut guard = S::before_lock();
         let mut cur = self.lock.load(Ordering::Relaxed);
@@ -165,18 +170,21 @@ impl<'a, T: ?Sized, S: MutexSupport> !Sync for SharedRwMutexGuard<'a, T, S> {}
 
 impl<'a, T: ?Sized, S: MutexSupport> Deref for SharedRwMutexGuard<'a, T, S> {
     type Target = T;
+    #[inline(always)]
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
 }
 impl<'a, T: ?Sized, S: MutexSupport> Deref for UniqueRwMutexGuard<'a, T, S> {
     type Target = T;
+    #[inline(always)]
     fn deref(&self) -> &T {
         unsafe { &*self.mutex.data.get() }
     }
 }
 
 impl<'a, T: ?Sized, S: MutexSupport> DerefMut for UniqueRwMutexGuard<'a, T, S> {
+    #[inline(always)]
     fn deref_mut(&mut self) -> &mut T {
         unsafe { &mut *self.mutex.data.get() }
     }
@@ -184,6 +192,7 @@ impl<'a, T: ?Sized, S: MutexSupport> DerefMut for UniqueRwMutexGuard<'a, T, S> {
 
 impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedRwMutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
+    #[inline(always)]
     fn drop(&mut self) {
         debug_assert!(self.mutex.lock.load(Ordering::Relaxed) > 0);
         self.mutex.lock.fetch_sub(1, Ordering::Release);
@@ -192,6 +201,7 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for SharedRwMutexGuard<'a, T, S> {
 }
 impl<'a, T: ?Sized, S: MutexSupport> Drop for UniqueRwMutexGuard<'a, T, S> {
     /// The dropping of the MutexGuard will release the lock it was created from.
+    #[inline(always)]
     fn drop(&mut self) {
         debug_assert!(self.mutex.lock.load(Ordering::Relaxed) < 0);
         // debug_assert_eq!(self.mutex.lock.load(Ordering::Relaxed), -1);

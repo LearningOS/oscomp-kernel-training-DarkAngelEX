@@ -19,6 +19,7 @@ pub struct ListNode<T> {
 unsafe impl<T> Send for ListNode<T> {}
 
 impl<T> ListNode<T> {
+    #[inline(always)]
     pub const fn new(data: T) -> Self {
         Self {
             prev: core::ptr::null_mut(),
@@ -27,10 +28,12 @@ impl<T> ListNode<T> {
             _marker: PhantomPinned,
         }
     }
+    #[inline(always)]
     pub fn init(&mut self) {
         self.prev = self;
         self.next = self;
     }
+    #[inline(always)]
     pub fn lazy_init(&mut self) {
         if self.prev.is_null() {
             debug_assert!(self.next.is_null());
@@ -56,12 +59,15 @@ impl<T> ListNode<T> {
             }
         }
     }
+    #[inline(always)]
     pub fn data(&self) -> &T {
         &self.data
     }
+    #[inline(always)]
     pub fn data_mut(&mut self) -> &mut T {
         &mut self.data
     }
+    #[inline(always)]
     pub fn is_empty(&self) -> bool {
         if self.prev.as_const() == self {
             debug_assert!(self.next.as_const() == self);
@@ -71,6 +77,7 @@ impl<T> ListNode<T> {
             false
         }
     }
+    #[inline(always)]
     pub fn push_prev(&mut self, new: &mut Self) {
         debug_assert!(self as *mut _ != new as *mut _);
         debug_assert!(new.is_empty());
@@ -80,6 +87,7 @@ impl<T> ListNode<T> {
         unsafe { (*self.prev).next = new };
         self.prev = new;
     }
+    #[inline(always)]
     pub fn push_next(&mut self, new: &mut Self) {
         debug_assert!(self as *mut _ != new as *mut _);
         debug_assert!(new.is_empty());
@@ -89,18 +97,21 @@ impl<T> ListNode<T> {
         unsafe { (*self.next).prev = new };
         self.next = new;
     }
+    #[inline(always)]
     pub fn try_prev(&self) -> Option<NonNull<Self>> {
         if self.is_empty() {
             return None;
         }
         NonNull::new(self.prev)
     }
+    #[inline(always)]
     pub fn try_next(&self) -> Option<NonNull<Self>> {
         if self.is_empty() {
             return None;
         }
         NonNull::new(self.next)
     }
+    #[inline(always)]
     pub fn pop_self(&mut self) {
         let prev = self.prev;
         let next = self.next;
@@ -110,6 +121,7 @@ impl<T> ListNode<T> {
         }
         self.init();
     }
+    #[inline(always)]
     pub fn pop_prev(&mut self) -> Option<NonNull<Self>> {
         if self.is_empty() {
             return None;
@@ -125,6 +137,7 @@ impl<T> ListNode<T> {
         }
         NonNull::new(r)
     }
+    #[inline(always)]
     pub fn pop_next(&mut self) -> Option<NonNull<Self>> {
         if self.is_empty() {
             return None;

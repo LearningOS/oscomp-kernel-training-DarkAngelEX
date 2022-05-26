@@ -1,6 +1,6 @@
 use core::{future::Future, pin::Pin};
 
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc};
 use ftl_util::{device::BlockDevice, error::SysError, utc_time::UtcTime, xdebug};
 
 use crate::{
@@ -8,7 +8,6 @@ use crate::{
     fat_list::FatList,
     inode::{inode_cache::InodeCache, manager::InodeManager, AnyInode, IID},
     layout::bpb::RawBPB,
-    mutex::SpinMutex,
     DirInode, FileInode,
 };
 
@@ -19,8 +18,6 @@ pub struct Fat32Manager {
     pub(crate) inodes: InodeManager,
     root_dir: Option<DirInode>,
     utc_time: Option<Box<dyn Fn() -> UtcTime + Send + Sync + 'static>>,
-    rcu_handler: Option<Box<dyn Fn(Box<dyn Send + 'static>) + Send + Sync + 'static>>,
-    rcu_pending: SpinMutex<Vec<Box<dyn Send + 'static>>>,
 }
 
 impl Fat32Manager {
@@ -38,8 +35,6 @@ impl Fat32Manager {
             inodes: InodeManager::new(inode_target_free),
             root_dir: None,
             utc_time: None,
-            rcu_handler: None,
-            rcu_pending: SpinMutex::new(Vec::new()),
         }
     }
     pub async fn init(
@@ -76,16 +71,6 @@ impl Fat32Manager {
             .get_or_insert(IID::ROOT, || InodeCache::new_root(self));
         let raw_inode = unsafe { cache.get_root_inode() };
         self.root_dir.replace(DirInode::new(raw_inode));
-    }
-    /// 如果不初始化, 所有RCU内存将在析构时释放
-    pub fn rcu_init(
-        &mut self,
-        rcu_handler: Box<dyn Fn(Box<dyn Send + 'static>) + Send + Sync + 'static>,
-    ) {
-        core::mem::take(&mut *self.rcu_pending.lock())
-            .into_iter()
-            .for_each(|a| rcu_handler(a));
-        self.rcu_handler.replace(rcu_handler);
     }
     pub async fn search_any(&self, path: &[&str]) -> Result<AnyInode, SysError> {
         let (name, dir) = match path.split_last() {
@@ -139,26 +124,15 @@ impl Fat32Manager {
         path: &[&'a str],
     ) -> Result<(&'a str, DirInode), SysError> {
         match path.split_last() {
-            Some((&name, path)) => Ok((name, self.search_dir(path).await?)),
+            Some((&name, path)) => {
+                let dir = self.search_dir(path).await?;
+                Ok((name, dir))
+            }
             None => Err(SysError::ENOENT),
         }
     }
     pub fn root_dir(&self) -> DirInode {
         self.root_dir.as_ref().unwrap().clone()
-    }
-
-    pub(crate) fn rcu_free(&self, src: impl Send + 'static) {
-        debug_assert!(core::mem::size_of_val(&src) <= core::mem::size_of::<usize>());
-        debug_assert!(core::mem::size_of_val(&src) == core::mem::align_of_val(&src));
-        self.rcu_free_box(Box::new(src));
-    }
-    pub(crate) fn rcu_free_box(&self, src: Box<dyn Send + 'static>) {
-        debug_assert!(core::mem::size_of_val(&*src) <= core::mem::size_of::<usize>());
-        debug_assert!(core::mem::size_of_val(&*src) == core::mem::align_of_val(&*src));
-        match self.rcu_handler.as_ref() {
-            Some(f) => f(src),
-            None => self.rcu_pending.lock().push(src),
-        }
     }
     /// 返回UTC时间
     ///

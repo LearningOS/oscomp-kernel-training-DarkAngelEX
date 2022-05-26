@@ -54,14 +54,15 @@ impl<S: MutexSupport> RcuManager<S> {
         let mask_pending = 1 << id;
         let mask_current = mask_pending << 32;
         let mut release;
+        let mut need_release;
         let mut prev = self.flags.load(Ordering::Relaxed);
-        let need_release = unsafe {
-            !self.rcu_pending.unsafe_get().is_empty() || !self.rcu_current.unsafe_get().is_empty()
-        };
         loop {
-            let mut next = prev;
-            next &= !(mask_pending | mask_current);
+            let mut next = prev & !(mask_pending | mask_current);
             release = (next >> 32) == 0;
+            need_release = unsafe {
+                !self.rcu_pending.unsafe_get().is_empty()
+                    || !self.rcu_current.unsafe_get().is_empty()
+            };
             if release {
                 next <<= 32;
                 if need_release {
@@ -70,7 +71,7 @@ impl<S: MutexSupport> RcuManager<S> {
             }
             match self
                 .flags
-                .compare_exchange(prev, next, Ordering::Acquire, Ordering::Relaxed)
+                .compare_exchange(prev, next, Ordering::Relaxed, Ordering::Relaxed)
             {
                 Ok(_) => break,
                 Err(v) => prev = v,
@@ -92,5 +93,8 @@ impl<S: MutexSupport> RcuManager<S> {
     }
     pub fn rcu_drop_usize(&self, v: (usize, unsafe fn(usize))) {
         self.rcu_pending.lock().push(v)
+    }
+    pub fn rcu_drop_group(&self, v: &mut Vec<(usize, unsafe fn(usize))>) {
+        self.rcu_pending.lock().append(v);
     }
 }
