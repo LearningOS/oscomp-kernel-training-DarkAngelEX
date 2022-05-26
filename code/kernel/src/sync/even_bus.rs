@@ -8,10 +8,10 @@ use core::{
 };
 
 use crate::{
-    process::Dead,
+    process::{AliveProcess, Dead},
     tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
 };
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 
 bitflags! {
     #[derive(Default)]
@@ -26,6 +26,7 @@ bitflags! {
         const PROCESS_QUIT                  = 1 << 10;
         const CHILD_PROCESS_QUIT            = 1 << 11;
         const RECEIVE_SIGNAL                = 1 << 12;
+        const REMOTE_RUN                    = 1 << 13;
 
         /// Semaphore
         const SEMAPHORE_REMOVED             = 1 << 20;
@@ -46,14 +47,18 @@ impl From<EvenBusClose> for Dead {
 }
 
 #[derive(Default)]
-pub struct EventBus {
+pub struct EventBus(Mutex<EventBusInner>);
+
+#[derive(Default)]
+pub struct EventBusInner {
     closed: bool,
     pub event: Event,
     suspend_event: Event,
     wakers: NeverCloneLinkedList<(Event, Waker)>,
+    remote: Vec<Box<dyn FnOnce(&mut AliveProcess) + Send + 'static>>,
 }
 
-impl Drop for EventBus {
+impl Drop for EventBusInner {
     fn drop(&mut self) {
         stack_trace!();
         debug_assert!(
@@ -65,9 +70,31 @@ impl Drop for EventBus {
 }
 
 impl EventBus {
-    pub fn new() -> Arc<Mutex<Self>> {
-        Arc::new(Mutex::new(Self::default()))
+    pub fn new() -> Arc<Self> {
+        Arc::new(Self(Mutex::new(EventBusInner::default())))
     }
+    pub fn close(&self) {
+        self.0.lock().close();
+    }
+    pub fn event(&self) -> Event {
+        self.0.lock().event
+    }
+    pub fn set(&self, set: Event) -> Result<(), EvenBusClose> {
+        self.0.lock().set(set)
+    }
+    pub fn clear(&self, reset: Event) -> Result<(), EvenBusClose> {
+        self.0.lock().clear(reset)
+    }
+    pub fn clear_then_set(&self, reset: Event, set: Event) -> Result<(), EvenBusClose> {
+        self.0.lock().clear_then_set(reset, set)
+    }
+    pub fn register(&self, event: Event, waker: Waker) -> Result<(), EvenBusClose> {
+        self.0.lock().register(event, waker)
+    }
+    // pub fn remote_run(&self,)
+}
+
+impl EventBusInner {
     pub fn close(&mut self) {
         stack_trace!();
         // assert!(!self.closed, "event_bus double closed");
@@ -126,12 +153,12 @@ impl EventBus {
     }
 }
 
-pub async fn wait_for_event(bus: &Mutex<EventBus>, mask: Event) -> Result<Event, EvenBusClose> {
+pub async fn wait_for_event(bus: &EventBus, mask: Event) -> Result<Event, EvenBusClose> {
     EventBusFuture { bus, mask }.await
 }
 
 struct EventBusFuture<'a> {
-    bus: &'a Mutex<EventBus>,
+    bus: &'a EventBus,
     mask: Event,
 }
 
@@ -139,7 +166,7 @@ impl Future for EventBusFuture<'_> {
     type Output = Result<Event, EvenBusClose>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mut lock = self.bus.lock();
+        let mut lock = self.bus.0.lock();
         if lock.event.intersects(self.mask) {
             return Poll::Ready(Ok(lock.event));
         }

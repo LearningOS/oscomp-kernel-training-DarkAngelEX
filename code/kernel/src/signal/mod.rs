@@ -160,7 +160,7 @@ pub fn send_signal(process: Arc<Process>, signal_set: StdSignalSet) -> Result<()
     }
     process.alive_then(|a| a.signal_queue.append(&mut signal_queue))?;
     if !signal_set.is_empty() {
-        process.event_bus.lock().set(Event::RECEIVE_SIGNAL)?;
+        process.event_bus.set(Event::RECEIVE_SIGNAL)?;
     }
     Ok(())
 }

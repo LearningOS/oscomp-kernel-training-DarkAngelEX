@@ -19,10 +19,7 @@ use crate::{
         UserSpace,
     },
     process::{proc_table, thread, userloop, CloneFlag, Pid},
-    sync::{
-        even_bus::{self, Event, EventBus},
-        mutex::SpinNoIrqLock as Mutex,
-    },
+    sync::even_bus::{self, Event, EventBus},
     timer::{self, TimeSpec, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
@@ -212,7 +209,7 @@ impl Syscall<'_> {
             let event_bus = &self.process.event_bus;
             if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT)
                 .await
-                .and_then(|_x| event_bus.lock().clear(Event::CHILD_PROCESS_QUIT))
+                .and_then(|_x| event_bus.clear(Event::CHILD_PROCESS_QUIT))
             {
                 if PRINT_SYSCALL_PROCESS {
                     println!("sys_wait4 fail by close {:?}", this_pid);
@@ -270,7 +267,7 @@ impl Syscall<'_> {
         );
         self.do_exit = true;
         let exit_code: i32 = self.cx.para1();
-        self.process.event_bus.lock().close();
+        self.process.event_bus.close();
         let mut lock = self.process.alive.lock();
         let alive = match lock.as_mut() {
             Some(a) => a,
@@ -403,7 +400,7 @@ impl Syscall<'_> {
 
 pub struct SleepFuture {
     deadline: TimeTicks,
-    event_bus: Arc<Mutex<EventBus>>,
+    event_bus: Arc<EventBus>,
 }
 
 impl Future for SleepFuture {
@@ -413,15 +410,11 @@ impl Future for SleepFuture {
         stack_trace!();
         if timer::get_time_ticks() >= self.deadline {
             return Poll::Ready(Ok(0));
-        } else if self.event_bus.lock().event != Event::empty() {
+        } else if self.event_bus.event() != Event::empty() {
             return Poll::Ready(Err(SysError::EINTR));
         }
         timer::sleep::timer_push_task(self.deadline, cx.waker().clone());
-        match self
-            .event_bus
-            .lock()
-            .register(Event::all(), cx.waker().clone())
-        {
+        match self.event_bus.register(Event::all(), cx.waker().clone()) {
             Err(_e) => Poll::Ready(Err(SysError::ESRCH)),
             Ok(()) => Poll::Pending,
         }

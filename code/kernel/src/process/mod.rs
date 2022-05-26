@@ -47,7 +47,7 @@ pub struct Process {
     pub pgid: AtomicUsize,
     /// if need to lock bus and alive at the same time,
     /// must lock alive first, then lock bus.
-    pub event_bus: Arc<Mutex<EventBus>>,
+    pub event_bus: Arc<EventBus>,
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
 }
@@ -160,7 +160,7 @@ impl AliveProcess {
             }
         };
         drop(this_parent_alive);
-        let _ = bus.as_ref().lock().set(Event::CHILD_PROCESS_QUIT);
+        let _ = bus.set(Event::CHILD_PROCESS_QUIT);
         if !self.children.is_empty() {
             let initproc = proc_table::get_initproc();
             let mut initproc_alive = initproc.alive.lock();
@@ -168,7 +168,7 @@ impl AliveProcess {
             ich.append(self.children.take());
             if ich.have_zombies() {
                 drop(initproc_alive);
-                let _ = initproc.event_bus.lock().set(Event::CHILD_PROCESS_QUIT);
+                let _ = initproc.event_bus.set(Event::CHILD_PROCESS_QUIT);
             }
         }
     }
