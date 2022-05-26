@@ -1,7 +1,7 @@
 use core::{
     future::Future,
     pin::Pin,
-    sync::atomic::{self, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll, Waker},
 };
 
