@@ -1,39 +1,106 @@
 # FTL OS
 
-#### 介绍
-{**以下是 Gitee 平台说明，您可以替换此简介**
-Gitee 是 OSCHINA 推出的基于 Git 的代码托管平台（同时支持 SVN）。专为开发者提供稳定、高效、安全的云端软件开发协作平台
-无论是个人、团队、或是企业，都能够用 Gitee 实现代码托管、项目管理、协作开发。企业项目请看 [https://gitee.com/enterprises](https://gitee.com/enterprises)}
+FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核实现赛道的参赛操作系统。FTL OS使用rust语言开发，基于rust async无栈协程进行上下文切换。FTL OS追求极致的性能与高可扩展性，支持qemu平台与Hifive Unmatched平台运行。
 
-#### 软件架构
-软件架构说明
+![os](https://img.shields.io/badge/kernel-asynchronous-red)![ISA](https://img.shields.io/badge/ISA-RISC--V-yellow)![competition](https://img.shields.io/badge/os-competition-blue)
 
+## 如何运行
 
-#### 安装教程
+#### qemu运行
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+qemu运行FTL OS必须在kernel文件夹中进行：
 
-#### 使用说明
+```shell
+cd code/kernel
+```
 
-1.  xxxx
-2.  xxxx
-3.  xxxx
+之后按照必要的rust riscv工具链：
 
-#### 参与贡献
+```shell
+make env
+```
 
-1.  Fork 本仓库
-2.  新建 Feat_xxx 分支
-3.  提交代码
-4.  新建 Pull Request
+然后生成FAT32标准的文件系统，此命令只需要执行一次：
 
+```shell
+make fs-img
+```
 
-#### 特技
+生成文件系统时会编译大赛的初赛测试样例，如果缺少相关工具链将无法生成文件系统。生成文件系统后就可以运行FTL OS了：
 
-1.  使用 Readme\_XXX.md 来支持不同的语言，例如 Readme\_en.md, Readme\_zh.md
-2.  Gitee 官方博客 [blog.gitee.com](https://blog.gitee.com)
-3.  你可以 [https://gitee.com/explore](https://gitee.com/explore) 这个地址来了解 Gitee 上的优秀开源项目
-4.  [GVP](https://gitee.com/gvp) 全称是 Gitee 最有价值开源项目，是综合评定出的优秀开源项目
-5.  Gitee 官方提供的使用手册 [https://gitee.com/help](https://gitee.com/help)
-6.  Gitee 封面人物是一档用来展示 Gitee 会员风采的栏目 [https://gitee.com/gitee-stars/](https://gitee.com/gitee-stars/)
+```shell
+make run
+```
+
+#### Hifive Unmatched的评测机模式运行
+
+请直接在项目根目录下运行：
+
+```shell
+make all
+```
+
+此命令将激活feature：`submit`、`hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了基础库。
+
+#### Hifive Unmatched普通模式运行
+
+请直接在项目根目录下运行：
+
+```shell
+make native
+```
+
+此命令仅激活feature：`hifive`，初始化完成后依次运行所有的测试程序。此模式用于本地调试，如果文件系统初始化失败很可能是使用了错误的超级块号，请手动在[这里](code/kernel/src/drivers/block/mod.rs)修改`BPB_CID`为正确的超级块块号。
+
+## 项目人员
+
+所有成员都来自哈尔滨工业大学（深圳）。
+
+叶自立（队长）：内核设计，异步、多核、文件系统设计。
+
+樊博：linux实现研究，作系统测试。
+
+李羿廷：SD卡驱动实现，信号系统。
+
+## 项目结构
+
+doc：项目文档
+
+code：项目代码，各个文件夹的描述如下：
+
+|         文件夹         |                     描述                     |
+| :--------------------: | :------------------------------------------: |
+|       bootloader       |              rust-sbi二进制文件              |
+|      dependencies      |               项目依赖的外部库               |
+|        easy-fs         |   rCore-tutorial-v3的ext2文件系统，已弃用    |
+|      easy-fs-fuse      |  通过easy-fs生成`fs.img`磁盘文件供qemu使用   |
+|         fat32          |    FTL OS自主实现的FAT32异步多核文件系统     |
+|       fat32-fuse       |  通过fat32生成`fat32.img`磁盘文件供qemu使用  |
+|        ftl-util        |            FTL OS所有模块的基础库            |
+|         kernel         |                FTL OS内核实现                |
+| testsuits-for-oskernel |                 初赛测试程序                 |
+|          user          | 修改自rCore-tutorial-v3，包含shell与测试程序 |
+
+## 文档目录
+
+所有文档放置于[doc](./doc)文件夹，以下为文档目录：
+
+* 进程调度
+  * 无栈协程
+  * 任务调度器
+  * 浮点数与优化
+  * 进程管理
+  * 陷阱与上下文切换
+* 内存管理
+  * 页表映射
+  * 映射管理器
+  * 内存分配器
+  * RCU系统
+* 同步系统
+  * 锁
+  * 进程间通信
+  * 信号系统
+* 文件系统
+  * FAT32
+  * 虚拟文件系统
+  * SD驱动
