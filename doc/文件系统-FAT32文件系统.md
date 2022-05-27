@@ -4,13 +4,13 @@ FTL OS的FAT32文件系统是异步文件系统，支持完善的多核并发操
 
 文件系统按模块可划分为：
 
-| 模块     | 用途              |
-| -------- | ----------------- |
-| layout   | 磁盘数据布局定义  |
-| block    | 缓存块管理        |
-| fat_list | FAT簇分配链表管理 |
-| inode    | FAT inode管理     |
-| manager  | FAT32文件系统接口 |
+| 模块     | 用途                        |
+| -------- | --------------------------- |
+| layout   | 磁盘数据布局定义            |
+| block    | 缓存块管理模块              |
+| fat_list | FAT簇分配链表管理模块       |
+| inode    | FAT inode管理模块           |
+| manager  | FAT32文件系统的唯一对外接口 |
 
 ## 磁盘布局
 
@@ -24,7 +24,7 @@ DBR是操作系统访问的第一个扇区，用来解释文件系统。这里�
 
 ### FAT table
 
-这个表维护的是簇。取值如下：
+FAT表维护了每一个文件的簇链表。取值如下：
 
 | 簇号         | 描述 |
 | ------------ | ---- |
@@ -72,9 +72,9 @@ where
 }
 ```
 
-这是标准库中try_fold的函数定义。在`f(accum, x)?`处会对返回值进行判断，如果返回值为`Try::Residual`，try_fold将直接返回。foldr和try_fold并不等价，因为折叠的方向相同。
+这是标准库中`try_fold`的函数定义。在`f(accum, x)?`处会对返回值进行判断，如果返回值为`R::Residual`，`try_fold`将直接返回。`foldr`和`try_fold`并不等价，因为折叠的方向相同。
 
-FTL OS文件系统使用try_fold封装对缓存块的操作，并在此基础上继续构造出一系列目录项处理操作。使用try_fold而不是迭代器的原因是try_fold和迭代器运行的位置不同，try_fold的参数函数运行在栈的最深处，而迭代器是从函数的返回值中获取值。try_fold可以作为深层异步函数的一个部分运行，而迭代器除了需要将自身异步化外，每次调用都涉及内部上下文的切换，在文件系统中的表现为try_fold只需要获取锁一次，而迭代器每次取出数据都要获取锁，除了开销更大外还导致了潜在的数据不同步问题。
+FTL OS文件系统使用`try_fold`封装对缓存块的操作，并在此基础上继续构造出一系列目录项处理操作。使用`try_fold`而不是迭代器的原因是`try_fold`和迭代器运行的位置不同，`try_fold`的参数函数运行在栈的最深处，而迭代器是从函数的返回值中获取值。`try_fold`可以作为深层异步函数的一个部分运行，而迭代器除了需要将自身异步化外，每次调用都涉及内部上下文的切换，在文件系统中的表现为`try_fold`只需要获取锁一次，而迭代器每次取出数据都要获取锁，除了开销更大外还导致了潜在的数据不同步问题。
 
 ## 缓存块层
 
@@ -125,7 +125,7 @@ FTL OS的文件系统支持TB级磁盘，不会将整个FAT表放入内存。与
 
 ### FAT表索引器
 
-FAT表索引器除了提供加速查找作用外，更重要的是它不处于管理器睡眠锁的作用范围，管理器处于占有状态时依然可以查找。由于FAT表的使用频率较大，索引器没有使用`BTreeMap`，而是使用了数组来实现O(1)的查找。索引器定义如下：
+FAT表索引器除了提供加速查找作用外，更重要的是它不处于管理器睡眠锁的作用范围，管理器处于占有状态时依然可以查找。由于FAT表的使用频率较大，索引器没有使用`BTreeMap`，而是使用了数组来实现更快的查找。索引器定义如下：
 
 ```rust
 // fat32/src/fat_list/index.rs
@@ -154,15 +154,14 @@ pub fn set(&self, index: usize, arc: &Arc<ListUnit>) {
 }
 ```
 
-另一个方式是使用RCU释放Weak指针：
+另一个方式是使用RCU释放Weak指针，这个方式的读者不需要上锁：
 
 ```rust
 // fat32/src/fat_list/index.rs
 use ftl_util::rcu::RcuCollect;
 
 pub fn get(&self, index: usize) -> Option<Arc<ListUnit>> {
-    let _lock = self.lock[index].unique_lock();
-    unsafe { (&(*self.weak[index].get())).rcu_write(Arc::downgrade(arc)) }
+    unsafe { &(*self.weak[index].get()) }.rcu_read().upgrade()
 }
 pub fn set(&self, index: usize, arc: &Arc<ListUnit>) {
     let _lock = self.lock[index].unique_lock();
@@ -172,7 +171,7 @@ pub fn set(&self, index: usize, arc: &Arc<ListUnit>) {
 
 rcu系统不会立刻析构旧的弱指针，而是等待所有CPU离开宽限期才释放弱指针，因此`get`函数实现中的`rcu_read()`总是有效的。`rcu_read()`仅需要一次访存和一次读内存屏障，相对于读写锁的两次原子操作能明显提升性能。
 
-索引器的数组长度与FAT表的扇区数量相同，每个FAT表扇区需要8字节的指针。对于扇区大小为512B，簇大小为4KB的1TB的磁盘，FAT表的大小为1GB，索引器的空间开销为16MB。
+索引器的数组长度与FAT表的扇区数量相同，每个FAT表扇区需要8 B的指针。对于扇区大小为512 B，簇大小为4 KB的1 TB磁盘，FAT表的大小为1 GB，索引器的空间开销为16 MB，因此文件系统可以轻易支持TB级别的磁盘。
 
 ## 文件inode
 

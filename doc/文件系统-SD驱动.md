@@ -1,4 +1,8 @@
-# SD卡驱动的结构:
+# SD卡驱动
+
+FTL OS编写了支持CRC校验的SD卡驱动，代码框架参考了哈尔滨工业大学（深圳）随便取名不队的SD卡驱动框架。
+
+## SPI协议
 
 |   文件   |   实现   |
 | :-------:|:--------:|
@@ -45,11 +49,7 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 }
 ```
 
-随后逐个实现SPI协议中控制寄存器的实例,有关其中具体的值可以参考文档
-[SD卡中的SPI协议控制寄存器](https://sifive.cdn.prismic.io/sifive/1a82e600-1f93-4f41-b2d8-86ed8b16acba_fu740-c000-manual-v1p6.pdf)
-中的第19章
-
-这里仅列出寄存器的相关功能(按照registers中寄存器的实现顺序):
+随后逐个实现SPI协议中控制寄存器的实例,有关其中具体的值可以参考文档[SD卡中的SPI协议控制寄存器](https://sifive.cdn.prismic.io/sifive/1a82e600-1f93-4f41-b2d8-86ed8b16acba_fu740-c000-manual-v1p6.pdf)中的第19章，这里仅列出寄存器的相关功能(按照registers中寄存器的实现顺序):
 
 |   控制寄存器   |   相关字段及功能   |
 | :-------:|:--------|
@@ -69,10 +69,6 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 |FFMT | 定义指令的一些格式例如指令协议，地址长度等等|
 |IE | txwm字段：当FIFO中的数据少于txmark中设定的阈值时，txwm被设置<br>rxwm字段：当FIFO中的数据多余rxmark中设定的阈值时，rxwm被设置|
 |IP | txwm悬挂字段:当FIFO中有充足的数据被写入并且超过了txmark时，txwm的悬挂位被清除<br>rxwm悬挂字段:当FIFO中有充足的数据被读出并且少于rxmark时，rxwm的悬挂位被清除|
-
-
-
-
 
 
 ## 2. mod.rs中的SPIActions

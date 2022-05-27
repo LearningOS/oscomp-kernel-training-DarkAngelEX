@@ -4,7 +4,7 @@ use alloc::vec::Vec;
 
 use crate::sync::{spin_mutex::SpinMutex, MutexSupport};
 
-use super::RcuCollect;
+use super::{RcuCollect, RcuDrop};
 
 /// RCU 回收系统
 ///
@@ -32,8 +32,8 @@ use super::RcuCollect;
 ///     删除当前CPU位, 这期间收集到的内存留给下个释放周期释放
 pub struct RcuManager<S: MutexSupport> {
     flags: AtomicU64,
-    rcu_current: SpinMutex<Vec<(usize, unsafe fn(usize))>, S>,
-    rcu_pending: SpinMutex<Vec<(usize, unsafe fn(usize))>, S>,
+    rcu_current: SpinMutex<Vec<RcuDrop>, S>,
+    rcu_pending: SpinMutex<Vec<RcuDrop>, S>,
 }
 
 impl<S: MutexSupport> RcuManager<S> {
@@ -83,7 +83,7 @@ impl<S: MutexSupport> RcuManager<S> {
         let pending = core::mem::take(&mut *self.rcu_pending.lock());
         let v = core::mem::replace(&mut *self.rcu_current.lock(), pending);
         self.flags.fetch_and(!mask_current, Ordering::Release);
-        v.into_iter().for_each(|(v, f)| unsafe { f(v) });
+        v.into_iter().for_each(|rd| unsafe { rd.release() });
     }
     pub fn rcu_assert(&self, id: usize) {
         debug_assert!(self.flags.load(Ordering::Relaxed) & (1 << id) != 0)
@@ -91,10 +91,10 @@ impl<S: MutexSupport> RcuManager<S> {
     pub fn rcu_drop<T: RcuCollect>(&self, x: T) {
         self.rcu_drop_usize(unsafe { x.rcu_transmute() })
     }
-    pub fn rcu_drop_usize(&self, v: (usize, unsafe fn(usize))) {
+    pub fn rcu_drop_usize(&self, v: RcuDrop) {
         self.rcu_pending.lock().push(v)
     }
-    pub fn rcu_drop_group(&self, v: &mut Vec<(usize, unsafe fn(usize))>) {
+    pub fn rcu_drop_group(&self, v: &mut Vec<RcuDrop>) {
         self.rcu_pending.lock().append(v);
     }
 }
