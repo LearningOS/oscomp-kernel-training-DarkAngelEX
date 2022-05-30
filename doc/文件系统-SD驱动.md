@@ -1,16 +1,14 @@
-<<<<<<< HEAD
 # SDcard驱动
 
 由于在FU740上缺少相关的SD卡驱动，我们参考了K210的SD卡驱动的实现方式，具体需要实现关于FU740的一些SPI控制寄存器及其操作和与SD卡基于SPI协议通信两部分，以下介绍在FU740上SD卡驱动的具体框架，然后形象地介绍一下SPI初始化以及读写数据块的过程。
 
 ## SD卡驱动的结构
-=======
+
 # SD卡驱动
 
 FTL OS编写了支持CRC校验的SD卡驱动，代码框架参考了哈尔滨工业大学（深圳）随便取名不队的SD卡驱动框架。
 
 ## SPI协议
->>>>>>> 8d53153fee0ed0ff198e5d7f47d6208ea46cad94
 
 |   文件   |   实现   |
 | :-------:|:--------:|
@@ -80,15 +78,11 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 
 其中TXMARK和RXMARK寄存器以及IE和IP寄存器对后面的控制数据传输起着重要的作用，具体表现如下：
 
-<<<<<<< HEAD
 * 1.TXMARK设置了写中断的界限，设置了TXMARK后，若FIFO中的数据少于设定的值，就会将TXDATA中的数据写入FIFO直到满足其中的数据量大于TXMARK值，这个中断是由IE来判断的，所以我们如果在中断以后，可以依据IE中的相关标志位设置循环，然后直到写入FIFO数据超过相关阈值。
 * 2.RXMARK设置了读中断的界限，设置了RXMARK后，若FIFO中的数据多于设定的值，就会将FIFO中的数据读入RXDATA中直到FIFO中的数据量少于RXMARK值，这个中断也是由IE来判断，所以在中断以后，就根据标志位设置循环以不停读出FIFO中的数据，直到FIFO中的数据低于相关阈值。
 
 ### 2. mod.rs中的SPIActions
 
-=======
-## 2. mod.rs中的SPIActions
->>>>>>> 8d53153fee0ed0ff198e5d7f47d6208ea46cad94
 ```rust
 pub trait SPIActions {
     fn init(&mut self);
@@ -202,12 +196,12 @@ impl SPIImpl {
 
 ### SPI协议的初始化过程
 
-![SD卡初始化]([pic/SD_init.png]#pic_center)
+![SD卡初始化](pic/SD_init.png)
 这是SD卡进入SPI模式的一个过程，可以看到，是主机发送CMD指令和SD卡进行交互，在“一切就绪”（包括电压范围等）后，SD卡就进入了SPI通信的模式
 
 ### 读写一个数据块的过程
 
-![SD卡读写一个块]([pic/SD_read_write.png]#pic_center)
+![SD卡读写一个块](pic/SD_read_write.png)
 
 #### 读一个块的过程如下
 
