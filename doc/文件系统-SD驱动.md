@@ -74,8 +74,8 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 
 其中TXMARK和RXMARK寄存器以及IE和IP寄存器对后面的控制数据传输起着重要的作用，具体表现如下：
 
-* 1.TXMARK设置了写中断的界限，设置了TXMARK后，若FIFO中的数据少于设定的值，就会将TXDATA中的数据写入FIFO直到满足其中的数据量大于TXMARK值，这个中断是由IE来判断的，所以我们如果在中断以后，可以依据IE中的相关标志位设置循环，然后直到写入FIFO数据超过相关阈值。
-* 2.RXMARK设置了读中断的界限，设置了RXMARK后，若FIFO中的数据多于设定的值，就会将FIFO中的数据读入RXDATA中直到FIFO中的数据量少于RXMARK值，这个中断也是由IE来判断，所以在中断以后，就根据标志位设置循环以不停读出FIFO中的数据，直到FIFO中的数据低于相关阈值。
+1. TXMARK设置了写中断的界限，设置了TXMARK后，若FIFO中的数据少于设定的值，就会将TXDATA中的数据写入FIFO直到满足其中的数据量大于TXMARK值，这个中断是由IE来判断的，所以我们如果在中断以后，可以依据IE中的相关标志位设置循环，然后直到写入FIFO数据超过相关阈值。
+2. RXMARK设置了读中断的界限，设置了RXMARK后，若FIFO中的数据多于设定的值，就会将FIFO中的数据读入RXDATA中直到FIFO中的数据量少于RXMARK值，这个中断也是由IE来判断，所以在中断以后，就根据标志位设置循环以不停读出FIFO中的数据，直到FIFO中的数据低于相关阈值。
 
 ### 2. mod.rs中的SPIActions
 
