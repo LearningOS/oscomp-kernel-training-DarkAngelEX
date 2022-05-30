@@ -192,12 +192,12 @@ impl SPIImpl {
 
 ### SPI协议的初始化过程
 
-![SD卡初始化](pic/SD_init.png)
+![SD卡初始化](pic/SD_init.png)#pic_center
 这是SD卡进入SPI模式的一个过程，可以看到，是主机发送CMD指令和SD卡进行交互，在“一切就绪”（包括电压范围等）后，SD卡就进入了SPI通信的模式
 
 ### 读写一个数据块的过程
 
-![SD卡读写一个块](pic/SD_read_write.png)
+![SD卡读写一个块](pic/SD_read_write.png)#pic_center
 
 #### 读一个块的过程如下
 
