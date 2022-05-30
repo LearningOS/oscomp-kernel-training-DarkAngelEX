@@ -18,30 +18,26 @@ FTL OS使用了非常简单且高效的方式来实现RCU操作，接口定义�
 
 ```rust
 // ftl-util/src/rcu/mod.rs
+pub struct RcuDrop(usize, unsafe fn(usize));
+
 pub trait RcuCollect: Sized + 'static {
     fn rcu_assert();
     fn rcu_read(&self) -> RcuReadGuard<Self>;
     unsafe fn rcu_write(&self, src: Self);
-    unsafe fn rcu_into(self) -> usize;
-    unsafe fn rcu_from(v: usize) -> Self;
-    unsafe fn rcu_transmute(self) -> (usize, unsafe fn(usize));
+    unsafe fn rcu_transmute(self) -> RcuDrop;
     fn rcu_drop(self);
-    fn drop_fn() -> unsafe fn(usize);
 }
 ```
 
-这里只展示了`RcuCollect`的接口定义，但实际代码中RcuCollect提供了完整的默认实现，任何满足RCU要求的类型都可以实现`RcuCollect`且不需要重写任何函数。这几个函数的作用如下：
+这里只展示了`RcuCollect`的接口定义，实际代码中RcuCollect提供了完善的默认实现，任何满足RCU要求的类型都可以实现`RcuCollect`且不需要重写任何函数。这几个函数的作用如下：
 
 |    函数名     |                             描述                             |
 | :-----------: | :----------------------------------------------------------: |
 |  rcu_assert   | 判断类型是否满足RCU要求，即类型大小不能大于`usize`的大小，类型大小和类型对齐是否一致。 |
 |   rcu_read    |         获取一个RCU临时对象，此对象不能跨越`await`。         |
 |   rcu_write   |       将旧数据更新为新数据，旧数据调用`rcu_drop`释放。       |
-|   rcu_into    |              类型擦除，将自身转化为usize类型。               |
-|   rcu_from    |                类型恢复，从usize转回原类型。                 |
-| rcu_transmute |               将自身进行类型擦除并获取析构函数               |
+| rcu_transmute |                    类型擦除并获取析构函数                    |
 |   rcu_drop    |    使用处于全局空间的`self::rcu_drop`函数进行RCU延迟析构     |
-|    drop_fn    | 获取能够释放自身的函数，先调用`rcu_from`恢复类型再使用`drop`析构自身。 |
 
 所有函数在调用之前都会使用`rcu_assert`判断此类型是否满足RCU条件，如果不满足将panic。`rcu_assert`保证了此类型的load和store操作都可以用一条指令完成，即内存读写是原子的。绝大多数RCU对象是指针，FTL OS对`Box`、`Arc`、`Weak`这三个alloc库提供的智能指针都实现了`RcuCollect`，满足绝大多数使用场景。一般来说用户只需要使用`rcu_read`和`rcu_write`两个函数，其他函数主要被RCU释放系统使用。
 

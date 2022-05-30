@@ -1,8 +1,6 @@
 # SDcard驱动
 
-由于在FU740上缺少相关的SD卡驱动，我们参考了K210的SD卡驱动的实现方式，具体需要实现关于FU740的一些SPI控制寄存器及其操作和与SD卡基于SPI协议通信两部分，以下介绍在FU740上SD卡驱动的具体框架，然后形象地介绍一下SPI初始化以及读写数据块的过程。
-
-## SD卡驱动的结构
+Hifive Unmatched平台缺少必须的SD卡驱动，因此我们参考了K210的SD卡驱动实现了基于SPI协议的可以在Hifive Unmatched平台的SD驱动。
 
 ## SPI协议
 
@@ -61,7 +59,7 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 |CSDEF | 设定片选线|
 |CSMODE | 设置片选模式<br>1.AUTO：使CS生效或者失效在帧的开始或结束阶段<br>2.HOLD: 保持CS在初始帧之后一直有效<br>3.OFF：使得硬件失去对CSpin的掌控|
 |DELAY0 | cssck字段：控制CS有效和SCK第一次上升沿之间的时延<br>sckcs字段：控制SCK最后的下降沿和CS失效之间的时延|
-|DELAY1 | cssck字段：intercs字段：控制最小CS失效时间<br>interxfr字段：控制两个连续帧在不丢弃CS的情况下之间的延迟，只有在sckmod寄存器是HOLD或者OFF模式用|
+|DELAY1 | cssck字段：intercs字段：控制最小CS失效时间<br>interxfr字段：控制两个连续帧在不丢弃CS的情况下之间的延迟，只在sckmod寄存器是HOLD或者OFF模式时使用 |
 |FMT | 设置协议，大小端和方向等，传输数据的长度|
 |TXDATA | data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端<br>full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据这些数据自然也就无法FIFO|
 |RXDATA | data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端<br>full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据这些数据自然也就无法FIFO|
@@ -186,16 +184,16 @@ impl SPIImpl {
 |recv_data | 接收逻辑如下：<br>1.通过fmt寄存器设置方向为接收方向<br>2.设置对应的片选csid<br>3.对FIFO中的数据迭代:<br>&emsp;由于spi一定是全双工的，所以在读取一个字节时要发送无用信息<br>&emsp;设置接收水位寄存器<br>&emsp;等待中断<br>&emsp;接收数据|
 |send_data | 发送逻辑如下：<br>1.通过fmt寄存器设置方向为发送方向<br>2.设置对应的片选csid<br>3.对FIFO中的数据迭代:<br>&emsp;通过FU740文档可知，在传输数据时接收线是不被激活的，所以这里不需要也接收数据<br>&emsp;设置发送水位寄存器<br>&emsp;等待中断<br>&emsp;发送数据|
 
-## 初始化SPI协议通信，读数据快和写数据块过程
+## SD卡驱动
 
-与SD卡进行SPI通信的过程实际上是host发送指令，SD卡做出回应这样的一种方式。
+SD卡进行SPI通信的过程实际上是host发送指令，SD卡做出回应这样的方式。
 
-### SPI协议的初始化过程
+### 初始化
 
 ![SD卡初始化](pic/SD_init.png)
 这是SD卡进入SPI模式的一个过程，可以看到，是主机发送CMD指令和SD卡进行交互，在“一切就绪”（包括电压范围等）后，SD卡就进入了SPI通信的模式。
 
-### 读写一个数据块的过程
+### 读写数据块
 
 ![SD卡读写一个块](pic/SD_read_write.png)
 
@@ -215,3 +213,8 @@ impl SPIImpl {
 5. 结束
 
 在读写多个块的情况下大同小异，不同的只有指令号不一样，数据块的数量上以及个别标志位有所差异，具体请参考文档Technical Commitee SD Card Association发布的SD Specifications的第7章。
+
+## CRC纠错
+
+在实际测试中，目前的驱动以8MHz读取数据时，约200个扇区会发生一次错误，因此CRC校验是必须的。扇区数据的校验使用CRC16校验方法，FTL OS采用了和Linux相同的校验函数实现，将每个字节对于的256种CRC16校验状态转换硬编码在代码中，以查表的方式校验数据。一旦发生校验失败就重新传输数据。
+
