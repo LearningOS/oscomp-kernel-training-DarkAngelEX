@@ -1,6 +1,6 @@
 # FTL OS
 
-FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核实现赛道的参赛操作系统。FTL OS使用rust语言开发，基于rust async无栈协程进行上下文切换。FTL OS追求极致的性能与高可扩展性，支持qemu平台与Hifive Unmatched平台运行。
+FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核实现赛道的参赛操作系统，来自哈尔滨工业大学（深圳）。FTL OS使用rust语言开发，基于rust async无栈协程进行上下文切换。FTL OS追求极致的性能与高可扩展性，支持qemu平台与Hifive Unmatched平台运行。
 
 ![os](https://img.shields.io/badge/kernel-asynchronous-red)![ISA](https://img.shields.io/badge/ISA-RISC--V-yellow)![competition](https://img.shields.io/badge/os-competition-blue)
 
@@ -64,7 +64,7 @@ make native
 
 ## 项目结构
 
-doc：项目文档
+[doc](./doc)：项目文档，[这里](./doc/文档目录.md)是文档的目录。
 
 code：项目代码，各个文件夹的描述如下：
 
@@ -80,27 +80,3 @@ code：项目代码，各个文件夹的描述如下：
 |         kernel         |                FTL OS内核实现                |
 | testsuits-for-oskernel |                 初赛测试程序                 |
 |          user          | 修改自rCore-tutorial-v3，包含shell与测试程序 |
-
-## 文档目录
-
-所有文档放置于[doc](./doc)文件夹，以下为文档目录：
-
-* 进程调度
-  * 无栈协程
-  * 任务调度器
-  * 浮点数与优化
-  * 进程管理
-  * 陷阱与上下文切换
-* 内存管理
-  * 页表映射
-  * 映射管理器
-  * 内存分配器
-  * RCU系统
-* 同步系统
-  * 锁
-  * 进程间通信
-  * 信号系统
-* 文件系统
-  * FAT32
-  * 虚拟文件系统
-  * SD驱动
