@@ -201,17 +201,17 @@ impl SPIImpl {
 
 #### 读一个块的过程如下
 
-* 1.host发出读一个块的指令
-* 2.SD卡response
-* 3.SD卡返回一个块加上校验码
-* 4.结束
+1. host发出读一个块的指令
+2. SD卡response
+3. SD卡返回一个块加上校验码
+4. 结束
 
 #### 写一个块的过程如下
 
-* 1.host发出写一个块的指令
-* 2.SD卡response
-* 3.host发出一个带有开始数据标志的数据块
-* 4.SD卡接收到数据块后发出带有数据回应和busy的信息
-* 5.结束
+1. host发出写一个块的指令
+2. SD卡response
+3. host发出一个带有开始数据标志的数据块
+4. SD卡接收到数据块后发出带有数据回应和busy的信息
+5. 结束
 
 在读写多个块的情况下大同小异，不同的只有指令号不一样，数据块的数量上以及个别标志位有所差异，具体请参考文档Technical Commitee SD Card Association发布的SD Specifications的第7章
