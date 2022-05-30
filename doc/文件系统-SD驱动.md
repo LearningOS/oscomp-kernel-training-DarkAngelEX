@@ -12,7 +12,7 @@
 |  mod.rs  | SPIActions接口定义|
 | registers.rs | spi控制寄存器抽象|
 
-按照registers.rs,mod.rs,layout.rs依次介绍
+按照registers.rs,mod.rs,layout.rs依次介绍。
 
 ### 1. registers.rs
 
@@ -25,7 +25,7 @@ pub struct Reg<T: Sized + Clone + Copy, U> {
 }
 ```
 
-然后实现new,以及一些读写的基本操作
+然后实现new,以及一些读写的基本操作。
 
 ```rust
 impl<T: Sized + Clone + Copy, U> Reg<T, U> {
@@ -104,8 +104,8 @@ recv_data:接收数据
 
 ### 3. layout.rs中的内存映像以及SPI协议通信
 
-这一部分就是实现SPI设备的内存映像以及实现如何通信
-具体如何通信可以参考Technical Commitee SD Card Association发布的SD Specifications的第7章
+这一部分就是实现SPI设备的内存映像以及实现如何通信。
+具体如何通信可以参考Technical Commitee SD Card Association发布的SD Specifications的第7章。
 
 #### SPI设备的三种实例
 
@@ -134,11 +134,11 @@ impl SPIDevice {
 }
 ```
 
-RegisterBlock就是利用了之前registers中实现的寄存器定义的一个结构体,也就是SPI协议控制器块
+RegisterBlock就是利用了之前registers中实现的寄存器定义的一个结构体,也就是SPI协议控制器块。
 
 #### SPIImpl结构体
 
-用SPIImpl结构体实现对SPIDevice的进一步封装，这一层封装主要实现了数据的收发，以及在中断悬挂位没有挂起时的循环等待
+用SPIImpl结构体实现对SPIDevice的进一步封装，这一层封装主要实现了数据的收发，以及在中断悬挂位没有挂起时的循环等待。
 
 ```rust
 pub struct SPIImpl {
@@ -188,16 +188,16 @@ impl SPIImpl {
 
 ## 初始化SPI协议通信，读数据快和写数据块过程
 
-与SD卡进行SPI通信的过程实际上是host发送指令，SD卡做出回应这样的一种方式
+与SD卡进行SPI通信的过程实际上是host发送指令，SD卡做出回应这样的一种方式。
 
 ### SPI协议的初始化过程
 
-![SD卡初始化](pic/SD_init.png)#pic_center
-这是SD卡进入SPI模式的一个过程，可以看到，是主机发送CMD指令和SD卡进行交互，在“一切就绪”（包括电压范围等）后，SD卡就进入了SPI通信的模式
+![SD卡初始化](pic/SD_init.png)
+这是SD卡进入SPI模式的一个过程，可以看到，是主机发送CMD指令和SD卡进行交互，在“一切就绪”（包括电压范围等）后，SD卡就进入了SPI通信的模式。
 
 ### 读写一个数据块的过程
 
-![SD卡读写一个块](pic/SD_read_write.png)#pic_center
+![SD卡读写一个块](pic/SD_read_write.png)
 
 #### 读一个块的过程如下
 
@@ -214,4 +214,4 @@ impl SPIImpl {
 4. SD卡接收到数据块后发出带有数据回应和busy的信息
 5. 结束
 
-在读写多个块的情况下大同小异，不同的只有指令号不一样，数据块的数量上以及个别标志位有所差异，具体请参考文档Technical Commitee SD Card Association发布的SD Specifications的第7章
+在读写多个块的情况下大同小异，不同的只有指令号不一样，数据块的数量上以及个别标志位有所差异，具体请参考文档Technical Commitee SD Card Association发布的SD Specifications的第7章。
