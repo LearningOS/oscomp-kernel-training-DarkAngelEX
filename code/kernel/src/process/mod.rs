@@ -45,8 +45,6 @@ bitflags! {
 pub struct Process {
     pid: PidHandle,
     pub pgid: AtomicUsize,
-    /// if need to lock bus and alive at the same time,
-    /// must lock alive first, then lock bus.
     pub event_bus: Arc<EventBus>,
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,

@@ -5,6 +5,7 @@
 #![feature(ptr_const_cast)]
 #![feature(if_let_guard)]
 
+use crate::rcu::RcuDrop;
 use xdebug::stack::XInfo;
 
 #[macro_use]
@@ -16,13 +17,13 @@ pub mod xdebug;
 #[macro_use]
 pub mod list;
 pub mod async_tools;
+pub mod container;
 pub mod device;
 pub mod error;
 pub mod fs;
 pub mod rcu;
 pub mod sync;
 pub mod utc_time;
-pub mod container;
 
 extern crate alloc;
 
@@ -35,7 +36,7 @@ pub fn console_init(write_fn: fn(core::fmt::Arguments)) {
     console::init(write_fn)
 }
 
-pub fn rcu_init(rcu_drop_fn: fn((usize, unsafe fn(usize)))) {
+pub fn rcu_init(rcu_drop_fn: fn(RcuDrop)) {
     rcu::init(rcu_drop_fn)
 }
 
