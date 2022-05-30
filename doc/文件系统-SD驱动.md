@@ -1,4 +1,8 @@
-# SD卡驱动的结构:
+# SDcard驱动
+
+由于在FU740上缺少相关的SD卡驱动，我们参考了K210的SD卡驱动的实现方式，具体需要实现关于FU740的一些SPI控制寄存器及其操作和与SD卡基于SPI协议通信两部分，以下介绍在FU740上SD卡驱动的具体框架，然后形象地介绍一下SPI初始化以及读写数据块的过程。
+
+## SD卡驱动的结构
 
 |   文件   |   实现   |
 | :-------:|:--------:|
@@ -8,7 +12,7 @@
 
 按照registers.rs,mod.rs,layout.rs依次介绍
 
-## 1. registers.rs
+### 1. registers.rs
 
 首先定义一个通用的寄存器结构体Reg
 
@@ -63,19 +67,20 @@ impl<T: Sized + Clone + Copy, U> Reg<T, U> {
 |FMT | 设置协议，大小端和方向等，传输数据的长度|
 |TXDATA | data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端<br>full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据这些数据自然也就无法FIFO|
 |RXDATA | data字段：存储了要传输的一个字节数据，这个数据是被写入FIFO的，注意大小端<br>full字段：表示FIFO是否已满，如果已经满了，则忽略写到tx_data的数据这些数据自然也就无法FIFO|
-|TXMARK | 决定传输的FIFO的中断在低于多少阈值下进行触发<br>txmark字段:当FIFO中的数据少于设置阈值时会触发中断，导致txmark向FIFO中写入数据|
+|TXMARK | 决定传输的FIFO的中断在低于多少阈值下进行触发<br>txmark字段:当FIFO中的数据少于设置阈值时会触发中断，导致txdata向FIFO中写入数据|
 |RXMARK | 决定接收的FIFO的中断在高于多少阈值时触发<br>rxmark字段：当FIFO中的数据超出阈值时会从FIFO中读取数据|
 |FCTRL | 控制memory-mapped和programmed-I/O两种模式的切换|
 |FFMT | 定义指令的一些格式例如指令协议，地址长度等等|
 |IE | txwm字段：当FIFO中的数据少于txmark中设定的阈值时，txwm被设置<br>rxwm字段：当FIFO中的数据多余rxmark中设定的阈值时，rxwm被设置|
 |IP | txwm悬挂字段:当FIFO中有充足的数据被写入并且超过了txmark时，txwm的悬挂位被清除<br>rxwm悬挂字段:当FIFO中有充足的数据被读出并且少于rxmark时，rxwm的悬挂位被清除|
 
+其中TXMARK和RXMARK寄存器以及IE和IP寄存器对后面的控制数据传输起着重要的作用，具体表现如下：
 
+* 1.TXMARK设置了写中断的界限，设置了TXMARK后，若FIFO中的数据少于设定的值，就会将TXDATA中的数据写入FIFO直到满足其中的数据量大于TXMARK值，这个中断是由IE来判断的，所以我们如果在中断以后，可以依据IE中的相关标志位设置循环，然后直到写入FIFO数据超过相关阈值。
+* 2.RXMARK设置了读中断的界限，设置了RXMARK后，若FIFO中的数据多于设定的值，就会将FIFO中的数据读入RXDATA中直到FIFO中的数据量少于RXMARK值，这个中断也是由IE来判断，所以在中断以后，就根据标志位设置循环以不停读出FIFO中的数据，直到FIFO中的数据低于相关阈值。
 
+### 2. mod.rs中的SPIActions
 
-
-
-## 2. mod.rs中的SPIActions
 ```rust
 pub trait SPIActions {
     fn init(&mut self);
@@ -99,12 +104,12 @@ set_clk_rate:设置时钟频率
 send_data:发送数据
 recv_data:接收数据
 
-## 3. layout.rs中的内存映像以及SPI协议通信
+### 3. layout.rs中的内存映像以及SPI协议通信
+
 这一部分就是实现SPI设备的内存映像以及实现如何通信
 具体如何通信可以参考Technical Commitee SD Card Association发布的SD Specifications的第7章
 
-
-### SPI设备的三种实例
+#### SPI设备的三种实例
 
 ```rust
 pub enum SPIDevice {
@@ -133,7 +138,8 @@ impl SPIDevice {
 
 RegisterBlock就是利用了之前registers中实现的寄存器定义的一个结构体,也就是SPI协议控制器块
 
-### SPIImpl结构体
+#### SPIImpl结构体
+
 用SPIImpl结构体实现对SPIDevice的进一步封装，这一层封装主要实现了数据的收发，以及在中断悬挂位没有挂起时的循环等待
 
 ```rust
@@ -172,7 +178,7 @@ impl SPIImpl {
 }
 ```
 
-### 实现SPIActions的接口
+#### 实现SPIActions的接口
 
 |   接口名称   |   实现功能   |
 | :-------:|:--------|
@@ -181,3 +187,15 @@ impl SPIImpl {
 |set_clk_rate | 片选寄存器,实现SD卡的选择,这里由于只有一块SD卡,只实现了寄存器的reset|
 |recv_data | 接收逻辑如下：<br>1.通过fmt寄存器设置方向为接收方向<br>2.设置对应的片选csid<br>3.对FIFO中的数据迭代:<br>&emsp;由于spi一定是全双工的，所以在读取一个字节时要发送无用信息<br>&emsp;设置接收水位寄存器<br>&emsp;等待中断<br>&emsp;接收数据|
 |send_data | 发送逻辑如下：<br>1.通过fmt寄存器设置方向为发送方向<br>2.设置对应的片选csid<br>3.对FIFO中的数据迭代:<br>&emsp;通过FU740文档可知，在传输数据时接收线是不被激活的，所以这里不需要也接收数据<br>&emsp;设置发送水位寄存器<br>&emsp;等待中断<br>&emsp;发送数据|
+
+## 初始化SPI协议通信，读数据快和写数据块过程
+
+与SD卡进行SPI通信的过程实际上是host发送指令，SD卡做出回应这样的一种方式
+
+### SPI协议的初始化过程
+
+![SD卡初始化]([./pic/SD_init.png]#pic_center)
+
+### 读写一个数据块的过程
+
+![SD卡读写一个块]([./pic/SD_read_write.png])
