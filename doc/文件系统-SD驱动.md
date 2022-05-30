@@ -16,7 +16,7 @@
 
 ### 1. registers.rs
 
-首先定义一个通用的寄存器结构体Reg
+首先定义一个通用的寄存器结构体Reg。
 
 ```rust
 pub struct Reg<T: Sized + Clone + Copy, U> {
@@ -96,11 +96,11 @@ pub trait SPIActions {
 ```
 
 一个接口，用于实现SPI协议的一些动作：
-init:初始化
-switch_cs:设置片选
-set_clk_rate:设置时钟频率
-send_data:发送数据
-recv_data:接收数据
+init:初始化<br>
+switch_cs:设置片选<br>
+set_clk_rate:设置时钟频率<br>
+send_data:发送数据<br>
+recv_data:接收数据<br>
 
 ### 3. layout.rs中的内存映像以及SPI协议通信
 
