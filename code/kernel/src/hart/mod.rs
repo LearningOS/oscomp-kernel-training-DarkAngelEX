@@ -44,6 +44,20 @@ const BOOT_HART_ID: usize = 0;
 //     panic!();
 // }
 
+/// FTL OS logo
+///
+/// generate from http://patorjk.com/software/taag/ with font `Speed`
+pub fn ftl_logo() -> &'static str {
+    concat!(
+        concat!(r#"______________________    _______________"#, '\n'),
+        concat!(r#"___  ____/__  __/__  /   ___  __ \/  ___/"#, '\n'),
+        concat!(r#"__  /_   __  /  __  /   ___  / / /____ \ "#, '\n'),
+        concat!(r#"_  __/  __  /  __  /___   / /_/ /____/ / "#, '\n'),
+        concat!(r#"/_/      /_/    /_____/   \____//_____/  "#, '\n'),
+        concat!(r#"  - - - - Faster  Than  Light - - - -    "#, '\n'),
+    )
+}
+
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     unsafe { cpu::set_cpu_id(hartid) };
@@ -54,7 +68,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         clear_bss();
         xdebug::init();
         console::init();
-        println!("[FTL OS]version 0.0.1");
+        println!("[FTL OS]version 0.1.0");
+        println!("{}", ftl_logo());
         INIT_HART.store(hartid, Ordering::Release);
         #[cfg(feature = "board_hifive")]
         {
