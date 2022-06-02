@@ -14,7 +14,7 @@ qemu运行FTL OS必须在kernel文件夹中进行：
 cd code/kernel
 ```
 
-之后按照必要的rust riscv工具链：
+安装必要的rust riscv工具链：
 
 ```shell
 make env
@@ -40,7 +40,7 @@ make run
 make all
 ```
 
-此命令将激活feature：`submit`、`hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了基础库。
+此命令将激活feature：`submit`、`hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了rust基础库，或使用qemu编译一次来下载相关库。
 
 #### Hifive Unmatched普通模式运行
 
@@ -50,7 +50,7 @@ make all
 make native
 ```
 
-此命令仅激活feature：`hifive`，初始化完成后依次运行所有的测试程序。此模式用于本地调试，如果文件系统初始化失败很可能是使用了错误的超级块号，请手动在[这里](code/kernel/src/drivers/block/mod.rs)修改`BPB_CID`为正确的超级块块号。
+此命令仅激活feature：`hifive`，初始化完成后依次运行所有的测试程序。此模式用于本地调试，FTL OS没有读取SD卡分区表而是用magic number定位文件系统。如果文件系统初始化失败很可能是使用了错误的超级块号，请手动在[这里](code/kernel/src/drivers/block/mod.rs)修改`BPB_CID`为正确的超级块块号，SD卡分区表的读取将在未来加入。
 
 ## 项目人员
 
@@ -58,7 +58,7 @@ make native
 
 叶自立（队长）：内核设计，异步、多核、文件系统设计。
 
-樊博：linux实现研究，作系统测试。
+樊博：linux实现研究，操作系统测试。
 
 李羿廷：SD卡驱动实现，信号系统。
 
@@ -80,3 +80,9 @@ make native
 |         kernel         |                FTL OS内核实现                |
 | testsuits-for-oskernel |                 初赛测试程序                 |
 |          user          | 修改自rCore-tutorial-v3，包含shell与测试程序 |
+
+## 初赛评测
+
+FTL OS已在初赛测试获得满分：
+
+![image-20220531000711741](doc/pic/初赛结果.png)
