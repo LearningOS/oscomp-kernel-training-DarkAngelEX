@@ -29,14 +29,13 @@ impl File for Stdin {
                 let mut c: usize;
                 loop {
                     c = console::getchar() as usize;
-                    if c == 0 {
+                    if [0, u32::MAX as usize].contains(&c) {
                         thread::yield_now().await;
                         continue;
                     }
                     break;
                 }
-                let ch = c as u8;
-                buf.access_mut()[i] = ch;
+                buf.access_mut()[i] = c as u8;
             }
             Ok(len)
         })

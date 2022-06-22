@@ -8,8 +8,9 @@ create: clean
 	mkdir $(DIR_PATH)
 	mkfs.vfat -s 8 -F 32 $(IMG_PATH)
 	chmod 777 $(IMG_PATH)
+	chmod 777 $(DIR_PATH)
 
-init: create init_dir_test_caes endumount
+init: create init_dir_test_case endumount
 
 mount:
 	-sudo umount -l $(DIR_PATH)
@@ -21,12 +22,13 @@ umount:
 endumount:
 	-sudo umount -l $(DIR_PATH)
 
-init_dir_test_caes: mount
+init_dir_test_case: mount
 	@cd ../user && make build
 	@cd .. && chmod 777 ./make_test.sh && ./make_test.sh && chmod 777 ./take_case.sh && ./take_case.sh;
 #	@(find ../initproc/) && (find ../test_case/) || (cd .. && ./take_case.sh)
 	@cp -r ../initproc/. $(DIR_PATH)/
 	@cp -r ../test_case/. $(DIR_PATH)/
+	@cp -r ../user/busybox_lua_testsuites/. $(DIR_PATH)/
 
 init_dir_0:
 	@cd $(DIR_PATH) && \

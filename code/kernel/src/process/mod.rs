@@ -179,7 +179,7 @@ pub async fn init() {
     let cwd = fs::open_file([].into_iter(), "/", fs::OpenFlags::RDONLY, Mode(0o500))
         .await
         .unwrap();
-    if cfg!(feature = "submit") || true {
+    if cfg!(feature = "submit") {
         let mut args = Vec::new();
         args.push(initproc.to_string());
         let envp = Vec::new();

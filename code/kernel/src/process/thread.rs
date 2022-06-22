@@ -107,10 +107,10 @@ impl Thread {
     ) -> Arc<Self> {
         let reverse_stack = PageCount::from_usize(2);
         let (user_space, stack_id, user_sp, entry_point, auxv) =
-            UserSpace::from_elf(elf_data, reverse_stack).unwrap();
+        UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };
         let (user_sp, argc, argv, xenvp) =
-            user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
+        user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
         drop(args);
         let pid = pid_alloc();
@@ -154,6 +154,7 @@ impl Thread {
             xenvp,
         );
         let ptr = Arc::new(thread);
+        println!("3");
         process
             .alive_then(|alive| alive.threads.push(&ptr))
             .unwrap();

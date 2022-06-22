@@ -147,11 +147,11 @@ impl PageTable {
         let x = &addr.indexes();
         let pte = next_pte(self.root_pa(), x[0]);
         if !pte.is_valid() {
-            pte.alloc_by(PTEFlags::V, allocator)?;
+            pte.alloc_by_non_leaf(PTEFlags::V, allocator)?;
         }
         let pte = next_pte(pte.phy_addr(), x[1]);
         if !pte.is_valid() {
-            pte.alloc_by(PTEFlags::V, allocator)?;
+            pte.alloc_by_non_leaf(PTEFlags::V, allocator)?;
         }
         let pte = next_pte(pte.phy_addr(), x[2]);
         Ok(pte)
@@ -210,7 +210,7 @@ impl PageTable {
                 memory_trace!("PageTable::map_user_range_0-0");
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if !pte.is_valid() {
-                    pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                    pte.alloc_by_non_leaf(PTEFlags::V, allocator).map_err(|_| ua)?;
                 }
                 let ptes = PageTable::ptes_from_pte(pte);
                 ua = map_user_range_1(ptes, l, r, flags, data_iter, allocator, ua)?;
@@ -233,7 +233,7 @@ impl PageTable {
                 memory_trace!("PageTable::map_user_range_1-0");
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if !pte.is_valid() {
-                    pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                    pte.alloc_by_non_leaf(PTEFlags::V, allocator).map_err(|_| ua)?;
                 }
                 let ptes = PageTable::ptes_from_pte(pte);
                 ua = map_user_range_2(ptes, l, r, flags, data_iter, allocator, ua)?;
@@ -386,7 +386,7 @@ impl PageTable {
                 if src_pte.is_valid() {
                     assert!(src_pte.is_directory());
                     memory_trace!("copy_user_range_lazy_0 0");
-                    dst_pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                    dst_pte.alloc_by_non_leaf(PTEFlags::V, allocator).map_err(|_| ua)?;
                     memory_trace!("copy_user_range_lazy_0 1");
                     let dst_ptes = PageTable::ptes_from_pte(dst_pte);
                     let src_ptes = PageTable::ptes_from_pte(src_pte);
@@ -416,7 +416,7 @@ impl PageTable {
                 let (l, r, _full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if src_pte.is_valid() {
                     assert!(src_pte.is_directory());
-                    dst_pte.alloc_by(PTEFlags::V, allocator).map_err(|_| ua)?;
+                    dst_pte.alloc_by_non_leaf(PTEFlags::V, allocator).map_err(|_| ua)?;
                     let dst_ptes = PageTable::ptes_from_pte(dst_pte);
                     let src_ptes = PageTable::ptes_from_pte(src_pte);
                     ua = copy_user_range_lazy_2(dst_ptes, src_ptes, l, r, ua, allocator)?;
@@ -610,7 +610,7 @@ impl PageTable {
                     }
                 } else {
                     if !pte.is_valid() {
-                        pte.alloc_by(PTEFlags::V, allocator)?;
+                        pte.alloc_by_non_leaf(PTEFlags::V, allocator)?;
                     }
                     let ptes = PageTable::ptes_from_pte(pte);
                     (va, pa) = map_direct_range_1(ptes, l, r, flags, va, pa, allocator)?
@@ -644,7 +644,7 @@ impl PageTable {
                     }
                 } else {
                     if !pte.is_valid() {
-                        pte.alloc_by(PTEFlags::V, allocator)?;
+                        pte.alloc_by_non_leaf(PTEFlags::V, allocator)?;
                     }
                     let ptes = PageTable::ptes_from_pte(pte);
                     (va, pa) = map_direct_range_2(ptes, l, r, flags, va, pa, allocator);

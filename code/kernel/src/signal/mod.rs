@@ -134,17 +134,11 @@ impl SignalSet {
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub union SigActionUnion {
-    handler: UserAddr<fn(u32)>,                         // (u32) -> ()
-    sigaction: UserAddr<fn(u32, *const (), *const ())>, // (u32, *siginfo_t, *()) -> ()
-}
-#[repr(C)]
-#[derive(Clone, Copy)]
 pub struct SigAction {
-    union: SigActionUnion,
-    mask: StdSignalSet,       //
-    flags: u32,               //
-    restorer: UserAddr<fn()>, // () -> ()
+    pub handler: usize,
+    pub mask: StdSignalSet,       //
+    pub flags: u32,               //
+    pub restorer: usize, // () -> ()
 }
 
 pub struct SignalPack {

@@ -1,5 +1,6 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
+    signal::SigAction,
     syscall::SysError,
     user::check::UserCheck,
 };
@@ -23,6 +24,51 @@ bitflags! {
 }
 
 impl Syscall<'_> {
+    pub async fn sys_rt_sigsuspend(&mut self) -> SysResult {
+        todo!()
+    }
+    /// 设置信号行为
+    ///
+    pub async fn sys_rt_sigaction(&mut self) -> SysResult {
+        stack_trace!();
+        let (sig, new_act, old_act, s_size): (
+            usize,
+            UserReadPtr<SigAction>,
+            UserWritePtr<SigAction>,
+            usize,
+        ) = self.cx.into();
+        if true {
+            println!(
+                "sys_rt_sigaction sig:{:#x} new_act:{:#x} old_act:{:#x} s_size:{}",
+                sig,
+                new_act.as_usize(),
+                old_act.as_usize(),
+                s_size
+            );
+        }
+        if sig >= 32 {
+            return Err(SysError::EINVAL);
+        }
+        let user_check = UserCheck::new(self.process);
+        if new_act
+            .as_uptr_nullable()
+            .ok_or(SysError::EINVAL)?
+            .is_null()
+        {
+            return Ok(0);
+        }
+        let new_act = user_check
+            .translated_user_readonly_value(new_act)
+            .await?
+            .load();
+        println!("handler: {:#x}", new_act.handler);
+        println!("mask:    {:#x}", new_act.mask);
+        println!("flags:   {:#x}", new_act.flags);
+        println!("restorer:{:#x}", new_act.restorer);
+        todo!()
+    }
+    /// 设置信号阻塞位并返回原先值
+    ///
     /// 仅修改当前线程 mask 等价于 pthread_sigmask
     pub async fn sys_rt_sigprocmask(&mut self) -> SysResult {
         stack_trace!();
@@ -67,13 +113,16 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
-    pub async fn sys_rt_sigaction(&mut self) -> SysResult {
-        stack_trace!();
-        let (sig, _new_act, _old_act, _s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
-            self.cx.into();
-        if sig >= 32 {
-            return Err(SysError::EINVAL);
-        }
+    pub async fn sys_rt_sigpending(&mut self) -> SysResult {
+        todo!()
+    }
+    pub async fn sys_rt_sigtimedwait(&mut self) -> SysResult {
+        todo!()
+    }
+    pub async fn sys_rt_sigqueueinfo(&mut self) -> SysResult {
+        todo!()
+    }
+    pub async fn sys_rt_sigreturn(&mut self) -> SysResult {
         todo!()
     }
 }

@@ -501,7 +501,6 @@ impl UserSpace {
 
         // 直接在用户虚拟地址上操作
         let _auto_sum = AutoSum::new();
-
         write_str(plat_ptr, platform);
         write_auxv(auxv_ptr, auxv);
         write_strings(envp_ptr, envp, get_slice(r_envp, envp_len));
