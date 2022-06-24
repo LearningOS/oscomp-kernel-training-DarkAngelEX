@@ -12,6 +12,7 @@ use super::{Pid, Process};
 static PROC_MAP: Mutex<BTreeMap<Pid, Weak<Process>>> = Mutex::new(BTreeMap::new());
 static mut INITPROC: OnceCell<Arc<Process>> = OnceCell::new();
 
+/// 由于使用弱指针，智能指针开销不可忽略
 pub fn find_proc(pid: Pid) -> Option<Arc<Process>> {
     PROC_MAP.lock().get_mut(&pid)?.upgrade()
 }

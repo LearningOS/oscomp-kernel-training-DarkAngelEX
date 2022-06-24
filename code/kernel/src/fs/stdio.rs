@@ -1,12 +1,7 @@
 use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
-use crate::{
-    console,
-    process::thread,
-    sync::SleepMutex,
-    user::{UserData, UserDataMut},
-};
+use crate::{console, process::thread, sync::SleepMutex};
 
 pub struct Stdin;
 
@@ -22,7 +17,7 @@ impl File for Stdin {
     fn can_mmap(&self) -> bool {
         false
     }
-    fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
         Box::pin(async move {
             let len = buf.len();
             for i in 0..len {
@@ -35,12 +30,12 @@ impl File for Stdin {
                     }
                     break;
                 }
-                buf.access_mut()[i] = c as u8;
+                buf[i] = c as u8;
             }
             Ok(len)
         })
     }
-    fn write(&self, _buf: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, _buf: &'a [u8]) -> AsyncFile {
         panic!("Cannot write to stdin!");
     }
 }
@@ -54,14 +49,14 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read(&self, _buf: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, _buf: &'a mut [u8]) -> AsyncFile {
         panic!("Cannot read from stdout!");
     }
-    fn write(&self, buf: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, buf: &'a [u8]) -> AsyncFile {
         Box::pin(async move {
             use core::str::lossy;
             let lock = STDOUT_MUTEX.lock().await;
-            let str = buf.access();
+            let str = buf;
             let iter = lossy::Utf8Lossy::from_bytes(&*str).chunks();
             for lossy::Utf8LossyChunk { valid, broken } in iter {
                 if !valid.is_empty() {

@@ -17,7 +17,6 @@ use crate::{
     sync::{mutex::SpinNoIrqLock, SleepMutex},
     syscall::SysResult,
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
-    user::{UserData, UserDataMut},
 };
 
 use super::{AsyncFile, File};
@@ -136,7 +135,7 @@ impl File for PipeReader {
     fn writable(&self) -> bool {
         false
     }
-    fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile {
         Box::pin(async move {
             if write_only.len() == 0 {
                 return Ok(0);
@@ -153,7 +152,7 @@ impl File for PipeReader {
             future.await
         })
     }
-    fn write(&self, _read_only: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, _read_only: &'a [u8]) -> AsyncFile {
         panic!("write to PipeReader");
     }
 }
@@ -179,10 +178,10 @@ impl File for PipeWriter {
     fn writable(&self) -> bool {
         true
     }
-    fn read(&self, _write_only: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, _write_only: &'a mut [u8]) -> AsyncFile {
         panic!("read from PipeWriter");
     }
-    fn write(&self, read_only: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile {
         Box::pin(async move {
             if read_only.len() == 0 {
                 return Ok(0);
@@ -205,12 +204,12 @@ struct ReadPipeFuture<'a> {
     pipe: &'a mut Pipe,
     waker: &'a SpinNoIrqLock<Option<Waker>>,
     writer: &'a Weak<PipeWriter>,
-    buffer: UserDataMut<u8>,
+    buffer: &'a mut [u8],
     current: usize,
 }
 impl ReadPipeFuture<'_> {
-    fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut UserDataMut<u8>) {
-        (self.pipe, &mut self.buffer)
+    fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut [u8]) {
+        (self.pipe, self.buffer)
     }
     async fn init(&mut self) {
         let waker = ftl_util::async_tools::take_waker().await;
@@ -233,7 +232,7 @@ impl Future for ReadPipeFuture<'_> {
             }
             let current = self.current;
             let (pipe, buffer) = self.pipe_and_buf_mut();
-            let dst = &mut buffer.access_mut()[current..];
+            let dst = &mut buffer[current..];
             self.current += pipe.read(dst);
 
             self.writer
@@ -247,12 +246,12 @@ struct WritePipeFuture<'a> {
     pipe: &'a mut Pipe,
     waker: &'a SpinNoIrqLock<Option<Waker>>,
     reader: &'a Weak<PipeReader>,
-    buffer: UserData<u8>,
+    buffer: &'a [u8],
     current: usize,
 }
 impl WritePipeFuture<'_> {
-    fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ mut UserData<u8>) {
-        (self.pipe, &mut self.buffer)
+    fn pipe_and_buf_mut(&mut self) -> (&'_ mut Pipe, &'_ [u8]) {
+        (self.pipe, self.buffer)
     }
     async fn init(&mut self) {
         let waker = ftl_util::async_tools::take_waker().await;
@@ -276,7 +275,7 @@ impl Future for WritePipeFuture<'_> {
             }
             let current = self.current;
             let (pipe, buffer) = self.pipe_and_buf_mut();
-            let dst = &buffer.access()[current..];
+            let dst = &buffer[current..];
             self.current += pipe.write(dst);
 
             self.reader

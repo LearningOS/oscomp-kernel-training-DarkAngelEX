@@ -1,5 +1,4 @@
 use alloc::{
-    collections::LinkedList,
     string::{String, ToString},
     sync::{Arc, Weak},
     vec::Vec,
@@ -9,7 +8,6 @@ use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use crate::{
     fs::{self, Mode, VfsInode},
     memory::{asid::Asid, UserSpace},
-    signal::SignalPack,
     sync::{
         even_bus::{Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
@@ -22,6 +20,7 @@ use self::{
     children::ChildrenSet,
     fd::FdTable,
     pid::PidHandle,
+    signal::ProcSignalManager,
     thread::{Thread, ThreadGroup},
 };
 
@@ -29,6 +28,7 @@ pub mod children;
 pub mod fd;
 pub mod pid;
 pub mod proc_table;
+pub mod signal;
 pub mod thread;
 pub mod tid;
 pub mod userloop;
@@ -58,14 +58,14 @@ impl Drop for Process {
 
 pub struct AliveProcess {
     pub user_space: UserSpace,
-    pub cwd: Arc<VfsInode>,
+    pub cwd: Arc<dyn VfsInode>,
     pub exec_path: String,
     pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
     pub fd_table: FdTable,
-    pub signal_queue: LinkedList<SignalPack>,
+    pub signal_manager: ProcSignalManager,
 }
 
 #[derive(Debug)]
@@ -116,7 +116,7 @@ impl Process {
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(new_pid.get_usize() + 1),
             fd_table: alive.fd_table.clone(),
-            signal_queue: LinkedList::new(),
+            signal_manager: ProcSignalManager::new(),
         };
         let new_process = Arc::new(Process {
             pid: new_pid,

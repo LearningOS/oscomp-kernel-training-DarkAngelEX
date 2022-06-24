@@ -8,7 +8,7 @@ use core::{
 
 use alloc::{
     boxed::Box,
-    collections::{BTreeMap, LinkedList},
+    collections::BTreeMap,
     string::String,
     sync::{Arc, Weak},
     vec::Vec,
@@ -19,7 +19,7 @@ use crate::{
     fs::VfsInode,
     hart::floating,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
-    signal::SignalSet,
+    process::signal::ProcSignalManager,
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
@@ -27,8 +27,8 @@ use crate::{
 };
 
 use super::{
-    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, AliveProcess, CloneFlag,
-    Process, Tid,
+    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, signal::ThreadSignalManager,
+    AliveProcess, CloneFlag, Process, Tid,
 };
 
 pub struct ThreadGroup {
@@ -94,23 +94,23 @@ pub struct ThreadInner {
     pub stack_id: StackID,
     pub set_child_tid: UserInOutPtr<u32>,
     pub clear_child_tid: UserInOutPtr<u32>,
-    pub signal_mask: SignalSet,
+    pub signal_manager: ThreadSignalManager,
     uk_context: Box<UKContext>,
 }
 
 impl Thread {
     pub fn new_initproc(
-        cwd: Arc<VfsInode>,
+        cwd: Arc<dyn VfsInode>,
         elf_data: &[u8],
         args: Vec<String>,
         envp: Vec<String>,
     ) -> Arc<Self> {
         let reverse_stack = PageCount::from_usize(2);
         let (user_space, stack_id, user_sp, entry_point, auxv) =
-        UserSpace::from_elf(elf_data, reverse_stack).unwrap();
+            UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };
         let (user_sp, argc, argv, xenvp) =
-        user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
+            user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
         drop(args);
         let pid = pid_alloc();
@@ -129,7 +129,7 @@ impl Thread {
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(tid.to_usize() + 1),
                 fd_table: FdTable::new(),
-                signal_queue: LinkedList::new(),
+                signal_manager: ProcSignalManager::new(),
             })),
             exit_code: AtomicI32::new(0),
         });
@@ -140,7 +140,7 @@ impl Thread {
                 stack_id,
                 set_child_tid: UserInOutPtr::null(),
                 clear_child_tid: UserInOutPtr::null(),
-                signal_mask: SignalSet::empty(),
+                signal_manager: ThreadSignalManager::new(),
                 uk_context: unsafe { UKContext::any() },
             }),
         };
@@ -191,7 +191,6 @@ impl Thread {
         } else {
             UserInOutPtr::null()
         };
-        let signal_mask = inner.signal_mask;
         let thread = Arc::new(Self {
             tid: self.tid,
             process: new_process,
@@ -199,7 +198,7 @@ impl Thread {
                 stack_id: inner.stack_id,
                 set_child_tid,
                 clear_child_tid,
-                signal_mask,
+                signal_manager: inner.signal_manager.fork(),
                 uk_context: inner.uk_context.fork(),
             }),
         });

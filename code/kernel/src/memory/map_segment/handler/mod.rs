@@ -259,7 +259,7 @@ impl AsyncHandler for FileAsyncHandler {
                 let frame = allocator.alloc()?;
                 let n = self
                     .file
-                    .read_at_kernel(offset, frame.data().as_bytes_array_mut())
+                    .read_at(offset, frame.data().as_bytes_array_mut())
                     .await?;
                 frame.data().as_bytes_array_mut()[n..].fill(0);
                 flush = Some(process.alive_then(|a| -> Result<_, SysError> {
@@ -292,7 +292,7 @@ impl AsyncHandler for FileAsyncHandler {
             let frame = allocator.alloc()?;
             let n = self
                 .file
-                .read_at_kernel(offset, frame.data().as_bytes_array_mut())
+                .read_at(offset, frame.data().as_bytes_array_mut())
                 .await?;
             frame.data().as_bytes_array_mut()[n..].fill(0);
             let flush = process.alive_then(|a| -> Result<_, SysError> {

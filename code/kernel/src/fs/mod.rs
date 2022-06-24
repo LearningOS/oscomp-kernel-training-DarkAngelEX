@@ -16,7 +16,6 @@ pub use self::{
 use crate::{
     syscall::{SysError, SysResult, UniqueSysError},
     tools::xasync::Async,
-    user::{UserData, UserDataMut},
 };
 
 pub async fn init() {
@@ -100,8 +99,8 @@ pub type AsyncFile<'a> = Async<'a, Result<usize, SysError>>;
 
 pub trait File: Send + Sync + 'static {
     // 这个文件的工作路径
-    fn to_vfs_inode(&self) -> Option<&VfsInode> {
-        None
+    fn to_vfs_inode(&self) -> Result<&dyn VfsInode, SysError> {
+        Err(SysError::ENOTDIR)
     }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
@@ -114,20 +113,14 @@ pub trait File: Send + Sync + 'static {
     fn can_write_offset(&self) -> bool {
         false
     }
-    fn read_at(&self, _offset: usize, _write_only: UserDataMut<u8>) -> AsyncFile {
+    fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
         unimplemented!()
     }
-    fn write_at(&self, _offset: usize, _read_only: UserData<u8>) -> AsyncFile {
+    fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
         unimplemented!()
     }
-    fn read_at_kernel<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
-        unimplemented!()
-    }
-    fn write_at_kernel<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
-        unimplemented!()
-    }
-    fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile;
-    fn write(&self, read_only: UserData<u8>) -> AsyncFile;
+    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile;
+    fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile;
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
         Ok(0)
     }

@@ -23,7 +23,7 @@ pub struct VfsDentry {
     hash: usize,
     parent: DentryParent,
     some_children: SpinNoIrqLock<LinkedList<Weak<VfsDentry>>>, // 按LRU排序的不完整的目录下文件 如果此inode为文件或mount将为空
-    inode: Weak<VfsInode>,
+    inode: Weak<dyn VfsInode>,
     mount: Option<()>,
 }
 
@@ -62,7 +62,7 @@ fn name_hash(name: &str) -> usize {
 }
 
 impl VfsDentry {
-    pub fn new_root(inode: Weak<VfsInode>) -> Self {
+    pub fn new_root(inode: Weak<dyn VfsInode>) -> Self {
         Self {
             name: String::new(),
             hash: name_hash(""),

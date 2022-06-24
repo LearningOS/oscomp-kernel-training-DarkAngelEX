@@ -99,7 +99,7 @@ impl Syscall<'_> {
         let file = self
             .alive_then(|a| a.fd_table.get(fd).cloned())?
             .ok_or(SysError::EBADF)?;
-        let file = file.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        let file = file.to_vfs_inode()?;
         let list = file.list().await?;
 
         let mut buffer = &mut *dirp.access_mut();
@@ -152,7 +152,7 @@ impl Syscall<'_> {
         if !file.readable() {
             return Err(SysError::EPERM);
         }
-        file.read(write_only_buffer).await
+        file.read(&mut *write_only_buffer.access_mut()).await
     }
     pub async fn sys_write(&mut self) -> SysResult {
         stack_trace!();
@@ -172,7 +172,7 @@ impl Syscall<'_> {
         if !file.writable() {
             return Err(SysError::EPERM);
         }
-        let ret = file.write(read_only_buffer).await;
+        let ret = file.write(&*read_only_buffer.access()).await;
         ret
     }
     pub async fn sys_mkdirat(&mut self) -> SysResult {
@@ -196,7 +196,7 @@ impl Syscall<'_> {
                 .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
                 .ok_or(SysError::EBADF)?,
         };
-        let base = base.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        let base = base.to_vfs_inode()?;
         fs::create_any(base.path_iter(), path.as_str(), flags, mode).await?;
         Ok(0)
     }
@@ -217,7 +217,7 @@ impl Syscall<'_> {
                 .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
                 .ok_or(SysError::EBADF)?,
         };
-        let base = base.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        let base = base.to_vfs_inode()?;
         fs::unlink(base.path_iter(), &path, OpenFlags::empty()).await?;
         Ok(0)
     }
@@ -243,7 +243,7 @@ impl Syscall<'_> {
     pub async fn sys_openat(&mut self) -> SysResult {
         stack_trace!();
         let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
-        if PRINT_SYSCALL_FS {
+        if PRINT_SYSCALL_FS || true {
             println!(
                 "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#o}",
                 fd,
@@ -257,6 +257,7 @@ impl Syscall<'_> {
             .await?
             .to_vec();
         let path = String::from_utf8(path)?;
+        println!("path: {}", path);
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
         let base: Arc<dyn File> = match fd {
             AT_FDCWD => self.alive_then(|a| a.cwd.clone())?,
@@ -264,7 +265,7 @@ impl Syscall<'_> {
                 .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
                 .ok_or(SysError::EBADF)?,
         };
-        let base = base.to_vfs_inode().ok_or(SysError::ENOTDIR)?;
+        let base = base.to_vfs_inode()?;
         let inode = fs::open_file(base.path_iter(), path.as_str(), flags, mode).await?;
         let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
         let fd = self.alive_lock()?.fd_table.insert(inode, close_on_exec);
@@ -299,10 +300,20 @@ impl Syscall<'_> {
         write_to.access_mut().copy_from_slice(&[rfd, wfd]);
         Ok(0)
     }
+    pub fn sys_fcntl(&mut self) -> SysResult {
+        let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
+        if true {
+            println!("sys_fcntl fd: {} cmd: {} arg: {}", fd, cmd, arg);
+        }
+        self.alive_then(|a| a.fd_table.fcntl(Fd(fd), cmd, arg))?
+    }
     pub fn sys_ioctl(&mut self) -> SysResult {
         stack_trace!();
         let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
-        self.alive_then(|a| a.fd_table.get(Fd::new(fd)).cloned())?
+        if true {
+            println!("sys_ioctl fd: {} cmd: {} arg: {}", fd, cmd, arg);
+        }
+        self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())?
             .ok_or(SysError::ENFILE)?
             .ioctl(cmd, arg)
     }

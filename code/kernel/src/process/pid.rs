@@ -8,7 +8,7 @@ use crate::{
 };
 
 #[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Pid(usize);
+pub struct Pid(pub usize);
 
 impl Pid {
     pub fn into_usize(self) -> usize {

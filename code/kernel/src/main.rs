@@ -40,6 +40,7 @@
 #![feature(allocator_api)]
 #![feature(str_internals)]
 #![feature(array_chunks)]
+#![feature(trait_upcasting)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![allow(dead_code)]
@@ -77,6 +78,7 @@ mod executor;
 mod fdt;
 mod fs;
 mod hart;
+pub mod hifive;
 mod lang_items;
 mod local;
 mod memory;
@@ -87,7 +89,6 @@ mod syscall;
 mod timer;
 mod trap;
 mod user;
-pub mod hifive;
 
 use riscv::register::sstatus;
 

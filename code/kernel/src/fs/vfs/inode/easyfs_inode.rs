@@ -1,10 +1,9 @@
 use crate::{
+    config::PAGE_SIZE,
     drivers,
     fs::{AsyncFile, File, OpenFlags},
-    memory::allocator::frame,
     sync::mutex::SpinNoIrqLock,
     syscall::SysError,
-    user::{UserData, UserDataMut},
 };
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use core::lazy::OnceCell;
@@ -106,14 +105,10 @@ impl File for EasyFsInode {
     fn writable(&self) -> bool {
         self.writable
     }
-    fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
         let mut inner = self.inner.lock();
         let mut total_read_size = 0usize;
-        let buffer = match frame::global::alloc() {
-            Ok(f) => f,
-            Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
-        };
-        for slice in buf.write_only_iter(buffer) {
+        for slice in buf.chunks_mut(PAGE_SIZE) {
             let read_size = inner.inode.read_at(inner.offset, slice);
             if read_size == 0 {
                 break;
@@ -123,14 +118,10 @@ impl File for EasyFsInode {
         }
         Box::pin(async move { Ok(total_read_size) })
     }
-    fn write(&self, buf: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, buf: &'a [u8]) -> AsyncFile {
         let mut inner = self.inner.lock();
         let mut total_write_size = 0usize;
-        let buffer = match frame::global::alloc() {
-            Ok(f) => f,
-            Err(_e) => return Box::pin(async { Err(SysError::ENOMEM) }),
-        };
-        for slice in buf.read_only_iter(buffer) {
+        for slice in buf.chunks(PAGE_SIZE) {
             let write_size = inner.inode.write_at(inner.offset, slice);
             assert_eq!(write_size, slice.len());
             inner.offset += write_size;

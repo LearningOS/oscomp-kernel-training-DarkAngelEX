@@ -1,12 +1,13 @@
-use alloc::{collections::LinkedList, sync::Arc};
+use alloc::sync::Arc;
 
 use crate::{
-    memory::address::UserAddr,
     process::{Dead, Process},
     sync::even_bus::Event,
 };
 
 #[allow(dead_code, clippy::upper_case_acronyms)]
+#[repr(u32)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum StardardSignal {
     SIGHUP = 1,
     SIGINT = 2,
@@ -58,7 +59,7 @@ bitflags! {
         const SIGPIPE   = 1 << 13;   // 管道破裂，没有读管道
         const SIGALRM   = 1 << 14;   // 时钟定时信号
         const SIGTERM   = 1 << 15;   // 程序结束信号，用来要求程序自己正常退出
-
+        const SIGSTKFLT = 1 << 16;   //
         const SIGCHLD   = 1 << 17;   // 子进程结束时父进程收到这个信号
         const SIGCONT   = 1 << 18;   // 让停止的进程继续执行，不能阻塞 例如重新显示提示符
         const SIGSTOP   = 1 << 19;   // 暂停进程 不能阻塞或忽略
@@ -84,6 +85,29 @@ impl StdSignalSet {
             r.bits |= (v as u32) << (i * 8);
         }
         r
+    }
+    pub fn as_bytes(&self) -> [u8; 4] {
+        self.bits.to_le_bytes()
+    }
+    pub fn write_to(&self, dst: &mut [u8]) {
+        dst.copy_from_slice(&self.as_bytes())
+    }
+    #[inline(always)]
+    pub const fn is_never_capture_sig(sig: u32) -> bool {
+        debug_assert!(sig < 32);
+        match sig {
+            9 | 19 => true,
+            _ => false,
+        }
+    }
+    /// 禁止捕获或忽略的信号
+    pub const NEVER_CAPTURE: Self = Self::SIGKILL.union(Self::SIGSTOP);
+    #[inline(always)]
+    pub fn remove_never_capture(&mut self) {
+        self.remove(Self::NEVER_CAPTURE)
+    }
+    pub fn contain_never_capture(&self) -> bool {
+        self.contains(Self::NEVER_CAPTURE)
     }
 }
 
@@ -132,13 +156,69 @@ impl SignalSet {
     }
 }
 
+const SIG_DFL: usize = 0; // 默认信号
+const SIG_IGN: usize = 1; // 忽略信号
+const SIG_ERR: usize = usize::MAX; // 错误值
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SigAction {
     pub handler: usize,
-    pub mask: StdSignalSet,       //
-    pub flags: u32,               //
-    pub restorer: usize, // () -> ()
+    pub mask: StdSignalSet,
+    pub restorer: usize,
+    pub flags: usize,
+}
+
+pub enum Action {
+    Abort,
+    Ignore,
+    Handler(usize),
+}
+
+impl SigAction {
+    pub const DEFAULT: Self = Self {
+        handler: SIG_DFL,
+        mask: StdSignalSet::empty(),
+        restorer: 0,
+        flags: 0,
+    };
+    pub const DEFAULT_SET: [Self; 32] = [Self::DEFAULT; 32];
+    #[inline(always)]
+    pub fn defalut_action(sig: u32) -> Action {
+        use StardardSignal::*;
+        assert!(sig < 32);
+        if [SIGCHLD, SIGCONT, SIGURG]
+            .iter()
+            .copied()
+            .map(|a| a as u32)
+            .any(|a| a == sig)
+        {
+            Action::Ignore
+        } else {
+            Action::Abort
+        }
+    }
+    pub fn get_action(&self, sig: u32) -> Action {
+        match self.handler {
+            SIG_DFL => Self::defalut_action(sig),
+            SIG_IGN => Action::Ignore,
+            SIG_ERR => Action::Abort,
+            handler => Action::Handler(handler),
+        }
+    }
+    #[inline(always)]
+    pub fn reset_never_capture(&mut self, sig: u32) {
+        if StdSignalSet::is_never_capture_sig(sig) {
+            self.handler = SIG_DFL;
+        }
+        self.mask.remove_never_capture();
+    }
+    pub fn show(&self) {
+        println!("handler:  {:#x}", self.handler);
+        println!("mask:     {:#x}", self.mask);
+        println!("restorer: {:#x}", self.restorer);
+        println!("flags:    {:#x}", self.flags);
+    }
 }
 
 pub struct SignalPack {
@@ -146,13 +226,7 @@ pub struct SignalPack {
 }
 
 pub fn send_signal(process: Arc<Process>, signal_set: StdSignalSet) -> Result<(), Dead> {
-    let mut signal_queue = LinkedList::new();
-    for i in 1..31u8 {
-        if signal_set.bits() & (1 << i) != 0 {
-            signal_queue.push_back(unsafe { core::mem::transmute(i) })
-        }
-    }
-    process.alive_then(|a| a.signal_queue.append(&mut signal_queue))?;
+    process.alive_then(move |a| a.signal_manager.send(signal_set))?;
     if !signal_set.is_empty() {
         process.event_bus.set(Event::RECEIVE_SIGNAL)?;
     }

@@ -2,7 +2,7 @@ use alloc::{collections::BTreeMap, sync::Arc};
 
 use crate::{
     fs::{File, Stdin, Stdout},
-    syscall::{SysError, UniqueSysError},
+    syscall::{SysError, SysResult, UniqueSysError},
     tools,
 };
 
@@ -24,6 +24,19 @@ impl Fd {
         Self(self.0 + 1)
     }
 }
+
+const F_LINUX_SPECIFIC_BASE: u32 = 1024;
+const F_DUPFD: u32 = 0;
+const F_DUPFD_CLOEXEC: u32 = F_LINUX_SPECIFIC_BASE + 6;
+const F_GETFD: u32 = 1;
+const F_SETFD: u32 = 2;
+const F_GETFL: u32 = 3;
+const F_SETFL: u32 = 4;
+const F_GETLK: u32 = 5;
+const F_SETLK: u32 = 6;
+const F_SETLKW: u32 = 7;
+const F_SETOWN: u32 = 8;
+const F_GETOWN: u32 = 9;
 
 #[derive(Clone)]
 struct FdNode {
@@ -63,22 +76,31 @@ impl FdTable {
         });
     }
     fn alloc_fd(&mut self) -> Fd {
-        let mut cur = self.search_start;
-        for &fd in self.map.keys() {
-            if cur == fd {
-                cur.0 += 1;
+        self.alloc_fd_min(Fd(0))
+    }
+    /// 寻找不小于min的最小Fd
+    fn alloc_fd_min(&mut self, min: Fd) -> Fd {
+        let Fd(mut min) = min.max(self.search_start);
+        let search_from_start = Fd(min) == self.search_start;
+        for fd in self.map.range(Fd(min)..).map(|(&Fd(fd), _b)| fd) {
+            if fd == min {
+                min += 1;
             } else {
-                self.search_start = cur.next();
-                return cur;
+                break;
             }
         }
-        cur.in_range().unwrap();
-        self.search_start = cur.next();
-        cur
+        if search_from_start {
+            self.search_start = Fd(min);
+        }
+        return Fd(min);
     }
     /// 自动选择
     pub fn insert(&mut self, file: Arc<dyn File>, close_on_exec: bool) -> Fd {
-        let fd = self.alloc_fd();
+        self.insert_min(Fd(0), file, close_on_exec)
+    }
+    /// 寻找不小于min的最小fd并插入
+    pub fn insert_min(&mut self, min: Fd, file: Arc<dyn File>, close_on_exec: bool) -> Fd {
+        let fd = self.alloc_fd_min(min);
         let node = FdNode {
             file,
             close_on_exec,
@@ -100,6 +122,33 @@ impl FdTable {
     }
     pub fn get(&self, fd: Fd) -> Option<&Arc<dyn File>> {
         self.map.get(&fd).map(|n| &n.file)
+    }
+    pub fn fcntl(&mut self, fd: Fd, cmd: u32, arg: usize) -> SysResult {
+        const FD_CLOEXEC: usize = 1;
+        let node = self.map.get_mut(&fd).ok_or(SysError::EBADF)?;
+        match cmd {
+            // 复制文件描述符
+            F_DUPFD | F_DUPFD_CLOEXEC => {
+                let min = Fd(arg);
+                let file = node.file.clone();
+                let close_on_exec = node.close_on_exec;
+                let fd = self.insert_min(min, file, close_on_exec);
+                Ok(fd.0)
+            }
+            F_GETFD => return Ok(if node.close_on_exec { FD_CLOEXEC } else { 0 }),
+            F_SETFD => {
+                node.close_on_exec = arg & FD_CLOEXEC != 0;
+                return Ok(0);
+            }
+            F_GETFL => todo!(),
+            F_SETFL => todo!(),
+            F_GETLK => todo!(),
+            F_SETLK => todo!(),
+            F_SETLKW => todo!(),
+            F_SETOWN => todo!(),
+            F_GETOWN => todo!(),
+            unknown => todo!("fcntl unknown cmd: {}", unknown),
+        }
     }
     pub fn remove(&mut self, fd: Fd) -> Option<Arc<dyn File>> {
         self.search_start = self.search_start.min(fd);

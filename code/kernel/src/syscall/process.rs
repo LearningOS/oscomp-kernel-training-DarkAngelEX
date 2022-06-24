@@ -1,6 +1,7 @@
 use core::{
     convert::TryFrom,
     future::Future,
+    ops::Deref,
     sync::atomic::Ordering,
     task::{Context, Poll},
 };
@@ -225,6 +226,46 @@ impl Syscall<'_> {
         let set_child_tid: UserInOutPtr<u32> = self.cx.para1();
         self.thread.inner().set_child_tid = set_child_tid;
         Ok(self.thread.tid.to_usize())
+    }
+    /// 设置pgid
+    ///
+    /// 如果pid为0则处理本进程, 如果pgid为0则设置为pid
+    pub fn sys_setpgid(&mut self) -> SysResult {
+        let (pid, pgid): (Pid, Pid) = self.cx.into();
+        if PRINT_SYSCALL_ALL || true {
+            println!("sys_setpgid pid: {:?} pgid: {:?}", pid, pgid);
+        }
+        let process = match pid {
+            Pid(0) => None,
+            pid => Some(proc_table::find_proc(pid).ok_or(SysError::ESRCH)?),
+        };
+        let process = match &process {
+            None => self.process,
+            Some(p) => p.deref(),
+        };
+        let pgpid = match pgid {
+            Pid(0) => process.pid(),
+            pgid => pgid,
+        };
+        process.pgid.store(pgpid.0, Ordering::Relaxed);
+        Ok(0)
+    }
+    /// 获取pgid
+    ///
+    /// 如果参数为0则获取自身进程pgid
+    pub fn sys_getpgid(&mut self) -> SysResult {
+        let pid: Pid = self.cx.para1();
+        if PRINT_SYSCALL_ALL || true {
+            println!("sys_getpgid pid: {:?}", pid);
+        }
+        let pid = match pid {
+            Pid(0) => self.process.pgid.load(Ordering::Relaxed),
+            pid => proc_table::find_proc(pid)
+                .ok_or(SysError::ESRCH)?
+                .pgid
+                .load(Ordering::Relaxed),
+        };
+        return Ok(pid);
     }
     pub fn sys_getpid(&mut self) -> SysResult {
         stack_trace!();

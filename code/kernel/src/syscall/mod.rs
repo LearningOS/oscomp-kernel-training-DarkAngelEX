@@ -20,6 +20,7 @@ pub use ftl_util::error::{SysError, UniqueSysError};
 const SYSCALL_GETCWD: usize = 17;
 const SYSCALL_DUP: usize = 23;
 const SYSCALL_DUP3: usize = 24;
+const SYSCALL_FCNTL: usize = 25;
 const SYSCALL_IOCTL: usize = 29;
 const SYSCALL_MKDIRAT: usize = 34;
 const SYSCALL_UNLINKAT: usize = 35;
@@ -47,6 +48,8 @@ const SYSCALL_RT_SIGTIMEDWAIT: usize = 137;
 const SYSCALL_RT_SIGQUEUEINFO: usize = 138;
 const SYSCALL_RT_SIGRETURN: usize = 139;
 const SYSCALL_TIMES: usize = 153;
+const SYSCALL_SETPGID: usize = 154;
+const SYSCALL_GETPGID: usize = 155;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
@@ -105,6 +108,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETCWD => self.sys_getcwd().await,
             SYSCALL_DUP => self.sys_dup(),
             SYSCALL_DUP3 => self.sys_dup3(),
+            SYSCALL_FCNTL => self.sys_fcntl(),
             SYSCALL_IOCTL => self.sys_ioctl(),
             SYSCALL_MKDIRAT => self.sys_mkdirat().await,
             SYSCALL_UNLINKAT => self.sys_unlinkat().await,
@@ -132,6 +136,8 @@ impl<'a> Syscall<'a> {
             SYSCALL_RT_SIGQUEUEINFO => self.sys_rt_sigqueueinfo().await,
             SYSCALL_RT_SIGRETURN => self.sys_rt_sigreturn().await,
             SYSCALL_TIMES => self.sys_times().await,
+            SYSCALL_SETPGID => self.sys_setpgid(),
+            SYSCALL_GETPGID => self.sys_getpgid(),
             SYSCALL_UNAME => self.sys_uname().await,
             SYSCALL_GETTIMEOFDAY => self.sys_gettimeofday().await,
             SYSCALL_GETPID => self.sys_getpid(),
@@ -165,8 +171,9 @@ impl<'a> Syscall<'a> {
             Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
-        if PRINT_SYSCALL_ALL {
-            println!("syscall return with {}", a0);
+        if PRINT_SYSCALL_ALL || true {
+            // println!("syscall return with {}", a0);
+            println!("syscall {} -> {:#x}", self.cx.a7(), a0);
         }
         self.cx.set_user_a0(a0);
         self.do_exit

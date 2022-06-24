@@ -14,6 +14,9 @@ use super::SysError;
 const PRINT_SYSCALL_MMAP: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
+    /// prot: 访问权限 R W X
+    ///
+    /// flags: SHARED | PRIVATE | FIXED | ANONYMOUS
     pub fn sys_mmap(&mut self) -> SysResult {
         stack_trace!();
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =

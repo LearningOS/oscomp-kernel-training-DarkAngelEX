@@ -1,8 +1,7 @@
 use crate::{
-    fs::{stat::Stat, AsyncFile, File, Mode, OpenFlags},
+    fs::{File, Mode, OpenFlags},
     syscall::SysError,
-    tools::xasync::Async,
-    user::{UserData, UserDataMut},
+    tools::{path, xasync::Async},
 };
 use alloc::{string::String, sync::Arc, vec::Vec};
 
@@ -11,32 +10,21 @@ use ftl_util::fs::DentryType;
 // type InodeImpl = easyfs_inode::EasyFsInode;
 type InodeImpl = fat32_inode::Fat32Inode;
 
+pub mod dev;
 mod easyfs_inode;
 mod fat32_inode;
 
-pub struct VfsInode {
-    inode: Arc<InodeImpl>,
+pub trait VfsInode: File {
+    fn read_all(&self) -> Async<Result<Vec<u8>, SysError>>;
+    fn list(&self) -> Async<Result<Vec<(DentryType, String)>, SysError>>;
+    fn path(&self) -> &[String];
 }
 
-pub trait FsInode {
-    fn read_at(&self, _offset: usize, _write_only: UserDataMut<u8>) -> AsyncFile;
-    fn write_at(&self, _offset: usize, _read_only: UserData<u8>) -> AsyncFile;
-}
-
-impl VfsInode {
-    pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
-        self.inode.read_all().await
-    }
-    pub fn path(&self) -> &[String] {
-        self.inode.path()
-    }
+impl dyn VfsInode {
     pub fn path_iter(
         &self,
     ) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator<Item = &str> {
         self.path().iter().map(|s| s.as_str())
-    }
-    pub async fn list(&self) -> Result<Vec<(DentryType, String)>, SysError> {
-        self.inode.list().await
     }
 }
 
@@ -62,10 +50,19 @@ pub async fn open_file<'a>(
     path: &'a str,
     flags: OpenFlags,
     _mode: Mode,
-) -> Result<Arc<VfsInode>, SysError> {
+) -> Result<Arc<dyn VfsInode>, SysError> {
     stack_trace!();
-    let inode = fat32_inode::open_file(base, path, flags).await?;
-    Ok(Arc::new(VfsInode { inode }))
+    let mut stack = Vec::new();
+    match path.as_bytes().first() {
+        Some(b'/') => (),
+        _ => path::walk_iter_path(base, &mut stack),
+    }
+    path::walk_path(path, &mut stack);
+    let inode = match stack.split_first() {
+        Some((&"dev", path)) => dev::open_file(path)?,
+        _ => fat32_inode::open_file(&stack, flags).await?,
+    };
+    Ok(inode)
 }
 
 pub async fn unlink<'a>(
@@ -75,43 +72,4 @@ pub async fn unlink<'a>(
 ) -> Result<(), SysError> {
     stack_trace!();
     fat32_inode::unlink(base, path, flags).await
-}
-
-impl File for VfsInode {
-    fn to_vfs_inode(&self) -> Option<&VfsInode> {
-        Some(self)
-    }
-    fn readable(&self) -> bool {
-        self.inode.readable()
-    }
-    fn writable(&self) -> bool {
-        self.inode.writable()
-    }
-    fn can_read_offset(&self) -> bool {
-        self.inode.can_read_offset()
-    }
-    fn can_write_offset(&self) -> bool {
-        self.inode.can_write_offset()
-    }
-    fn read_at(&self, offset: usize, write_only: UserDataMut<u8>) -> AsyncFile {
-        self.inode.read_at(offset, write_only)
-    }
-    fn write_at(&self, offset: usize, write_only: UserData<u8>) -> AsyncFile {
-        self.inode.write_at(offset, write_only)
-    }
-    fn read_at_kernel<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> AsyncFile {
-        self.inode.read_at_kernel(offset, buf)
-    }
-    fn write_at_kernel<'a>(&'a self, offset: usize, buf: &'a [u8]) -> AsyncFile {
-        self.inode.write_at_kernel(offset, buf)
-    }
-    fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
-        self.inode.read(buf)
-    }
-    fn write(&self, buf: UserData<u8>) -> AsyncFile {
-        self.inode.write(buf)
-    }
-    fn stat<'a>(&'a self, stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
-        self.inode.stat(stat)
-    }
 }

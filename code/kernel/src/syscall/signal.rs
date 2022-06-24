@@ -1,8 +1,9 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
-    signal::SigAction,
+    signal::{SigAction, StdSignalSet},
     syscall::SysError,
     user::check::UserCheck,
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::{SysResult, Syscall};
@@ -32,14 +33,14 @@ impl Syscall<'_> {
     pub async fn sys_rt_sigaction(&mut self) -> SysResult {
         stack_trace!();
         let (sig, new_act, old_act, s_size): (
-            usize,
+            u32,
             UserReadPtr<SigAction>,
             UserWritePtr<SigAction>,
             usize,
         ) = self.cx.into();
-        if true {
+        if PRINT_SYSCALL_ALL || true {
             println!(
-                "sys_rt_sigaction sig:{:#x} new_act:{:#x} old_act:{:#x} s_size:{}",
+                "sys_rt_sigaction sig:{} new_act:{:#x} old_act:{:#x} s_size:{}",
                 sig,
                 new_act.as_usize(),
                 old_act.as_usize(),
@@ -55,17 +56,28 @@ impl Syscall<'_> {
             .ok_or(SysError::EINVAL)?
             .is_null()
         {
+            if let Some(old_act) = old_act.nonnull_mut() {
+                let old = self.alive_then(|a| a.signal_manager.get_action(sig))?;
+                user_check
+                    .translated_user_writable_value(old_act)
+                    .await?
+                    .store(old);
+            }
             return Ok(0);
         }
         let new_act = user_check
             .translated_user_readonly_value(new_act)
             .await?
             .load();
-        println!("handler: {:#x}", new_act.handler);
-        println!("mask:    {:#x}", new_act.mask);
-        println!("flags:   {:#x}", new_act.flags);
-        println!("restorer:{:#x}", new_act.restorer);
-        todo!()
+        // new_act.show();
+        let old = self.alive_then(|a| a.signal_manager.replace_action(sig, new_act))?;
+        if let Some(old_act) = old_act.nonnull_mut() {
+            user_check
+                .translated_user_writable_value(old_act)
+                .await?
+                .store(old);
+        }
+        Ok(0)
     }
     /// 设置信号阻塞位并返回原先值
     ///
@@ -75,7 +87,7 @@ impl Syscall<'_> {
         // s_size is bytes
         let (how, newset, oldset, s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
             self.cx.into();
-        if true {
+        if PRINT_SYSCALL_ALL || true {
             println!(
                 "sys_rt_sigprocmask how:{:#x} newset:{:#x} oldset:{:#x} s_size:{}",
                 how,
@@ -93,24 +105,25 @@ impl Syscall<'_> {
         if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
             return Ok(0);
         }
-        let newset = user_check
-            .translated_user_readonly_slice(newset, s_size)
-            .await?;
-        let newset = &*newset.access();
-        let sig_mask = &mut self.thread.inner().signal_mask;
-        let old = *sig_mask;
-        match how {
-            SIG_BLOCK => sig_mask.set_bit(newset),
-            SIG_UNBLOCK => sig_mask.clear_bit(newset),
-            SIG_SETMASK => sig_mask.set(newset),
-            _ => return Err(SysError::EINVAL),
-        }
+        let manager = &mut self.thread.inner().signal_manager;
+        let mut sig_mask = manager.mask();
         if let Some(oldset) = oldset.nonnull_mut() {
             let v = user_check
                 .translated_user_writable_slice(oldset, s_size)
                 .await?;
-            old.write_to(&mut *v.access_mut());
+            sig_mask.write_to(&mut *v.access_mut());
         }
+        let newset = user_check
+            .translated_user_readonly_slice(newset, s_size)
+            .await?;
+        let newset = StdSignalSet::from_bytes(&*newset.access());
+        match how {
+            SIG_BLOCK => sig_mask.insert(newset),
+            SIG_UNBLOCK => sig_mask.remove(newset),
+            SIG_SETMASK => sig_mask = newset,
+            _ => return Err(SysError::EINVAL),
+        }
+        manager.set_mask(sig_mask);
         Ok(0)
     }
     pub async fn sys_rt_sigpending(&mut self) -> SysResult {

@@ -73,7 +73,7 @@ impl<T: Clone + Copy + 'static, P: Policy> UserPtr<T, P> {
     }
     /// may return nullptr
     ///
-    /// return None only if self not in user space
+    /// return None only if addr not in user space
     pub fn as_uptr_nullable(self) -> Option<UserAddr<T>> {
         UserAddr::try_from(self.raw_ptr()).ok()
     }
