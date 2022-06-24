@@ -29,6 +29,7 @@ impl dyn VfsInode {
 }
 
 pub async fn init() {
+    dev::init();
     fat32_inode::init().await;
 }
 
