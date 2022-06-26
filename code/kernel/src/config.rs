@@ -7,7 +7,8 @@ pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
 /// ============================== KERNEL ==============================
 ///
 /// 0x8_0000 = 512KB
-pub const KERNEL_HEAP_SIZE: usize = 0x80_0000; // 2MB
+/// 0x10_0000 = 1MB
+pub const KERNEL_HEAP_SIZE: usize = 0x200_0000; // 2MB
 
 use crate::{memory::address::UserAddr, tools::range::URange};
 
@@ -22,7 +23,7 @@ pub const HARDWARD_END: usize = 0xffff_ffff_ffff_f000;
 
 // 8MB
 /// only used in init pagetable, then need to replace to range MEMORY
-pub const INIT_MEMORY_SIZE: usize = 0x200_0000; // 8MB = 2^23
+pub const INIT_MEMORY_SIZE: usize = 0x400_0000; // 8MB = 2^23
 pub const INIT_MEMORY_END: usize = KERNEL_TEXT_BEGIN + INIT_MEMORY_SIZE;
 
 // 1GB

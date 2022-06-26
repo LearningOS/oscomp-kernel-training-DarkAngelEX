@@ -1,7 +1,7 @@
 use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
-use crate::{console, process::thread, sync::SleepMutex};
+use crate::{console, sync::SleepMutex};
 
 pub struct Stdin;
 
@@ -25,7 +25,12 @@ impl File for Stdin {
                 loop {
                     c = console::getchar() as usize;
                     if [0, u32::MAX as usize].contains(&c) {
-                        thread::yield_now().await;
+                        if !crate::xdebug::CLOSE_TIME_INTERRUPT {
+                            use crate::timer::{sleep::JustWaitFuture, TimeTicks};
+                            JustWaitFuture::new(TimeTicks::from_millisecond(5)).await;
+                        } else {
+                            crate::process::thread::yield_now().await;
+                        }
                         continue;
                     }
                     break;

@@ -112,7 +112,6 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     );
     // assert!(DEVICE_TREE_PADDR.load(Ordering::Relaxed) != 0);
     // show_device();
-
     trap::init();
     memory::init();
     container::test();

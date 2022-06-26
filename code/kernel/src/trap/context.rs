@@ -39,6 +39,15 @@ pub struct FloatContext {
     pub need_load: u8, // become 1 when switch context, run load when into user
 }
 
+impl FloatContext {
+    pub fn reset(&mut self, fcsr: FCSR) {
+        self.fx.fill(0.);
+        self.fcsr = fcsr;
+        self.need_load = 1;
+        self.need_save = 0;
+    }
+}
+
 pub trait UsizeForward {
     fn usize_forward(a: usize) -> Self;
 }
@@ -131,6 +140,9 @@ impl UKContext {
     pub fn a7(&self) -> usize {
         self.user_rx[17]
     }
+    pub fn a0_a7(&self) -> &[usize] {
+        &self.user_rx[10..17]
+    }
     pub fn set_user_sp(&mut self, sp: usize) {
         self.user_rx[2] = sp;
     }
@@ -169,11 +181,12 @@ impl UKContext {
         argv: usize,
         envp: usize,
     ) {
+        self.user_rx.fill(0);
+        self.user_fx.reset(fcsr);
         self.set_user_sp(user_sp.into_usize());
         self.set_argc_argv_envp(argc, argv, envp);
         self.user_sepc = sepc.into_usize();
         self.user_sstatus = sstatus;
-        self.user_fx.fcsr = fcsr;
     }
 
     pub fn fork(&self) -> Box<Self> {

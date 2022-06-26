@@ -288,27 +288,21 @@ impl UserSpace {
                 }
                 let mut perm = PTEFlags::U;
                 let ph_flags = ph.flags();
-                let (mut r, mut w, mut x) = (0, 0, 0);
                 if ph_flags.is_read() {
                     perm |= PTEFlags::R;
-                    r = 1;
                 }
                 if ph_flags.is_write() {
                     perm |= PTEFlags::W;
-                    w = 1;
                 }
                 if ph_flags.is_execute() {
                     perm |= PTEFlags::X;
-                    x = 1;
                 }
                 if false {
                     println!(
-                        "    {:?} -> {:?} rwx:{}{}{} file_size:{:#x}",
+                        "\t{:?} -> {:?} \tperm: {:?} file_size:{:#x}",
                         start_va,
                         end_va,
-                        r,
-                        w,
-                        x,
+                        perm,
                         ph.file_size()
                     );
                 }
@@ -317,6 +311,7 @@ impl UserSpace {
                 let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
                 max_end_4k = map_area.end();
                 stack_trace!();
+                // 用一个小trick补全偏移量
                 let data = &elf.input[ph.offset() as usize - start_va.page_offset()
                     ..(ph.offset() + ph.file_size()) as usize];
                 stack_trace!();
@@ -325,10 +320,14 @@ impl UserSpace {
             }
         }
         stack_trace!();
+        let entry_point = elf_header.pt2.entry_point() as usize;
+        if false {
+            println!("\tentry_point: {:#x}", entry_point);
+        }
         let mut auxv = AuxHeader::generate(
             elf_header.pt2.ph_entry_size() as usize,
             ph_count as usize,
-            elf_header.pt2.ph_entry_size() as usize,
+            entry_point,
         );
         // Get ph_head addr for auxv
         let ph_head_addr = head_va + elf.header.pt2.ph_offset() as usize;
@@ -343,7 +342,6 @@ impl UserSpace {
         // set heap
         space.heap_init(max_end_4k, PageCount(1));
 
-        let entry_point = elf.header.pt2.entry_point() as usize;
         Ok((space, stack_id, user_sp, entry_point.into(), auxv))
     }
     pub fn fork(&mut self) -> Result<Self, SysError> {
@@ -430,6 +428,7 @@ impl UserSpace {
             get_slice(sp, s.len()).copy_from_slice(bytes);
             set_zero(sp + s.len(), bytes);
         }
+        /// -> (sp, strs.len() + 1)
         fn write_strings_skip(sp: usize, strs: &[String]) -> (usize, usize) {
             let sp = sp - strs.iter().fold(0, |a, s| a + s.len() + 1);
             (sp, strs.len() + 1)
@@ -450,14 +449,12 @@ impl UserSpace {
             sp - (auxv.len() + 1) * 2 * size_of_usize()
         }
         fn write_auxv(mut sp: usize, auxv: &[AuxHeader]) {
-            let len = auxv.len();
+            let dst = get_slice(sp, auxv.len());
+            auxv.iter()
+                .zip(dst)
+                .for_each(|(src, dst)| src.write_to(dst));
+            sp += auxv.len() * core::mem::size_of::<AuxHeader>();
             set_zero(sp, auxv);
-            let step = 2 * size_of_usize();
-            sp -= (len + 1) * step;
-            let dst = get_slice(sp, len);
-            for (src, dst) in auxv.iter().zip(dst) {
-                src.write_to(dst);
-            }
         }
 
         debug_assert!(self.in_using());
@@ -500,6 +497,13 @@ impl UserSpace {
         debug_assert!(sp_top.sub_page(reverse) <= sp.floor());
 
         // 直接在用户虚拟地址上操作
+
+        if false {
+            println!("args: {:#x} len: {}", r_argv, args_len);
+            println!("envp: {:#x} len: {}", r_envp, envp_len);
+            println!("auxv: {:#x} len: {}", auxv_ptr, auxv.len() + 1);
+        }
+
         let _auto_sum = AutoSum::new();
         write_str(plat_ptr, platform);
         write_auxv(auxv_ptr, auxv);

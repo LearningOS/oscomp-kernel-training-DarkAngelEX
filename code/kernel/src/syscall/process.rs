@@ -1,12 +1,6 @@
-use core::{
-    convert::TryFrom,
-    future::Future,
-    ops::Deref,
-    sync::atomic::Ordering,
-    task::{Context, Poll},
-};
+use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering};
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_STACK_RESERVE},
@@ -20,8 +14,8 @@ use crate::{
         UserSpace,
     },
     process::{proc_table, thread, userloop, CloneFlag, Pid},
-    sync::even_bus::{self, Event, EventBus},
-    timer::{self, TimeSpec, TimeTicks},
+    sync::even_bus::{self, Event},
+    timer::{self, sleep::SleepFuture, TimeSpec, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -64,10 +58,10 @@ impl Syscall<'_> {
         }
         Ok(pid.into_usize())
     }
-    pub async fn sys_exec(&mut self) -> SysResult {
+    pub async fn sys_execve(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
-            println!("sys_exec {:?}", self.process.pid());
+            println!("sys_execve {:?}", self.process.pid());
         }
         let (path, args, envp): (
             UserReadPtr<u8>,
@@ -81,7 +75,7 @@ impl Syscall<'_> {
                 .await?
                 .to_vec(),
         )?;
-        stack_trace!("sys_exec path: {}", path);
+        stack_trace!("sys_execve path: {}", path);
         let args: Vec<String> = user_check
             .translated_user_2d_array_zero_end(args)
             .await?
@@ -136,9 +130,7 @@ impl Syscall<'_> {
         let cx = self.thread.get_context();
         let sstatus = cx.user_sstatus;
         let fcsr = cx.user_fx.fcsr;
-        self.thread
-            .get_context()
-            .exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
+        cx.exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
         local::all_hart_fence_i();
         check.assume_success();
         Ok(argc)
@@ -232,7 +224,7 @@ impl Syscall<'_> {
     /// 如果pid为0则处理本进程, 如果pgid为0则设置为pid
     pub fn sys_setpgid(&mut self) -> SysResult {
         let (pid, pgid): (Pid, Pid) = self.cx.into();
-        if PRINT_SYSCALL_ALL || true {
+        if PRINT_SYSCALL_ALL {
             println!("sys_setpgid pid: {:?} pgid: {:?}", pid, pgid);
         }
         let process = match pid {
@@ -255,7 +247,7 @@ impl Syscall<'_> {
     /// 如果参数为0则获取自身进程pgid
     pub fn sys_getpgid(&mut self) -> SysResult {
         let pid: Pid = self.cx.para1();
-        if PRINT_SYSCALL_ALL || true {
+        if PRINT_SYSCALL_ALL {
             println!("sys_getpgid pid: {:?}", pid);
         }
         let pid = match pid {
@@ -293,6 +285,13 @@ impl Syscall<'_> {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getuid");
+        }
+        Ok(0)
+    }
+    pub fn sys_geteuid(&mut self) -> SysResult {
+        stack_trace!();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_geteuid");
         }
         Ok(0)
     }
@@ -348,11 +347,7 @@ impl Syscall<'_> {
             ),
         };
         let deadline = timer::get_time_ticks() + TimeTicks::from_time_spec(req);
-        let future = SleepFuture {
-            deadline,
-            event_bus: self.process.event_bus.clone(),
-        };
-        let ret = future.await;
+        let ret = SleepFuture::new(deadline, self.process.event_bus.clone()).await;
         if let Some(rem) = rem {
             let time_end = timer::get_time_ticks();
             let time_rem = if time_end < deadline {
@@ -436,28 +431,5 @@ impl Syscall<'_> {
         xwrite!(machine, b"qemu / sifive unmatch");
         xwrite!(domainname, b"192.168.0.1");
         Ok(0)
-    }
-}
-
-pub struct SleepFuture {
-    deadline: TimeTicks,
-    event_bus: Arc<EventBus>,
-}
-
-impl Future for SleepFuture {
-    type Output = SysResult;
-
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        stack_trace!();
-        if timer::get_time_ticks() >= self.deadline {
-            return Poll::Ready(Ok(0));
-        } else if self.event_bus.event() != Event::empty() {
-            return Poll::Ready(Err(SysError::EINTR));
-        }
-        timer::sleep::timer_push_task(self.deadline, cx.waker().clone());
-        match self.event_bus.register(Event::all(), cx.waker().clone()) {
-            Err(_e) => Poll::Ready(Err(SysError::ESRCH)),
-            Ok(()) => Poll::Pending,
-        }
     }
 }

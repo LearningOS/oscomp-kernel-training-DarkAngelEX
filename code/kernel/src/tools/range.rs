@@ -26,7 +26,7 @@ pub fn ur_iter(URange { start, end }: URange) -> impl Iterator<Item = UserAddr4K
     }
     impl Iterator for CurEndIter {
         type Item = UserAddr4K;
-
+        #[inline]
         fn next(&mut self) -> Option<Self::Item> {
             let x = self.cur;
             if x == self.end {

@@ -25,8 +25,8 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_MMAP || PRINT_THIS {
             let addr = addr.as_usize();
             println!(
-                "sys_mmap addr:{:#x} len:{} prot:{:#x} flags:{:#x} fd:{:?} offset:{}",
-                addr, len, prot, flags, fd, offset
+                "sys_mmap addr:{:#x} len:{} prot:{:#x} flags:{:#x} fd:{:?} offset:{} sepc:{:#x}",
+                addr, len, prot, flags, fd, offset, self.cx.user_sepc
             );
         }
         let len = len.max(PAGE_SIZE);

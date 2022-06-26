@@ -55,10 +55,11 @@ const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
 const SYSCALL_GETUID: usize = 174;
+const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
-const SYSCALL_EXEC: usize = 221;
+const SYSCALL_EXECVE: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAIT4: usize = 260;
@@ -143,10 +144,11 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETPPID => self.sys_getppid(),
             SYSCALL_GETUID => self.sys_getuid(),
+            SYSCALL_GETEUID => self.sys_geteuid(),
             SYSCALL_BRK => self.sys_brk(),
             SYSCALL_MUNMAP => self.sys_munmap(),
             SYSCALL_CLONE => self.sys_clone(),
-            SYSCALL_EXEC => self.sys_exec().await,
+            SYSCALL_EXECVE => self.sys_execve().await,
             SYSCALL_MMAP => self.sys_mmap(),
             SYSCALL_MPROTECT => self.sys_mprotect(),
             SYSCALL_WAIT4 => self.sys_wait4().await,
@@ -171,9 +173,11 @@ impl<'a> Syscall<'a> {
             Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
-        if PRINT_SYSCALL_ALL || true {
+        if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
-            println!("syscall {} -> {:#x}", self.cx.a7(), a0);
+            if ![63, 64].contains(&self.cx.a7()) {
+                println!("syscall {} -> {:#x}", self.cx.a7(), a0);
+            }
         }
         self.cx.set_user_a0(a0);
         self.do_exit

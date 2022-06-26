@@ -101,29 +101,50 @@ impl TimeTicks {
     pub fn time_sepc(self) -> TimeSpec {
         TimeSpec::from_ticks(self)
     }
+    /// compute v * m / d in 128bit
+    ///
+    /// m and d
+    #[inline(always)]
+    const fn mul_div_128<const M: u128, const D: u128>(v: u128) -> u128 {
+        if M >= D {
+            if M % D == 0 {
+                v * (M / D)
+            } else {
+                v * M / D
+            }
+        } else if D % M == 0 {
+            v / (D / M)
+        } else {
+            v * M / D
+        }
+    }
+    #[inline(always)]
+    const fn mul_div_128_tick<const M: u128, const D: u128>(v: u128) -> Self {
+        Self(Self::mul_div_128::<M, D>(v))
+    }
     pub fn from_second(v: u128) -> Self {
-        Self(v * CLOCK_FREQ)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1>(v)
     }
     pub fn from_millisecond(v: u128) -> Self {
-        Self((v * CLOCK_FREQ) / 1000)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1000>(v)
     }
     pub fn from_microsecond(v: u128) -> Self {
-        Self((v * CLOCK_FREQ) / 1000_000)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1000_000>(v)
     }
     pub fn from_nanosecond(v: u128) -> Self {
-        Self((v * CLOCK_FREQ) / 1000_000_000)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1000_000_000>(v)
     }
     pub fn second(self) -> u128 {
-        self.0 / CLOCK_FREQ
+        Self::mul_div_128::<1, CLOCK_FREQ>(self.0)
     }
     pub fn millisecond(self) -> u128 {
-        (self.0 * 1000) / CLOCK_FREQ
+        Self::mul_div_128::<1000, CLOCK_FREQ>(self.0)
     }
     pub fn microsecond(self) -> u128 {
-        (self.0 * 1000_000) / CLOCK_FREQ
+        Self::mul_div_128::<1000_000, CLOCK_FREQ>(self.0)
     }
     pub fn nanosecond(self) -> u128 {
-        (self.0 * 1000_000_000) / CLOCK_FREQ
+        Self::mul_div_128::<1000_000_000, CLOCK_FREQ>(self.0)
     }
     pub fn into_tv_tz(self) -> (TimeVal, TimeZone) {
         let tv = TimeVal::from_ticks(self);

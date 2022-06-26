@@ -7,7 +7,7 @@ pub const PRINT_MAP_ALL: bool = false;
 use riscv::register::sstatus;
 
 pub const PRINT_FORK: bool = false;
-pub const PRINT_SYSCALL: bool = true;
+pub const PRINT_SYSCALL: bool = false;
 pub const PRINT_SYSCALL_ALL: bool = false;
 // fork return and exec return
 pub const PRINT_SPECIAL_RETURN: bool = false;

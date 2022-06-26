@@ -243,7 +243,7 @@ impl Syscall<'_> {
     pub async fn sys_openat(&mut self) -> SysResult {
         stack_trace!();
         let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
-        if PRINT_SYSCALL_FS || true {
+        if PRINT_SYSCALL_FS {
             println!(
                 "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#o}",
                 fd,
@@ -257,7 +257,7 @@ impl Syscall<'_> {
             .await?
             .to_vec();
         let path = String::from_utf8(path)?;
-        println!("path: {}", path);
+        // println!("path: {}", path);
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
         let base: Arc<dyn File> = match fd {
             AT_FDCWD => self.alive_then(|a| a.cwd.clone())?,
@@ -302,7 +302,7 @@ impl Syscall<'_> {
     }
     pub fn sys_fcntl(&mut self) -> SysResult {
         let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
-        if true {
+        if PRINT_SYSCALL_FS {
             println!("sys_fcntl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
         self.alive_then(|a| a.fd_table.fcntl(Fd(fd), cmd, arg))?
@@ -310,7 +310,7 @@ impl Syscall<'_> {
     pub fn sys_ioctl(&mut self) -> SysResult {
         stack_trace!();
         let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
-        if true {
+        if PRINT_SYSCALL_FS {
             println!("sys_ioctl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
         self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())?
