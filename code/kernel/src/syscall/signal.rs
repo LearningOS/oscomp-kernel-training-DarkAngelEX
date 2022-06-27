@@ -3,10 +3,12 @@ use crate::{
     signal::{SigAction, StdSignalSet},
     syscall::SysError,
     user::check::UserCheck,
-    xdebug::PRINT_SYSCALL_ALL,
+    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
 use super::{SysResult, Syscall};
+
+const PRINT_SYSCALL_SIGNAL: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 const SIG_BLOCK: usize = 1;
 const SIG_UNBLOCK: usize = 2;
@@ -38,7 +40,7 @@ impl Syscall<'_> {
             UserWritePtr<SigAction>,
             usize,
         ) = self.cx.into();
-        if PRINT_SYSCALL_ALL || true {
+        if PRINT_SYSCALL_SIGNAL {
             println!(
                 "sys_rt_sigaction sig:{} new_act:{:#x} old_act:{:#x} s_size:{}",
                 sig,
@@ -87,7 +89,7 @@ impl Syscall<'_> {
         // s_size is bytes
         let (how, newset, oldset, s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
             self.cx.into();
-        if PRINT_SYSCALL_ALL || true {
+        if PRINT_SYSCALL_SIGNAL {
             println!(
                 "sys_rt_sigprocmask how:{:#x} newset:{:#x} oldset:{:#x} s_size:{}",
                 how,

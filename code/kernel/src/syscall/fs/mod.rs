@@ -1,10 +1,12 @@
 use alloc::{string::String, sync::Arc};
 
 use crate::{
-    fs::{self, pipe, File, Mode, OpenFlags},
-    memory::user_ptr::{UserReadPtr, UserWritePtr},
+    fs::{self, pipe, File, Iovec, Mode, OpenFlags, Pollfd},
+    memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::fd::Fd,
+    signal::StdSignalSet,
     syscall::SysError,
+    timer::TimeSpec,
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -139,41 +141,75 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_read");
         }
-        let (fd, write_only_buffer) = {
-            let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.para3();
-            let write_only_buffer = UserCheck::new(self.process)
-                .translated_user_writable_slice(buf, len)
-                .await?;
-            (fd, write_only_buffer)
-        };
+        let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.para3();
+        let buf = UserCheck::new(self.process)
+            .translated_user_writable_slice(buf, len)
+            .await?;
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
             .ok_or(SysError::EBADF)?;
         if !file.readable() {
             return Err(SysError::EPERM);
         }
-        file.read(&mut *write_only_buffer.access_mut()).await
+        file.read(&mut *buf.access_mut()).await
     }
     pub async fn sys_write(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_write");
         }
-        let (fd, read_only_buffer) = {
-            let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.para3();
-            let read_only_buffer = UserCheck::new(self.process)
-                .translated_user_readonly_slice(buf, len)
-                .await?;
-            (fd, read_only_buffer)
-        };
+        let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.para3();
+        let buf = UserCheck::new(self.process)
+            .translated_user_readonly_slice(buf, len)
+            .await?;
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
             .ok_or(SysError::EBADF)?;
         if !file.writable() {
             return Err(SysError::EPERM);
         }
-        let ret = file.write(&*read_only_buffer.access()).await;
+        let ret = file.write(&*buf.access()).await;
         ret
+    }
+    pub async fn sys_writev(&mut self) -> SysResult {
+        let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
+            .ok_or(SysError::EBADF)?;
+        if !file.writable() {
+            return Err(SysError::EPERM);
+        }
+        let uc = UserCheck::new(self.process);
+        let vbuf = uc.translated_user_readonly_slice(iov, vlen).await?;
+        let mut cnt = 0;
+        for &Iovec { iov_base, iov_len } in vbuf.access().iter() {
+            let buf = uc.translated_user_readonly_slice(iov_base, iov_len).await?;
+            cnt += file.write(&*buf.access()).await?;
+        }
+        Ok(cnt)
+    }
+    /// 未实现功能
+    pub async fn sys_ppoll(&mut self) -> SysResult {
+        let (fds, nfds, timeout, sigmask, s_size): (
+            UserInOutPtr<Pollfd>,
+            usize,
+            UserReadPtr<TimeSpec>,
+            UserReadPtr<u8>,
+            usize,
+        ) = self.cx.into();
+        let uc = UserCheck::new(self.process);
+        let _fds = uc.translated_user_writable_slice(fds, nfds).await?;
+        let _timeout = match timeout.nonnull() {
+            Some(timeout) => Some(uc.translated_user_readonly_value(timeout).await?.load()),
+            None => None,
+        };
+        let _sigset = if let Some(sigmask) = sigmask.nonnull() {
+            let v = uc.translated_user_readonly_slice(sigmask, s_size).await?;
+            StdSignalSet::from_bytes(&*v.access())
+        } else {
+            StdSignalSet::empty()
+        };
+        Ok(0)
     }
     pub async fn sys_mkdirat(&mut self) -> SysResult {
         stack_trace!();

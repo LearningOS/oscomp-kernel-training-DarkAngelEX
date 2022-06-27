@@ -7,7 +7,7 @@ use crate::{
     local,
     memory::{
         address::{PageCount, UserAddr},
-        user_ptr::{UserReadPtr, UserWritePtr},
+        user_ptr::{Read, UserPtr, UserReadPtr, UserWritePtr, Write},
     },
     process::Process,
     syscall::SysError,
@@ -103,9 +103,9 @@ impl<'a> UserCheck<'a> {
         Ok(ret)
     }
 
-    pub async fn translated_user_readonly_slice<T: Copy>(
+    pub async fn translated_user_readonly_slice<T: Copy, P: Read>(
         &self,
-        ptr: UserReadPtr<T>,
+        ptr: UserPtr<T, P>,
         len: usize,
     ) -> Result<UserData<T>, SysError> {
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
@@ -126,9 +126,9 @@ impl<'a> UserCheck<'a> {
         Ok(UserData::new(unsafe { &*slice }))
     }
 
-    pub async fn translated_user_writable_slice<T: Copy>(
+    pub async fn translated_user_writable_slice<T: Copy, P: Write>(
         &self,
-        ptr: UserWritePtr<T>,
+        ptr: UserPtr<T, P>,
         len: usize,
     ) -> Result<UserDataMut<T>, SysError> {
         // println!("tran 0");

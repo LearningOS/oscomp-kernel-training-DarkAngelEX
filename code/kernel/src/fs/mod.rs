@@ -14,6 +14,7 @@ pub use self::{
 };
 
 use crate::{
+    memory::user_ptr::UserInOutPtr,
     syscall::{SysError, SysResult, UniqueSysError},
     tools::xasync::Async,
 };
@@ -93,6 +94,21 @@ impl OpenFlags {
     fn dir(self) -> bool {
         self.contains(Self::DIRECTORY)
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Iovec {
+    pub iov_base: UserInOutPtr<u8>,
+    pub iov_len: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Pollfd {
+    pub fd: u32,
+    pub events: u16,
+    pub revents: u16,
 }
 
 pub type AsyncFile<'a> = Async<'a, Result<usize, SysError>>;

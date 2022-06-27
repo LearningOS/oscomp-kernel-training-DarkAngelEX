@@ -7,6 +7,9 @@ use crate::{
 use super::{SysResult, Syscall};
 
 impl Syscall<'_> {
+    pub async fn clock_gettime(&mut self) -> SysResult {
+        todo!()
+    }
     pub async fn sys_times(&mut self) -> SysResult {
         stack_trace!();
         let ptr: UserWritePtr<Tms> = self.cx.para1();
