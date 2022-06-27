@@ -143,6 +143,15 @@ impl UKContext {
     pub fn a0_a7(&self) -> &[usize] {
         &self.user_rx[10..17]
     }
+    pub fn sp(&self) -> usize {
+        self.user_rx[2]
+    }
+    pub fn set_user_sepc(&mut self, sepc: usize) {
+        self.user_sepc = sepc;
+    }
+    pub fn set_user_ra(&mut self, ra: usize) {
+        self.user_rx[1] = ra;
+    }
     pub fn set_user_sp(&mut self, sp: usize) {
         self.user_rx[2] = sp;
     }

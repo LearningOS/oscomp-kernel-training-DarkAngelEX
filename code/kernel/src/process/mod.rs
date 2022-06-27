@@ -46,6 +46,7 @@ pub struct Process {
     pid: PidHandle,
     pub pgid: AtomicUsize,
     pub event_bus: Arc<EventBus>,
+    pub signal_manager: ProcSignalManager,
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
 }
@@ -65,7 +66,6 @@ pub struct AliveProcess {
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
     pub fd_table: FdTable,
-    pub signal_manager: ProcSignalManager,
 }
 
 #[derive(Debug)]
@@ -87,6 +87,9 @@ impl From<Dead> for SysError {
 impl Process {
     pub fn pid(&self) -> Pid {
         self.pid.pid()
+    }
+    pub fn is_alive(&self) -> bool {
+        unsafe { self.alive.unsafe_get().is_some() }
     }
     // return Err if zombies
     #[inline(always)]
@@ -116,12 +119,12 @@ impl Process {
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(new_pid.get_usize() + 1),
             fd_table: alive.fd_table.clone(),
-            signal_manager: ProcSignalManager::new(),
         };
         let new_process = Arc::new(Process {
             pid: new_pid,
             pgid: AtomicUsize::new(self.pgid.load(Ordering::Relaxed)),
             event_bus: EventBus::new(),
+            signal_manager: ProcSignalManager::new(),
             alive: Mutex::new(Some(new_alive)),
             exit_code: AtomicI32::new(0),
         });

@@ -4,7 +4,7 @@ use crate::{
     fs::{self, pipe, File, Iovec, Mode, OpenFlags, Pollfd},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::fd::Fd,
-    signal::StdSignalSet,
+    signal::SignalSet,
     syscall::SysError,
     timer::TimeSpec,
     tools::allocator::from_usize_allocator::FromUsize,
@@ -205,9 +205,9 @@ impl Syscall<'_> {
         };
         let _sigset = if let Some(sigmask) = sigmask.nonnull() {
             let v = uc.translated_user_readonly_slice(sigmask, s_size).await?;
-            StdSignalSet::from_bytes(&*v.access())
+            SignalSet::from_bytes(&*v.access())
         } else {
-            StdSignalSet::empty()
+            SignalSet::EMPTY
         };
         Ok(0)
     }

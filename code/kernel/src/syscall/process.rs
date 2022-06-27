@@ -14,6 +14,7 @@ use crate::{
         UserSpace,
     },
     process::{proc_table, thread, userloop, CloneFlag, Pid},
+    signal::SIG_N,
     sync::even_bus::{self, Event},
     timer::{self, sleep::SleepFuture, TimeSpec, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
@@ -360,14 +361,20 @@ impl Syscall<'_> {
         ret
     }
     pub fn sys_kill(&mut self) -> SysResult {
-        stack_trace!();
-        let (pid, _signal): (isize, u32) = self.cx.para2();
         enum Target {
             Pid(Pid),     // > 0
             AllInGroup,   // == 0
             All,          // == -1 all have authority except initproc
             Group(usize), // < -1
         }
+
+        stack_trace!();
+        let (pid, signal): (isize, u32) = self.cx.para2();
+
+        if signal >= SIG_N as u32 {
+            return Err(SysError::EINVAL);
+        }
+
         let target = match pid {
             0 => Target::AllInGroup,
             -1 => Target::All,
@@ -376,13 +383,17 @@ impl Syscall<'_> {
         };
         match target {
             Target::Pid(pid) => {
-                let _proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
-                todo!();
+                let proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
+                proc.signal_manager.receive(signal);
+                proc.event_bus
+                    .set(Event::RECEIVE_SIGNAL)
+                    .map_err(|_e| SysError::ESRCH)?;
             }
             Target::AllInGroup => todo!(),
             Target::All => todo!(),
             Target::Group(_) => todo!(),
         }
+        Ok(0)
     }
     pub fn sys_brk(&mut self) -> SysResult {
         stack_trace!();

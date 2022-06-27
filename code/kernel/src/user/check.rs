@@ -82,9 +82,9 @@ impl<'a> UserCheck<'a> {
         self.translated_user_readonly_slice(ptr, 1).await
     }
     /// return a slice witch len == 1
-    pub async fn translated_user_writable_value<T: Copy>(
+    pub async fn translated_user_writable_value<T: Copy, P: Write>(
         &self,
-        ptr: UserWritePtr<T>,
+        ptr: UserPtr<T, P>,
     ) -> Result<UserDataMut<T>, SysError> {
         self.translated_user_writable_slice(ptr, 1).await
     }

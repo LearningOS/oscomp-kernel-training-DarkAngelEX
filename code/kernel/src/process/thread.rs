@@ -20,6 +20,7 @@ use crate::{
     hart::floating,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
     process::signal::ProcSignalManager,
+    signal::context::SignalContext,
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
@@ -28,7 +29,7 @@ use crate::{
 
 use super::{
     children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, signal::ThreadSignalManager,
-    AliveProcess, CloneFlag, Process, Tid,
+    AliveProcess, CloneFlag, Dead, Process, Tid,
 };
 
 pub struct ThreadGroup {
@@ -95,7 +96,8 @@ pub struct ThreadInner {
     pub set_child_tid: UserInOutPtr<u32>,
     pub clear_child_tid: UserInOutPtr<u32>,
     pub signal_manager: ThreadSignalManager,
-    uk_context: Box<UKContext>,
+    pub scx_ptr: UserInOutPtr<SignalContext>,
+    pub uk_context: Box<UKContext>,
 }
 
 impl Thread {
@@ -120,6 +122,7 @@ impl Thread {
             pid,
             pgid,
             event_bus: EventBus::new(),
+            signal_manager: ProcSignalManager::new(),
             alive: Mutex::new(Some(AliveProcess {
                 user_space,
                 cwd,
@@ -129,7 +132,6 @@ impl Thread {
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(tid.to_usize() + 1),
                 fd_table: FdTable::new(),
-                signal_manager: ProcSignalManager::new(),
             })),
             exit_code: AtomicI32::new(0),
         });
@@ -141,6 +143,7 @@ impl Thread {
                 set_child_tid: UserInOutPtr::null(),
                 clear_child_tid: UserInOutPtr::null(),
                 signal_manager: ThreadSignalManager::new(),
+                scx_ptr: UserInOutPtr::null(),
                 uk_context: unsafe { UKContext::any() },
             }),
         };
@@ -170,7 +173,9 @@ impl Thread {
     pub fn get_context(&self) -> &mut UKContext {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
-
+    pub async fn handle_signal(&self) -> Result<(), Dead> {
+        crate::signal::handle_signal(self.inner(), &self.process).await
+    }
     pub fn clone_impl(
         &self,
         flag: CloneFlag,
@@ -199,6 +204,7 @@ impl Thread {
                 set_child_tid,
                 clear_child_tid,
                 signal_manager: inner.signal_manager.fork(),
+                scx_ptr: UserInOutPtr::null(),
                 uk_context: inner.uk_context.fork(),
             }),
         });

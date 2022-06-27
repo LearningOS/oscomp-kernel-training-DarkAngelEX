@@ -1,53 +1,55 @@
+pub mod context;
+
 use alloc::sync::Arc;
 
 use crate::{
-    process::{Dead, Process},
+    memory::user_ptr::UserInOutPtr,
+    process::{thread::ThreadInner, Dead, Process},
+    signal::context::SignalContext,
     sync::even_bus::Event,
+    user::check::UserCheck,
 };
 
-#[allow(dead_code, clippy::upper_case_acronyms)]
-#[repr(u32)]
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum StardardSignal {
-    SIGHUP = 1,
-    SIGINT = 2,
-    SIGQUIT = 3,
-    SIGILL = 4,
-    SIGTRAP = 5,
-    SIGABRT = 6,
-    SIGBUS = 7,
-    SIGFPE = 8,
-    SIGKILL = 9,
-    SIGUSR1 = 10,
-    SIGSEGV = 11,
-    SIGUSR2 = 12,
-    SIGPIPE = 13,
-    SIGALRM = 14,
-    SIGTERM = 15,
+pub const SIG_N: usize = 64;
+pub const SIG_N_BYTES: usize = SIG_N / 8;
 
-    SIGCHLD = 17,
-    SIGCONT = 18,
-    SIGSTOP = 19,
-    SIGTSTP = 20,
-    SIGTTIN = 21,
-    SIGTTOU = 22,
-    SIGURG = 23,
-    SIGXCPU = 24,
-    SIGXFSZ = 25,
-    SIGVTALRM = 26,
-    SIGPROF = 27,
-    SIGWINCH = 28,
-    SIGIO = 29,
-    SIGPWR = 30,
-    SIGSYS = 31,
-}
+pub const SIGHUP: usize = 1;
+pub const SIGINT: usize = 2;
+pub const SIGQUIT: usize = 3;
+pub const SIGILL: usize = 4;
+pub const SIGTRAP: usize = 5;
+pub const SIGABRT: usize = 6;
+pub const SIGBUS: usize = 7;
+pub const SIGFPE: usize = 8;
+pub const SIGKILL: usize = 9;
+pub const SIGUSR1: usize = 10;
+pub const SIGSEGV: usize = 11;
+pub const SIGUSR2: usize = 12;
+pub const SIGPIPE: usize = 13;
+pub const SIGALRM: usize = 14;
+pub const SIGTERM: usize = 15;
+pub const SIGCHLD: usize = 17;
+pub const SIGCONT: usize = 18;
+pub const SIGSTOP: usize = 19;
+pub const SIGTSTP: usize = 20;
+pub const SIGTTIN: usize = 21;
+pub const SIGTTOU: usize = 22;
+pub const SIGURG: usize = 23;
+pub const SIGXCPU: usize = 24;
+pub const SIGXFSZ: usize = 25;
+pub const SIGVTALRM: usize = 26;
+pub const SIGPROF: usize = 27;
+pub const SIGWINCH: usize = 28;
+pub const SIGIO: usize = 29;
+pub const SIGPWR: usize = 30;
+pub const SIGSYS: usize = 31;
 
 bitflags! {
     pub struct StdSignalSet: u32 {
         const SIGHUP    = 1 <<  1;   // 用户终端连接结束
         const SIGINT    = 1 <<  2;   // 程序终止 可能是Ctrl+C
         const SIGQUIT   = 1 <<  3;   // 类似SIGINT Ctrl+\
-        const SIGILL    = 1 <<  4;   // 执行了非法指令
+        const SIGILL    = 1 <<  4;   // 执行了非法指令 页错误 栈溢出
         const SIGTRAP   = 1 <<  5;   // 断点指令产生 debugger使用
         const SIGABRT   = 1 <<  6;   // abort函数产生
         const SIGBUS    = 1 <<  7;   // 非法地址或地址未对齐
@@ -78,81 +80,90 @@ bitflags! {
     }
 }
 
-impl StdSignalSet {
-    pub fn from_bytes(a: &[u8]) -> Self {
-        let mut r = StdSignalSet::empty();
-        for (i, &v) in a.iter().take(4).enumerate() {
-            r.bits |= (v as u32) << (i * 8);
-        }
-        r
-    }
-    pub fn as_bytes(&self) -> [u8; 4] {
-        self.bits.to_le_bytes()
-    }
-    pub fn write_to(&self, dst: &mut [u8]) {
-        dst.copy_from_slice(&self.as_bytes())
+#[derive(Clone, Copy)]
+pub struct SignalSet(pub [usize; SIG_N / (core::mem::size_of::<usize>() * 8)]);
+
+impl SignalSet {
+    pub const EMPTY: Self = Self([0; _]);
+    pub const NEVER_CAPTURE: Self = Self::never_capture();
+    pub const fn never_capture() -> Self {
+        let mut set = Self::EMPTY;
+        set.0[0] = SIGKILL | SIGSTOP;
+        set
     }
     #[inline(always)]
     pub const fn is_never_capture_sig(sig: u32) -> bool {
-        debug_assert!(sig < 32);
+        debug_assert!(sig < SIG_N as u32);
         match sig {
             9 | 19 => true,
             _ => false,
         }
     }
-    /// 禁止捕获或忽略的信号
-    pub const NEVER_CAPTURE: Self = Self::SIGKILL.union(Self::SIGSTOP);
+    pub fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
+        self.0.iter().flat_map(|&a| usize::to_ne_bytes(a))
+    }
+    pub fn from_bytes(src: &[u8]) -> Self {
+        let mut set = Self::EMPTY;
+        set.read_from(src);
+        set
+    }
+    pub fn read_from(&mut self, src: &[u8]) {
+        const ULEN: usize = core::mem::size_of::<usize>();
+        for (dst, src) in self.0.iter_mut().zip(src.chunks(ULEN)) {
+            let mut buf = [0; ULEN];
+            buf.copy_from_slice(src);
+            *dst = usize::from_ne_bytes(buf);
+        }
+    }
+    pub fn write_to(&self, dst: &mut [u8]) {
+        for (dst, src) in dst.iter_mut().zip(self.bytes()) {
+            *dst = src;
+        }
+    }
+    fn apply_all(&mut self, sig: Self, mut f: impl FnMut(usize, usize) -> usize) {
+        for (dst, src) in self.0.iter_mut().zip(sig.0.iter().copied()) {
+            *dst = f(*dst, src)
+        }
+    }
+    fn check_any(&self, sig: Self, mut f: impl FnMut(usize, usize) -> bool) -> bool {
+        self.0
+            .iter()
+            .copied()
+            .zip(sig.0.iter().copied())
+            .any(|(a, b)| f(a, b))
+    }
+    pub fn coniatn(&self, sig: Self) -> bool {
+        self.check_any(sig, |a, b| a | b != 0)
+    }
+    /// A & !B != 0
+    pub fn can_fetch(&self, mask: Self) -> bool {
+        self.check_any(mask, |a, b| a & !b != 0)
+    }
+    pub fn try_fetch_std(&self, mask: Self) -> Option<u32> {
+        match self.0[0] & !mask.0[0] {
+            0 => None,
+            std => Some(std.leading_zeros()),
+        }
+    }
+    /// A |= B
+    pub fn insert(&mut self, sigs: Self) {
+        self.apply_all(sigs, |a, b| a | b);
+    }
+    pub fn insert_bit(&mut self, place: usize) {
+        const BASE: usize = core::mem::size_of::<usize>() * 8;
+        self.0[place / BASE] &= 1 << (place % BASE);
+    }
+    /// A &= !B
+    pub fn remove(&mut self, sigs: Self) {
+        self.apply_all(sigs, |a, b| a & !b);
+    }
     #[inline(always)]
     pub fn remove_never_capture(&mut self) {
         self.remove(Self::NEVER_CAPTURE)
     }
+    #[inline(always)]
     pub fn contain_never_capture(&self) -> bool {
-        self.contains(Self::NEVER_CAPTURE)
-    }
-}
-
-#[derive(Clone, Copy)]
-pub struct SignalSet {
-    set: StdSignalSet,
-}
-impl SignalSet {
-    pub const fn empty() -> Self {
-        Self {
-            set: StdSignalSet::empty(),
-        }
-    }
-    pub fn as_bytes(&self) -> [u8; 4] {
-        let mut s = [0; 4];
-        for (i, b) in s.iter_mut().enumerate() {
-            *b = (self.set.bits() >> i * 8) as u8;
-        }
-        s
-    }
-    pub fn write_to(&self, dst: &mut [u8]) {
-        for (dst, src) in dst.iter_mut().zip(self.as_bytes()) {
-            *dst = src;
-        }
-    }
-    fn set_sigs(&mut self, sigs: StdSignalSet) {
-        self.set |= sigs;
-    }
-    fn clear_sigs(&mut self, sigs: StdSignalSet) {
-        self.set &= !sigs;
-    }
-    fn clear_ignore(&mut self) {
-        self.clear_sigs(StdSignalSet::SIGKILL | StdSignalSet::SIGSTOP);
-    }
-    pub fn set_bit(&mut self, src: &[u8]) {
-        self.set_sigs(StdSignalSet::from_bytes(src));
-        self.clear_ignore();
-    }
-    pub fn clear_bit(&mut self, src: &[u8]) {
-        self.clear_sigs(StdSignalSet::from_bytes(src));
-        self.clear_ignore();
-    }
-    pub fn set(&mut self, src: &[u8]) {
-        self.set = StdSignalSet::from_bytes(src);
-        self.clear_ignore();
+        self.coniatn(Self::NEVER_CAPTURE)
     }
 }
 
@@ -164,38 +175,32 @@ const SIG_ERR: usize = usize::MAX; // 错误值
 #[derive(Clone, Copy)]
 pub struct SigAction {
     pub handler: usize,
-    pub mask: StdSignalSet,
-    pub restorer: usize,
     pub flags: usize,
+    pub restorer: usize,
+    pub mask: SignalSet,
 }
 
 pub enum Action {
     Abort,
     Ignore,
-    Handler(usize),
+    Handler(usize, usize),
 }
 
 impl SigAction {
     pub const DEFAULT: Self = Self {
         handler: SIG_DFL,
-        mask: StdSignalSet::empty(),
-        restorer: 0,
         flags: 0,
+        restorer: 0,
+        mask: SignalSet::EMPTY,
     };
-    pub const DEFAULT_SET: [Self; 32] = [Self::DEFAULT; 32];
+    pub const DEFAULT_SET: [Self; 64] = [Self::DEFAULT; 64];
     #[inline(always)]
     pub fn defalut_action(sig: u32) -> Action {
-        use StardardSignal::*;
-        assert!(sig < 32);
-        if [SIGCHLD, SIGCONT, SIGURG]
-            .iter()
-            .copied()
-            .map(|a| a as u32)
-            .any(|a| a == sig)
-        {
-            Action::Ignore
-        } else {
-            Action::Abort
+        match sig as usize {
+            SIGCHLD | SIGCONT | SIGURG => Action::Ignore,
+            0..32 => Action::Abort,
+            32..SIG_N => Action::Ignore,
+            e => panic!("error sig: {}", e),
         }
     }
     pub fn get_action(&self, sig: u32) -> Action {
@@ -203,36 +208,95 @@ impl SigAction {
             SIG_DFL => Self::defalut_action(sig),
             SIG_IGN => Action::Ignore,
             SIG_ERR => Action::Abort,
-            handler => Action::Handler(handler),
+            handler => Action::Handler(handler, self.restorer),
         }
     }
     #[inline(always)]
     pub fn reset_never_capture(&mut self, sig: u32) {
-        if StdSignalSet::is_never_capture_sig(sig) {
+        if SignalSet::is_never_capture_sig(sig) {
             self.handler = SIG_DFL;
         }
         self.mask.remove_never_capture();
     }
     pub fn show(&self) {
         println!("handler:  {:#x}", self.handler);
-        println!("mask:     {:#x}", self.mask);
-        println!("restorer: {:#x}", self.restorer);
         println!("flags:    {:#x}", self.flags);
+        println!("restorer: {:#x}", self.restorer);
+        println!("mask:     {:#x?}", self.mask.0);
     }
 }
 
 pub struct SignalPack {
-    signal: StardardSignal,
+    signal: u32,
 }
 
-pub fn send_signal(process: Arc<Process>, signal_set: StdSignalSet) -> Result<(), Dead> {
-    process.alive_then(move |a| a.signal_manager.send(signal_set))?;
-    if !signal_set.is_empty() {
-        process.event_bus.set(Event::RECEIVE_SIGNAL)?;
-    }
+pub fn send_signal(process: Arc<Process>, sig: u32) -> Result<(), Dead> {
+    process.signal_manager.receive(sig);
+    process.event_bus.set(Event::RECEIVE_SIGNAL)?;
     Ok(())
 }
 
-pub fn handle_signal() {
-    todo!()
+pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Result<(), Dead> {
+    let tsm = &mut thread.signal_manager;
+    let psm = &process.signal_manager;
+    let mask = tsm.mask();
+
+    let signal = {
+        || {
+            if let Some(sig) = tsm.take_std_signal() {
+                return Some(sig);
+            }
+            if let Some(sig) = psm.take_std_signal(mask) {
+                return Some(sig);
+            }
+            if let Some(sig) = tsm.take_signal() {
+                return Some(sig);
+            }
+            if let Some(sig) = psm.take_signal(mask) {
+                return Some(sig);
+            }
+            None
+        }
+    }();
+    let signal = match signal {
+        None => return Ok(()),
+        Some(s) => s,
+    };
+    // 找到了一个待处理信号
+    assert!(signal < SIG_N as u32);
+    let (act, sig_mask) = psm.get_action(signal);
+    let (handler, ra) = match act {
+        Action::Abort => return Err(Dead),
+        Action::Ignore => return Ok(()),
+        Action::Handler(h, ra) => (h, ra),
+    };
+    // 使用handler的信号处理
+    debug_assert!([0, 1, usize::MAX].contains(&handler));
+    let old_mask = mask;
+    let mut new_mask = mask;
+    new_mask.insert(sig_mask);
+    new_mask.insert_bit(signal as usize);
+    tsm.set_mask(new_mask);
+    let old_scxptr = thread.scx_ptr;
+    let uk_cx = &mut *thread.uk_context;
+
+    let mut sp = uk_cx.sp();
+    sp -= 16;
+    sp -= core::mem::size_of::<SignalContext>();
+    sp -= sp & 15; // align 16 bytes
+    let scx_ptr: UserInOutPtr<SignalContext> = UserInOutPtr::from_usize(sp);
+    sp -= 16;
+    let scx = UserCheck::new(process)
+        .translated_user_writable_value(scx_ptr)
+        .await
+        .map_err(|_e| Dead)?;
+
+    scx.access_mut()[0].load(uk_cx, old_scxptr, old_mask);
+    uk_cx.set_user_a0(signal as usize);
+    uk_cx.set_user_sp(sp);
+    uk_cx.set_user_ra(ra);
+    uk_cx.set_user_sepc(handler);
+    thread.scx_ptr = scx_ptr;
+
+    Ok(())
 }

@@ -14,11 +14,12 @@ use crate::{
     executor,
     hart::sfence,
     local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
-    process::{thread, Pid},
+    memory::asid::USING_ASID,
+    process::{thread, Dead, Pid},
     syscall::Syscall,
     timer,
     tools::allocator::from_usize_allocator::FromUsize,
-    user::{trap_handler, AutoSie}, memory::asid::USING_ASID,
+    user::{trap_handler, AutoSie},
 };
 
 use super::thread::Thread;
@@ -35,10 +36,15 @@ async fn userloop(thread: Arc<Thread>) {
             // debug
             sfence::sfence_vma_all_global();
         }
-        match thread.process.alive_then(|_a| ()) {
-            Ok(_x) => context.run_user(),
-            Err(_e) => break,
-        };
+
+        if !thread.process.is_alive() {
+            break;
+        }
+        match thread.handle_signal().await {
+            Err(Dead) => break,
+            Ok(()) => (),
+        }
+        context.run_user();
 
         let scause = scause::read().cause();
         let stval = stval::read();

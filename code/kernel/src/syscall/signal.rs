@@ -1,6 +1,6 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
-    signal::{SigAction, StdSignalSet},
+    signal::{SigAction, SignalSet, SIG_N, SIG_N_BYTES},
     syscall::SysError,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -16,13 +16,13 @@ const SIG_SETMASK: usize = 3;
 
 bitflags! {
     struct SA: u32 {
-        const ONSTACK = 0x00000001;
-        const RESTART = 0x00000002;
+        const ONSTACK   = 0x00000001;
+        const RESTART   = 0x00000002;
         const NOCLDSTOP = 0x00000004;
-        const NODEFER = 0x00000008;
+        const NODEFER   = 0x00000008;
         const RESETHAND = 0x00000010;
         const NOCLDWAIT = 0x00000020;
-        const SIGINFO = 0x00000040;
+        const SIGINFO   = 0x00000040;
     }
 }
 
@@ -49,9 +49,10 @@ impl Syscall<'_> {
                 s_size
             );
         }
-        if sig >= 32 {
+        if sig >= SIG_N as u32 {
             return Err(SysError::EINVAL);
         }
+        let manager = &self.process.signal_manager;
         let user_check = UserCheck::new(self.process);
         if new_act
             .as_uptr_nullable()
@@ -59,7 +60,7 @@ impl Syscall<'_> {
             .is_null()
         {
             if let Some(old_act) = old_act.nonnull_mut() {
-                let old = self.alive_then(|a| a.signal_manager.get_action(sig))?;
+                let old = manager.get_sig_action(sig);
                 user_check
                     .translated_user_writable_value(old_act)
                     .await?
@@ -71,8 +72,11 @@ impl Syscall<'_> {
             .translated_user_readonly_value(new_act)
             .await?
             .load();
-        // new_act.show();
-        let old = self.alive_then(|a| a.signal_manager.replace_action(sig, new_act))?;
+        assert!(new_act.restorer != 0); // 目前没有映射sigreturn
+        if PRINT_SYSCALL_SIGNAL {
+            new_act.show();
+        }
+        let old = manager.replace_action(sig, new_act);
         if let Some(old_act) = old_act.nonnull_mut() {
             user_check
                 .translated_user_writable_value(old_act)
@@ -100,25 +104,25 @@ impl Syscall<'_> {
         }
         match s_size {
             0 => return Ok(0),
-            9.. => return Err(SysError::EINVAL),
+            SIG_N_BYTES.. => return Err(SysError::EINVAL),
             _ => (),
-        }
-        let user_check = UserCheck::new(self.process);
-        if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
-            return Ok(0);
         }
         let manager = &mut self.thread.inner().signal_manager;
         let mut sig_mask = manager.mask();
+        let user_check = UserCheck::new(self.process);
         if let Some(oldset) = oldset.nonnull_mut() {
             let v = user_check
                 .translated_user_writable_slice(oldset, s_size)
                 .await?;
             sig_mask.write_to(&mut *v.access_mut());
         }
+        if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
+            return Ok(0);
+        }
         let newset = user_check
             .translated_user_readonly_slice(newset, s_size)
             .await?;
-        let newset = StdSignalSet::from_bytes(&*newset.access());
+        let newset = SignalSet::from_bytes(&*newset.access());
         match how {
             SIG_BLOCK => sig_mask.insert(newset),
             SIG_UNBLOCK => sig_mask.remove(newset),
