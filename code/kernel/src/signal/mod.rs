@@ -1,4 +1,6 @@
 pub mod context;
+pub mod manager;
+mod rtqueue;
 
 use alloc::sync::Arc;
 
@@ -7,10 +9,12 @@ use crate::{
     process::{thread::ThreadInner, Dead, Process},
     signal::context::SignalContext,
     sync::even_bus::Event,
+    syscall::SysResult,
     user::check::UserCheck,
 };
 
 pub const SIG_N: usize = 64;
+pub const SIG_N_U32: u32 = 64;
 pub const SIG_N_BYTES: usize = SIG_N / 8;
 
 pub const SIGHUP: usize = 1;
@@ -80,6 +84,23 @@ bitflags! {
     }
 }
 
+impl StdSignalSet {
+    pub const EMPTY: Self = Self::empty();
+    pub const NEVER_CAPTURE: Self = Self::SIGKILL.union(Self::SIGSTOP);
+    #[inline(always)]
+    pub fn fetch_never_capture(&self) -> Option<u32> {
+        if core::intrinsics::unlikely(self.contains(StdSignalSet::NEVER_CAPTURE)) {
+            if self.contains(StdSignalSet::SIGKILL) {
+                return Some(SIGKILL as u32);
+            }
+            if self.contains(StdSignalSet::SIGSTOP) {
+                return Some(SIGSTOP as u32);
+            }
+        }
+        None
+    }
+}
+
 #[derive(Clone, Copy)]
 pub struct SignalSet(pub [usize; SIG_N / (core::mem::size_of::<usize>() * 8)]);
 
@@ -98,6 +119,9 @@ impl SignalSet {
             9 | 19 => true,
             _ => false,
         }
+    }
+    pub fn std_signal(&self) -> StdSignalSet {
+        unsafe { StdSignalSet::from_bits_unchecked(self.0[0] as u32) }
     }
     pub fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
         self.0.iter().flat_map(|&a| usize::to_ne_bytes(a))
@@ -120,50 +144,77 @@ impl SignalSet {
             *dst = src;
         }
     }
-    fn apply_all(&mut self, sig: Self, mut f: impl FnMut(usize, usize) -> usize) {
+    fn apply_all(&mut self, sig: &Self, mut f: impl FnMut(usize, usize) -> usize) {
         for (dst, src) in self.0.iter_mut().zip(sig.0.iter().copied()) {
             *dst = f(*dst, src)
         }
     }
-    fn check_any(&self, sig: Self, mut f: impl FnMut(usize, usize) -> bool) -> bool {
+    fn check_any(&self, sig: &Self, mut f: impl FnMut(usize, usize) -> bool) -> bool {
         self.0
             .iter()
             .copied()
             .zip(sig.0.iter().copied())
             .any(|(a, b)| f(a, b))
     }
-    pub fn coniatn(&self, sig: Self) -> bool {
+    pub fn coniatn(&self, sig: &Self) -> bool {
         self.check_any(sig, |a, b| a | b != 0)
     }
     /// A & !B != 0
-    pub fn can_fetch(&self, mask: Self) -> bool {
+    pub fn can_fetch(&self, mask: &Self) -> bool {
         self.check_any(mask, |a, b| a & !b != 0)
     }
-    pub fn try_fetch_std(&self, mask: Self) -> Option<u32> {
+    pub fn try_fetch_std(&self, mask: &Self) -> Option<u32> {
         match self.0[0] & !mask.0[0] {
             0 => None,
             std => Some(std.leading_zeros()),
         }
     }
     /// A |= B
-    pub fn insert(&mut self, sigs: Self) {
+    pub fn insert(&mut self, sigs: &Self) {
         self.apply_all(sigs, |a, b| a | b);
     }
+    /// 将第place个bit置为1
     pub fn insert_bit(&mut self, place: usize) {
         const BASE: usize = core::mem::size_of::<usize>() * 8;
-        self.0[place / BASE] &= 1 << (place % BASE);
+        self.0[place / BASE] |= 1 << (place % BASE);
+    }
+    pub fn remove_bit(&mut self, place: usize) {
+        const BASE: usize = core::mem::size_of::<usize>() * 8;
+        self.0[place / BASE] &= !(1 << (place % BASE));
+    }
+    pub fn get_bit(&self, place: usize) -> bool {
+        const BASE: usize = core::mem::size_of::<usize>() * 8;
+        (self.0[place / BASE] & (1 << (place % BASE))) != 0
     }
     /// A &= !B
-    pub fn remove(&mut self, sigs: Self) {
+    pub fn remove(&mut self, sigs: &Self) {
         self.apply_all(sigs, |a, b| a & !b);
     }
     #[inline(always)]
     pub fn remove_never_capture(&mut self) {
-        self.remove(Self::NEVER_CAPTURE)
+        self.remove(&Self::NEVER_CAPTURE)
     }
     #[inline(always)]
     pub fn contain_never_capture(&self) -> bool {
-        self.coniatn(Self::NEVER_CAPTURE)
+        self.coniatn(&Self::NEVER_CAPTURE)
+    }
+    pub fn bit_fold<A>(&self, mut acc: A, mut f: impl FnMut(u32, A) -> A) -> A {
+        for (i, mut src) in self.0.iter().copied().enumerate() {
+            if src == 0 {
+                continue;
+            }
+            let mut p = (i * core::mem::size_of::<usize>() * 8) as u32;
+            loop {
+                let t = src.leading_zeros();
+                p += t;
+                src >>= t;
+                if src == 0 {
+                    break;
+                }
+                acc = f(p, acc);
+            }
+        }
+        return acc;
     }
 }
 
@@ -178,6 +229,12 @@ pub struct SigAction {
     pub flags: usize,
     pub restorer: usize,
     pub mask: SignalSet,
+}
+
+impl SigAction {
+    pub fn zeroed() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
 }
 
 pub enum Action {
@@ -239,20 +296,20 @@ pub fn send_signal(process: Arc<Process>, sig: u32) -> Result<(), Dead> {
 pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Result<(), Dead> {
     let tsm = &mut thread.signal_manager;
     let psm = &process.signal_manager;
-    let mask = tsm.mask();
-
+    tsm.fetch();
+    let mask = *tsm.mask();
     let signal = {
         || {
             if let Some(sig) = tsm.take_std_signal() {
                 return Some(sig);
             }
-            if let Some(sig) = psm.take_std_signal(mask) {
+            if let Some(sig) = psm.take_std_signal(mask.std_signal()) {
                 return Some(sig);
             }
-            if let Some(sig) = tsm.take_signal() {
+            if let Some(sig) = tsm.take_rt_signal() {
                 return Some(sig);
             }
-            if let Some(sig) = psm.take_signal(mask) {
+            if let Some(sig) = psm.take_rt_signal(&mask) {
                 return Some(sig);
             }
             None
@@ -276,12 +333,12 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     let mut new_mask = mask;
     new_mask.insert(sig_mask);
     new_mask.insert_bit(signal as usize);
-    tsm.set_mask(new_mask);
+    tsm.set_mask(&new_mask);
     let old_scxptr = thread.scx_ptr;
     let uk_cx = &mut *thread.uk_context;
 
     let mut sp = uk_cx.sp();
-    sp -= 16;
+    sp -= 128; // red zone
     sp -= core::mem::size_of::<SignalContext>();
     sp -= sp & 15; // align 16 bytes
     let scx_ptr: UserInOutPtr<SignalContext> = UserInOutPtr::from_usize(sp);
@@ -297,6 +354,19 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     uk_cx.set_user_ra(ra);
     uk_cx.set_user_sepc(handler);
     thread.scx_ptr = scx_ptr;
-
     Ok(())
+}
+
+pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysResult {
+    debug_assert!(!thread.scx_ptr.is_null());
+    let scx = UserCheck::new(process)
+        .translated_user_readonly_value(thread.scx_ptr)
+        .await?;
+    match scx.access()[0].store(&mut thread.uk_context) {
+        (scx_ptr, mask) => {
+            thread.scx_ptr = scx_ptr;
+            thread.signal_manager.set_mask(mask);
+        }
+    }
+    Ok(thread.uk_context.a0())
 }

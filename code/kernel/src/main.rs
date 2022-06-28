@@ -40,6 +40,7 @@
 #![feature(allocator_api)]
 #![feature(str_internals)]
 #![feature(array_chunks)]
+#![feature(core_intrinsics)]
 #![feature(trait_upcasting)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]

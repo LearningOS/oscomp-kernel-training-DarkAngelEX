@@ -127,6 +127,7 @@ impl Syscall<'_> {
         alive.user_space = user_space;
         alive.cwd = dir;
         drop(alive);
+        self.process.signal_manager.reset();
         self.thread.inner().stack_id = stack_id;
         let cx = self.thread.get_context();
         let sstatus = cx.user_sstatus;
@@ -263,7 +264,7 @@ impl Syscall<'_> {
     pub fn sys_getpid(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
-            println!("sys_getpid");
+            println!("sys_getpid -> {:?}", self.process.pid());
         }
         Ok(self.process.pid().into_usize())
     }
@@ -384,6 +385,7 @@ impl Syscall<'_> {
         match target {
             Target::Pid(pid) => {
                 let proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
+                println!("kill signal: {} pid: {:?}", signal, pid);
                 proc.signal_manager.receive(signal);
                 proc.event_bus
                     .set(Event::RECEIVE_SIGNAL)

@@ -19,8 +19,10 @@ use crate::{
     fs::VfsInode,
     hart::floating,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
-    process::signal::ProcSignalManager,
-    signal::context::SignalContext,
+    signal::{
+        context::SignalContext,
+        manager::{ProcSignalManager, ThreadSignalManager},
+    },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
     tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
@@ -28,8 +30,8 @@ use crate::{
 };
 
 use super::{
-    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, signal::ThreadSignalManager,
-    AliveProcess, CloneFlag, Dead, Process, Tid,
+    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, AliveProcess, CloneFlag, Dead,
+    Process, Tid,
 };
 
 pub struct ThreadGroup {

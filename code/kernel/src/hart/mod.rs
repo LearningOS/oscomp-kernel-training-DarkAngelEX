@@ -60,7 +60,10 @@ pub fn ftl_logo() -> &'static str {
 
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
-    unsafe { cpu::set_cpu_id(hartid) };
+    unsafe { 
+        cpu::set_cpu_id(hartid); 
+        cpu::set_gp(); // 愚蠢的rust链接期不支持linker relax, 未使用
+     };
     if FIRST_HART
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()

@@ -137,6 +137,9 @@ impl UKContext {
         v.as_bytes_mut().fill(MaybeUninit::new(0));
         v.assume_init()
     }
+    pub fn a0(&self) -> usize {
+        self.user_rx[0]
+    }
     pub fn a7(&self) -> usize {
         self.user_rx[17]
     }

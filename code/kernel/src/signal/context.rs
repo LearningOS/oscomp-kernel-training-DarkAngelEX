@@ -24,4 +24,10 @@ impl SignalContext {
         self.scx_ptr = scx_ptr;
         self.mask = mask;
     }
+    pub fn store(&self, uk_cx: &mut UKContext) -> (UserInOutPtr<SignalContext>, &SignalSet) {
+        uk_cx.user_rx = self.urx;
+        uk_cx.user_fx.fx = self.ufx;
+        uk_cx.user_sepc = self.sepc;
+        (self.scx_ptr, &self.mask)
+    }
 }

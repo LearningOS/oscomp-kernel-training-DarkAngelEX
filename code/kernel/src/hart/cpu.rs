@@ -12,6 +12,15 @@ pub unsafe fn set_cpu_id(cpu_id: usize) {
     asm!("mv tp, {}", in(reg) cpu_id);
 }
 
+pub unsafe fn set_gp() {
+    asm!("
+    .option push
+    .option norelax
+    la gp, __global_pointer$
+    .option pop
+    ");
+}
+
 #[inline(always)]
 pub fn hart_id() -> usize {
     let cpu_id;

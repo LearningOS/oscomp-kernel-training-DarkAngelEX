@@ -75,9 +75,9 @@ impl<'a> UserCheck<'a> {
         Ok(UserData::new(slice))
     }
     /// return a slice witch len == 1
-    pub async fn translated_user_readonly_value<T: Copy>(
+    pub async fn translated_user_readonly_value<T: Copy, P: Read>(
         &self,
-        ptr: UserReadPtr<T>,
+        ptr: UserPtr<T, P>,
     ) -> Result<UserData<T>, SysError> {
         self.translated_user_readonly_slice(ptr, 1).await
     }

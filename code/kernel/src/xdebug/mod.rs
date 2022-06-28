@@ -8,7 +8,7 @@ use riscv::register::sstatus;
 
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = false;
-pub const PRINT_SYSCALL_ALL: bool = false;
+pub const PRINT_SYSCALL_ALL: bool = true;
 // fork return and exec return
 pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie

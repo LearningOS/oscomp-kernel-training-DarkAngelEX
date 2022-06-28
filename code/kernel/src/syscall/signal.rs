@@ -76,7 +76,8 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_SIGNAL {
             new_act.show();
         }
-        let old = manager.replace_action(sig, new_act);
+        let mut old = SigAction::zeroed();
+        manager.replace_action(sig, &new_act, &mut old);
         if let Some(old_act) = old_act.nonnull_mut() {
             user_check
                 .translated_user_writable_value(old_act)
@@ -108,7 +109,7 @@ impl Syscall<'_> {
             _ => (),
         }
         let manager = &mut self.thread.inner().signal_manager;
-        let mut sig_mask = manager.mask();
+        let sig_mask = manager.mask_mut();
         let user_check = UserCheck::new(self.process);
         if let Some(oldset) = oldset.nonnull_mut() {
             let v = user_check
@@ -124,12 +125,11 @@ impl Syscall<'_> {
             .await?;
         let newset = SignalSet::from_bytes(&*newset.access());
         match how {
-            SIG_BLOCK => sig_mask.insert(newset),
-            SIG_UNBLOCK => sig_mask.remove(newset),
-            SIG_SETMASK => sig_mask = newset,
+            SIG_BLOCK => sig_mask.insert(&newset),
+            SIG_UNBLOCK => sig_mask.remove(&newset),
+            SIG_SETMASK => *sig_mask = newset,
             _ => return Err(SysError::EINVAL),
         }
-        manager.set_mask(sig_mask);
         Ok(0)
     }
     pub async fn sys_rt_sigpending(&mut self) -> SysResult {
@@ -142,6 +142,16 @@ impl Syscall<'_> {
         todo!()
     }
     pub async fn sys_rt_sigreturn(&mut self) -> SysResult {
-        todo!()
+        if self.thread.inner().scx_ptr.is_null() {
+            self.do_exit = true;
+            return Err(SysError::EPERM);
+        }
+        match crate::signal::sigreturn(self.thread.inner(), self.process).await {
+            Ok(a0) => Ok(a0),
+            Err(e) => {
+                self.do_exit = true;
+                Err(e)
+            }
+        }
     }
 }

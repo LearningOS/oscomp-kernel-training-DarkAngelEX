@@ -13,14 +13,13 @@ use crate::{
         mutex::SpinNoIrqLock as Mutex,
     },
     syscall::{SysError, UniqueSysError},
-    xdebug::NeverFail,
+    xdebug::NeverFail, signal::manager::ProcSignalManager,
 };
 
 use self::{
     children::ChildrenSet,
     fd::FdTable,
     pid::PidHandle,
-    signal::ProcSignalManager,
     thread::{Thread, ThreadGroup},
 };
 
@@ -28,7 +27,6 @@ pub mod children;
 pub mod fd;
 pub mod pid;
 pub mod proc_table;
-pub mod signal;
 pub mod thread;
 pub mod tid;
 pub mod userloop;
@@ -124,7 +122,7 @@ impl Process {
             pid: new_pid,
             pgid: AtomicUsize::new(self.pgid.load(Ordering::Relaxed)),
             event_bus: EventBus::new(),
-            signal_manager: ProcSignalManager::new(),
+            signal_manager: self.signal_manager.fork(),
             alive: Mutex::new(Some(new_alive)),
             exit_code: AtomicI32::new(0),
         });
