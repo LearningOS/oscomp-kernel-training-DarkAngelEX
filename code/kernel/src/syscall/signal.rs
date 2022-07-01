@@ -137,7 +137,7 @@ impl Syscall<'_> {
                 user_check
                     .translated_user_writable_value(old_act)
                     .await?
-                    .store(old);
+                    .store(*old);
             }
             return Ok(0);
         }

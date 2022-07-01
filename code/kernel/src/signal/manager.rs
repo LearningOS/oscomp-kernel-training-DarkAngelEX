@@ -39,7 +39,7 @@ impl ProcSignalManager {
         }
     }
     /// 返回sigaction
-    pub fn get_sig_action(&self, sig: u32) -> SigAction {
+    pub fn get_sig_action(&self, sig: u32) -> &SigAction {
         unsafe { self.inner.unsafe_get().get_sig_action(sig) }
     }
     /// 返回信号行为与阻塞信号集
@@ -103,8 +103,8 @@ impl ProcSignalManagerInner {
             None => ControlFlow::CONTINUE,
         }
     }
-    pub fn get_sig_action(&self, sig: u32) -> SigAction {
-        self.action[sig as usize]
+    pub fn get_sig_action(&self, sig: u32) -> &SigAction {
+        &self.action[sig as usize]
     }
     pub fn get_action(&self, sig: u32) -> (Action, &SignalSet) {
         debug_assert!(sig < SIG_N_U32);

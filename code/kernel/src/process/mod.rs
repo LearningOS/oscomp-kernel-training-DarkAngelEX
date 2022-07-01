@@ -174,7 +174,10 @@ impl AliveProcess {
     }
 }
 
+#[cfg(feature = "submit")]
 static RUN_ALL_CASE: &'static [u8] = include_bytes!("../../run_all_case");
+#[cfg(not(feature = "submit"))]
+static RUN_ALL_CASE: &'static [u8] = &[];
 
 pub async fn init() {
     let initproc = "/initproc";
