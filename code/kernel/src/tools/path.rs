@@ -1,4 +1,7 @@
-use alloc::vec::Vec;
+use alloc::{sync::Arc, vec::Vec};
+use ftl_util::error::SysError;
+
+use crate::fs::File;
 
 pub fn walk_iter_path<'a>(src: impl Iterator<Item = &'a str>, dst: &mut Vec<&'a str>) {
     for s in src {
@@ -18,4 +21,33 @@ pub fn walk_path<'a>(src: &'a str, dst: &mut Vec<&'a str>) {
             }
         }
     }
+}
+
+pub fn write_path_to<'a>(src: impl Iterator<Item = &'a str>, dst: &mut [u8]) {
+    assert!(dst.len() >= 2);
+    let max = dst.len() - 1;
+    dst[0] = b'/';
+    dst[max] = b'\0';
+    let mut p = 0;
+    for s in src {
+        assert!(p + 1 + s.len() <= max);
+        dst[p] = b'/';
+        p += 1;
+        dst[p..p + s.len()].copy_from_slice(s.as_bytes());
+        p += s.len();
+    }
+    dst[p] = b'\0';
+}
+
+pub fn is_absolute_path(s: &str) -> bool {
+    match s.as_bytes().first() {
+        Some(b'/') | Some(b'\\') => true,
+        _ => false,
+    }
+}
+
+pub fn file_path_iter<'a>(
+    file: &'a Option<Arc<dyn File>>,
+) -> Option<Result<impl Iterator<Item = &'a str>, SysError>> {
+    file.as_ref().map(|v| Ok(v.to_vfs_inode()?.path_iter()))
 }

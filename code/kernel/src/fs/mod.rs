@@ -10,7 +10,7 @@ use alloc::boxed::Box;
 use self::stat::Stat;
 pub use self::{
     stdio::{Stdin, Stdout},
-    vfs::inode::{create_any, list_apps, open_file, unlink, VfsInode},
+    vfs::inode::{create_any, dev, list_apps, open_file, unlink, VfsInode},
 };
 
 use crate::{

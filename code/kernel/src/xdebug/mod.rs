@@ -8,7 +8,7 @@ use riscv::register::sstatus;
 
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = false;
-pub const PRINT_SYSCALL_ALL: bool = true;
+pub const PRINT_SYSCALL_ALL: bool = false;
 // fork return and exec return
 pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie
@@ -30,6 +30,8 @@ pub const HEAP_PROTECT: bool = false;
 pub const CLOSE_TIME_INTERRUPT: bool = false;
 
 pub const NO_SYSCALL_PANIC: bool = false;
+
+pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样
 
 #[macro_use]
 pub mod trace;

@@ -110,10 +110,10 @@ impl Syscall<'_> {
     pub fn sys_mprotect(&mut self) -> SysResult {
         stack_trace!();
         let (start, len, prot): (UserInOutPtr<()>, usize, u32) = self.cx.into();
-        const PRINT_THIS: bool = true;
+        const PRINT_THIS: bool = false;
         if PRINT_SYSCALL_MMAP || PRINT_THIS {
             println!(
-                "sys_mprotect start:{:?} len:{} prot:{:#x}",
+                "sys_mprotect start:{:#x} len:{} prot:{:#x}",
                 start.as_usize(),
                 len,
                 prot

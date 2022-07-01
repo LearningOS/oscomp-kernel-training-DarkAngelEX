@@ -2,9 +2,12 @@ pub mod context;
 pub mod manager;
 mod rtqueue;
 
+use core::ops::ControlFlow;
+
 use alloc::sync::Arc;
 
 use crate::{
+    config::USER_KRX_BEGIN,
     memory::user_ptr::UserInOutPtr,
     process::{thread::ThreadInner, Dead, Process},
     signal::context::SignalContext,
@@ -49,6 +52,12 @@ pub const SIGPWR: usize = 30;
 pub const SIGSYS: usize = 31;
 
 bitflags! {
+    pub struct SA: usize {
+        const RESTORER = 0x04000000;
+    }
+}
+
+bitflags! {
     pub struct StdSignalSet: u32 {
         const SIGHUP    = 1 <<  1;   // 用户终端连接结束
         const SIGINT    = 1 <<  2;   // 程序终止 可能是Ctrl+C
@@ -88,21 +97,43 @@ impl StdSignalSet {
     pub const EMPTY: Self = Self::empty();
     pub const NEVER_CAPTURE: Self = Self::SIGKILL.union(Self::SIGSTOP);
     #[inline(always)]
-    pub fn fetch_never_capture(&self) -> Option<u32> {
+    pub fn fetch_never_capture(&self) -> ControlFlow<u32> {
         if core::intrinsics::unlikely(self.contains(StdSignalSet::NEVER_CAPTURE)) {
             if self.contains(StdSignalSet::SIGKILL) {
-                return Some(SIGKILL as u32);
+                return ControlFlow::Break(SIGKILL as u32);
             }
             if self.contains(StdSignalSet::SIGSTOP) {
-                return Some(SIGSTOP as u32);
+                return ControlFlow::Break(SIGSTOP as u32);
             }
         }
-        None
+        ControlFlow::CONTINUE
+    }
+    pub fn fetch_segv(&self) -> ControlFlow<u32> {
+        if self.contains(StdSignalSet::SIGSEGV) {
+            ControlFlow::Break(SIGSEGV as u32)
+        } else {
+            ControlFlow::CONTINUE
+        }
+    }
+    pub fn fetch(&self) -> ControlFlow<u32> {
+        if self.is_empty() {
+            return ControlFlow::CONTINUE;
+        }
+        self.fetch_never_capture()?;
+        self.fetch_segv()?;
+        let sig = self.bits.trailing_zeros();
+        debug_assert!(sig < 32);
+        ControlFlow::Break(sig)
+    }
+    pub fn clear_sig(&mut self, sig: u32) {
+        if !SignalSet::is_never_capture_sig(sig) {
+            self.remove(unsafe { StdSignalSet::from_bits_unchecked(1 << sig) })
+        }
     }
 }
 
 #[derive(Clone, Copy)]
-pub struct SignalSet(pub [usize; SIG_N / (core::mem::size_of::<usize>() * 8)]);
+pub struct SignalSet(pub [usize; SIG_N / usize::BITS as usize]);
 
 impl SignalSet {
     pub const EMPTY: Self = Self([0; _]);
@@ -115,8 +146,8 @@ impl SignalSet {
     #[inline(always)]
     pub const fn is_never_capture_sig(sig: u32) -> bool {
         debug_assert!(sig < SIG_N as u32);
-        match sig {
-            9 | 19 => true,
+        match sig as usize {
+            SIGKILL | SIGSTOP => true,
             _ => false,
         }
     }
@@ -163,28 +194,19 @@ impl SignalSet {
     pub fn can_fetch(&self, mask: &Self) -> bool {
         self.check_any(mask, |a, b| a & !b != 0)
     }
-    pub fn try_fetch_std(&self, mask: &Self) -> Option<u32> {
-        match self.0[0] & !mask.0[0] {
-            0 => None,
-            std => Some(std.leading_zeros()),
-        }
-    }
     /// A |= B
     pub fn insert(&mut self, sigs: &Self) {
         self.apply_all(sigs, |a, b| a | b);
     }
     /// 将第place个bit置为1
     pub fn insert_bit(&mut self, place: usize) {
-        const BASE: usize = core::mem::size_of::<usize>() * 8;
-        self.0[place / BASE] |= 1 << (place % BASE);
+        self.0[place / usize::BITS as usize] |= 1 << (place % usize::BITS as usize);
     }
     pub fn remove_bit(&mut self, place: usize) {
-        const BASE: usize = core::mem::size_of::<usize>() * 8;
-        self.0[place / BASE] &= !(1 << (place % BASE));
+        self.0[place / usize::BITS as usize] &= !(1 << (place % usize::BITS as usize));
     }
     pub fn get_bit(&self, place: usize) -> bool {
-        const BASE: usize = core::mem::size_of::<usize>() * 8;
-        (self.0[place / BASE] & (1 << (place % BASE))) != 0
+        (self.0[place / usize::BITS as usize] & (1 << (place % usize::BITS as usize))) != 0
     }
     /// A &= !B
     pub fn remove(&mut self, sigs: &Self) {
@@ -203,9 +225,9 @@ impl SignalSet {
             if src == 0 {
                 continue;
             }
-            let mut p = (i * core::mem::size_of::<usize>() * 8) as u32;
+            let mut p = i as u32 * usize::BITS;
             loop {
-                let t = src.leading_zeros();
+                let t = src.trailing_zeros();
                 p += t;
                 src >>= t;
                 if src == 0 {
@@ -226,7 +248,7 @@ const SIG_ERR: usize = usize::MAX; // 错误值
 #[derive(Clone, Copy)]
 pub struct SigAction {
     pub handler: usize,
-    pub flags: usize,
+    pub flags: SA,
     pub restorer: usize,
     pub mask: SignalSet,
 }
@@ -235,6 +257,14 @@ impl SigAction {
     pub fn zeroed() -> Self {
         unsafe { core::mem::zeroed() }
     }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct SignalStack {
+    ss_sp: UserInOutPtr<u8>,
+    ss_flags: u32,
+    ss_size: usize,
 }
 
 pub enum Action {
@@ -246,11 +276,19 @@ pub enum Action {
 impl SigAction {
     pub const DEFAULT: Self = Self {
         handler: SIG_DFL,
-        flags: 0,
+        flags: SA::empty(),
         restorer: 0,
         mask: SignalSet::EMPTY,
     };
     pub const DEFAULT_SET: [Self; 64] = [Self::DEFAULT; 64];
+    pub fn default_restorer() -> usize {
+        extern "C" {
+            fn __kload_begin();
+            fn __user_signal_entry_begin();
+        }
+        let offset = __user_signal_entry_begin as usize - __kload_begin as usize;
+        USER_KRX_BEGIN + offset
+    }
     #[inline(always)]
     pub fn defalut_action(sig: u32) -> Action {
         match sig as usize {
@@ -265,7 +303,14 @@ impl SigAction {
             SIG_DFL => Self::defalut_action(sig),
             SIG_IGN => Action::Ignore,
             SIG_ERR => Action::Abort,
-            handler => Action::Handler(handler, self.restorer),
+            handler => {
+                let restorer = if self.flags.contains(SA::RESTORER) {
+                    self.restorer
+                } else {
+                    SigAction::default_restorer()
+                };
+                Action::Handler(handler, restorer)
+            }
         }
     }
     #[inline(always)]
@@ -283,10 +328,6 @@ impl SigAction {
     }
 }
 
-pub struct SignalPack {
-    signal: u32,
-}
-
 pub fn send_signal(process: Arc<Process>, sig: u32) -> Result<(), Dead> {
     process.signal_manager.receive(sig);
     process.event_bus.set(Event::RECEIVE_SIGNAL)?;
@@ -294,30 +335,21 @@ pub fn send_signal(process: Arc<Process>, sig: u32) -> Result<(), Dead> {
 }
 
 pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Result<(), Dead> {
+    stack_trace!();
     let tsm = &mut thread.signal_manager;
     let psm = &process.signal_manager;
-    tsm.fetch();
+    tsm.fetch_mailbox();
     let mask = *tsm.mask();
-    let signal = {
-        || {
-            if let Some(sig) = tsm.take_std_signal() {
-                return Some(sig);
-            }
-            if let Some(sig) = psm.take_std_signal(mask.std_signal()) {
-                return Some(sig);
-            }
-            if let Some(sig) = tsm.take_rt_signal() {
-                return Some(sig);
-            }
-            if let Some(sig) = psm.take_rt_signal(&mask) {
-                return Some(sig);
-            }
-            None
-        }
-    }();
-    let signal = match signal {
-        None => return Ok(()),
+    let mut take_sig_fn = || {
+        tsm.take_std_signal()?;
+        psm.take_std_signal(mask.std_signal())?;
+        tsm.take_rt_signal()?;
+        psm.take_rt_signal(&mask)?;
+        ControlFlow::CONTINUE
+    };
+    let signal = match take_sig_fn().break_value() {
         Some(s) => s,
+        None => return Ok(()),
     };
     // 找到了一个待处理信号
     assert!(signal < SIG_N as u32);
@@ -328,15 +360,14 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         Action::Handler(h, ra) => (h, ra),
     };
     // 使用handler的信号处理
-    debug_assert!([0, 1, usize::MAX].contains(&handler));
+    debug_assert!(![0, 1, usize::MAX].contains(&handler));
     let old_mask = mask;
     let mut new_mask = mask;
     new_mask.insert(sig_mask);
     new_mask.insert_bit(signal as usize);
     tsm.set_mask(&new_mask);
     let old_scxptr = thread.scx_ptr;
-    let uk_cx = &mut *thread.uk_context;
-
+    let uk_cx = &mut thread.uk_context;
     let mut sp = uk_cx.sp();
     sp -= 128; // red zone
     sp -= core::mem::size_of::<SignalContext>();
@@ -347,7 +378,6 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         .translated_user_writable_value(scx_ptr)
         .await
         .map_err(|_e| Dead)?;
-
     scx.access_mut()[0].load(uk_cx, old_scxptr, old_mask);
     uk_cx.set_user_a0(signal as usize);
     uk_cx.set_user_sp(sp);
@@ -358,6 +388,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
 }
 
 pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysResult {
+    stack_trace!();
     debug_assert!(!thread.scx_ptr.is_null());
     let scx = UserCheck::new(process)
         .translated_user_readonly_value(thread.scx_ptr)

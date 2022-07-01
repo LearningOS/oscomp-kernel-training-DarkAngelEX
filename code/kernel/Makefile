@@ -75,7 +75,7 @@ fs-img-prev: $(APPS)
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64imac-unknown-none-elf/release/
 
 fs-img:
-	@cd ../user && make submit
+#	@cd ../user && make submit
 	@cd $(FS_IMG_BUILD) && make init
 	@cp $(FS_IMG_SRC) $(FS_IMG)
 
@@ -110,7 +110,6 @@ disasm-vim: kernel
 	@rm $(DISASM_TMP)
 
 run: run-inner
-
 
 
 run-inner: build
@@ -152,6 +151,6 @@ debug_run: build
 		-s -S
 
 debug_gdb:
-	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../user/busybox_lua_testsuites/busybox_debug' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../user/busybox_lua_testsuites/uname' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
 
 .PHONY: build env kernel clean disasm disasm-vim run-inner switch-check

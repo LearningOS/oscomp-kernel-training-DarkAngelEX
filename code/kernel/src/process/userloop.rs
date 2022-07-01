@@ -56,7 +56,7 @@ async fn userloop(thread: Arc<Thread>) {
             println!(
                 "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
                 thread.process.pid(),
-                thread.tid,
+                thread.tid(),
                 scause,
                 stval,
                 context.user_sepc
@@ -121,7 +121,7 @@ async fn userloop(thread: Arc<Thread>) {
     }
     if let Some(alive) = &mut *thread.process.alive.lock() {
         // TODO: just last thread exit do this.
-        println!("[kernel]proc:{:?} abort", thread.process.pid());
+        println!("[kernel]proc {:?} abort", thread.process.pid());
         alive.clear_all(thread.process.pid());
     }
 }

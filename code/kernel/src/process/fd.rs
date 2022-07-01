@@ -1,7 +1,7 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    fs::{File, Stdin, Stdout},
+    fs::File,
     syscall::{SysError, SysResult, UniqueSysError},
     tools,
 };
@@ -56,9 +56,11 @@ impl FdTable {
             map: BTreeMap::new(),
             search_start: Fd(0),
         };
-        ret.insert(Arc::new(Stdin), false).assert_eq(0);
-        ret.insert(Arc::new(Stdout), false).assert_eq(1);
-        ret.insert(Arc::new(Stdout), false).assert_eq(2);
+        use crate::fs::dev::tty;
+        // [0, 1, 2] => [stdin, stdout, stderr]
+        ret.insert(tty::inode(), false).assert_eq(0);
+        ret.insert(tty::inode(), false).assert_eq(1);
+        ret.insert(tty::inode(), false).assert_eq(2);
         ret
     }
     pub fn exec_run(&mut self) {

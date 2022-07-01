@@ -7,7 +7,6 @@ use core::{
 };
 
 use alloc::{
-    boxed::Box,
     collections::BTreeMap,
     string::String,
     sync::{Arc, Weak},
@@ -17,6 +16,7 @@ use riscv::register::sstatus;
 
 use crate::{
     fs::VfsInode,
+    futex::RobustListHead,
     hart::floating,
     memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
     signal::{
@@ -30,7 +30,7 @@ use crate::{
 };
 
 use super::{
-    children::ChildrenSet, fd::FdTable, pid::pid_alloc, proc_table, AliveProcess, CloneFlag, Dead,
+    children::ChildrenSet, fd::FdTable, search, tid::TidHandle, AliveProcess, CloneFlag, Dead,
     Process, Tid,
 };
 
@@ -50,7 +50,10 @@ impl ThreadGroup {
         self.threads.iter().map(|(_id, td)| td.upgrade().unwrap())
     }
     pub fn push(&mut self, thread: &Arc<Thread>) {
-        match self.threads.try_insert(thread.tid, Arc::downgrade(thread)) {
+        match self
+            .threads
+            .try_insert(thread.tid.tid(), Arc::downgrade(thread))
+        {
             Ok(_) => (),
             Err(_) => panic!("double insert tid"),
         }
@@ -84,10 +87,22 @@ impl ThreadGroup {
 // only run in local thread
 pub struct Thread {
     // never change
-    pub tid: Tid,
+    pub tid: TidHandle,
     pub process: Arc<Process>,
     // thread local
     inner: UnsafeCell<ThreadInner>,
+}
+
+impl Thread {
+    pub fn receive(&self, sig: u32) {
+        self.inner().signal_manager.receive(sig);
+    }
+}
+
+impl Drop for Thread {
+    fn drop(&mut self) {
+        search::clear_thread(self.tid());
+    }
 }
 
 unsafe impl Send for Thread {}
@@ -95,11 +110,13 @@ unsafe impl Sync for Thread {}
 
 pub struct ThreadInner {
     pub stack_id: StackID,
-    pub set_child_tid: UserInOutPtr<u32>,
-    pub clear_child_tid: UserInOutPtr<u32>,
     pub signal_manager: ThreadSignalManager,
     pub scx_ptr: UserInOutPtr<SignalContext>,
-    pub uk_context: Box<UKContext>,
+    pub uk_context: UKContext,
+
+    pub set_child_tid: UserInOutPtr<u32>,
+    pub clear_child_tid: UserInOutPtr<u32>,
+    pub robust_list: UserInOutPtr<RobustListHead>,
 }
 
 impl Thread {
@@ -117,8 +134,7 @@ impl Thread {
             user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
         drop(args);
-        let pid = pid_alloc();
-        let tid = Tid::from_usize(pid.get_usize());
+        let (tid, pid) = super::tid::alloc_tid_pid();
         let pgid = AtomicUsize::new(pid.get_usize());
         let process = Arc::new(Process {
             pid,
@@ -132,7 +148,7 @@ impl Thread {
                 envp,
                 parent: None,
                 children: ChildrenSet::new(),
-                threads: ThreadGroup::new(tid.to_usize() + 1),
+                threads: ThreadGroup::new(tid.tid().0 + 1),
                 fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(0),
@@ -146,7 +162,8 @@ impl Thread {
                 clear_child_tid: UserInOutPtr::null(),
                 signal_manager: ThreadSignalManager::new(),
                 scx_ptr: UserInOutPtr::null(),
-                uk_context: unsafe { UKContext::any() },
+                uk_context: UKContext::new(),
+                robust_list: UserInOutPtr::null(),
             }),
         };
         thread.inner.get_mut().uk_context.exec_init(
@@ -158,14 +175,18 @@ impl Thread {
             argv,
             xenvp,
         );
-        let ptr = Arc::new(thread);
-        println!("3");
+        let thread = Arc::new(thread);
         process
-            .alive_then(|alive| alive.threads.push(&ptr))
+            .alive_then(|alive| alive.threads.push(&thread))
             .unwrap();
-        proc_table::insert_proc(&process);
-        unsafe { proc_table::set_initproc(process) };
-        ptr
+        search::insert_proc(&process);
+        search::insert_thread(&thread);
+        unsafe { search::set_initproc(process) };
+        thread
+    }
+    #[inline(always)]
+    pub fn tid(&self) -> Tid {
+        self.tid.tid()
     }
     #[allow(clippy::mut_from_ref)]
     pub fn inner(&self) -> &mut ThreadInner {
@@ -185,7 +206,8 @@ impl Thread {
         _parent_tidptr: UserInOutPtr<u32>,
         child_tidptr: UserInOutPtr<u32>,
     ) -> Result<Arc<Self>, SysError> {
-        let new_process = self.process.fork(self.tid)?;
+        let (tid, pid) = super::tid::alloc_tid_pid();
+        let new_process = self.process.fork(self.tid.tid(), pid)?;
         let inner = self.inner();
 
         let set_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_SETTID) {
@@ -199,17 +221,19 @@ impl Thread {
             UserInOutPtr::null()
         };
         let thread = Arc::new(Self {
-            tid: self.tid,
+            tid,
             process: new_process,
             inner: UnsafeCell::new(ThreadInner {
                 stack_id: inner.stack_id,
-                set_child_tid,
-                clear_child_tid,
                 signal_manager: inner.signal_manager.fork(),
                 scx_ptr: UserInOutPtr::null(),
                 uk_context: inner.uk_context.fork(),
+                set_child_tid,
+                clear_child_tid,
+                robust_list: inner.robust_list,
             }),
         });
+        search::insert_thread(&thread);
         if new_sp != 0 {
             thread.inner().uk_context.set_user_sp(new_sp);
         }

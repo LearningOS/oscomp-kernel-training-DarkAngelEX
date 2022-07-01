@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use alloc::vec::Vec;
 
-use crate::config::PAGE_SIZE;
+use crate::config::{PAGE_SIZE, USER_KRW_RANDOM_BEGIN};
 
 // Execution of programs
 pub const AT_NULL: usize = 0; /* end of vector */
@@ -69,6 +69,7 @@ impl AuxHeader {
         push!(AT_HWCAP, 0);
         push!(AT_CLKTCK, 100);
         push!(AT_SECURE, 0);
+        push!(AT_RANDOM, USER_KRW_RANDOM_BEGIN);
         auxv
     }
     pub fn reverse() -> usize {

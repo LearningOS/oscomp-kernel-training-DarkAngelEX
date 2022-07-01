@@ -10,7 +10,7 @@ create: clean
 	chmod 777 $(IMG_PATH)
 	chmod 777 $(DIR_PATH)
 
-init: create init_dir_test_case endumount
+init: create init_final_disk endumount
 
 mount:
 	-sudo umount -l $(DIR_PATH)
@@ -21,6 +21,10 @@ umount:
 
 endumount:
 	-sudo umount -l $(DIR_PATH)
+
+init_final_disk: mount
+	@cp -r ../disk/. $(DIR_PATH)/
+	@cp -r ../init/. $(DIR_PATH)/
 
 init_dir_test_case: mount
 	@cd ../user && make build

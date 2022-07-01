@@ -8,12 +8,13 @@ use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use crate::{
     fs::{self, Mode, VfsInode},
     memory::{asid::Asid, UserSpace},
+    signal::manager::ProcSignalManager,
     sync::{
         even_bus::{Event, EventBus},
         mutex::SpinNoIrqLock as Mutex,
     },
     syscall::{SysError, UniqueSysError},
-    xdebug::NeverFail, signal::manager::ProcSignalManager,
+    xdebug::NeverFail,
 };
 
 use self::{
@@ -26,7 +27,8 @@ use self::{
 pub mod children;
 pub mod fd;
 pub mod pid;
-pub mod proc_table;
+pub mod resource;
+pub mod search;
 pub mod thread;
 pub mod tid;
 pub mod userloop;
@@ -51,7 +53,7 @@ pub struct Process {
 
 impl Drop for Process {
     fn drop(&mut self) {
-        proc_table::clear_proc(self.pid());
+        search::clear_proc(self.pid());
     }
 }
 
@@ -98,16 +100,15 @@ impl Process {
         }
     }
     // fork and release all thread except tid
-    pub fn fork(self: &Arc<Self>, tid: Tid) -> Result<Arc<Self>, SysError> {
+    pub fn fork(self: &Arc<Self>, old_tid: Tid, new_pid: PidHandle) -> Result<Arc<Self>, SysError> {
         let mut alive_guard = self.alive.lock();
         let alive = alive_guard.as_mut().unwrap();
         let mut user_space = alive.user_space.fork()?;
-        let stack_id = alive.threads.map(tid).unwrap().inner().stack_id;
+        let stack_id = alive.threads.map(old_tid).unwrap().inner().stack_id;
         unsafe {
             user_space.stack_dealloc_all_except(stack_id);
         }
         let success_check = NeverFail::new();
-        let new_pid = pid::pid_alloc();
         let new_alive = AliveProcess {
             user_space,
             cwd: alive.cwd.clone(),
@@ -128,7 +129,7 @@ impl Process {
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();
-        proc_table::insert_proc(&new_process);
+        search::insert_proc(&new_process);
         Ok(new_process)
     }
 }
@@ -151,7 +152,7 @@ impl AliveProcess {
             }
             _ => {
                 // println!("initproc's zombie");
-                let initproc = proc_table::get_initproc();
+                let initproc = search::get_initproc();
                 let mut initproc_alive = initproc.alive.lock();
                 let p = initproc_alive.as_mut().unwrap();
                 p.children.become_zombie(pid);
@@ -161,7 +162,7 @@ impl AliveProcess {
         drop(this_parent_alive);
         let _ = bus.set(Event::CHILD_PROCESS_QUIT);
         if !self.children.is_empty() {
-            let initproc = proc_table::get_initproc();
+            let initproc = search::get_initproc();
             let mut initproc_alive = initproc.alive.lock();
             let ich = &mut initproc_alive.as_mut().unwrap().children;
             ich.append(self.children.take());
@@ -177,9 +178,14 @@ static RUN_ALL_CASE: &'static [u8] = include_bytes!("../../run_all_case");
 
 pub async fn init() {
     let initproc = "/initproc";
-    let cwd = fs::open_file([].into_iter(), "/", fs::OpenFlags::RDONLY, Mode(0o500))
-        .await
-        .unwrap();
+    let cwd = fs::open_file(
+        Some(Ok([].into_iter())),
+        "/",
+        fs::OpenFlags::RDONLY,
+        Mode(0o500),
+    )
+    .await
+    .unwrap();
     if cfg!(feature = "submit") {
         let mut args = Vec::new();
         args.push(initproc.to_string());
@@ -188,9 +194,14 @@ pub async fn init() {
         userloop::spawn(thread);
     } else {
         println!("load initporc: {}", initproc);
-        let inode = fs::open_file([].into_iter(), initproc, fs::OpenFlags::RDONLY, Mode(0o500))
-            .await
-            .unwrap();
+        let inode = fs::open_file(
+            Some(Ok([].into_iter())),
+            initproc,
+            fs::OpenFlags::RDONLY,
+            Mode(0o500),
+        )
+        .await
+        .unwrap();
         let elf_data = inode.read_all().await.unwrap();
         let mut args = Vec::new();
         args.push(initproc.to_string());

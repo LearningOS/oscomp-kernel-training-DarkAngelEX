@@ -19,7 +19,7 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
         println!(
             "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
             thread.process.pid(),
-            thread.tid,
+            thread.tid(),
             e,
             stval,
             sepc

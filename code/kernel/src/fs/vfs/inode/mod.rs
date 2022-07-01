@@ -38,7 +38,7 @@ pub async fn list_apps() {
 }
 
 pub async fn create_any<'a>(
-    base: impl Iterator<Item = &'a str>,
+    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
     path: &'a str,
     flags: OpenFlags,
     _mode: Mode,
@@ -47,7 +47,7 @@ pub async fn create_any<'a>(
     fat32_inode::create_any(base, path, flags).await
 }
 pub async fn open_file<'a>(
-    base: impl Iterator<Item = &'a str>,
+    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
     path: &'a str,
     flags: OpenFlags,
     _mode: Mode,
@@ -56,7 +56,7 @@ pub async fn open_file<'a>(
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => path::walk_iter_path(base, &mut stack),
+        _ => path::walk_iter_path(base.unwrap()?, &mut stack),
     }
     path::walk_path(path, &mut stack);
     let inode = match stack.split_first() {
@@ -67,7 +67,7 @@ pub async fn open_file<'a>(
 }
 
 pub async fn unlink<'a>(
-    base: impl Iterator<Item = &'a str>,
+    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
     path: &'a str,
     flags: OpenFlags,
 ) -> Result<(), SysError> {

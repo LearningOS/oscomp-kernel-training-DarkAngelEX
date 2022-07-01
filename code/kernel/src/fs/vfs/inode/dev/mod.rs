@@ -3,9 +3,9 @@ use ftl_util::error::SysError;
 
 use super::VfsInode;
 
-mod null;
-mod tty;
-mod zero;
+pub mod null;
+pub mod tty;
+pub mod zero;
 
 pub fn init() {
     null::init();

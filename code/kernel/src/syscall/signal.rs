@@ -1,6 +1,8 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
-    signal::{SigAction, SignalSet, SIG_N, SIG_N_BYTES},
+    process::{search, Pid, Tid},
+    signal::{SigAction, SignalSet, SignalStack, SIG_N, SIG_N_BYTES},
+    sync::even_bus::Event,
     syscall::SysError,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -8,7 +10,7 @@ use crate::{
 
 use super::{SysResult, Syscall};
 
-const PRINT_SYSCALL_SIGNAL: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
+const PRINT_SYSCALL_SIGNAL: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL || false;
 
 const SIG_BLOCK: usize = 1;
 const SIG_UNBLOCK: usize = 2;
@@ -16,17 +18,88 @@ const SIG_SETMASK: usize = 3;
 
 bitflags! {
     struct SA: u32 {
-        const ONSTACK   = 0x00000001;
-        const RESTART   = 0x00000002;
-        const NOCLDSTOP = 0x00000004;
-        const NODEFER   = 0x00000008;
-        const RESETHAND = 0x00000010;
-        const NOCLDWAIT = 0x00000020;
-        const SIGINFO   = 0x00000040;
+        const NOCLDSTOP = 0x00000001;
+        const NOCLDWAIT = 0x00000002;
+        const SIGINFO   = 0x00000004;
+        const RESTORER  = 0x04000000;
+        const ONSTACK   = 0x08000000;
+        const RESTART   = 0x10000000;
+        const NODEFER   = 0x40000000;
+        const RESETHAND = 0x80000000;
     }
 }
 
 impl Syscall<'_> {
+    pub fn sys_kill(&mut self) -> SysResult {
+        stack_trace!();
+        let (pid, signal): (isize, u32) = self.cx.into();
+
+        if PRINT_SYSCALL_SIGNAL {
+            println!("sys_kill pid:{} signal:{}", pid, signal);
+        }
+
+        if signal >= SIG_N as u32 {
+            return Err(SysError::EINVAL);
+        }
+
+        enum Target {
+            Pid(Pid),     // > 0
+            AllInGroup,   // == 0
+            All,          // == -1 all have authority except initproc
+            Group(usize), // < -1
+        }
+
+        let target = match pid {
+            0 => Target::AllInGroup,
+            -1 => Target::All,
+            p if p > 0 => Target::Pid(Pid(p as usize)),
+            g => Target::Group(-g as usize),
+        };
+        match target {
+            Target::Pid(pid) => {
+                let proc = search::find_proc(pid).ok_or(SysError::ESRCH)?;
+                proc.signal_manager.receive(signal);
+                proc.event_bus
+                    .set(Event::RECEIVE_SIGNAL)
+                    .map_err(|_e| SysError::ESRCH)?;
+            }
+            Target::AllInGroup => todo!(),
+            Target::All => todo!(),
+            Target::Group(_) => todo!(),
+        }
+        Ok(0)
+    }
+    pub fn sys_tgkill(&mut self) -> SysResult {
+        stack_trace!();
+        let (pid, tid, signal): (Pid, Tid, u32) = self.cx.into();
+        if PRINT_SYSCALL_SIGNAL {
+            println!("sys_tgkill pid:{:?} tid:{:?} signal:{}", pid, tid, signal);
+        }
+        let thread = search::find_thread(tid).ok_or(SysError::ESRCH)?;
+        if thread.process.pid() != pid {
+            return Err(SysError::ESRCH);
+        }
+        thread.receive(signal);
+        Ok(0)
+    }
+    pub async fn sys_sigaltstack(&mut self) -> SysResult {
+        stack_trace!();
+        /* Structure describing a signal stack.  */
+        let (new, old): (UserReadPtr<SignalStack>, UserWritePtr<SignalStack>) = self.cx.into();
+        if PRINT_SYSCALL_SIGNAL {
+            println!(
+                "sys_sigaltstack new:{:#x} old:{:#x}",
+                new.as_usize(),
+                old.as_usize()
+            );
+        }
+        let _new = UserCheck::new(self.process)
+            .translated_user_readonly_value(new)
+            .await?
+            .load();
+
+        todo!()
+    }
     pub async fn sys_rt_sigsuspend(&mut self) -> SysResult {
         todo!()
     }
@@ -136,12 +209,16 @@ impl Syscall<'_> {
         todo!()
     }
     pub async fn sys_rt_sigtimedwait(&mut self) -> SysResult {
-        todo!()
+        // todo!()
+        Ok(0)
     }
     pub async fn sys_rt_sigqueueinfo(&mut self) -> SysResult {
         todo!()
     }
     pub async fn sys_rt_sigreturn(&mut self) -> SysResult {
+        if PRINT_SYSCALL_SIGNAL {
+            println!("sys_rt_sigreturn");
+        }
         if self.thread.inner().scx_ptr.is_null() {
             self.do_exit = true;
             return Err(SysError::EPERM);

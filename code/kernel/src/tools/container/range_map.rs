@@ -185,7 +185,38 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         self.remove(r, split_l, split_r, release);
         self.0.try_insert(start, Node { end, value }).ok().unwrap();
     }
+    /// 位置必须位于某个段中间, 否则panic
+    pub fn split_at(&mut self, p: U, split_r: impl FnOnce(&mut V, U, Range<U>) -> V) {
+        let (&start, Node { end, value }) = self.0.range_mut(..p).next_back().unwrap();
+        let xend = *end;
+        debug_assert!(p < xend);
+        *end = p;
+        let node = Node {
+            end: xend,
+            value: split_r(value, p, start..xend),
+        };
+        self.0.try_insert(p, node).ok().unwrap();
+    }
+    /// 将一个段切成两半
+    pub fn split_at_maybe(&mut self, p: U, split_r: impl FnOnce(&mut V, U, Range<U>) -> V) {
+        let (&start, Node { end, value }) = match self.0.range_mut(..p).next_back() {
+            Some(v) => v,
+            None => return,
+        };
+        let xend = *end;
+        if xend <= p {
+            return;
+        }
+        *end = p;
+        let node = Node {
+            end: xend,
+            value: split_r(value, p, start..xend),
+        };
+        self.0.try_insert(p, node).ok().unwrap();
+    }
     /// 按顺序调用三个函数
+    ///
+    /// 位置必须位于某个段中间, 否则panic
     pub fn split_at_run(
         &mut self,
         p: U,
@@ -193,14 +224,15 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         l_run: impl FnOnce(&mut V, Range<U>),
         r_run: impl FnOnce(&mut V, Range<U>),
     ) {
-        let (&start, Node { end, value }) = self.0.range_mut(..=p).next_back().unwrap();
+        let (&start, Node { end, value }) = self.0.range_mut(..p).next_back().unwrap();
         let xend = *end;
+        debug_assert!(p < xend);
         *end = p;
         let mut xvalue = split_r(value, p, start..xend);
         l_run(value, start..p);
         r_run(&mut xvalue, p..xend);
         let node = Node {
-            end: p,
+            end: xend,
             value: xvalue,
         };
         self.0.try_insert(p, node).ok().unwrap();

@@ -40,7 +40,10 @@
 #![feature(allocator_api)]
 #![feature(str_internals)]
 #![feature(array_chunks)]
+#![feature(slice_from_ptr_range)]
 #![feature(core_intrinsics)]
+#![feature(control_flow_enum)]
+#![feature(try_trait_v2)]
 #![feature(trait_upcasting)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
@@ -90,6 +93,7 @@ mod syscall;
 mod timer;
 mod trap;
 mod user;
+pub mod futex;
 
 use riscv::register::sstatus;
 

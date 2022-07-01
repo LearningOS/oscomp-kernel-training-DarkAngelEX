@@ -4,7 +4,7 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use riscv::register::scause::Exception;
 
 use crate::{
-    config::PAGE_SIZE,
+    config::{PAGE_SIZE, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE},
     local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
@@ -13,11 +13,13 @@ use crate::{
         page_table::PTEFlags,
     },
     syscall::SysError,
+    timer,
     tools::{
-        container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange, xasync::TryR,
-        DynDropRun,
+        self, container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange,
+        xasync::TryR, DynDropRun,
     },
     user::AutoSum,
+    xdebug::CLOSE_RANDOM,
 };
 
 use self::{
@@ -33,6 +35,8 @@ use super::{
     map_segment::{handler::AsyncHandler, MapSegment},
     PageTable,
 };
+
+core::arch::global_asm!(include_str!("./kload.S"));
 
 pub mod heap;
 pub mod stack;
@@ -89,7 +93,12 @@ pub struct UserArea {
 
 impl UserArea {
     pub fn new(range: URange, perm: PTEFlags) -> Self {
-        debug_assert!(range.start < range.end);
+        debug_assert!(
+            range.start < range.end,
+            "{:#x}..{:#x}",
+            range.start.into_usize(),
+            range.end.into_usize()
+        );
         Self { range, perm }
     }
     pub fn new_urw(range: URange) -> Self {
@@ -336,7 +345,59 @@ impl UserSpace {
             value: ph_head_addr as usize,
         });
         stack_trace!();
-        // map user stack
+        // map kernel_load
+        struct KRXFrameIter;
+        impl FrameDataIter for KRXFrameIter {
+            fn len(&self) -> usize {
+                PAGE_SIZE
+            }
+            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+                extern "C" {
+                    fn __kload_begin();
+                    fn __kload_end();
+                }
+                let begin = __kload_begin as *const u8;
+                let end = __kload_end as *const u8;
+                unsafe {
+                    let src = core::slice::from_ptr_range(begin..end);
+                    debug_assert!(src.len() < PAGE_SIZE);
+                    dst[..src.len()].copy_from_slice(src);
+                    dst[src.len()..].fill(0);
+                }
+                Ok(())
+            }
+        }
+        space.force_map_delay_write(
+            UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
+            KRXFrameIter,
+        )?;
+        struct KRWRandomIter;
+        impl FrameDataIter for KRWRandomIter {
+            fn len(&self) -> usize {
+                PAGE_SIZE
+            }
+            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+                let seed = match CLOSE_RANDOM {
+                    true => 1,
+                    false => timer::get_time_ticks().into_usize() as u64 ^ 0xcdba,
+                };
+                let mut s = (0x1u64, seed);
+                for dst in dst {
+                    *dst = s.0.wrapping_add(s.1) as u8;
+                    s = tools::xor_shift_128_plus(s);
+                }
+                Ok(())
+            }
+        }
+        space.force_map_delay_write(
+            UserArea::new(
+                USER_KRW_RANDOM_RANGE,
+                PTEFlags::R | PTEFlags::W | PTEFlags::U,
+            ),
+            KRWRandomIter,
+        )?;
+
+        // map user stack:
         let (stack_id, user_sp) = space.stack_alloc(stack_reverse)?;
         stack_trace!();
         // set heap

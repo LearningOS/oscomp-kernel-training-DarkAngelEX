@@ -106,12 +106,14 @@ impl<T> AlignCacheWrapper<T> {
         Self(v)
     }
 }
+
 impl<T> Deref for AlignCacheWrapper<T> {
     type Target = T;
     fn deref(&self) -> &Self::Target {
         &self.0
     }
 }
+
 impl<T> DerefMut for AlignCacheWrapper<T> {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
@@ -236,4 +238,11 @@ fn multi_thread_stress_test(hart: usize) {
             println!("skip multi_thread_stress_test");
         }
     }
+}
+
+pub fn xor_shift_128_plus((s0, s1): (u64, u64)) -> (u64, u64) {
+    let mut s2 = s0;
+    s2 ^= s2 << 23;
+    s2 ^= s1 ^ (s2 >> 18) ^ (s1 >> 5);
+    (s1, s2)
 }

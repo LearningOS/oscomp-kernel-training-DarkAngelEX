@@ -1,3 +1,5 @@
+use core::ops::ControlFlow;
+
 use alloc::collections::VecDeque;
 
 use crate::{
@@ -20,20 +22,20 @@ impl ProcSignalManager {
     pub fn receive(&self, sig: u32) {
         self.inner.lock().receive(sig)
     }
-    pub fn take_rt_signal(&self, mask: &SignalSet) -> Option<u32> {
+    pub fn take_rt_signal(&self, mask: &SignalSet) -> ControlFlow<u32> {
         stack_trace!();
         if unsafe { self.inner.unsafe_get().can_take_rt_signal(mask) } {
             self.inner.lock().take_rt_signal(mask)
         } else {
-            None
+            ControlFlow::CONTINUE
         }
     }
-    pub fn take_std_signal(&self, mask: StdSignalSet) -> Option<u32> {
+    pub fn take_std_signal(&self, mask: StdSignalSet) -> ControlFlow<u32> {
         stack_trace!();
         if unsafe { self.inner.unsafe_get().can_take_std_signal(mask) } {
             self.inner.lock().take_std_signal(mask)
         } else {
-            None
+            ControlFlow::CONTINUE
         }
     }
     /// 返回sigaction
@@ -45,7 +47,7 @@ impl ProcSignalManager {
         unsafe { self.inner.unsafe_get().get_action(sig) }
     }
     pub fn replace_action(&self, sig: u32, new: &SigAction, old: &mut SigAction) {
-        debug_assert!(sig < 32);
+        debug_assert!(sig < SIG_N_U32);
         self.inner.lock().replace_action(sig, new, old)
     }
     pub fn reset(&self) {
@@ -60,52 +62,57 @@ impl ProcSignalManager {
 
 struct ProcSignalManagerInner {
     pending: StdSignalSet, // 等待处理的信号
-    readtime: RTQueue,
+    realtime: RTQueue,
     action: [SigAction; SIG_N],
 }
 
 impl ProcSignalManagerInner {
+    #[inline]
     pub fn new() -> Self {
         Self {
             pending: StdSignalSet::EMPTY,
-            readtime: RTQueue::new(),
+            realtime: RTQueue::new(),
             action: SigAction::DEFAULT_SET,
         }
     }
     pub fn receive(&mut self, sig: u32) {
         debug_assert!(sig < SIG_N as u32); // must check in syscall
-        todo!()
+        match sig {
+            0..32 => self
+                .pending
+                .insert(StdSignalSet::from_bits_truncate(1 << sig)),
+            32..SIG_N_U32 => self.realtime.receive(sig),
+            _ => (),
+        }
     }
     pub fn can_take_std_signal(&self, mask: StdSignalSet) -> bool {
         !(self.pending & !mask).is_empty()
     }
-    pub fn take_std_signal(&mut self, mask: StdSignalSet) -> Option<u32> {
-        if !self.can_take_std_signal(mask) {
-            return None;
-        }
-        if let Some(v) = self.pending.fetch_never_capture() {
-            return Some(v);
-        }
-        let sig = (self.pending & !mask).bits.leading_zeros();
-        debug_assert!(sig < 32);
-        Some(sig)
+    pub fn take_std_signal(&mut self, mask: StdSignalSet) -> ControlFlow<u32> {
+        (self.pending & !mask).fetch().map_break(|a| {
+            self.pending.clear_sig(a);
+            a
+        })
     }
     pub fn can_take_rt_signal(&self, mask: &SignalSet) -> bool {
-        self.readtime.can_fetch(mask)
+        self.realtime.can_fetch(mask)
     }
-    pub fn take_rt_signal(&mut self, mask: &SignalSet) -> Option<u32> {
-        self.readtime.fetch(mask)
+    pub fn take_rt_signal(&mut self, mask: &SignalSet) -> ControlFlow<u32> {
+        match self.realtime.fetch(mask) {
+            Some(sig) => ControlFlow::Break(sig),
+            None => ControlFlow::CONTINUE,
+        }
     }
     pub fn get_sig_action(&self, sig: u32) -> SigAction {
         self.action[sig as usize]
     }
     pub fn get_action(&self, sig: u32) -> (Action, &SignalSet) {
-        debug_assert!(sig < SIG_N as u32);
+        debug_assert!(sig < SIG_N_U32);
         let act = &self.action[sig as usize];
         (act.get_action(sig), &act.mask)
     }
     pub fn replace_action(&mut self, sig: u32, new: &SigAction, old: &mut SigAction) {
-        debug_assert!(sig < 32);
+        debug_assert!(sig < SIG_N_U32);
         let dst = &mut self.action[sig as usize];
         *old = *dst;
         *dst = *new;
@@ -114,7 +121,7 @@ impl ProcSignalManagerInner {
     pub fn fork(&self) -> Self {
         Self {
             pending: self.pending,
-            readtime: self.readtime.fork(),
+            realtime: self.realtime.fork(),
             action: self.action,
         }
     }
@@ -195,7 +202,7 @@ impl ThreadSignalManager {
     /// 从mailbox取出信号转移到排他内存
     ///
     /// mut是假的! mailbox是多线程变量
-    pub fn fetch(&mut self) {
+    pub fn fetch_mailbox(&mut self) {
         // 无锁判断
         let send_id = unsafe { self.mailbox.unsafe_get().send_id };
         if send_id == self.recv_id {
@@ -208,7 +215,7 @@ impl ThreadSignalManager {
             self.std_pending |= mailbox.std;
             mailbox.std = StdSignalSet::empty();
             core::mem::take(&mut mailbox.realtime)
-        };
+        }; // release lock here
         for sig in add {
             match sig {
                 sig @ 1..32 => self
@@ -232,19 +239,18 @@ impl ThreadSignalManager {
     pub fn mask_mut(&mut self) -> &mut SignalSet {
         &mut self.signal_mask
     }
-    pub fn take_std_signal(&mut self) -> Option<u32> {
-        let can_fetch = self.std_pending & !self.signal_mask.std_signal();
-        if can_fetch.is_empty() {
-            return None;
-        }
-        if let Some(v) = can_fetch.fetch_never_capture() {
-            return Some(v);
-        }
-        let sig = can_fetch.bits.leading_zeros();
-        debug_assert!(sig < 32);
-        Some(sig)
+    pub fn take_std_signal(&mut self) -> ControlFlow<u32> {
+        (self.std_pending & !self.signal_mask.std_signal())
+            .fetch()
+            .map_break(|a| {
+                self.std_pending.clear_sig(a);
+                a
+            })
     }
-    pub fn take_rt_signal(&mut self) -> Option<u32> {
-        self.real_pending.fetch(&self.signal_mask)
+    pub fn take_rt_signal(&mut self) -> ControlFlow<u32> {
+        match self.real_pending.fetch(&self.signal_mask) {
+            Some(sig) => ControlFlow::Break(sig),
+            None => ControlFlow::CONTINUE,
+        }
     }
 }

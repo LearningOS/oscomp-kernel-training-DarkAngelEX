@@ -7,7 +7,8 @@ use alloc::{
 use ftl_util::{error::SysError, fs::DentryType};
 
 use crate::{
-    fs::{AsyncFile, File, Stdin, Stdout, VfsInode},
+    config::PAGE_SIZE,
+    fs::{stat::Stat, AsyncFile, File, Stdin, Stdout, VfsInode},
     tools::xasync::Async,
 };
 
@@ -43,6 +44,14 @@ impl File for TtyInode {
     }
     fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile {
         Stdout.write(read_only)
+    }
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
+        Box::pin(async move {
+            *stat = Stat::zeroed();
+            stat.st_blksize = PAGE_SIZE as u32;
+            stat.st_mode = 0o666;
+            Ok(())
+        })
     }
 }
 

@@ -76,6 +76,7 @@ impl Drop for RTQueue {
 }
 
 impl RTQueue {
+    #[inline]
     pub fn new() -> Self {
         Self {
             head: None,

@@ -191,6 +191,10 @@ impl DelayGCHeap {
     }
 }
 
+/// 0 -> 1 << 63
+/// 1 -> 1
+/// [2,3] -> 2
+/// [4,7] -> 4
 fn prev_power_of_two(num: usize) -> usize {
-    1 << (8 * (core::mem::size_of::<usize>()) - num.leading_zeros() as usize - 1)
+    1 << (usize::BITS - num.leading_zeros() - 1)
 }

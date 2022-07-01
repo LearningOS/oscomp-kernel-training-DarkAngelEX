@@ -119,7 +119,7 @@ pub async fn open_file<'a>(path: &[&str], flags: OpenFlags) -> Result<Arc<Fat32I
 }
 
 pub async fn unlink<'a>(
-    base: impl Iterator<Item = &'a str>,
+    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
     path: &'a str,
     _flags: OpenFlags,
 ) -> Result<(), SysError> {
@@ -127,14 +127,14 @@ pub async fn unlink<'a>(
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => path::walk_iter_path(base, &mut stack),
+        _ => path::walk_iter_path(base.unwrap()?, &mut stack),
     }
     path::walk_path(path, &mut stack);
     manager().delete_any(&stack).await
 }
 
 pub async fn create_any<'a>(
-    base: impl Iterator<Item = &'a str>,
+    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
     path: &'a str,
     flags: OpenFlags,
 ) -> Result<(), SysError> {
@@ -144,7 +144,7 @@ pub async fn create_any<'a>(
     let mut stack = Vec::new();
     match path.as_bytes().first() {
         Some(b'/') => (),
-        _ => path::walk_iter_path(base, &mut stack),
+        _ => path::walk_iter_path(base.unwrap()?, &mut stack),
     }
     path::walk_path(path, &mut stack);
     manager()

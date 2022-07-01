@@ -16,7 +16,7 @@ use crate::{
         user_ptr::{Policy, UserPtr},
         PTEFlags, UserSpace,
     },
-    process::proc_table,
+    process::search,
     user::check_impl::UserCheckImpl,
 };
 
@@ -334,7 +334,7 @@ pub async fn test() {
     let _auto_sum = AutoSum::new();
     stack_trace!();
     println!("[FTL OS]user_check test begin");
-    let initproc = proc_table::get_initproc();
+    let initproc = search::get_initproc();
     let check = UserCheckImpl::new(&initproc);
     let mut array = 123u8;
     let rw_data = &mut array as *mut u8 as usize;

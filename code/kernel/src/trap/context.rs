@@ -1,6 +1,3 @@
-use core::mem::MaybeUninit;
-
-use alloc::boxed::Box;
 use riscv::register::fcsr::FCSR;
 use riscv::register::sstatus::FS;
 
@@ -132,10 +129,8 @@ cx_into_impl!(&mut UKContext, A, B, C, D, E, F);
 cx_into_impl!(&mut UKContext, A, B, C, D, E, F, G);
 
 impl UKContext {
-    pub unsafe fn any() -> Box<Self> {
-        let mut v = Box::new_uninit();
-        v.as_bytes_mut().fill(MaybeUninit::new(0));
-        v.assume_init()
+    pub fn new() -> Self {
+        unsafe { core::mem::zeroed() }
     }
     pub fn a0(&self) -> usize {
         self.user_rx[0]
@@ -145,6 +140,9 @@ impl UKContext {
     }
     pub fn a0_a7(&self) -> &[usize] {
         &self.user_rx[10..17]
+    }
+    pub fn ra(&self) -> usize {
+        self.user_rx[1]
     }
     pub fn sp(&self) -> usize {
         self.user_rx[2]
@@ -201,8 +199,8 @@ impl UKContext {
         self.user_sstatus = sstatus;
     }
 
-    pub fn fork(&self) -> Box<Self> {
-        let mut new = unsafe { Self::any() };
+    pub fn fork(&self) -> Self {
+        let mut new = Self::new();
         new.user_rx = self.user_rx;
         new.user_sepc = self.user_sepc;
         new.user_sstatus = self.user_sstatus;
