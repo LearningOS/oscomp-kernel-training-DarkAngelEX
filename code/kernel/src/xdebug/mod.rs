@@ -40,7 +40,7 @@ pub mod stack_trace;
 
 pub fn init() {
     stack_trace::init();
-    ftl_util::xdebug::sie_init(||sstatus::read().sie());
+    ftl_util::xdebug::sie_init(|| sstatus::read().sie());
 }
 
 #[allow(unused_macros)]

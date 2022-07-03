@@ -16,9 +16,9 @@ use crate::{
     local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
     memory::asid::USING_ASID,
     process::{thread, Dead, Pid},
+    sync::even_bus::Event,
     syscall::Syscall,
     timer,
-    tools::allocator::from_usize_allocator::FromUsize,
     user::{trap_handler, AutoSie},
 };
 
@@ -26,9 +26,11 @@ use super::thread::Thread;
 
 async fn userloop(thread: Arc<Thread>) {
     stack_trace!(to_yellow!("running in user loop"));
+    if thread.process.is_alive() {
+        thread.settid().await;
+    }
     loop {
         local::handle_current_local();
-
         let context = thread.as_ref().get_context();
         let auto_sie = AutoSie::new();
         // let mut do_yield = false;
@@ -112,17 +114,23 @@ async fn userloop(thread: Arc<Thread>) {
         if do_exit {
             break;
         }
-        // if do_yield {
-        //     thread::yield_now().await;
-        // }
     }
-    if thread.process.pid() == Pid::from_usize(0) {
+    if thread.process.is_alive() {
+        thread.cleartid().await;
+    }
+    if thread.process.pid() == Pid(0) {
         panic!("initproc exit");
     }
     if let Some(alive) = &mut *thread.process.alive.lock() {
         // TODO: just last thread exit do this.
-        println!("[kernel]proc {:?} abort", thread.process.pid());
+        println!("[kernel]thread {:?} terminal", thread.tid());
         alive.clear_all(thread.process.pid());
+        if let Some(sig) = thread.exit_send_signal() {
+            alive.parent.as_ref().and_then(|a| a.upgrade()).map(|a| {
+                a.signal_manager.receive(sig);
+                let _ = a.event_bus.set(Event::RECEIVE_SIGNAL);
+            });
+        }
     }
 }
 

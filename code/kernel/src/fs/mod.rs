@@ -67,8 +67,7 @@ bitflags! {
         const FASYNC    = 0o0020000;
         const DIRECT    = 0o0040000;
         const LARGEFILE = 0o0100000;
-        // const DIRECTORY = 00200000; // LINUX
-        const DIRECTORY = 0x0200000; // test run
+        const DIRECTORY = 0x0200000;
         const NOFOLLOW  = 0o0400000;
         const NOATIME   = 0o1000000;
         const CLOEXEC   = 0o2000000;
@@ -93,6 +92,26 @@ impl OpenFlags {
     }
     fn dir(self) -> bool {
         self.contains(Self::DIRECTORY)
+    }
+}
+
+pub enum Seek {
+    Set,
+    Cur,
+    End,
+}
+
+impl Seek {
+    pub fn from_user(v: u32) -> Result<Self, SysError> {
+        const SEEK_SET: u32 = 0;
+        const SEEK_CUR: u32 = 1;
+        const SEEK_END: u32 = 2;
+        match v {
+            SEEK_SET => Ok(Self::Set),
+            SEEK_CUR => Ok(Self::Cur),
+            SEEK_END => Ok(Self::End),
+            _ => Err(SysError::EINVAL),
+        }
     }
 }
 
@@ -128,6 +147,9 @@ pub trait File: Send + Sync + 'static {
     }
     fn can_write_offset(&self) -> bool {
         false
+    }
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+        unimplemented!("lseek unimplement: {}", core::any::type_name::<Self>())
     }
     fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
         unimplemented!()

@@ -29,37 +29,84 @@ use super::{SysError, SysResult, Syscall};
 const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
-    pub fn sys_clone(&mut self) -> SysResult {
+    pub async fn sys_clone(&mut self) -> SysResult {
         stack_trace!();
-        if PRINT_SYSCALL_PROCESS {
-            print!("sys_clone {:?} ", self.process.pid());
-        }
-        let (flag, newsp, parent_tidptr, child_tidptr, _tls_val): (
-            u32,
+        let (flag, new_sp, ptid, tls, ctid): (
+            usize,
             usize,
             UserInOutPtr<u32>,
+            UserInOutPtr<u8>,
             UserInOutPtr<u32>,
-            u32,
         ) = self.cx.into();
-
-        // println!("{}clone: {:#x}{}", to_yellow!(), flag, reset_color!());
-        let flag = CloneFlag::from_bits(flag).ok_or(SysError::EINVAL)?;
-        let new = match self
-            .thread
-            .clone_impl(flag, newsp, parent_tidptr, child_tidptr)
-        {
-            Ok(new) => new,
-            Err(_e) => {
-                println!("frame out of memory");
-                return Err(SysError::ENOMEM);
-            }
-        };
-        let pid = new.process.pid();
-        userloop::spawn(new);
-        if PRINT_SYSCALL_PROCESS {
-            println!("-> {:?}", pid);
+        const PRINT_THIS: bool = true;
+        if PRINT_SYSCALL_PROCESS || PRINT_THIS {
+            println!(
+                "sys_clone by {:?} sig: {} flag: {:?}\n\tsp: {:#x} ptid: {:#x} tls: {:#x} ctid: {:#x}",
+                self.process.pid(),
+                flag & 0xff,
+                CloneFlag::from_bits(flag as u64).unwrap(),
+                new_sp,
+                ptid.as_usize(),
+                ctid.as_usize(),
+                tls.as_usize()
+            );
         }
-        Ok(pid.0)
+        let flag = CloneFlag::from_bits(flag as u64).ok_or(SysError::EINVAL)?;
+        let set_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_SETTID) {
+            ctid
+        } else {
+            UserInOutPtr::null()
+        };
+        let clear_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_CLEARTID) {
+            ctid
+        } else {
+            UserInOutPtr::null()
+        };
+        let tls = if flag.contains(CloneFlag::CLONE_SETTLS) {
+            tls
+        } else {
+            UserInOutPtr::null()
+        };
+        let exit_signal = if !flag.contains(CloneFlag::CLONE_DETACHED) {
+            (flag & CloneFlag::EXIT_SIGNAL).bits() as u32
+        } else {
+            0
+        };
+        let new = match flag.contains(CloneFlag::CLONE_THREAD) {
+            true => self.thread.clone_thread(
+                flag,
+                new_sp,
+                set_child_tid,
+                clear_child_tid,
+                tls,
+                exit_signal,
+            )?,
+            false => self.thread.fork_impl(
+                flag,
+                new_sp,
+                set_child_tid,
+                clear_child_tid,
+                tls,
+                exit_signal,
+            )?,
+        };
+        let tid = new.tid();
+        if flag.contains(CloneFlag::CLONE_PARENT_SETTID) {
+            match UserCheck::new(self.process)
+                .translated_user_writable_value(ptid)
+                .await
+            {
+                Ok(ptid) => ptid.store(new.tid().0 as u32),
+                Err(_e) => {
+                    println!("sys_clone ignore error: CLONE_PARENT_SETTID fail");
+                }
+            }
+        }
+        userloop::spawn(new);
+        if PRINT_SYSCALL_PROCESS || PRINT_THIS {
+            println!("\t-> {:?}", tid);
+        }
+        Ok(tid.0)
     }
     pub async fn sys_execve(&mut self) -> SysResult {
         stack_trace!();
@@ -105,7 +152,7 @@ impl Syscall<'_> {
         iter.next_back();
         let dir = fs::open_file(Some(Ok(iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
         let elf_data = inode.read_all().await?;
-        let (user_space, stack_id, user_sp, entry_point, auxv) =
+        let (user_space, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
                 .map_err(|_e| SysError::ENOEXEC)?;
 
@@ -130,7 +177,6 @@ impl Syscall<'_> {
         alive.cwd = dir;
         drop(alive);
         self.process.signal_manager.reset();
-        self.thread.inner().stack_id = stack_id;
         let cx = self.thread.get_context();
         let sstatus = cx.user_sstatus;
         let fcsr = cx.user_fx.fcsr;
@@ -222,8 +268,8 @@ impl Syscall<'_> {
     }
     pub fn sys_set_tid_address(&mut self) -> SysResult {
         stack_trace!();
-        let set_child_tid: UserInOutPtr<u32> = self.cx.para1();
-        self.thread.inner().set_child_tid = set_child_tid;
+        let clear_child_tid: UserInOutPtr<u32> = self.cx.para1();
+        self.thread.inner().clear_child_tid = clear_child_tid;
         Ok(self.thread.tid().0)
     }
     /// 设置pgid
@@ -325,6 +371,12 @@ impl Syscall<'_> {
         // TODO: waiting other thread exit
         memory::set_satp_by_global();
         alive.clear_all(self.process.pid());
+        if let Some(sig) = self.thread.exit_send_signal() {
+            alive.parent.as_ref().and_then(|a| a.upgrade()).map(|a| {
+                a.signal_manager.receive(sig);
+                let _ = a.event_bus.set(Event::RECEIVE_SIGNAL);
+            });
+        }
         *lock = None;
         Ok(0)
     }

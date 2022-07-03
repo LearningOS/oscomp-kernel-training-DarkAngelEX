@@ -18,15 +18,15 @@ use crate::{
     fs::VfsInode,
     futex::RobustListHead,
     hart::floating,
-    memory::{self, address::PageCount, user_ptr::UserInOutPtr, StackID, UserSpace},
+    memory::{self, address::PageCount, user_ptr::UserInOutPtr, UserSpace},
     signal::{
         context::SignalContext,
         manager::{ProcSignalManager, ThreadSignalManager},
     },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
-    tools::allocator::from_usize_allocator::{FromUsize, NeverCloneUsizeAllocator},
     trap::context::UKContext,
+    user::check::UserCheck,
 };
 
 use super::{
@@ -36,14 +36,12 @@ use super::{
 
 pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
-    tid_allocator: NeverCloneUsizeAllocator,
 }
 
 impl ThreadGroup {
-    pub fn new(start: usize) -> Self {
+    pub fn new() -> Self {
         Self {
             threads: BTreeMap::new(),
-            tid_allocator: NeverCloneUsizeAllocator::default().start(start),
         }
     }
     pub fn iter(&self) -> impl Iterator<Item = Arc<Thread>> + '_ {
@@ -57,6 +55,9 @@ impl ThreadGroup {
             Ok(_) => (),
             Err(_) => panic!("double insert tid"),
         }
+    }
+    pub fn remove(&mut self, tid: Tid) {
+        let _ = self.threads.remove(&tid);
     }
     pub fn map(&self, tid: Tid) -> Option<Arc<Thread>> {
         self.threads
@@ -75,13 +76,6 @@ impl ThreadGroup {
             .first_key_value()
             .and_then(|(_tid, thread)| thread.upgrade())
     }
-    pub fn alloc_tid(&mut self) -> Tid {
-        let x = self.tid_allocator.alloc();
-        Tid::from_usize(x)
-    }
-    pub unsafe fn dealloc_tid(&mut self, tid: Tid) {
-        self.tid_allocator.dealloc(tid.to_usize())
-    }
 }
 
 // only run in local thread
@@ -97,10 +91,40 @@ impl Thread {
     pub fn receive(&self, sig: u32) {
         self.inner().signal_manager.receive(sig);
     }
+    /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
+    pub async fn settid(&self) {
+        if let Some(ptr) = self.inner().set_child_tid.nonnull_mut() {
+            if let Ok(buf) = UserCheck::new(&self.process)
+                .translated_user_writable_value(ptr)
+                .await
+            {
+                buf.store(self.tid().0 as u32)
+            }
+        }
+    }
+    /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
+    pub async fn cleartid(&self) {
+        if let Some(ptr) = self.inner().clear_child_tid.nonnull_mut() {
+            if let Ok(buf) = UserCheck::new(&self.process)
+                .translated_user_writable_value(ptr)
+                .await
+            {
+                buf.store(self.tid().0 as u32)
+            }
+        }
+    }
+    pub fn exit_send_signal(&self) -> Option<u32> {
+        match self.inner().exit_signal {
+            0 => None,
+            s => Some(s),
+        }
+    }
 }
 
 impl Drop for Thread {
     fn drop(&mut self) {
+        let tid = self.tid();
+        let _ = self.process.alive_then(move |a| a.threads.remove(tid));
         search::clear_thread(self.tid());
     }
 }
@@ -109,13 +133,20 @@ unsafe impl Send for Thread {}
 unsafe impl Sync for Thread {}
 
 pub struct ThreadInner {
-    pub stack_id: StackID,
     pub signal_manager: ThreadSignalManager,
+    /// 信号返回上下文指针
     pub scx_ptr: UserInOutPtr<SignalContext>,
+    /// 当前用户上下文
     pub uk_context: UKContext,
-
+    /// 根据clone标志决定是否将此线程tid写入地址
     pub set_child_tid: UserInOutPtr<u32>,
+    /// 如果线程退出时值非0则向此地址写入0并执行
+    /// futex(clear_child_tid, FUTEX_WAKE, 1, NULL, NULL, 0)
     pub clear_child_tid: UserInOutPtr<u32>,
+    /// 线程局部指针
+    pub tls: UserInOutPtr<u8>,
+    /// 进程退出后将向父进程发送此信号
+    pub exit_signal: u32,
     pub robust_list: UserInOutPtr<RobustListHead>,
 }
 
@@ -127,7 +158,7 @@ impl Thread {
         envp: Vec<String>,
     ) -> Arc<Self> {
         let reverse_stack = PageCount::from_usize(2);
-        let (user_space, stack_id, user_sp, entry_point, auxv) =
+        let (user_space, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };
         let (user_sp, argc, argv, xenvp) =
@@ -148,7 +179,7 @@ impl Thread {
                 envp,
                 parent: None,
                 children: ChildrenSet::new(),
-                threads: ThreadGroup::new(tid.tid().0 + 1),
+                threads: ThreadGroup::new(),
                 fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(0),
@@ -157,12 +188,14 @@ impl Thread {
             tid,
             process: process.clone(),
             inner: UnsafeCell::new(ThreadInner {
-                stack_id,
-                set_child_tid: UserInOutPtr::null(),
-                clear_child_tid: UserInOutPtr::null(),
                 signal_manager: ThreadSignalManager::new(),
                 scx_ptr: UserInOutPtr::null(),
                 uk_context: UKContext::new(),
+
+                set_child_tid: UserInOutPtr::null(),
+                clear_child_tid: UserInOutPtr::null(),
+                tls: UserInOutPtr::null(),
+                exit_signal: 0,
                 robust_list: UserInOutPtr::null(),
             }),
         };
@@ -199,37 +232,70 @@ impl Thread {
     pub async fn handle_signal(&self) -> Result<(), Dead> {
         crate::signal::handle_signal(self.inner(), &self.process).await
     }
-    pub fn clone_impl(
+    pub fn fork_impl(
         &self,
         flag: CloneFlag,
         new_sp: usize,
-        _parent_tidptr: UserInOutPtr<u32>,
-        child_tidptr: UserInOutPtr<u32>,
+        set_child_tid: UserInOutPtr<u32>,
+        clear_child_tid: UserInOutPtr<u32>,
+        tls: UserInOutPtr<u8>,
+        exit_signal: u32,
     ) -> Result<Arc<Self>, SysError> {
+        debug_assert!(!flag.contains(CloneFlag::CLONE_THREAD));
         let (tid, pid) = super::tid::alloc_tid_pid();
-        let new_process = self.process.fork(self.tid.tid(), pid)?;
+        let process = self.process.fork(pid)?;
         let inner = self.inner();
-
-        let set_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_SETTID) {
-            child_tidptr
-        } else {
-            UserInOutPtr::null()
-        };
-        let clear_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_CLEARTID) {
-            child_tidptr
-        } else {
-            UserInOutPtr::null()
-        };
         let thread = Arc::new(Self {
             tid,
-            process: new_process,
+            process,
             inner: UnsafeCell::new(ThreadInner {
-                stack_id: inner.stack_id,
+                signal_manager: inner.signal_manager.fork(),
+                scx_ptr: UserInOutPtr::null(),
+                uk_context: inner.uk_context.fork(),
+
+                set_child_tid,
+                clear_child_tid,
+                tls,
+                exit_signal,
+                robust_list: inner.robust_list,
+            }),
+        });
+        search::insert_thread(&thread);
+        if new_sp != 0 {
+            thread.inner().uk_context.set_user_sp(new_sp);
+        }
+        thread.inner().uk_context.set_user_a0(0);
+        thread
+            .process
+            .alive_then(|a| a.threads.push(&thread))
+            .unwrap();
+        Ok(thread)
+    }
+    pub fn clone_thread(
+        &self,
+        flag: CloneFlag,
+        new_sp: usize,
+        set_child_tid: UserInOutPtr<u32>,
+        clear_child_tid: UserInOutPtr<u32>,
+        tls: UserInOutPtr<u8>,
+        exit_signal: u32,
+    ) -> Result<Arc<Self>, SysError> {
+        debug_assert!(flag.contains(CloneFlag::CLONE_THREAD));
+        debug_assert!(new_sp != 0);
+        let tid = super::tid::alloc_tid_own();
+        let process = self.process.clone();
+        let inner = self.inner();
+        let thread = Arc::new(Self {
+            tid,
+            process,
+            inner: UnsafeCell::new(ThreadInner {
                 signal_manager: inner.signal_manager.fork(),
                 scx_ptr: UserInOutPtr::null(),
                 uk_context: inner.uk_context.fork(),
                 set_child_tid,
                 clear_child_tid,
+                tls,
+                exit_signal,
                 robust_list: inner.robust_list,
             }),
         });

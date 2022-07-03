@@ -1,7 +1,7 @@
 use alloc::{string::String, sync::Arc};
 
 use crate::{
-    fs::{self, pipe, File, Iovec, Mode, OpenFlags, Pollfd, VfsInode},
+    fs::{self, pipe, File, Iovec, Mode, OpenFlags, Pollfd, Seek, VfsInode},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::fd::Fd,
     signal::SignalSet,
@@ -178,6 +178,17 @@ impl Syscall<'_> {
         }
         Ok(cnt)
     }
+    pub fn sys_lseek(&mut self) -> SysResult {
+        let (fd, offset, whence): (Fd, isize, u32) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!("sys_read");
+        }
+        let file = self
+            .alive_then(|p| p.fd_table.get(fd).cloned())?
+            .ok_or(SysError::EBADF)?;
+        let whence = Seek::from_user(whence)?;
+        file.lseek(offset, whence)
+    }
     pub async fn sys_read(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_FS {
@@ -343,20 +354,28 @@ impl Syscall<'_> {
         drop(file); // just for clarity
         Ok(0)
     }
-    pub async fn sys_pipe(&mut self) -> SysResult {
+    /// 管道的读端只有当管道中无数据时才会阻塞, 如果存在数据则必然返回, 即使读取的数量没有达到要求
+    pub async fn sys_pipe2(&mut self) -> SysResult {
         stack_trace!();
-        // println!("sys_pipe");
-        let pipe: UserWritePtr<u32> = self.cx.para1();
+        let (pipe, flags): (UserWritePtr<[u32; 2]>, u32) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!("sys_pipe2 pipe: {:#x} flags: {:#x}", pipe.as_usize(), flags);
+        }
         let write_to = UserCheck::new(self.process)
-            .translated_user_writable_slice(pipe, 2)
+            .translated_user_writable_slice(pipe, 1)
             .await?;
+        let flags = OpenFlags::from_bits_truncate(flags);
+        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
+        if flags.contains(OpenFlags::DIRECT | OpenFlags::NONBLOCK) {
+            unimplemented!();
+        }
         let (reader, writer) = pipe::make_pipe()?;
         let (rfd, wfd) = self.alive_then(move |a| {
-            let rfd = a.fd_table.insert(reader, false).to_usize();
-            let wfd = a.fd_table.insert(writer, false).to_usize();
+            let rfd = a.fd_table.insert(reader, close_on_exec).to_usize();
+            let wfd = a.fd_table.insert(writer, close_on_exec).to_usize();
             (rfd as u32, wfd as u32)
         })?;
-        write_to.access_mut().copy_from_slice(&[rfd, wfd]);
+        write_to.store([rfd, wfd]);
         Ok(0)
     }
     pub fn sys_fcntl(&mut self) -> SysResult {

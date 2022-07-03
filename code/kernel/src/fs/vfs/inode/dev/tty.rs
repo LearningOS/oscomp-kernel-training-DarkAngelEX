@@ -8,7 +8,8 @@ use ftl_util::{error::SysError, fs::DentryType};
 
 use crate::{
     config::PAGE_SIZE,
-    fs::{stat::Stat, AsyncFile, File, Stdin, Stdout, VfsInode},
+    fs::{stat::Stat, AsyncFile, File, Seek, Stdin, Stdout, VfsInode},
+    syscall::SysResult,
     tools::xasync::Async,
 };
 
@@ -38,6 +39,9 @@ impl File for TtyInode {
     }
     fn writable(&self) -> bool {
         true
+    }
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+        Err(SysError::ESPIPE)
     }
     fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile {
         Stdin.read(write_only)

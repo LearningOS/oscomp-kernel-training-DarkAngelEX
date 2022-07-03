@@ -151,6 +151,8 @@ debug_run: build
 		-s -S
 
 debug_gdb:
-	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../user/busybox_lua_testsuites/uname' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../disk/entry-dynamic.exe' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+
+#qemu-riscv64
 
 .PHONY: build env kernel clean disasm disasm-vim run-inner switch-check

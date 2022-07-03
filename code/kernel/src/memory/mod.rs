@@ -8,7 +8,7 @@ pub mod user_ptr;
 mod user_space;
 
 pub use page_table::{set_satp_by_global, PTEFlags, PageTable, PageTableClosed};
-pub use user_space::{stack::StackID, AccessType, UserSpace};
+pub use user_space::{AccessType, UserSpace};
 
 pub fn init() {
     allocator::init();

@@ -2,7 +2,8 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::{
     drivers, executor,
-    fs::{stat::Stat, AsyncFile, File, OpenFlags},
+    fs::{stat::Stat, AsyncFile, File, OpenFlags, Seek},
+    syscall::SysResult,
     tools::{path, xasync::Async},
     user::AutoSie,
 };
@@ -168,6 +169,19 @@ impl File for Fat32Inode {
     }
     fn can_write_offset(&self) -> bool {
         true
+    }
+    fn lseek(&self, offset: isize, whence: Seek) -> SysResult {
+        let len = self.inode.file().ok_or(SysError::EISDIR)?.bytes();
+        let target = match whence {
+            Seek::Set => 0isize,
+            Seek::Cur => self.ptr.load(Ordering::Acquire) as isize,
+            Seek::End => len as isize,
+        }
+        .checked_add(offset)
+        .ok_or(SysError::EOVERFLOW)?;
+        let target = usize::try_from(target).map_err(|_e| SysError::EINVAL)?;
+        self.ptr.store(target, Ordering::Release);
+        Ok(target)
     }
     fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> AsyncFile {
         Box::pin(async move {

@@ -87,3 +87,9 @@ x /10xg 0x77de0
 x /10xg 0x77df8
 
 watch *0x77df8
+
+
+
+./runtest.exe -w entry-static.exe env
+
+x /1xg 0xa7e88-984

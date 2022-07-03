@@ -44,6 +44,7 @@
 #![feature(core_intrinsics)]
 #![feature(control_flow_enum)]
 #![feature(try_trait_v2)]
+#![feature(mixed_integer_ops)]
 #![feature(trait_upcasting)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]

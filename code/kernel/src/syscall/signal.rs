@@ -1,7 +1,7 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::{search, Pid, Tid},
-    signal::{SigAction, SignalSet, SignalStack, SIG_N, SIG_N_BYTES},
+    signal::{SigAction, SignalSet, SignalStack, SIG_N},
     sync::even_bus::Event,
     syscall::SysError,
     user::check::UserCheck,
@@ -12,9 +12,9 @@ use super::{SysResult, Syscall};
 
 const PRINT_SYSCALL_SIGNAL: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL || false;
 
-const SIG_BLOCK: usize = 1;
-const SIG_UNBLOCK: usize = 2;
-const SIG_SETMASK: usize = 3;
+const SIG_BLOCK: usize = 0;
+const SIG_UNBLOCK: usize = 1;
+const SIG_SETMASK: usize = 2;
 
 bitflags! {
     struct SA: u32 {
@@ -122,9 +122,7 @@ impl Syscall<'_> {
                 s_size
             );
         }
-        if sig >= SIG_N as u32 {
-            return Err(SysError::EINVAL);
-        }
+        debug_assert!(s_size <= SIG_N);
         let manager = &self.process.signal_manager;
         let user_check = UserCheck::new(self.process);
         if new_act
@@ -176,13 +174,12 @@ impl Syscall<'_> {
                 s_size
             );
         }
-        match s_size {
-            0 => return Ok(0),
-            SIG_N_BYTES.. => return Err(SysError::EINVAL),
-            _ => (),
-        }
+        debug_assert!(s_size <= SIG_N);
         let manager = &mut self.thread.inner().signal_manager;
         let sig_mask = manager.mask_mut();
+        if PRINT_SYSCALL_SIGNAL {
+            println!("old: {:#x?}", sig_mask);
+        }
         let user_check = UserCheck::new(self.process);
         if let Some(oldset) = oldset.nonnull_mut() {
             let v = user_check
@@ -192,6 +189,9 @@ impl Syscall<'_> {
         }
         if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
             return Ok(0);
+        }
+        if PRINT_SYSCALL_SIGNAL {
+            println!("new: {:#x?}", sig_mask);
         }
         let newset = user_check
             .translated_user_readonly_slice(newset, s_size)

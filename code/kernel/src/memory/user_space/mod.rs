@@ -4,7 +4,7 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use riscv::register::scause::Exception;
 
 use crate::{
-    config::{PAGE_SIZE, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE},
+    config::{PAGE_SIZE, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE},
     local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
@@ -22,10 +22,7 @@ use crate::{
     xdebug::CLOSE_RANDOM,
 };
 
-use self::{
-    heap::HeapManager,
-    stack::{StackID, StackSpaceManager},
-};
+use self::{heap::HeapManager, stack::StackSpaceManager};
 
 use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
@@ -148,7 +145,7 @@ impl UserSpace {
         )?));
         Ok(Self {
             map_segment: MapSegment::new(pt),
-            stacks: StackSpaceManager::new(),
+            stacks: StackSpaceManager::new(PageCount::page_floor(USER_STACK_RESERVE)),
             heap: HeapManager::new(),
         })
     }
@@ -203,32 +200,13 @@ impl UserSpace {
         todo!()
     }
     /// (stack, user_sp)
-    pub fn stack_alloc(
-        &mut self,
-        stack_reverse: PageCount,
-    ) -> Result<(StackID, UserAddr4K), SysError> {
+    pub fn stack_init(&mut self, stack_reverse: PageCount) -> Result<UserAddr4K, SysError> {
         stack_trace!();
-        let stack = self.stacks.alloc(stack_reverse)?;
-        let area_all = stack.area_all();
-        let info = stack.info();
         // 绕过 stack 借用检查
-        let h = DelayHandler::box_new(area_all.perm);
-        self.map_segment.force_push(area_all.range, h)?;
-        self.map_segment.force_map(stack.area_init().range)?;
-        stack.consume();
-        Ok(info)
-    }
-    pub unsafe fn stack_dealloc(&mut self, stack_id: StackID) {
-        stack_trace!();
-        let user_area = self.stacks.pop_stack_by_id(stack_id);
-        self.stacks.dealloc(stack_id);
-        self.map_segment.unmap(user_area.range_all());
-    }
-    pub unsafe fn stack_dealloc_all_except(&mut self, stack_id: StackID) {
-        stack_trace!();
-        while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
-            self.map_segment.unmap(user_area.range_all());
-        }
+        let h = DelayHandler::box_new(PTEFlags::R | PTEFlags::W | PTEFlags::U);
+        self.map_segment.force_push(self.stacks.max_area(), h)?;
+        self.map_segment.force_map(self.stacks.init_area(stack_reverse))?;
+        Ok(self.stacks.init_sp())
     }
     pub fn get_brk(&self) -> UserAddr<u8> {
         self.heap.brk()
@@ -269,7 +247,7 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-    ) -> Result<(Self, StackID, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
+    ) -> Result<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
         stack_trace!();
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
@@ -398,12 +376,12 @@ impl UserSpace {
         )?;
 
         // map user stack:
-        let (stack_id, user_sp) = space.stack_alloc(stack_reverse)?;
+        let user_sp = space.stack_init(stack_reverse)?;
         stack_trace!();
         // set heap
         space.heap_init(max_end_4k, PageCount(1));
 
-        Ok((space, stack_id, user_sp, entry_point.into(), auxv))
+        Ok((space, user_sp, entry_point.into(), auxv))
     }
     pub fn fork(&mut self) -> Result<Self, SysError> {
         memory_trace!("UserSpace::fork");
@@ -417,11 +395,6 @@ impl UserSpace {
             heap,
         };
         Ok(ret)
-    }
-    pub unsafe fn clear_user_stack_all(&mut self) {
-        while let Some(stack_id) = self.stacks.get_any_id() {
-            self.stack_dealloc(stack_id);
-        }
     }
     /// return (user_sp, argc, argv, envp)
     ///

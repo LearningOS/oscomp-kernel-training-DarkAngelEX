@@ -30,6 +30,7 @@ type TidAllocator = FromUsizeAllocator<Tid, TidWrapper, NeverCloneLinkedList<usi
 
 static TID_ALLOCATOR: SpinNoIrqLock<TidAllocator> = SpinNoIrqLock::new(TidAllocator::default());
 
+/// 给新进程分配 PID
 pub fn alloc_tid_pid() -> (TidHandle, PidHandle) {
     let mut th = TID_ALLOCATOR.lock().alloc();
     th.1 = false;
@@ -37,6 +38,7 @@ pub fn alloc_tid_pid() -> (TidHandle, PidHandle) {
     (th, ph)
 }
 
+/// 给新线程分配 TID
 pub fn alloc_tid_own() -> TidHandle {
     TID_ALLOCATOR.lock().alloc()
 }

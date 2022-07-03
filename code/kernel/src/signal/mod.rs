@@ -132,7 +132,7 @@ impl StdSignalSet {
     }
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct SignalSet(pub [usize; SIG_N / usize::BITS as usize]);
 
 impl SignalSet {
@@ -175,6 +175,7 @@ impl SignalSet {
             *dst = src;
         }
     }
+    /// cur = f(cur, sig)
     fn apply_all(&mut self, sig: &Self, mut f: impl FnMut(usize, usize) -> usize) {
         for (dst, src) in self.0.iter_mut().zip(sig.0.iter().copied()) {
             *dst = f(*dst, src)
