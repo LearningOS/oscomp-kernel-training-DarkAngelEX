@@ -2,8 +2,9 @@ use ftl_util::error::SysError;
 
 use crate::{
     futex::RobustListHead,
-    memory::user_ptr::{UserInOutPtr, UserWritePtr},
+    memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::{search, Tid},
+    timer::TimeSpec,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
@@ -12,7 +13,39 @@ use super::{SysResult, Syscall};
 
 const PRINT_SYSCALL_FUTEX: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
+const FUTEX_PRIVATE_FLAG: u32 = 0x80;
+const FUTEX_CLOCK_REALTIME: u32 = 0x100;
+const FUTEX_WAIT: u32 = 0;
+const FUTEX_WAKE: u32 = 1;
+const FUTEX_FD: u32 = 2;
+const FUTEX_REQUEUE: u32 = 3;
+const FUTEX_CMP_REQUEUE: u32 = 4;
+const FUTEX_WAKE_OP: u32 = 5;
+const FUTEX_WAIT_BITSET: u32 = 9;
+const FUTEX_WAKE_BITSET: u32 = 10;
+
 impl Syscall<'_> {
+    pub async fn futex(&mut self) -> SysResult {
+        let (uaddr, futex_op, val, time_out, uaddr2, val3): (
+            UserInOutPtr<u32>,
+            u32,
+            u32,
+            UserReadPtr<TimeSpec>,
+            UserInOutPtr<u32>,
+            u32,
+        ) = self.cx.into();
+        match futex_op & 0xf {
+            FUTEX_WAIT => todo!(),
+            FUTEX_WAKE => todo!(),
+            FUTEX_FD => todo!(),
+            FUTEX_REQUEUE => todo!(),
+            FUTEX_CMP_REQUEUE => todo!(),
+            FUTEX_WAKE_OP => todo!(),
+            FUTEX_WAIT_BITSET => todo!(),
+            FUTEX_WAKE_BITSET => todo!(),
+            _ => panic!(),
+        }
+    }
     pub async fn set_robust_list(&mut self) -> SysResult {
         stack_trace!();
         let (head, len): (UserInOutPtr<RobustListHead>, usize) = self.cx.into();

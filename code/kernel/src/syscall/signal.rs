@@ -1,7 +1,7 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::{search, Pid, Tid},
-    signal::{SigAction, SignalSet, SignalStack, SIG_N},
+    signal::{SigAction, SignalSet, SignalStack, SIG_N, SIG_N_U32},
     sync::even_bus::Event,
     syscall::SysError,
     user::check::UserCheck,
@@ -67,6 +67,19 @@ impl Syscall<'_> {
             Target::All => todo!(),
             Target::Group(_) => todo!(),
         }
+        Ok(0)
+    }
+    pub fn sys_tkill(&mut self) -> SysResult {
+        stack_trace!();
+        let (tid, sig): (Tid, u32) = self.cx.into();
+        if PRINT_SYSCALL_SIGNAL || true {
+            println!("sys_tkill tid: {:?} signal: {}", tid, sig);
+        }
+        if sig >= SIG_N_U32 {
+            return Err(SysError::EINVAL);
+        }
+        let thread = search::find_thread(tid).ok_or(SysError::ESRCH)?;
+        thread.receive(sig);
         Ok(0)
     }
     pub fn sys_tgkill(&mut self) -> SysResult {
