@@ -1,6 +1,3 @@
-use core::mem::MaybeUninit;
-
-use alloc::boxed::Box;
 use riscv::register::fcsr::FCSR;
 use riscv::register::sstatus::FS;
 
@@ -37,6 +34,15 @@ pub struct FloatContext {
     // because of repr(C), use u8 instead of bool
     pub need_save: u8, // become 1 when dirty, run save when switch context
     pub need_load: u8, // become 1 when switch context, run load when into user
+}
+
+impl FloatContext {
+    pub fn reset(&mut self, fcsr: FCSR) {
+        self.fx.fill(0.);
+        self.fcsr = fcsr;
+        self.need_load = 1;
+        self.need_save = 0;
+    }
 }
 
 pub trait UsizeForward {
@@ -123,13 +129,29 @@ cx_into_impl!(&mut UKContext, A, B, C, D, E, F);
 cx_into_impl!(&mut UKContext, A, B, C, D, E, F, G);
 
 impl UKContext {
-    pub unsafe fn any() -> Box<Self> {
-        let mut v = Box::new_uninit();
-        v.as_bytes_mut().fill(MaybeUninit::new(0));
-        v.assume_init()
+    pub fn new() -> Self {
+        unsafe { core::mem::zeroed() }
+    }
+    pub fn a0(&self) -> usize {
+        self.user_rx[0]
     }
     pub fn a7(&self) -> usize {
         self.user_rx[17]
+    }
+    pub fn a0_a7(&self) -> &[usize] {
+        &self.user_rx[10..17]
+    }
+    pub fn ra(&self) -> usize {
+        self.user_rx[1]
+    }
+    pub fn sp(&self) -> usize {
+        self.user_rx[2]
+    }
+    pub fn set_user_sepc(&mut self, sepc: usize) {
+        self.user_sepc = sepc;
+    }
+    pub fn set_user_ra(&mut self, ra: usize) {
+        self.user_rx[1] = ra;
     }
     pub fn set_user_sp(&mut self, sp: usize) {
         self.user_rx[2] = sp;
@@ -169,15 +191,16 @@ impl UKContext {
         argv: usize,
         envp: usize,
     ) {
+        self.user_rx.fill(0);
+        self.user_fx.reset(fcsr);
         self.set_user_sp(user_sp.into_usize());
         self.set_argc_argv_envp(argc, argv, envp);
         self.user_sepc = sepc.into_usize();
         self.user_sstatus = sstatus;
-        self.user_fx.fcsr = fcsr;
     }
 
-    pub fn fork(&self) -> Box<Self> {
-        let mut new = unsafe { Self::any() };
+    pub fn fork(&self) -> Self {
+        let mut new = Self::new();
         new.user_rx = self.user_rx;
         new.user_sepc = self.user_sepc;
         new.user_sstatus = self.user_sstatus;

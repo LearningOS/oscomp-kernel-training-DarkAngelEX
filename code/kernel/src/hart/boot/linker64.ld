@@ -6,7 +6,7 @@
 OUTPUT_ARCH(riscv)
 ENTRY(_start)
 
-BASE_ADDRESS = 0xffffffff80200000;
+BASE_ADDRESS  = 0xffffffff80200000;
 
 SECTIONS
 {
@@ -29,11 +29,11 @@ SECTIONS
 
     .rodata : {
         srodata = .;
+        PROVIDE( __global_pointer$ = . + 0x800 );
         *(.rodata .rodata.*)
         . = ALIGN(4K);
         erodata = .;
     }
-
     .data : {
         sdata = .;
         *(.data .data.*)

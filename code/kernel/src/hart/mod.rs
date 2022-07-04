@@ -60,7 +60,10 @@ pub fn ftl_logo() -> &'static str {
 
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
-    unsafe { cpu::set_cpu_id(hartid) };
+    unsafe { 
+        cpu::set_cpu_id(hartid); 
+        cpu::set_gp(); // 愚蠢的rust链接期不支持linker relax, 未使用
+     };
     if FIRST_HART
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
@@ -112,12 +115,11 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     );
     // assert!(DEVICE_TREE_PADDR.load(Ordering::Relaxed) != 0);
     // show_device();
-
+    trap::init();
     memory::init();
     container::test();
     timer::init();
     executor::init();
-    trap::init();
     floating::init();
     benchmark::run_all();
     #[cfg(feature = "board_hifive")]

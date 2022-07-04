@@ -1,3 +1,4 @@
-Kernel.S
 run_all_case
 src/linker.ld
+xdisasm
+locgin_gitee.sh

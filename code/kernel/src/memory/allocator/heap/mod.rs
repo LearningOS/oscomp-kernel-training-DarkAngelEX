@@ -26,11 +26,12 @@ unsafe impl GlobalAlloc for GlobalHeap {
         let pl = layout;
         let layout = detector::detect_layout(layout);
         let ret = if !CLOSE_LOCAL_HEAP {
-            local::hart_local()
-                .local_heap
-                .alloc(layout)
-                .unwrap()
-                .as_ptr()
+            match local::hart_local().local_heap.alloc(layout) {
+                Err(()) => {
+                    panic!("heap no enough space: {:?}", layout)
+                }
+                Ok(ptr) => ptr.as_ptr(),
+            }
         } else {
             match self.alloc(layout) {
                 Ok(p) => p.as_ptr(),

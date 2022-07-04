@@ -21,7 +21,8 @@ MEMORY_SIZE := 128M
 
 # BOARD
 BOARD ?= qemu
-SBI ?= rustsbi
+# SBI ?= rustsbi
+SBI ?= opensbi
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
 K210_BOOTLOADER_SIZE := 131072
 
@@ -74,7 +75,7 @@ fs-img-prev: $(APPS)
 #	@cd ../easy-fs-fuse && cargo run --release -- -s ../user/busybox_lua_testsuites/ -t ../user/busybox_lua_testsuites/ -o ../user/target/riscv64imac-unknown-none-elf/release/
 
 fs-img:
-	@cd ../user && make submit
+#	@cd ../user && make submit
 	@cd $(FS_IMG_BUILD) && make init
 	@cp $(FS_IMG_SRC) $(FS_IMG)
 
@@ -111,7 +112,6 @@ disasm-vim: kernel
 run: run-inner
 
 
-
 run-inner: build
 ifeq ($(BOARD),qemu)
 	@qemu-system-riscv64 \
@@ -135,8 +135,24 @@ endif
 
 debug: build
 	@tmux new-session -d \
-		"qemu-system-riscv64 -machine virt -nographic -bios $(BOOTLOADER) -device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) -s -S" && \
+		"qemu-system-riscv64 -machine virt -nographic -bios $(BOOTLOADER) -m $(MEMORY_SIZE) \
+		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
+		-drive file=$(FS_IMG),if=none,format=raw,id=x0 \
+		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+		-s -S" && \
 		tmux split-window -h "riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
 		tmux -2 attach-session -d
+
+debug_run: build
+	@qemu-system-riscv64 -machine virt -nographic -bios $(BOOTLOADER) -m $(MEMORY_SIZE) \
+		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
+		-drive file=$(FS_IMG),if=none,format=raw,id=x0 \
+		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
+		-s -S
+
+debug_gdb:
+	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../disk/entry-dynamic.exe' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+
+#qemu-riscv64
 
 .PHONY: build env kernel clean disasm disasm-vim run-inner switch-check

@@ -31,6 +31,8 @@ pub const CLOSE_TIME_INTERRUPT: bool = false;
 
 pub const NO_SYSCALL_PANIC: bool = false;
 
+pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样
+
 #[macro_use]
 pub mod trace;
 #[macro_use]
@@ -38,7 +40,7 @@ pub mod stack_trace;
 
 pub fn init() {
     stack_trace::init();
-    ftl_util::xdebug::sie_init(||sstatus::read().sie());
+    ftl_util::xdebug::sie_init(|| sstatus::read().sie());
 }
 
 #[allow(unused_macros)]

@@ -24,7 +24,7 @@ impl<'a> FrameDataIter for SliceFrameDataIter<'a> {
     fn len(&self) -> usize {
         self.data.len()
     }
-    /// after end, write zero to it.
+    /// after end, fill zero to it.
     fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
         match self.next() {
             Some(src) => {
@@ -44,8 +44,7 @@ impl<'a> SliceFrameDataIter<'a> {
         if self.data.is_empty() {
             return None;
         }
-        let len = self.data.len();
-        let (l, r) = self.data.split_at(PAGE_SIZE.min(len));
+        let (l, r) = self.data.split_at(PAGE_SIZE.min(self.data.len()));
         self.data = r;
         Some(l)
     }

@@ -4,7 +4,7 @@ use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use riscv::register::scause::Exception;
 
 use crate::{
-    config::PAGE_SIZE,
+    config::{PAGE_SIZE, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE},
     local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
@@ -13,17 +13,16 @@ use crate::{
         page_table::PTEFlags,
     },
     syscall::SysError,
+    timer,
     tools::{
-        container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange, xasync::TryR,
-        DynDropRun,
+        self, container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM, range::URange,
+        xasync::TryR, DynDropRun,
     },
     user::AutoSum,
+    xdebug::CLOSE_RANDOM,
 };
 
-use self::{
-    heap::HeapManager,
-    stack::{StackID, StackSpaceManager},
-};
+use self::{heap::HeapManager, stack::StackSpaceManager};
 
 use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
@@ -33,6 +32,8 @@ use super::{
     map_segment::{handler::AsyncHandler, MapSegment},
     PageTable,
 };
+
+core::arch::global_asm!(include_str!("./kload.S"));
 
 pub mod heap;
 pub mod stack;
@@ -89,7 +90,12 @@ pub struct UserArea {
 
 impl UserArea {
     pub fn new(range: URange, perm: PTEFlags) -> Self {
-        debug_assert!(range.start < range.end);
+        debug_assert!(
+            range.start < range.end,
+            "{:#x}..{:#x}",
+            range.start.into_usize(),
+            range.end.into_usize()
+        );
         Self { range, perm }
     }
     pub fn new_urw(range: URange) -> Self {
@@ -139,7 +145,7 @@ impl UserSpace {
         )?));
         Ok(Self {
             map_segment: MapSegment::new(pt),
-            stacks: StackSpaceManager::new(),
+            stacks: StackSpaceManager::new(PageCount::page_floor(USER_STACK_RESERVE)),
             heap: HeapManager::new(),
         })
     }
@@ -194,32 +200,13 @@ impl UserSpace {
         todo!()
     }
     /// (stack, user_sp)
-    pub fn stack_alloc(
-        &mut self,
-        stack_reverse: PageCount,
-    ) -> Result<(StackID, UserAddr4K), SysError> {
+    pub fn stack_init(&mut self, stack_reverse: PageCount) -> Result<UserAddr4K, SysError> {
         stack_trace!();
-        let stack = self.stacks.alloc(stack_reverse)?;
-        let area_all = stack.area_all();
-        let info = stack.info();
         // 绕过 stack 借用检查
-        let h = DelayHandler::box_new(area_all.perm);
-        self.map_segment.force_push(area_all.range, h)?;
-        self.map_segment.force_map(stack.area_init().range)?;
-        stack.consume();
-        Ok(info)
-    }
-    pub unsafe fn stack_dealloc(&mut self, stack_id: StackID) {
-        stack_trace!();
-        let user_area = self.stacks.pop_stack_by_id(stack_id);
-        self.stacks.dealloc(stack_id);
-        self.map_segment.unmap(user_area.range_all());
-    }
-    pub unsafe fn stack_dealloc_all_except(&mut self, stack_id: StackID) {
-        stack_trace!();
-        while let Some(user_area) = self.stacks.pop_any_except(stack_id) {
-            self.map_segment.unmap(user_area.range_all());
-        }
+        let h = DelayHandler::box_new(PTEFlags::R | PTEFlags::W | PTEFlags::U);
+        self.map_segment.force_push(self.stacks.max_area(), h)?;
+        self.map_segment.force_map(self.stacks.init_area(stack_reverse))?;
+        Ok(self.stacks.init_sp())
     }
     pub fn get_brk(&self) -> UserAddr<u8> {
         self.heap.brk()
@@ -260,7 +247,7 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-    ) -> Result<(Self, StackID, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
+    ) -> Result<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
         stack_trace!();
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
@@ -288,27 +275,21 @@ impl UserSpace {
                 }
                 let mut perm = PTEFlags::U;
                 let ph_flags = ph.flags();
-                let (mut r, mut w, mut x) = (0, 0, 0);
                 if ph_flags.is_read() {
                     perm |= PTEFlags::R;
-                    r = 1;
                 }
                 if ph_flags.is_write() {
                     perm |= PTEFlags::W;
-                    w = 1;
                 }
                 if ph_flags.is_execute() {
                     perm |= PTEFlags::X;
-                    x = 1;
                 }
                 if false {
                     println!(
-                        "    {:?} -> {:?} rwx:{}{}{} file_size:{:#x}",
+                        "\t{:?} -> {:?} \tperm: {:?} file_size:{:#x}",
                         start_va,
                         end_va,
-                        r,
-                        w,
-                        x,
+                        perm,
                         ph.file_size()
                     );
                 }
@@ -317,6 +298,7 @@ impl UserSpace {
                 let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
                 max_end_4k = map_area.end();
                 stack_trace!();
+                // 用一个小trick补全偏移量
                 let data = &elf.input[ph.offset() as usize - start_va.page_offset()
                     ..(ph.offset() + ph.file_size()) as usize];
                 stack_trace!();
@@ -325,10 +307,14 @@ impl UserSpace {
             }
         }
         stack_trace!();
+        let entry_point = elf_header.pt2.entry_point() as usize;
+        if false {
+            println!("\tentry_point: {:#x}", entry_point);
+        }
         let mut auxv = AuxHeader::generate(
             elf_header.pt2.ph_entry_size() as usize,
             ph_count as usize,
-            elf_header.pt2.ph_entry_size() as usize,
+            entry_point,
         );
         // Get ph_head addr for auxv
         let ph_head_addr = head_va + elf.header.pt2.ph_offset() as usize;
@@ -337,14 +323,65 @@ impl UserSpace {
             value: ph_head_addr as usize,
         });
         stack_trace!();
-        // map user stack
-        let (stack_id, user_sp) = space.stack_alloc(stack_reverse)?;
+        // map kernel_load
+        struct KRXFrameIter;
+        impl FrameDataIter for KRXFrameIter {
+            fn len(&self) -> usize {
+                PAGE_SIZE
+            }
+            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+                extern "C" {
+                    fn __kload_begin();
+                    fn __kload_end();
+                }
+                let begin = __kload_begin as *const u8;
+                let end = __kload_end as *const u8;
+                unsafe {
+                    let src = core::slice::from_ptr_range(begin..end);
+                    debug_assert!(src.len() < PAGE_SIZE);
+                    dst[..src.len()].copy_from_slice(src);
+                    dst[src.len()..].fill(0);
+                }
+                Ok(())
+            }
+        }
+        space.force_map_delay_write(
+            UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
+            KRXFrameIter,
+        )?;
+        struct KRWRandomIter;
+        impl FrameDataIter for KRWRandomIter {
+            fn len(&self) -> usize {
+                PAGE_SIZE
+            }
+            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+                let seed = match CLOSE_RANDOM {
+                    true => 1,
+                    false => timer::get_time_ticks().into_usize() as u64 ^ 0xcdba,
+                };
+                let mut s = (0x1u64, seed);
+                for dst in dst {
+                    *dst = s.0.wrapping_add(s.1) as u8;
+                    s = tools::xor_shift_128_plus(s);
+                }
+                Ok(())
+            }
+        }
+        space.force_map_delay_write(
+            UserArea::new(
+                USER_KRW_RANDOM_RANGE,
+                PTEFlags::R | PTEFlags::W | PTEFlags::U,
+            ),
+            KRWRandomIter,
+        )?;
+
+        // map user stack:
+        let user_sp = space.stack_init(stack_reverse)?;
         stack_trace!();
         // set heap
         space.heap_init(max_end_4k, PageCount(1));
 
-        let entry_point = elf.header.pt2.entry_point() as usize;
-        Ok((space, stack_id, user_sp, entry_point.into(), auxv))
+        Ok((space, user_sp, entry_point.into(), auxv))
     }
     pub fn fork(&mut self) -> Result<Self, SysError> {
         memory_trace!("UserSpace::fork");
@@ -358,11 +395,6 @@ impl UserSpace {
             heap,
         };
         Ok(ret)
-    }
-    pub unsafe fn clear_user_stack_all(&mut self) {
-        while let Some(stack_id) = self.stacks.get_any_id() {
-            self.stack_dealloc(stack_id);
-        }
     }
     /// return (user_sp, argc, argv, envp)
     ///
@@ -430,6 +462,7 @@ impl UserSpace {
             get_slice(sp, s.len()).copy_from_slice(bytes);
             set_zero(sp + s.len(), bytes);
         }
+        /// -> (sp, strs.len() + 1)
         fn write_strings_skip(sp: usize, strs: &[String]) -> (usize, usize) {
             let sp = sp - strs.iter().fold(0, |a, s| a + s.len() + 1);
             (sp, strs.len() + 1)
@@ -450,14 +483,12 @@ impl UserSpace {
             sp - (auxv.len() + 1) * 2 * size_of_usize()
         }
         fn write_auxv(mut sp: usize, auxv: &[AuxHeader]) {
-            let len = auxv.len();
+            let dst = get_slice(sp, auxv.len());
+            auxv.iter()
+                .zip(dst)
+                .for_each(|(src, dst)| src.write_to(dst));
+            sp += auxv.len() * core::mem::size_of::<AuxHeader>();
             set_zero(sp, auxv);
-            let step = 2 * size_of_usize();
-            sp -= (len + 1) * step;
-            let dst = get_slice(sp, len);
-            for (src, dst) in auxv.iter().zip(dst) {
-                src.write_to(dst);
-            }
         }
 
         debug_assert!(self.in_using());
@@ -500,8 +531,14 @@ impl UserSpace {
         debug_assert!(sp_top.sub_page(reverse) <= sp.floor());
 
         // 直接在用户虚拟地址上操作
-        let _auto_sum = AutoSum::new();
 
+        if false {
+            println!("args: {:#x} len: {}", r_argv, args_len);
+            println!("envp: {:#x} len: {}", r_envp, envp_len);
+            println!("auxv: {:#x} len: {}", auxv_ptr, auxv.len() + 1);
+        }
+
+        let _auto_sum = AutoSum::new();
         write_str(plat_ptr, platform);
         write_auxv(auxv_ptr, auxv);
         write_strings(envp_ptr, envp, get_slice(r_envp, envp_len));

@@ -1,11 +1,6 @@
-use core::{
-    convert::TryFrom,
-    future::Future,
-    sync::atomic::Ordering,
-    task::{Context, Poll},
-};
+use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering};
 
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, vec::Vec};
 
 use crate::{
     config::{PAGE_SIZE, USER_STACK_RESERVE},
@@ -18,9 +13,12 @@ use crate::{
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
-    process::{proc_table, thread, userloop, CloneFlag, Pid},
-    sync::even_bus::{self, Event, EventBus},
-    timer::{self, TimeSpec, TimeTicks},
+    process::{
+        resource::{self, RLimit},
+        search, thread, userloop, CloneFlag, Pid,
+    },
+    sync::even_bus::{self, Event},
+    timer::{self, sleep::SleepFuture, TimeSpec, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -31,42 +29,89 @@ use super::{SysError, SysResult, Syscall};
 const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
-    pub fn sys_clone(&mut self) -> SysResult {
+    pub async fn sys_clone(&mut self) -> SysResult {
         stack_trace!();
-        if PRINT_SYSCALL_PROCESS {
-            print!("sys_clone {:?} ", self.process.pid());
-        }
-        let (flag, newsp, parent_tidptr, child_tidptr, _tls_val): (
-            u32,
+        let (flag, new_sp, ptid, tls, ctid): (
+            usize,
             usize,
             UserInOutPtr<u32>,
+            UserInOutPtr<u8>,
             UserInOutPtr<u32>,
-            u32,
         ) = self.cx.into();
-
-        // println!("{}clone: {:#x}{}", to_yellow!(), flag, reset_color!());
-        let flag = CloneFlag::from_bits(flag).ok_or(SysError::EINVAL)?;
-        let new = match self
-            .thread
-            .clone_impl(flag, newsp, parent_tidptr, child_tidptr)
-        {
-            Ok(new) => new,
-            Err(_e) => {
-                println!("frame out of memory");
-                return Err(SysError::ENOMEM);
-            }
-        };
-        let pid = new.process.pid();
-        userloop::spawn(new);
-        if PRINT_SYSCALL_PROCESS {
-            println!("-> {:?}", pid);
+        const PRINT_THIS: bool = true;
+        if PRINT_SYSCALL_PROCESS || PRINT_THIS {
+            println!(
+                "sys_clone by {:?} sig: {} flag: {:?}\n\tsp: {:#x} ptid: {:#x} tls: {:#x} ctid: {:#x}",
+                self.process.pid(),
+                flag & 0xff,
+                CloneFlag::from_bits(flag as u64).unwrap(),
+                new_sp,
+                ptid.as_usize(),
+                ctid.as_usize(),
+                tls.as_usize()
+            );
         }
-        Ok(pid.into_usize())
+        let flag = CloneFlag::from_bits(flag as u64).ok_or(SysError::EINVAL)?;
+        let set_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_SETTID) {
+            ctid
+        } else {
+            UserInOutPtr::null()
+        };
+        let clear_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_CLEARTID) {
+            ctid
+        } else {
+            UserInOutPtr::null()
+        };
+        let tls = if flag.contains(CloneFlag::CLONE_SETTLS) {
+            tls
+        } else {
+            UserInOutPtr::null()
+        };
+        let exit_signal = if !flag.contains(CloneFlag::CLONE_DETACHED) {
+            (flag & CloneFlag::EXIT_SIGNAL).bits() as u32
+        } else {
+            0
+        };
+        let new = match flag.contains(CloneFlag::CLONE_THREAD) {
+            true => self.thread.clone_thread(
+                flag,
+                new_sp,
+                set_child_tid,
+                clear_child_tid,
+                tls,
+                exit_signal,
+            )?,
+            false => self.thread.fork_impl(
+                flag,
+                new_sp,
+                set_child_tid,
+                clear_child_tid,
+                tls,
+                exit_signal,
+            )?,
+        };
+        let tid = new.tid();
+        if flag.contains(CloneFlag::CLONE_PARENT_SETTID) {
+            match UserCheck::new(self.process)
+                .translated_user_writable_value(ptid)
+                .await
+            {
+                Ok(ptid) => ptid.store(new.tid().0 as u32),
+                Err(_e) => {
+                    println!("sys_clone ignore error: CLONE_PARENT_SETTID fail");
+                }
+            }
+        }
+        userloop::spawn(new);
+        if PRINT_SYSCALL_PROCESS || PRINT_THIS {
+            println!("\t-> {:?}", tid);
+        }
+        Ok(tid.0)
     }
-    pub async fn sys_exec(&mut self) -> SysResult {
+    pub async fn sys_execve(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
-            println!("sys_exec {:?}", self.process.pid());
+            println!("sys_execve {:?}", self.process.pid());
         }
         let (path, args, envp): (
             UserReadPtr<u8>,
@@ -80,7 +125,7 @@ impl Syscall<'_> {
                 .await?
                 .to_vec(),
         )?;
-        stack_trace!("sys_exec path: {}", path);
+        stack_trace!("sys_execve path: {}", path);
         let args: Vec<String> = user_check
             .translated_user_2d_array_zero_end(args)
             .await?
@@ -97,7 +142,7 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
-            self.alive_then(|a| a.cwd.clone())?.path_iter(),
+            Some(Ok(self.alive_then(|a| a.cwd.clone())?.path_iter())),
             path.as_str(),
             fs::OpenFlags::RDONLY,
             Mode(0o500),
@@ -105,9 +150,9 @@ impl Syscall<'_> {
         .await?;
         let mut iter = inode.path_iter();
         iter.next_back();
-        let dir = fs::open_file(iter, "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
+        let dir = fs::open_file(Some(Ok(iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
         let elf_data = inode.read_all().await?;
-        let (user_space, stack_id, user_sp, entry_point, auxv) =
+        let (user_space, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
                 .map_err(|_e| SysError::ENOEXEC)?;
 
@@ -131,16 +176,17 @@ impl Syscall<'_> {
         alive.user_space = user_space;
         alive.cwd = dir;
         drop(alive);
-        self.thread.inner().stack_id = stack_id;
+        self.process.signal_manager.reset();
         let cx = self.thread.get_context();
         let sstatus = cx.user_sstatus;
         let fcsr = cx.user_fx.fcsr;
-        self.thread
-            .get_context()
-            .exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
+        cx.exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
         local::all_hart_fence_i();
         check.assume_success();
-        Ok(argc)
+        // rtld_fini: 动态链接器析构函数
+        // 如果这个值非零, glibc会在程序结束时把它当作函数指针并运行
+        let rtld_fini = 0;
+        Ok(rtld_fini)
     }
     pub async fn sys_wait4(&mut self) -> SysResult {
         stack_trace!();
@@ -204,7 +250,7 @@ impl Syscall<'_> {
                         process.exit_code.load(Ordering::Relaxed)
                     );
                 }
-                return Ok(process.pid().into_usize());
+                return Ok(process.pid().0);
             }
             let event_bus = &self.process.event_bus;
             if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT)
@@ -222,16 +268,57 @@ impl Syscall<'_> {
     }
     pub fn sys_set_tid_address(&mut self) -> SysResult {
         stack_trace!();
-        let set_child_tid: UserInOutPtr<u32> = self.cx.para1();
-        self.thread.inner().set_child_tid = set_child_tid;
-        Ok(self.thread.tid.to_usize())
+        let clear_child_tid: UserInOutPtr<u32> = self.cx.para1();
+        self.thread.inner().clear_child_tid = clear_child_tid;
+        Ok(self.thread.tid().0)
+    }
+    /// 设置pgid
+    ///
+    /// 如果pid为0则处理本进程, 如果pgid为0则设置为pid
+    pub fn sys_setpgid(&mut self) -> SysResult {
+        let (pid, pgid): (Pid, Pid) = self.cx.into();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_setpgid pid: {:?} pgid: {:?}", pid, pgid);
+        }
+        let process = match pid {
+            Pid(0) => None,
+            pid => Some(search::find_proc(pid).ok_or(SysError::ESRCH)?),
+        };
+        let process = match &process {
+            None => self.process,
+            Some(p) => p.deref(),
+        };
+        let pgpid = match pgid {
+            Pid(0) => process.pid(),
+            pgid => pgid,
+        };
+        process.pgid.store(pgpid.0, Ordering::Relaxed);
+        Ok(0)
+    }
+    /// 获取pgid
+    ///
+    /// 如果参数为0则获取自身进程pgid
+    pub fn sys_getpgid(&mut self) -> SysResult {
+        stack_trace!();
+        let pid: Pid = self.cx.para1();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_getpgid pid: {:?}", pid);
+        }
+        let pid = match pid {
+            Pid(0) => self.process.pgid.load(Ordering::Relaxed),
+            pid => search::find_proc(pid)
+                .ok_or(SysError::ESRCH)?
+                .pgid
+                .load(Ordering::Relaxed),
+        };
+        return Ok(pid);
     }
     pub fn sys_getpid(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
-            println!("sys_getpid");
+            println!("sys_getpid -> {:?}", self.process.pid());
         }
-        Ok(self.process.pid().into_usize())
+        Ok(self.process.pid().0)
     }
     pub fn sys_getppid(&mut self) -> SysResult {
         stack_trace!();
@@ -243,7 +330,7 @@ impl Syscall<'_> {
                 a.parent
                     .as_ref()
                     .and_then(|p| p.upgrade())
-                    .map(|p| p.pid().into_usize())
+                    .map(|p| p.pid().0)
             })?
             .unwrap_or(0); // initproc
         Ok(pid)
@@ -252,6 +339,13 @@ impl Syscall<'_> {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getuid");
+        }
+        Ok(0)
+    }
+    pub fn sys_geteuid(&mut self) -> SysResult {
+        stack_trace!();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_geteuid");
         }
         Ok(0)
     }
@@ -277,10 +371,17 @@ impl Syscall<'_> {
         // TODO: waiting other thread exit
         memory::set_satp_by_global();
         alive.clear_all(self.process.pid());
+        if let Some(sig) = self.thread.exit_send_signal() {
+            alive.parent.as_ref().and_then(|a| a.upgrade()).map(|a| {
+                a.signal_manager.receive(sig);
+                let _ = a.event_bus.set(Event::RECEIVE_SIGNAL);
+            });
+        }
         *lock = None;
         Ok(0)
     }
     pub fn sys_exit_group(&mut self) -> SysResult {
+        stack_trace!();
         self.sys_exit()
     }
     pub async fn sys_sched_yield(&mut self) -> SysResult {
@@ -289,6 +390,7 @@ impl Syscall<'_> {
         Ok(0)
     }
     pub async fn sys_nanosleep(&mut self) -> SysResult {
+        stack_trace!();
         let (req, rem): (UserReadPtr<TimeSpec>, UserWritePtr<TimeSpec>) = self.cx.into();
         if req.is_null() {
             return Err(SysError::EINVAL);
@@ -307,11 +409,7 @@ impl Syscall<'_> {
             ),
         };
         let deadline = timer::get_time_ticks() + TimeTicks::from_time_spec(req);
-        let future = SleepFuture {
-            deadline,
-            event_bus: self.process.event_bus.clone(),
-        };
-        let ret = future.await;
+        let ret = SleepFuture::new(deadline, self.process.event_bus.clone()).await;
         if let Some(rem) = rem {
             let time_end = timer::get_time_ticks();
             let time_rem = if time_end < deadline {
@@ -323,33 +421,11 @@ impl Syscall<'_> {
         }
         ret
     }
-    pub fn sys_kill(&mut self) -> SysResult {
-        stack_trace!();
-        let (pid, _signal): (isize, u32) = self.cx.para2();
-        enum Target {
-            Pid(Pid),     // > 0
-            AllInGroup,   // == 0
-            All,          // == -1 all have authority except initproc
-            Group(usize), // < -1
-        }
-        let target = match pid {
-            0 => Target::AllInGroup,
-            -1 => Target::All,
-            p if p > 0 => Target::Pid(Pid::from_usize(p as usize)),
-            g => Target::Group(-g as usize),
-        };
-        match target {
-            Target::Pid(pid) => {
-                let _proc = proc_table::find_proc(pid).ok_or(SysError::ESRCH)?;
-                todo!();
-            }
-            Target::AllInGroup => todo!(),
-            Target::All => todo!(),
-            Target::Group(_) => todo!(),
-        }
-    }
     pub fn sys_brk(&mut self) -> SysResult {
         stack_trace!();
+        if PRINT_SYSCALL_PROCESS {
+            println!("sys_brk");
+        }
         let brk: usize = self.cx.para1();
         // println!("sys_brk: {:#x}", brk);
         let brk = if brk == 0 {
@@ -364,6 +440,10 @@ impl Syscall<'_> {
     }
     pub async fn sys_uname(&mut self) -> SysResult {
         stack_trace!();
+
+        if PRINT_SYSCALL_PROCESS {
+            println!("sys_uname");
+        }
         #[repr(C)]
         #[derive(Clone, Copy)]
         struct Utsname {
@@ -388,35 +468,49 @@ impl Syscall<'_> {
                 uts_name.$name[..v.len()].copy_from_slice(v);
             };
         }
-        xwrite!(sysname, b"FTL OS");
-        xwrite!(nodename, b"unknown");
-        xwrite!(release, b"1.0.0");
+        xwrite!(sysname, b"Linux");
+        xwrite!(nodename, b"FTL-OS");
+        xwrite!(release, b"5.0.0");
         xwrite!(version, b"1.0.0");
-        xwrite!(machine, b"qemu / sifive unmatch");
+        xwrite!(machine, b"riscv64");
         xwrite!(domainname, b"192.168.0.1");
         Ok(0)
     }
-}
-
-pub struct SleepFuture {
-    deadline: TimeTicks,
-    event_bus: Arc<EventBus>,
-}
-
-impl Future for SleepFuture {
-    type Output = SysResult;
-
-    fn poll(self: core::pin::Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+    /// 设置系统资源
+    pub async fn sys_prlimit64(&mut self) -> SysResult {
         stack_trace!();
-        if timer::get_time_ticks() >= self.deadline {
-            return Poll::Ready(Ok(0));
-        } else if self.event_bus.event() != Event::empty() {
-            return Poll::Ready(Err(SysError::EINTR));
+        let (pid, resource, new_limit, old_limit): (
+            Pid,
+            u32,
+            UserReadPtr<RLimit>,
+            UserWritePtr<RLimit>,
+        ) = self.cx.into();
+
+        if PRINT_SYSCALL_PROCESS {
+            println!(
+                "sys_prlimit64 pid:{:?}, resource:{}, new_ptr: {:#x}, old_ptr: {:#x}",
+                pid,
+                resource,
+                new_limit.as_usize(),
+                old_limit.as_usize()
+            );
         }
-        timer::sleep::timer_push_task(self.deadline, cx.waker().clone());
-        match self.event_bus.register(Event::all(), cx.waker().clone()) {
-            Err(_e) => Poll::Ready(Err(SysError::ESRCH)),
-            Ok(()) => Poll::Pending,
+
+        let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
+        let uc = UserCheck::new(self.process);
+        let new = match new_limit.is_null() {
+            false => Some(uc.translated_user_readonly_value(new_limit).await?.load()),
+            true => None,
+        };
+        if (PRINT_SYSCALL_PROCESS || false) && let Some(new) = new {
+            println!("new: {:?}", new);
         }
+        let old = resource::prlimit_impl(&process, resource, new)?;
+        if !old_limit.is_null() {
+            uc.translated_user_writable_value(old_limit)
+                .await?
+                .store(old);
+        }
+        Ok(0)
     }
 }

@@ -1,12 +1,7 @@
 use alloc::boxed::Box;
 
 use super::{AsyncFile, File};
-use crate::{
-    console,
-    process::thread,
-    sync::SleepMutex,
-    user::{UserData, UserDataMut},
-};
+use crate::{console, sync::SleepMutex};
 
 pub struct Stdin;
 
@@ -22,26 +17,30 @@ impl File for Stdin {
     fn can_mmap(&self) -> bool {
         false
     }
-    fn read(&self, buf: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
         Box::pin(async move {
             let len = buf.len();
             for i in 0..len {
                 let mut c: usize;
                 loop {
                     c = console::getchar() as usize;
-                    if c == 0 {
-                        thread::yield_now().await;
+                    if [0, u32::MAX as usize].contains(&c) {
+                        if !crate::xdebug::CLOSE_TIME_INTERRUPT {
+                            use crate::timer::{sleep::JustWaitFuture, TimeTicks};
+                            JustWaitFuture::new(TimeTicks::from_millisecond(5)).await;
+                        } else {
+                            crate::process::thread::yield_now().await;
+                        }
                         continue;
                     }
                     break;
                 }
-                let ch = c as u8;
-                buf.access_mut()[i] = ch;
+                buf[i] = c as u8;
             }
             Ok(len)
         })
     }
-    fn write(&self, _buf: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, _buf: &'a [u8]) -> AsyncFile {
         panic!("Cannot write to stdin!");
     }
 }
@@ -55,14 +54,14 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read(&self, _buf: UserDataMut<u8>) -> AsyncFile {
+    fn read<'a>(&'a self, _buf: &'a mut [u8]) -> AsyncFile {
         panic!("Cannot read from stdout!");
     }
-    fn write(&self, buf: UserData<u8>) -> AsyncFile {
+    fn write<'a>(&'a self, buf: &'a [u8]) -> AsyncFile {
         Box::pin(async move {
             use core::str::lossy;
             let lock = STDOUT_MUTEX.lock().await;
-            let str = buf.access();
+            let str = buf;
             let iter = lossy::Utf8Lossy::from_bytes(&*str).chunks();
             for lossy::Utf8LossyChunk { valid, broken } in iter {
                 if !valid.is_empty() {

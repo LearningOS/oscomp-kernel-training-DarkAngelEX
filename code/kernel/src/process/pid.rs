@@ -1,20 +1,13 @@
-use crate::{
-    sync::mutex::SpinLock,
-    tools::{
-        allocator::{from_usize_allocator::FromUsizeAllocator, Own},
-        container::never_clone_linked_list::NeverCloneLinkedList,
-        Wrapper,
-    },
+use crate::tools::{
+    allocator::{from_usize_allocator::FromUsizeAllocator, Own},
+    container::never_clone_linked_list::NeverCloneLinkedList,
+    Wrapper,
 };
 
-#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
-pub struct Pid(usize);
+use super::Tid;
 
-impl Pid {
-    pub fn into_usize(self) -> usize {
-        self.0
-    }
-}
+#[derive(Debug, Copy, Clone, Ord, PartialOrd, Eq, PartialEq)]
+pub struct Pid(pub usize);
 
 from_usize_impl!(Pid);
 
@@ -38,21 +31,17 @@ impl PidHandle {
         self.0
     }
     pub fn get_usize(&self) -> usize {
-        self.pid().into_usize()
+        self.pid().0
     }
 }
 
 impl Drop for PidHandle {
     fn drop(&mut self) {
-        unsafe {
-            //println!("drop pid {}", self.0);
-            PID_ALLOCATOR.lock().dealloc(self.pid());
-        }
+        //println!("drop pid {}", self.0);
+        unsafe { super::tid::pidhandle_dealloc_impl(self.0) }
     }
 }
 
-static PID_ALLOCATOR: SpinLock<PidAllocator> = SpinLock::new(PidAllocator::default());
-
-pub fn pid_alloc() -> PidHandle {
-    PID_ALLOCATOR.lock().alloc()
+pub(super) unsafe fn pid_alloc_by_tid(tid: Tid) -> PidHandle {
+    PidHandle(Pid(tid.0))
 }

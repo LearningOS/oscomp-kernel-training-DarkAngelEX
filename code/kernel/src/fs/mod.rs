@@ -10,13 +10,13 @@ use alloc::boxed::Box;
 use self::stat::Stat;
 pub use self::{
     stdio::{Stdin, Stdout},
-    vfs::inode::{create_any, list_apps, open_file, unlink, VfsInode},
+    vfs::inode::{create_any, dev, list_apps, open_file, unlink, VfsInode},
 };
 
 use crate::{
+    memory::user_ptr::UserInOutPtr,
     syscall::{SysError, SysResult, UniqueSysError},
     tools::xasync::Async,
-    user::{UserData, UserDataMut},
 };
 
 pub async fn init() {
@@ -67,8 +67,7 @@ bitflags! {
         const FASYNC    = 0o0020000;
         const DIRECT    = 0o0040000;
         const LARGEFILE = 0o0100000;
-        // const DIRECTORY = 00200000; // LINUX
-        const DIRECTORY = 0x0200000; // test run
+        const DIRECTORY = 0x0200000;
         const NOFOLLOW  = 0o0400000;
         const NOATIME   = 0o1000000;
         const CLOEXEC   = 0o2000000;
@@ -96,12 +95,47 @@ impl OpenFlags {
     }
 }
 
+pub enum Seek {
+    Set,
+    Cur,
+    End,
+}
+
+impl Seek {
+    pub fn from_user(v: u32) -> Result<Self, SysError> {
+        const SEEK_SET: u32 = 0;
+        const SEEK_CUR: u32 = 1;
+        const SEEK_END: u32 = 2;
+        match v {
+            SEEK_SET => Ok(Self::Set),
+            SEEK_CUR => Ok(Self::Cur),
+            SEEK_END => Ok(Self::End),
+            _ => Err(SysError::EINVAL),
+        }
+    }
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Iovec {
+    pub iov_base: UserInOutPtr<u8>,
+    pub iov_len: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct Pollfd {
+    pub fd: u32,
+    pub events: u16,
+    pub revents: u16,
+}
+
 pub type AsyncFile<'a> = Async<'a, Result<usize, SysError>>;
 
 pub trait File: Send + Sync + 'static {
     // 这个文件的工作路径
-    fn to_vfs_inode(&self) -> Option<&VfsInode> {
-        None
+    fn to_vfs_inode(&self) -> Result<&dyn VfsInode, SysError> {
+        Err(SysError::ENOTDIR)
     }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
@@ -114,20 +148,17 @@ pub trait File: Send + Sync + 'static {
     fn can_write_offset(&self) -> bool {
         false
     }
-    fn read_at(&self, _offset: usize, _write_only: UserDataMut<u8>) -> AsyncFile {
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+        unimplemented!("lseek unimplement: {}", core::any::type_name::<Self>())
+    }
+    fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
         unimplemented!()
     }
-    fn write_at(&self, _offset: usize, _read_only: UserData<u8>) -> AsyncFile {
+    fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
         unimplemented!()
     }
-    fn read_at_kernel<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
-        unimplemented!()
-    }
-    fn write_at_kernel<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
-        unimplemented!()
-    }
-    fn read(&self, write_only: UserDataMut<u8>) -> AsyncFile;
-    fn write(&self, read_only: UserData<u8>) -> AsyncFile;
+    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile;
+    fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile;
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
         Ok(0)
     }

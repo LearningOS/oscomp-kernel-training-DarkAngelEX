@@ -1,12 +1,22 @@
 use crate::{
     memory::user_ptr::UserWritePtr,
-    timer::{self, TimeVal, TimeZone, Tms},
+    timer::{self, TimeSpec, TimeVal, TimeZone, Tms},
     user::check::UserCheck,
 };
 
 use super::{SysResult, Syscall};
 
 impl Syscall<'_> {
+    pub async fn clock_gettime(&mut self) -> SysResult {
+        stack_trace!();
+        let (_clkid, tp): (usize, UserWritePtr<TimeSpec>) = self.cx.into();
+        let cur = TimeSpec::from_ticks(timer::get_time_ticks());
+        UserCheck::new(self.process)
+            .translated_user_writable_value(tp)
+            .await?
+            .store(cur);
+        Ok(0)
+    }
     pub async fn sys_times(&mut self) -> SysResult {
         stack_trace!();
         let ptr: UserWritePtr<Tms> = self.cx.para1();

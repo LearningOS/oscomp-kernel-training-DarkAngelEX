@@ -1,6 +1,6 @@
 use core::{
     fmt::Debug,
-    sync::atomic::{self, AtomicUsize, Ordering},
+    sync::atomic::{AtomicUsize, Ordering},
 };
 
 use alloc::vec::Vec;
@@ -135,6 +135,19 @@ impl PageTableEntry {
             self.set_writable();
         }
     }
+    /// 用来分配非叶节点, 不能包含URW标志位
+    pub fn alloc_by_non_leaf(
+        &mut self,
+        perm: PTEFlags,
+        allocator: &mut impl FrameAllocator,
+    ) -> Result<(), FrameOOM> {
+        assert!(!self.is_valid(), "try alloc to a valid pte");
+        debug_assert!(!perm.intersects(PTEFlags::U | PTEFlags::R | PTEFlags::W));
+        let pa = allocator.alloc()?.consume();
+        pa.as_pte_array_mut().fill(PageTableEntry::empty());
+        *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
+        Ok(())
+    }
 
     pub fn alloc_by(
         &mut self,
@@ -249,9 +262,7 @@ impl PageTable {
     }
     /// 返回值析构时将刷表
     pub fn flush_asid_fn(&self) -> DynDropRun<Asid> {
-        DynDropRun::new(self.asid(), |asid| {
-            local::all_hart_sfence_vma_asid(asid)
-        })
+        DynDropRun::new(self.asid(), |asid| local::all_hart_sfence_vma_asid(asid))
     }
     /// 返回值析构时将刷表
     pub fn flush_va_asid_fn(&self, va: UserAddr4K) -> DynDropRun<(UserAddr4K, Asid)> {
@@ -278,7 +289,7 @@ impl PageTable {
                 return Ok(pte);
             }
             if !pte.is_valid() {
-                pte.alloc_by(PTEFlags::V, allocator)?;
+                pte.alloc_by_non_leaf(PTEFlags::V, allocator)?;
             }
             par = pte.phy_addr().into();
         }
@@ -493,7 +504,6 @@ pub fn init_kernel_page_table() {
             "KERNEL_GLOBAL has been initialized"
         );
         KERNEL_GLOBAL = Some(new_satp);
-        atomic::fence(Ordering::Release);
         csr::set_satp(satp);
         sfence::sfence_vma_all_global();
         sfence::fence_i();

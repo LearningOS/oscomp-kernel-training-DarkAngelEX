@@ -47,17 +47,23 @@ impl<S: MutexSupport> RcuManager<S> {
     pub fn critical_start(&self, id: usize) {
         debug_assert!(id < 32);
         let mask_pending = 1 << id;
-        self.flags.fetch_or(mask_pending, Ordering::Acquire);
+        if self.flags.load(Ordering::Relaxed) & mask_pending == 0 {
+            self.flags.fetch_or(mask_pending, Ordering::Acquire);
+        }
     }
     pub fn critical_end(&self, id: usize) {
         debug_assert!(id < 32);
         let mask_pending = 1 << id;
         let mask_current = mask_pending << 32;
+        let mask_all = mask_pending | mask_current;
         let mut release;
         let mut need_release;
         let mut prev = self.flags.load(Ordering::Relaxed);
+        if prev & mask_all == 0 {
+            return;
+        }
         loop {
-            let mut next = prev & !(mask_pending | mask_current);
+            let mut next = prev & !mask_all;
             release = (next >> 32) == 0;
             need_release = unsafe {
                 !self.rcu_pending.unsafe_get().is_empty()

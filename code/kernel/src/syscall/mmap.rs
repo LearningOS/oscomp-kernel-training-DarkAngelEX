@@ -14,6 +14,9 @@ use super::SysError;
 const PRINT_SYSCALL_MMAP: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
+    /// prot: 访问权限 R W X
+    ///
+    /// flags: SHARED | PRIVATE | FIXED | ANONYMOUS
     pub fn sys_mmap(&mut self) -> SysResult {
         stack_trace!();
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =
@@ -22,8 +25,8 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_MMAP || PRINT_THIS {
             let addr = addr.as_usize();
             println!(
-                "sys_mmap addr:{:#x} len:{} prot:{:#x} flags:{:#x} fd:{:?} offset:{}",
-                addr, len, prot, flags, fd, offset
+                "sys_mmap addr:{:#x} len:{} prot:{:#x} flags:{:#x} fd:{:?} offset:{} sepc:{:#x}",
+                addr, len, prot, flags, fd, offset, self.cx.user_sepc
             );
         }
         let len = len.max(PAGE_SIZE);
@@ -107,10 +110,10 @@ impl Syscall<'_> {
     pub fn sys_mprotect(&mut self) -> SysResult {
         stack_trace!();
         let (start, len, prot): (UserInOutPtr<()>, usize, u32) = self.cx.into();
-        const PRINT_THIS: bool = true;
+        const PRINT_THIS: bool = false;
         if PRINT_SYSCALL_MMAP || PRINT_THIS {
             println!(
-                "sys_mprotect start:{:?} len:{} prot:{:#x}",
+                "sys_mprotect start:{:#x} len:{} prot:{:#x}",
                 start.as_usize(),
                 len,
                 prot

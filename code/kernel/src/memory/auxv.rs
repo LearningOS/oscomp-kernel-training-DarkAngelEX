@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use alloc::vec::Vec;
 
-use crate::config::PAGE_SIZE;
+use crate::config::{PAGE_SIZE, USER_KRW_RANDOM_BEGIN};
 
 // Execution of programs
 pub const AT_NULL: usize = 0; /* end of vector */
@@ -35,6 +35,7 @@ nice things.  */
 pub const AT_SYSINFO: usize = 32;
 pub const AT_SYSINFO_EHDR: usize = 33;
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct AuxHeader {
     pub aux_type: usize,
@@ -59,6 +60,7 @@ impl AuxHeader {
         push!(AT_BASE, 0);
         push!(AT_FLAGS, 0);
         push!(AT_ENTRY, entry_point);
+        push!(AT_NOTELF, 0x112d);
         push!(AT_UID, 0);
         push!(AT_EUID, 0);
         push!(AT_GID, 0);
@@ -67,14 +69,13 @@ impl AuxHeader {
         push!(AT_HWCAP, 0);
         push!(AT_CLKTCK, 100);
         push!(AT_SECURE, 0);
-        push!(AT_NOTELF, 0x112d);
+        push!(AT_RANDOM, USER_KRW_RANDOM_BEGIN);
         auxv
     }
     pub fn reverse() -> usize {
         40 * 8 * 2
     }
     pub fn write_to(self, dst: &mut [usize; 2]) {
-        dst[0] = self.aux_type;
-        dst[1] = self.value;
+        *dst = [self.aux_type, self.value];
     }
 }

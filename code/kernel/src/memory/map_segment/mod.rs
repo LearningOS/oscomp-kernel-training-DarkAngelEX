@@ -113,7 +113,6 @@ impl MapSegment {
         stack_trace!();
         let pt = pt!(self);
         let h = self.handlers.range_contain(r.clone()).unwrap();
-        stack_trace!();
         h.map(pt, r).map_err(|e| match e {
             TryRunFail::Async(_a) => panic!(),
             TryRunFail::Error(e) => e,
@@ -195,11 +194,13 @@ impl MapSegment {
     ///
     /// COW 共享页: 不修改页表 只修改段标志位
     pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> Result<(), SysError> {
+        stack_trace!();
         // 1. 检查区间与max标志位
         // 2. 边缘切割
         // 3. 修改段内标志位
         let (sr, sh) = self.handlers.get_rv(r.start).ok_or(SysError::EFAULT)?;
         sh.new_perm_check(perm).map_err(|_| SysError::EACCES)?;
+        // 检测段是否都存在
         let mut cur_end = sr.end;
         for (r, h) in self.handlers.range(r.clone()) {
             if r.start == sr.start {
@@ -214,41 +215,24 @@ impl MapSegment {
         if cur_end < r.end {
             return Err(SysError::EFAULT);
         }
+        // 边缘切割
+        self.handlers.split_at_maybe(r.start);
+        self.handlers.split_at_maybe(r.end);
+        // 保证遍历到的都不会跨越边界
         let pt = pt!(self);
-        let mut modify_fn = move |h: &mut dyn UserAreaHandler, r| {
+        for (xr, h) in self.handlers.range_mut(r.clone()) {
             h.modify_perm(perm);
             if h.shared_always() {
-                for (_addr, pte) in pt.valid_pte_iter(r) {
+                for (_addr, pte) in pt.valid_pte_iter(xr) {
                     pte.set_rwx(perm);
                 }
             } else {
-                for (_addr, pte) in pt.valid_pte_iter(r) {
+                for (_addr, pte) in pt.valid_pte_iter(xr) {
                     if !pte.shared() {
                         pte.set_rwx(perm);
                     }
                 }
             }
-        };
-        if sr.start != r.start {
-            self.handlers
-                .split_at_run(r.start, |_, _| (), &mut modify_fn)
-        } else {
-            let (r, h) = self.handlers.get_rv_mut(r.start).unwrap();
-            modify_fn(h, r);
-        }
-        let mut split_end = false;
-        for (xr, h) in self.handlers.range_mut(r.clone()) {
-            if xr.start == sr.start {
-                continue;
-            }
-            if xr.end > r.end {
-                split_end = true;
-                break;
-            }
-            modify_fn(h, xr);
-        }
-        if split_end {
-            self.handlers.split_at_run(r.end, modify_fn, |_, _| ())
         }
         Ok(())
     }

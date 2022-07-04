@@ -3,7 +3,10 @@ target = "riscv64imac-unknown-none-elf"
 
 [target.riscv64imac-unknown-none-elf]
 rustflags = [
-    "-Clink-arg=-Tsrc/linker.ld", "-Cforce-frame-pointers=yes"
+    "-C", "link-arg=-Tsrc/linker.ld",
+    # "-C", "link-arg=--relax",
+    # "-C", "target-feature=+relax",
+    # "-C", "force-frame-pointers=yes", # using s0 to save stack-frame
 ]
 
 # [source.crates-io]

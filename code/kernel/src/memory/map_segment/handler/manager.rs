@@ -59,7 +59,15 @@ impl HandlerManager {
             release,
         )
     }
-    // 位置必须位于某个段中间, 否则panic
+    /// 位置必须位于某个段中间, 否则panic
+    pub fn split_at(&mut self, p: UserAddr4K) {
+        self.map.split_at(p, |a, p, r| a.split_r(p, r))
+    }
+    /// 如果某个段跨越了p, 将这个段切为两半
+    pub fn split_at_maybe(&mut self, p: UserAddr4K) {
+        self.map.split_at_maybe(p, |a, p, r| a.split_r(p, r))
+    }
+    /// 位置必须位于某个段中间, 否则panic
     pub fn split_at_run(
         &mut self,
         p: UserAddr4K,
@@ -111,11 +119,11 @@ impl HandlerManager {
     pub fn iter_mut(&mut self) -> impl Iterator<Item = (URange, &mut dyn UserAreaHandler)> {
         self.map.iter_mut().map(|(a, b)| (a, b.as_mut()))
     }
-    // maybe not contain first segment
+    /// 返回起始位置在r中的段
     pub fn range(&self, r: URange) -> impl Iterator<Item = (URange, &dyn UserAreaHandler)> {
         self.map.range(r).map(|(a, b)| (a, b.as_ref()))
     }
-    // maybe not contain first segment
+    /// 返回起始位置在r中的段
     pub fn range_mut(
         &mut self,
         r: URange,

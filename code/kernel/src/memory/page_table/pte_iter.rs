@@ -111,13 +111,13 @@ impl<'a, A: FrameAllocator> Iterator for EachPteIter<'a, A> {
         let x = &cur.indexes();
         let pte = next_pte(self.pt.root_pa(), x[0]);
         if !pte.is_valid() {
-            if let Err(e) = pte.alloc_by(PTEFlags::V, &mut self.allocator) {
+            if let Err(e) = pte.alloc_by_non_leaf(PTEFlags::V, &mut self.allocator) {
                 return Some(Err(e));
             }
         }
         let pte = next_pte(pte.phy_addr(), x[1]);
         if !pte.is_valid() {
-            if let Err(e) = pte.alloc_by(PTEFlags::V, &mut self.allocator) {
+            if let Err(e) = pte.alloc_by_non_leaf(PTEFlags::V, &mut self.allocator) {
                 return Some(Err(e));
             }
         }
