@@ -70,9 +70,14 @@ pub const USER_HEAP_END: usize = 0x10_0000_0000;
 pub const USER_STACK_BEGIN: usize = 0x10_0000_0000;
 pub const USER_STACK_END: usize = 0x20_0000_0000;
 pub const USER_MAX_THREADS: usize = (USER_STACK_END - USER_STACK_BEGIN) / USER_STACK_SIZE;
+
+pub const USER_DYN_BEGIN: usize = 0x20_0000_0000;
+pub const USER_DYN_END: usize = 0x30_0000_0000;
+pub const USER_DYN_RANGE: URange = get_range(USER_DYN_BEGIN..USER_DYN_END);
+
 /// full range of user
 pub const USER_MMAP_BEGIN: usize = USER_DATA_BEGIN;
-pub const USER_MMAP_SEARCH: usize = 0x20_0000_0000;
+pub const USER_MMAP_SEARCH: usize = 0x30_0000_0000;
 pub const USER_MMAP_END: usize = 0x38_0000_0000;
 
 pub const USER_KRX_BEGIN: usize = USER_END - 0x10000 + 0x4000; // 放置提供给用户的一些代码

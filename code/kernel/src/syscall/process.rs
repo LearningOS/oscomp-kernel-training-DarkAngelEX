@@ -11,7 +11,7 @@ use crate::{
         address::{PageCount, UserAddr},
         asid::USING_ASID,
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
-        UserSpace,
+        UserSpace, auxv::{AT_BASE, AuxHeader},
     },
     process::{
         resource::{self, RLimit},
@@ -142,7 +142,7 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
-            Some(Ok(self.alive_then(|a| a.cwd.clone())?.path_iter())),
+            Some(Ok(&mut self.alive_then(|a| a.cwd.clone())?.path_iter())),
             path.as_str(),
             fs::OpenFlags::RDONLY,
             Mode(0o500),
@@ -150,12 +150,20 @@ impl Syscall<'_> {
         .await?;
         let mut iter = inode.path_iter();
         iter.next_back();
-        let dir = fs::open_file(Some(Ok(iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
+        let dir = fs::open_file(Some(Ok(&mut iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
         let elf_data = inode.read_all().await?;
-        let (user_space, user_sp, entry_point, auxv) =
+        let (mut user_space, user_sp, mut entry_point, mut auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
                 .map_err(|_e| SysError::ENOEXEC)?;
-
+        println!("entry 0: {:#x}", entry_point.into_usize());
+        if let Some(dyn_entry_point) = user_space.load_linker(&elf_data).await.unwrap() {
+            entry_point = dyn_entry_point;
+            println!("entry link: {:#x}", entry_point.into_usize());
+            auxv.push(AuxHeader {
+                aux_type: AT_BASE,
+                value: entry_point.into_usize(),
+            });
+        }
         // TODO: kill other thread and await
         let mut alive = self.alive_lock()?;
         if alive.threads.len() > 1 {

@@ -65,6 +65,24 @@ pub async fn open_file<'a>(
     };
     Ok(inode)
 }
+pub async fn open_file_abs<'a>(
+    path: &'a str,
+    flags: OpenFlags,
+    _mode: Mode,
+) -> Result<Arc<dyn VfsInode>, SysError> {
+    stack_trace!();
+    let mut stack = Vec::new();
+    match path.as_bytes().first() {
+        Some(b'/') => (),
+        _ => panic!(),
+    }
+    path::walk_path(path, &mut stack);
+    let inode = match stack.split_first() {
+        Some((&"dev", path)) => dev::open_file(path)?,
+        _ => fat32_inode::open_file(&stack, flags).await?,
+    };
+    Ok(inode)
+}
 
 pub async fn unlink<'a>(
     base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
