@@ -20,6 +20,7 @@
 #![feature(int_roundings)]
 #![feature(get_mut_unchecked)]
 #![feature(split_array)]
+#![allow(dead_code)]
 
 const PRINT_BLOCK_OP: bool = false;
 const PRINT_INODE_OP: bool = false;

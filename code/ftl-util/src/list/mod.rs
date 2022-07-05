@@ -153,4 +153,33 @@ impl<T> ListNode<T> {
         }
         NonNull::new(r)
     }
+    /// 按next序扫描一圈, 当 need_pop 返回true时删除这个节点, 删除后再调用 release, 至多删除max个节点
+    ///
+    /// 分离need_pop和release是为了保证release调用时不存在任何引用, 因为release调用时node可能已经被销毁了
+    #[inline]
+    pub fn pop_many_when(
+        &mut self,
+        max: usize,
+        mut need_pop: impl FnMut(&T) -> bool,
+        mut release: impl FnMut(&mut T),
+    ) -> usize {
+        let mut n = 0;
+        unsafe {
+            let head = self as *mut Self;
+            let mut cur = (*head).next;
+            while cur != head {
+                let next = (*cur).next;
+                if need_pop(&(*cur).data) {
+                    (*cur).pop_self();
+                    release(&mut (*cur).data);
+                    n += 1;
+                    if n == max {
+                        return n;
+                    }
+                }
+                cur = next;
+            }
+        }
+        n
+    }
 }

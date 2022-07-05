@@ -2,7 +2,10 @@ use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use crate::{
     drivers, executor,
-    fs::{stat::Stat, AsyncFile, File, OpenFlags, Seek},
+    fs::{
+        stat::{Stat, S_IFDIR, S_IFREG},
+        AsyncFile, File, OpenFlags, Seek,
+    },
     syscall::SysResult,
     tools::{path, xasync::Async},
     user::AutoSie,
@@ -240,6 +243,10 @@ impl File for Fat32Inode {
             stat.st_dev = 0;
             stat.st_ino = 0;
             stat.st_mode = 0o777;
+            match &self.inode {
+                AnyInode::Dir(_) => stat.st_mode |= S_IFDIR,
+                AnyInode::File(_) => stat.st_mode |= S_IFREG,
+            }
             stat.st_nlink = 1;
             stat.st_uid = 0;
             stat.st_gid = 0;

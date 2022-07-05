@@ -70,6 +70,7 @@ const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
 const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
+const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
@@ -160,6 +161,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETPPID => self.sys_getppid(),
             SYSCALL_GETUID => self.sys_getuid(),
             SYSCALL_GETEUID => self.sys_geteuid(),
+            SYSCALL_GETEGID => self.sys_getegid(),
             SYSCALL_GETTID => self.sys_gettid(),
             SYSCALL_BRK => self.sys_brk(),
             SYSCALL_MUNMAP => self.sys_munmap(),

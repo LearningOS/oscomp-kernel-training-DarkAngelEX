@@ -8,7 +8,10 @@ use ftl_util::{error::SysError, fs::DentryType};
 
 use crate::{
     config::PAGE_SIZE,
-    fs::{stat::Stat, AsyncFile, File, Seek, Stdin, Stdout, VfsInode},
+    fs::{
+        stat::{Stat, S_IFCHR},
+        AsyncFile, File, Seek, Stdin, Stdout, VfsInode,
+    },
     syscall::SysResult,
     tools::xasync::Async,
 };
@@ -53,7 +56,7 @@ impl File for TtyInode {
         Box::pin(async move {
             *stat = Stat::zeroed();
             stat.st_blksize = PAGE_SIZE as u32;
-            stat.st_mode = 0o666;
+            stat.st_mode = S_IFCHR | 0o666;
             Ok(())
         })
     }

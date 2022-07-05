@@ -1,5 +1,7 @@
 use crate::memory::user_ptr::UserInOutPtr;
 
+mod queue;
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct RobustList {

@@ -349,6 +349,13 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
+    pub fn sys_getegid(&mut self) -> SysResult {
+        stack_trace!();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_getegid");
+        }
+        Ok(0)
+    }
     pub fn sys_exit(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {

@@ -7,7 +7,10 @@ use alloc::{
 use ftl_util::{error::SysError, fs::DentryType};
 
 use crate::{
-    fs::{AsyncFile, File, VfsInode},
+    fs::{
+        stat::{Stat, S_IFCHR},
+        AsyncFile, File, VfsInode,
+    },
     tools::xasync::Async,
 };
 
@@ -43,6 +46,12 @@ impl File for NullInode {
     }
     fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile {
         Box::pin(async move { Ok(read_only.len()) })
+    }
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
+        Box::pin(async move {
+            stat.st_mode = S_IFCHR | 0o666;
+            Ok(())
+        })
     }
 }
 
