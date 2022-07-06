@@ -3,15 +3,16 @@ use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering};
 use alloc::{string::String, vec::Vec};
 
 use crate::{
-    config::{PAGE_SIZE, USER_STACK_RESERVE},
+    config::{PAGE_SIZE, USER_DYN_BEGIN, USER_STACK_RESERVE},
     fs::{self, Mode},
     local,
     memory::{
         self,
         address::{PageCount, UserAddr},
         asid::USING_ASID,
+        auxv::{AuxHeader, AT_BASE},
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
-        UserSpace, auxv::{AT_BASE, AuxHeader},
+        UserSpace,
     },
     process::{
         resource::{self, RLimit},
@@ -150,7 +151,8 @@ impl Syscall<'_> {
         .await?;
         let mut iter = inode.path_iter();
         iter.next_back();
-        let dir = fs::open_file(Some(Ok(&mut iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
+        let dir =
+            fs::open_file(Some(Ok(&mut iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
         let elf_data = inode.read_all().await?;
         let (mut user_space, user_sp, mut entry_point, mut auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -161,7 +163,7 @@ impl Syscall<'_> {
             println!("entry link: {:#x}", entry_point.into_usize());
             auxv.push(AuxHeader {
                 aux_type: AT_BASE,
-                value: entry_point.into_usize(),
+                value: USER_DYN_BEGIN,
             });
         }
         // TODO: kill other thread and await

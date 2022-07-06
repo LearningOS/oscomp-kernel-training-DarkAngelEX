@@ -10,7 +10,8 @@ use riscv::register::scause::Exception;
 
 use crate::{
     config::{
-        PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE,
+        PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, 
+        USER_STACK_RESERVE,
     },
     fs::{Mode, OpenFlags},
     local,
@@ -284,7 +285,7 @@ impl UserSpace {
             if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
                 let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
                 let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
-                if start_va.is_4k_align() {
+                if head_va == 0 {
                     head_va = start_va.into_usize();
                 }
                 let mut perm = PTEFlags::U;
@@ -301,7 +302,7 @@ impl UserSpace {
                 if true {
                     println!(
                         "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
-                        i, 
+                        i,
                         start_va,
                         end_va,
                         perm,
@@ -417,7 +418,7 @@ impl UserSpace {
         let inode = crate::fs::open_file_abs(&s, OpenFlags::RDONLY, Mode(0o500))
             .await
             .unwrap();
-        let mut linker = inode.read_all().await.unwrap();
+        let linker = inode.read_all().await.unwrap();
         let elf_fail = |str| {
             println!("{}", str);
             SysError::EFAULT
@@ -428,7 +429,6 @@ impl UserSpace {
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
 
-        let mut head_va = 0;
         let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
 
         for i in 0..ph_count {
@@ -437,9 +437,6 @@ impl UserSpace {
             if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
                 let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
                 let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
-                if start_va.is_4k_align() {
-                    head_va = start_va.into_usize();
-                }
                 let mut perm = PTEFlags::U;
                 let ph_flags = ph.flags();
                 if ph_flags.is_read() {
