@@ -44,7 +44,7 @@ impl RLimit {
 pub fn prlimit_impl(
     _proc: &Process,
     resource: u32,
-    new: Option<RLimit>,
+    _new: Option<RLimit>,
 ) -> Result<RLimit, SysError> {
     match resource {
         RLIMIT_CPU => todo!(),

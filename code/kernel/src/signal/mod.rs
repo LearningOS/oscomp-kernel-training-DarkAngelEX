@@ -376,7 +376,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     let scx_ptr: UserInOutPtr<SignalContext> = UserInOutPtr::from_usize(sp);
     sp -= 16;
     let scx = UserCheck::new(process)
-        .translated_user_writable_value(scx_ptr)
+        .writable_value(scx_ptr)
         .await
         .map_err(|_e| Dead)?;
     scx.access_mut()[0].load(uk_cx, old_scxptr, old_mask);
@@ -392,7 +392,7 @@ pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysResult
     stack_trace!();
     debug_assert!(!thread.scx_ptr.is_null());
     let scx = UserCheck::new(process)
-        .translated_user_readonly_value(thread.scx_ptr)
+        .readonly_value(thread.scx_ptr)
         .await?;
     match scx.access()[0].store(&mut thread.uk_context) {
         (scx_ptr, mask) => {

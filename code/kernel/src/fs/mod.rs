@@ -67,7 +67,7 @@ bitflags! {
         const FASYNC    = 0o0020000;
         const DIRECT    = 0o0040000;
         const LARGEFILE = 0o0100000;
-        const DIRECTORY = 0x0200000;
+        const DIRECTORY = 0o0200000;
         const NOFOLLOW  = 0o0400000;
         const NOATIME   = 0o1000000;
         const CLOEXEC   = 0o2000000;

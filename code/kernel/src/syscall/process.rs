@@ -92,10 +92,7 @@ impl Syscall<'_> {
         };
         let tid = new.tid();
         if flag.contains(CloneFlag::CLONE_PARENT_SETTID) {
-            match UserCheck::new(self.process)
-                .translated_user_writable_value(ptid)
-                .await
-            {
+            match UserCheck::new(self.process).writable_value(ptid).await {
                 Ok(ptid) => ptid.store(new.tid().0 as u32),
                 Err(_e) => {
                     println!("sys_clone ignore error: CLONE_PARENT_SETTID fail");
@@ -119,21 +116,16 @@ impl Syscall<'_> {
             UserReadPtr<UserReadPtr<u8>>,
         ) = self.cx.para3();
         let user_check = UserCheck::new(self.process);
-        let path = String::from_utf8(
-            user_check
-                .translated_user_array_zero_end(path)
-                .await?
-                .to_vec(),
-        )?;
+        let path = String::from_utf8(user_check.array_zero_end(path).await?.to_vec())?;
         stack_trace!("sys_execve path: {}", path);
         let args: Vec<String> = user_check
-            .translated_user_2d_array_zero_end(args)
+            .array_2d_zero_end(args)
             .await?
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
             .collect();
         let envp = user_check
-            .translated_user_2d_array_zero_end(envp)
+            .array_2d_zero_end(envp)
             .await?
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
@@ -232,7 +224,7 @@ impl Syscall<'_> {
                 if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
                     let access = UserCheck::new(self.process)
-                        .translated_user_writable_value(exit_code_ptr)
+                        .writable_value(exit_code_ptr)
                         .await
                         .map_err(|e| {
                             println!("[FTL OS]wait4 fail because {:?}", e);
@@ -403,17 +395,13 @@ impl Syscall<'_> {
             return Err(SysError::EINVAL);
         }
         let req = UserCheck::new(self.process)
-            .translated_user_readonly_value(req)
+            .readonly_value(req)
             .await?
             .load();
         req.valid()?;
         let rem = match rem.nonnull_mut() {
             None => None,
-            Some(rem) => Some(
-                UserCheck::new(self.process)
-                    .translated_user_writable_value(rem)
-                    .await?,
-            ),
+            Some(rem) => Some(UserCheck::new(self.process).writable_value(rem).await?),
         };
         let deadline = timer::get_time_ticks() + TimeTicks::from_time_spec(req);
         let ret = SleepFuture::new(deadline, self.process.event_bus.clone()).await;
@@ -463,9 +451,7 @@ impl Syscall<'_> {
         }
 
         let buf: UserWritePtr<Utsname> = self.cx.para1();
-        let buf = UserCheck::new(self.process)
-            .translated_user_writable_value(buf)
-            .await?;
+        let buf = UserCheck::new(self.process).writable_value(buf).await?;
         let mut access = buf.access_mut();
         let uts_name = &mut access[0];
         *uts_name = unsafe { core::mem::MaybeUninit::zeroed().assume_init() };
@@ -506,7 +492,7 @@ impl Syscall<'_> {
         let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
         let uc = UserCheck::new(self.process);
         let new = match new_limit.is_null() {
-            false => Some(uc.translated_user_readonly_value(new_limit).await?.load()),
+            false => Some(uc.readonly_value(new_limit).await?.load()),
             true => None,
         };
         if (PRINT_SYSCALL_PROCESS || false) && let Some(new) = new {
@@ -514,9 +500,7 @@ impl Syscall<'_> {
         }
         let old = resource::prlimit_impl(&process, resource, new)?;
         if !old_limit.is_null() {
-            uc.translated_user_writable_value(old_limit)
-                .await?
-                .store(old);
+            uc.writable_value(old_limit).await?.store(old);
         }
         Ok(0)
     }

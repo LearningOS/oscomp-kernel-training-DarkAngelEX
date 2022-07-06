@@ -27,7 +27,7 @@ impl Syscall<'_> {
         path: UserReadPtr<u8>,
     ) -> Result<(Option<Arc<dyn File>>, String), SysError> {
         let path = UserCheck::new(self.process)
-            .translated_user_array_zero_end(path)
+            .array_zero_end(path)
             .await?
             .to_vec();
         let path = String::from_utf8(path)?;
@@ -70,7 +70,7 @@ impl Syscall<'_> {
             return Err(SysError::EINVAL);
         }
         let buf = UserCheck::new(self.process)
-            .translated_user_writable_slice(buf_in, len)
+            .writable_slice(buf_in, len)
             .await?;
         let lock = self.alive_lock()?;
         let cwd_len = lock.cwd.path_iter().fold(0, |a, b| a + b.len() + 1) + 1;
@@ -138,7 +138,7 @@ impl Syscall<'_> {
             return Err(SysError::EFAULT);
         }
         let dirp = UserCheck::new(self.process)
-            .translated_user_writable_slice(dirp, count)
+            .writable_slice(dirp, count)
             .await?;
         let file = self
             .alive_then(|a| a.fd_table.get(fd).cloned())?
@@ -196,7 +196,7 @@ impl Syscall<'_> {
         }
         let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.para3();
         let buf = UserCheck::new(self.process)
-            .translated_user_writable_slice(buf, len)
+            .writable_slice(buf, len)
             .await?;
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
@@ -213,7 +213,7 @@ impl Syscall<'_> {
         }
         let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.para3();
         let buf = UserCheck::new(self.process)
-            .translated_user_readonly_slice(buf, len)
+            .readonly_slice(buf, len)
             .await?;
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
@@ -233,10 +233,10 @@ impl Syscall<'_> {
             return Err(SysError::EPERM);
         }
         let uc = UserCheck::new(self.process);
-        let vbuf = uc.translated_user_readonly_slice(iov, vlen).await?;
+        let vbuf = uc.readonly_slice(iov, vlen).await?;
         let mut cnt = 0;
         for &Iovec { iov_base, iov_len } in vbuf.access().iter() {
-            let buf = uc.translated_user_readonly_slice(iov_base, iov_len).await?;
+            let buf = uc.readonly_slice(iov_base, iov_len).await?;
             cnt += file.write(&*buf.access()).await?;
         }
         Ok(cnt)
@@ -251,13 +251,13 @@ impl Syscall<'_> {
             usize,
         ) = self.cx.into();
         let uc = UserCheck::new(self.process);
-        let _fds = uc.translated_user_writable_slice(fds, nfds).await?;
+        let _fds = uc.writable_slice(fds, nfds).await?;
         let _timeout = match timeout.nonnull() {
-            Some(timeout) => Some(uc.translated_user_readonly_value(timeout).await?.load()),
+            Some(timeout) => Some(uc.readonly_value(timeout).await?.load()),
             None => None,
         };
         let _sigset = if let Some(sigmask) = sigmask.nonnull() {
-            let v = uc.translated_user_readonly_slice(sigmask, s_size).await?;
+            let v = uc.readonly_slice(sigmask, s_size).await?;
             SignalSet::from_bytes(&*v.access())
         } else {
             SignalSet::EMPTY
@@ -274,7 +274,7 @@ impl Syscall<'_> {
         let path = inode.path();
         let plen = path.iter().fold(0, |a, s| a + s.len() + 1).max(1) + 1;
         let dst = UserCheck::new(self.process)
-            .translated_user_writable_slice(buf, size)
+            .writable_slice(buf, size)
             .await?;
         if plen >= dst.len() {
             return Err(SysError::ENAMETOOLONG);
@@ -308,7 +308,7 @@ impl Syscall<'_> {
         stack_trace!();
         let path: UserReadPtr<u8> = self.cx.para1();
         let path = UserCheck::new(self.process)
-            .translated_user_array_zero_end(path)
+            .array_zero_end(path)
             .await?
             .to_vec();
         let path = String::from_utf8(path)?;
@@ -361,9 +361,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_pipe2 pipe: {:#x} flags: {:#x}", pipe.as_usize(), flags);
         }
-        let write_to = UserCheck::new(self.process)
-            .translated_user_writable_slice(pipe, 1)
-            .await?;
+        let write_to = UserCheck::new(self.process).writable_slice(pipe, 1).await?;
         let flags = OpenFlags::from_bits_truncate(flags);
         let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
         if flags.contains(OpenFlags::DIRECT | OpenFlags::NONBLOCK) {

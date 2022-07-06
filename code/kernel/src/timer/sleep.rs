@@ -140,10 +140,11 @@ impl Future for SleepFuture {
         if !self.inited {
             self::timer_push_task(self.deadline, cx.waker().clone());
             self.inited = true;
+            return match self.event_bus.register(Event::all(), cx.waker().clone()) {
+                Err(_e) => Poll::Ready(Err(SysError::ESRCH)),
+                Ok(()) => Poll::Pending,
+            }
         }
-        match self.event_bus.register(Event::all(), cx.waker().clone()) {
-            Err(_e) => Poll::Ready(Err(SysError::ESRCH)),
-            Ok(()) => Poll::Pending,
-        }
+        Poll::Pending
     }
 }

@@ -94,10 +94,7 @@ impl Thread {
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn settid(&self) {
         if let Some(ptr) = self.inner().set_child_tid.nonnull_mut() {
-            if let Ok(buf) = UserCheck::new(&self.process)
-                .translated_user_writable_value(ptr)
-                .await
-            {
+            if let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
                 buf.store(self.tid().0 as u32)
             }
         }
@@ -105,10 +102,7 @@ impl Thread {
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn cleartid(&self) {
         if let Some(ptr) = self.inner().clear_child_tid.nonnull_mut() {
-            if let Ok(buf) = UserCheck::new(&self.process)
-                .translated_user_writable_value(ptr)
-                .await
-            {
+            if let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
                 buf.store(self.tid().0 as u32)
             }
         }

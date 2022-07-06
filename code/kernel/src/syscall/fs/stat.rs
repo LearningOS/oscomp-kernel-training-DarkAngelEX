@@ -13,9 +13,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_fstat fd {:?} path {:?}", fd, statbuf.as_usize());
         }
-        let buf = UserCheck::new(self.process)
-            .translated_user_writable_value(statbuf)
-            .await?;
+        let buf = UserCheck::new(self.process).writable_value(statbuf).await?;
         if fd < 0 {
             return Err(SysError::EINVAL);
         }
@@ -40,9 +38,7 @@ impl Syscall<'_> {
                 flags
             );
         }
-        let buf = UserCheck::new(self.process)
-            .translated_user_writable_value(statbuf)
-            .await?;
+        let buf = UserCheck::new(self.process).writable_value(statbuf).await?;
         let inode = self
             .fd_path_open(fd, path, OpenFlags::RDONLY, Mode(0o600))
             .await?;

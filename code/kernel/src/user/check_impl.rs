@@ -24,6 +24,8 @@ use super::UserAccessStatus;
 
 global_asm!(include_str!("check_impl.S"));
 
+const PRINT_CHECK_ERR: bool = false;
+
 pub(super) struct UserCheckImpl<'a>(&'a Process);
 
 impl Drop for UserCheckImpl<'_> {
@@ -33,72 +35,219 @@ impl Drop for UserCheckImpl<'_> {
     }
 }
 
+/// 通过异常来测试地址权限, 操作系统需要保证内核态不会发生异常, 但允许中断
 impl<'a> UserCheckImpl<'a> {
+    #[inline(always)]
     pub fn new(process: &'a Process) -> Self {
         assert!(Self::status().is_access());
         unsafe { set_error_handle() };
         Self(process)
     }
+    #[inline(always)]
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status
     }
-    pub async fn read_check<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
+    pub fn atomic_u32_check_rough(&self, ptr: UserReadPtr<u32>) -> Result<(), SysError> {
+        let ptr = ptr.as_usize();
+        match try_write_user_u32_atomic(ptr) {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                if PRINT_CHECK_ERR {
+                    println!("atomic_u32_check fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                }
+            }
+        }
+        self.handle_write_fault_rough(ptr).inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("atomic_u32_check fail!(1) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
+        try_write_user_u32_atomic(ptr).inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("atomic_u32_check fail!(2) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
+        Ok(())
+    }
+    pub async fn atomic_u32_check_async(&self, ptr: UserWritePtr<u32>) -> Result<(), SysError> {
+        let ptr = ptr.as_usize();
+        match try_write_user_u32_atomic(ptr) {
+            Ok(_) => return Ok(()),
+            Err(e) => {
+                if PRINT_CHECK_ERR {
+                    println!("atomic_u32_check fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                }
+            }
+        }
+        self.handle_write_fault_async(ptr).await.inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("atomic_u32_check fail!(1) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
+        try_write_user_u32_atomic(ptr).inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("atomic_u32_check fail!(2) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
+        Ok(())
+    }
+    pub fn read_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
-            Err(_e) => (),
+            Err(e) => {
+                if PRINT_CHECK_ERR {
+                    println!("read_check_rough fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                }
+            }
         }
-        self.handle_read_fault(ptr).await?;
-        try_read_user_u8(ptr)?;
+        self.handle_read_fault_rough(ptr)?;
+        try_read_user_u8(ptr).inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("read_check_rough fail!(1) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
         Ok(())
     }
-    pub async fn write_check<T: Copy>(&self, ptr: UserWritePtr<T>) -> Result<(), SysError> {
-        // let ptr = ptr.raw_ptr_mut() as *mut u8;
+    pub fn write_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
             Err(_e) => {
-                self.handle_write_fault(ptr).await.map_err(|e| {
-                    println!("write_check fail!(0) ptr: {:#x} cause: {}", ptr, e);
-                    e
+                self.handle_write_fault_rough(ptr).inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("write_check_rough fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                    }
                 })?;
-                try_read_user_u8(ptr).map_err(|e| {
-                    println!("write_check fail!(1) ptr: {:#x} cause: {}", ptr, e);
-                    e
+                try_read_user_u8(ptr)?
+            }
+        };
+        match try_write_user_u8(ptr, v) {
+            Ok(()) => Ok(()),
+            Err(_e) => {
+                self.handle_write_fault_rough(ptr).inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("write_check_rough fail!(1) ptr: {:#x} cause: {}", ptr, e)
+                    }
+                })?;
+                try_write_user_u8(ptr, v).inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("write_check_rough fail!(2) ptr: {:#x} cause: {}", ptr, e)
+                    }
+                })?;
+                Ok(())
+            }
+        }
+    }
+    pub async fn read_check_async<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
+        let ptr = ptr.as_usize();
+        match try_read_user_u8(ptr) {
+            Ok(_v) => return Ok(()),
+            Err(e) => {
+                if PRINT_CHECK_ERR {
+                    println!("read_check_async fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                }
+            }
+        }
+        self.handle_read_fault_async(ptr).await.inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("read_check_async fail!(1) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
+        try_read_user_u8(ptr).inspect_err(|e| {
+            if PRINT_CHECK_ERR {
+                println!("read_check_async fail!(2) ptr: {:#x} cause: {}", ptr, e)
+            }
+        })?;
+        Ok(())
+    }
+    pub async fn write_check_async<T: Copy>(&self, ptr: UserWritePtr<T>) -> Result<(), SysError> {
+        let ptr = ptr.as_usize();
+        let v = match try_read_user_u8(ptr) {
+            Ok(v) => v,
+            Err(_e) => {
+                self.handle_write_fault_async(ptr).await.inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("write_check_async fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                    }
+                })?;
+                try_read_user_u8(ptr).inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("write_check_async fail!(1) ptr: {:#x} cause: {}", ptr, e)
+                    }
                 })?
             }
         };
         match try_write_user_u8(ptr, v) {
             Ok(_v) => return Ok(()),
             Err(_e) => {
-                self.handle_write_fault(ptr).await.map_err(|e| {
-                    println!("write_check fail!(2) ptr: {:#x} cause: {}", ptr, e);
-                    e
+                self.handle_write_fault_async(ptr).await.inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("try_write_user_u8 fail!(2) ptr: {:#x} cause: {}", ptr, e)
+                    }
                 })?;
-                try_write_user_u8(ptr, v).map_err(|e| {
-                    println!("write_check fail!(3) ptr: {:#x} cause: {}", ptr, e);
-                    e
+                try_write_user_u8(ptr, v).inspect_err(|e| {
+                    if PRINT_CHECK_ERR {
+                        println!("try_write_user_u8 fail!(3) ptr: {:#x} cause: {}", ptr, e)
+                    }
                 })?
             }
         }
         Ok(())
     }
-    async fn handle_read_fault(&self, ptr: usize) -> Result<(), SysError> {
+    #[inline]
+    fn handle_read_fault_rough(&self, ptr: usize) -> Result<(), SysError> {
         if PRINT_PAGE_FAULT {
-            println!(" read fault of {:#x}", ptr);
+            println!(" handle_read_fault_rough {:#x}", ptr);
         }
-        Err(SysError::EFAULT)
+        self.handle_fault_rough(ptr, AccessType::RO)
     }
-    async fn handle_write_fault(&self, ptr: usize) -> Result<(), SysError> {
+    #[inline]
+    fn handle_write_fault_rough(&self, ptr: usize) -> Result<(), SysError> {
         if PRINT_PAGE_FAULT {
-            println!("write fault of {:#x}", ptr);
+            println!("handle_write_fault_rough {:#x}", ptr);
         }
+        self.handle_fault_rough(ptr, AccessType::RW)
+    }
+    #[inline]
+    async fn handle_read_fault_async(&self, ptr: usize) -> Result<(), SysError> {
+        if PRINT_PAGE_FAULT {
+            println!("handle_read_fault_async {:#x}", ptr);
+        }
+        self.handle_fault_async(ptr, AccessType::RO).await
+    }
+    #[inline]
+    async fn handle_write_fault_async(&self, ptr: usize) -> Result<(), SysError> {
+        if PRINT_PAGE_FAULT {
+            println!("handle_write_fault_async {:#x}", ptr);
+        }
+        self.handle_fault_async(ptr, AccessType::RW).await
+    }
+    /// 此函数只会处理简单的页错误, 例如简单的空间分配, 但无法处理文件映射
+    ///
+    /// 此函数不需要异步上下文!
+    #[inline]
+    fn handle_fault_rough(&self, ptr: usize, access: AccessType) -> Result<(), SysError> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
-        let r = self.0.alive_then(|a| {
-            a.user_space
-                .map_segment
-                .page_fault(ptr, AccessType::write())
-        })?;
+        let r = self
+            .0
+            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access))?;
+        match r {
+            Ok(flush) => {
+                flush.run();
+                Ok(())
+            }
+            Err(TryRunFail::Error(e)) => Err(e),
+            Err(TryRunFail::Async(_a)) => Err(SysError::EFAULT),
+        }
+    }
+    /// 此函数处理完整的页错误并可能阻塞线程
+    #[inline]
+    async fn handle_fault_async(&self, ptr: usize, access: AccessType) -> Result<(), SysError> {
+        let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
+        let r = self
+            .0
+            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access))?;
         let a = match r {
             Ok(flush) => {
                 flush.run();
@@ -109,61 +258,94 @@ impl<'a> UserCheckImpl<'a> {
         };
         unsafe { trap::set_kernel_default_trap() };
         match a.a_page_fault(self.0, ptr).await {
-            Ok(flush) => flush.run(),
+            Ok(flush) => {
+                flush.run();
+                unsafe { set_error_handle() };
+                Ok(())
+            }
             Err(e) => {
                 unsafe { set_error_handle() };
-                return Err(e);
+                Err(e)
             }
-        };
-        unsafe { set_error_handle() };
-        Ok(())
+        }
     }
 }
 
-/// return false if success, return true if error.
-///
-/// if return Err, cause must be Exception::LoadPageFault
+#[inline]
 fn try_read_user_u8(ptr: usize) -> Result<u8, SysError> {
     #[allow(improper_ctypes)]
     extern "C" {
+        /// return false if success, return true if error.
+        ///
+        /// if return Err, cause must be Exception::LoadPageFault
         fn __try_read_user_u8(ptr: usize) -> (usize, usize);
     }
     let (flag, value) = unsafe { __try_read_user_u8(ptr) };
     match flag {
         0 => Ok(value as u8),
         _ => {
-            let scause: Scause = unsafe { core::mem::transmute(value) };
-            match scause.cause() {
-                scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
-                scause::Trap::Exception(e) => assert_eq!(e, Exception::LoadPageFault),
-            };
+            if cfg!(debug_assertions) {
+                let scause: Scause = unsafe { core::mem::transmute(value) };
+                match scause.cause() {
+                    scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
+                    scause::Trap::Exception(e) => assert_eq!(e, Exception::LoadPageFault),
+                };
+            }
             Err(SysError::EFAULT)
         }
     }
 }
 
-/// return false if success, return true if error.
-///
-/// if return Err, cause must be Exception::StorePageFault
+#[inline]
 fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), SysError> {
     #[allow(improper_ctypes)]
     extern "C" {
+        /// return false if success, return true if error.
+        ///
+        /// if return Err, scause must be Exception::StorePageFault
         fn __try_write_user_u8(ptr: usize, value: u8) -> (usize, usize);
     }
     let (flag, value) = unsafe { __try_write_user_u8(ptr, value) };
     match flag {
         0 => Ok(()),
         _ => {
-            let scause: Scause = unsafe { core::mem::transmute(value) };
-            match scause.cause() {
-                scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
-                scause::Trap::Exception(e) => assert_eq!(e, Exception::StorePageFault),
-            };
+            if cfg!(debug_assertions) {
+                let scause: Scause = unsafe { core::mem::transmute(value) };
+                match scause.cause() {
+                    scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
+                    scause::Trap::Exception(e) => assert_eq!(e, Exception::StorePageFault),
+                };
+            }
             Err(SysError::EFAULT)
         }
     }
 }
 
+/// 使用 ptr.fetch_add(0) 来测试写权限并保证不修改值
+#[inline]
+fn try_write_user_u32_atomic(ptr: usize) -> Result<(), SysError> {
+    #[allow(improper_ctypes)]
+    extern "C" {
+        /// amoadd.d a1, zero, (a1)
+        fn __try_write_user_u32_atomic(ptr: usize) -> (usize, usize);
+    }
+    let (flag, value) = unsafe { __try_write_user_u32_atomic(ptr) };
+    match flag {
+        0 => Ok(()),
+        _ => {
+            if cfg!(debug_assertions) {
+                let scause: Scause = unsafe { core::mem::transmute(value) };
+                match scause.cause() {
+                    scause::Trap::Interrupt(i) => unreachable!("{:?}", i),
+                    scause::Trap::Exception(e) => assert_eq!(e, Exception::StorePageFault),
+                };
+            }
+            Err(SysError::EFAULT)
+        }
+    }
+}
+
+#[inline]
 unsafe fn set_error_handle() {
     extern "C" {
         fn __try_access_user_error_trap();
@@ -171,8 +353,10 @@ unsafe fn set_error_handle() {
     }
     // debug_assert!(!sstatus::read().sie());
     if true {
+        // 向量模式, 速度更快
         stvec::write(__try_access_user_error_vector as usize, TrapMode::Vectored);
     } else {
+        // 直接跳转模式, 在handle中处理中断
         stvec::write(__try_access_user_error_trap as usize, TrapMode::Direct);
     }
 }

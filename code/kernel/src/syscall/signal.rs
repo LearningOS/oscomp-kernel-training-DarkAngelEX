@@ -107,7 +107,7 @@ impl Syscall<'_> {
             );
         }
         let _new = UserCheck::new(self.process)
-            .translated_user_readonly_value(new)
+            .readonly_value(new)
             .await?
             .load();
 
@@ -145,17 +145,11 @@ impl Syscall<'_> {
         {
             if let Some(old_act) = old_act.nonnull_mut() {
                 let old = manager.get_sig_action(sig);
-                user_check
-                    .translated_user_writable_value(old_act)
-                    .await?
-                    .store(*old);
+                user_check.writable_value(old_act).await?.store(*old);
             }
             return Ok(0);
         }
-        let new_act = user_check
-            .translated_user_readonly_value(new_act)
-            .await?
-            .load();
+        let new_act = user_check.readonly_value(new_act).await?.load();
         assert!(new_act.restorer != 0); // 目前没有映射sigreturn
         if PRINT_SYSCALL_SIGNAL {
             new_act.show();
@@ -163,10 +157,7 @@ impl Syscall<'_> {
         let mut old = SigAction::zeroed();
         manager.replace_action(sig, &new_act, &mut old);
         if let Some(old_act) = old_act.nonnull_mut() {
-            user_check
-                .translated_user_writable_value(old_act)
-                .await?
-                .store(old);
+            user_check.writable_value(old_act).await?.store(old);
         }
         Ok(0)
     }
@@ -195,9 +186,7 @@ impl Syscall<'_> {
         }
         let user_check = UserCheck::new(self.process);
         if let Some(oldset) = oldset.nonnull_mut() {
-            let v = user_check
-                .translated_user_writable_slice(oldset, s_size)
-                .await?;
+            let v = user_check.writable_slice(oldset, s_size).await?;
             sig_mask.write_to(&mut *v.access_mut());
         }
         if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
@@ -206,9 +195,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_SIGNAL {
             println!("new: {:#x?}", sig_mask);
         }
-        let newset = user_check
-            .translated_user_readonly_slice(newset, s_size)
-            .await?;
+        let newset = user_check.readonly_slice(newset, s_size).await?;
         let newset = SignalSet::from_bytes(&*newset.access());
         match how {
             SIG_BLOCK => sig_mask.insert(&newset),

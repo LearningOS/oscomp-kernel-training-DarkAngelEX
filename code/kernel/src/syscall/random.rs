@@ -38,7 +38,7 @@ impl Syscall<'_> {
         let (buf, len, flags): (UserWritePtr<u8>, usize, u32) = self.cx.into();
         let _flags = unsafe { GRND::from_bits_unchecked(flags) };
         let buffer = UserCheck::new(self.process)
-            .translated_user_writable_slice(buf, len)
+            .writable_slice(buf, len)
             .await?;
         let mut seed = fetch_random_state();
         for s in buffer.access_mut().chunks_mut(u64::BITS as usize) {

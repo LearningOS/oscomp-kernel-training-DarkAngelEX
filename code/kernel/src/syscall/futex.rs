@@ -1,7 +1,7 @@
 use ftl_util::error::SysError;
 
 use crate::{
-    futex::RobustListHead,
+    futex::{RobustListHead, FUTEX_BITSET_MATCH_ANY},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::{search, Tid},
     timer::TimeSpec,
@@ -25,8 +25,11 @@ const FUTEX_WAIT_BITSET: u32 = 9;
 const FUTEX_WAKE_BITSET: u32 = 10;
 
 impl Syscall<'_> {
-    pub async fn futex(&mut self) -> SysResult {
-        let (uaddr, futex_op, val, time_out, uaddr2, val3): (
+    ///
+    /// FUTEX_WAKE_OP 需要使用 CAS, 其他操作只需要读取值
+    ///
+    pub async fn sys_futex(&mut self) -> SysResult {
+        let (uaddr, futex_op, val, timeout, uaddr2, val3): (
             UserInOutPtr<u32>,
             u32,
             u32,
@@ -34,19 +37,98 @@ impl Syscall<'_> {
             UserInOutPtr<u32>,
             u32,
         ) = self.cx.into();
+        let val2 = timeout.as_usize() as u32;
         match futex_op & 0xf {
-            FUTEX_WAIT => todo!(),
-            FUTEX_WAKE => todo!(),
-            FUTEX_FD => todo!(),
-            FUTEX_REQUEUE => todo!(),
-            FUTEX_CMP_REQUEUE => todo!(),
-            FUTEX_WAKE_OP => todo!(),
-            FUTEX_WAIT_BITSET => todo!(),
-            FUTEX_WAKE_BITSET => todo!(),
+            FUTEX_WAIT => {
+                self.futex_wait_bitset_impl(futex_op, uaddr, val, timeout, FUTEX_BITSET_MATCH_ANY)
+                    .await
+            }
+            FUTEX_WAKE => {
+                self.futex_wake_bitset_impl(futex_op, uaddr, val, FUTEX_BITSET_MATCH_ANY)
+                    .await
+            }
+            FUTEX_FD => {
+                println!("futex FUTEX_FD has removed");
+                Err(SysError::EINVAL)
+            }
+            FUTEX_REQUEUE => {
+                self.futex_cmp_requeue_impl(futex_op, uaddr, uaddr2, Some(val3), val, val2)
+                    .await
+            }
+            FUTEX_CMP_REQUEUE => {
+                self.futex_cmp_requeue_impl(futex_op, uaddr, uaddr2, Some(val3), val, val2)
+                    .await
+            }
+            FUTEX_WAKE_OP => {
+                self.futex_wake_op_impl(futex_op, uaddr, uaddr2, val, val2, val3)
+                    .await
+            }
+            FUTEX_WAIT_BITSET => {
+                self.futex_wait_bitset_impl(futex_op, uaddr, val, timeout, val3)
+                    .await
+            }
+            FUTEX_WAKE_BITSET => {
+                self.futex_wake_bitset_impl(futex_op, uaddr, val, val3)
+                    .await
+            }
             _ => panic!(),
         }
     }
-    pub async fn set_robust_list(&mut self) -> SysResult {
+    /// 如果uaddr中的值和val相同则睡眠并等待FUTEX_WAKE按mask唤醒, 如果不同则操作失败并返回EAGAIN。
+    ///
+    /// mask 不能为 0
+    async fn futex_wait_bitset_impl(
+        &mut self,
+        _futex_op: u32,
+        _uaddr: UserInOutPtr<u32>,
+        _val: u32,
+        _timeout: UserReadPtr<TimeSpec>,
+        _mask: u32,
+    ) -> SysResult {
+        todo!()
+    }
+    /// 按mask唤醒uaddr的futex上至多val个线程, 返回被唤醒的线程的数量
+    async fn futex_wake_bitset_impl(
+        &mut self,
+        _futex_op: u32,
+        _uaddr: UserInOutPtr<u32>,
+        _max: u32,
+        _mask: u32,
+    ) -> SysResult {
+        todo!()
+    }
+    /// 如果 uaddr 指向的值不为 should 则操作失败.
+    ///
+    /// 如果成功则唤醒uaddr上至多max_wake个线程, 剩下的转移至多max_requeue到max_requeue上
+    ///
+    /// 返回被唤醒的线程数量
+    async fn futex_cmp_requeue_impl(
+        &mut self,
+        _futex_op: u32,
+        _uaddr: UserInOutPtr<u32>,
+        _uaddr2: UserInOutPtr<u32>,
+        _should: Option<u32>,
+        _max_wake: u32,
+        _max_requeue: u32,
+    ) -> SysResult {
+        todo!()
+    }
+    /// 使用CAS操作保存uaddr2上的值并按val3规定修改，唤醒uaddr上futex的至多val个线程，
+    /// 根据uaddr2上先前值的结果唤醒uaddr2的futex上至多val2个线程。
+    ///
+    /// 返回被唤醒的线程的数量
+    async fn futex_wake_op_impl(
+        &mut self,
+        _futex_op: u32,
+        _uaddr: UserInOutPtr<u32>,
+        _uaddr2: UserInOutPtr<u32>,
+        _max1: u32,
+        _max2: u32,
+        _op: u32,
+    ) -> SysResult {
+        todo!()
+    }
+    pub async fn sys_set_robust_list(&mut self) -> SysResult {
         stack_trace!();
         let (head, len): (UserInOutPtr<RobustListHead>, usize) = self.cx.into();
         if PRINT_SYSCALL_FUTEX {
@@ -63,7 +145,7 @@ impl Syscall<'_> {
         self.thread.inner().robust_list = head;
         Ok(0)
     }
-    pub async fn get_robust_list(&mut self) -> SysResult {
+    pub async fn sys_get_robust_list(&mut self) -> SysResult {
         stack_trace!();
         let (tid, head_ptr, len_ptr): (
             Tid,
@@ -89,12 +171,10 @@ impl Syscall<'_> {
         };
         let uc = UserCheck::new(self.process);
         if !head_ptr.is_null() {
-            uc.translated_user_writable_value(head_ptr)
-                .await?
-                .store(head);
+            uc.writable_value(head_ptr).await?.store(head);
         }
         if !len_ptr.is_null() {
-            uc.translated_user_writable_value(len_ptr)
+            uc.writable_value(len_ptr)
                 .await?
                 .store(core::mem::size_of::<RobustListHead>());
         }

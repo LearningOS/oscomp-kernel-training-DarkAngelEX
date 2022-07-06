@@ -20,14 +20,10 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_mount");
         }
-        let _src = UserCheck::new(self.process)
-            .translated_user_array_zero_end(src)
-            .await?;
-        let _dst = UserCheck::new(self.process)
-            .translated_user_array_zero_end(dst)
-            .await?;
+        let _src = UserCheck::new(self.process).array_zero_end(src).await?;
+        let _dst = UserCheck::new(self.process).array_zero_end(dst).await?;
         let _mount_type = UserCheck::new(self.process)
-            .translated_user_array_zero_end(mount_type)
+            .array_zero_end(mount_type)
             .await?;
         if false {
             println!("sys_mount unimplement");
@@ -37,9 +33,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_umount2(&mut self) -> SysResult {
         let (target, _flags): (UserReadPtr<u8>, u32) = self.cx.into();
-        let _target = UserCheck::new(self.process)
-            .translated_user_array_zero_end(target)
-            .await?;
+        let _target = UserCheck::new(self.process).array_zero_end(target).await?;
         Ok(0)
     }
 }

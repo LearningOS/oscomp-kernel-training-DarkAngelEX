@@ -45,13 +45,16 @@ pub struct AccessType {
     pub user: bool,
 }
 impl AccessType {
-    pub fn write() -> Self {
-        Self {
-            write: true,
-            exec: false,
-            user: true,
-        }
-    }
+    pub const RO: Self = Self {
+        write: false,
+        exec: false,
+        user: true,
+    };
+    pub const RW: Self = Self {
+        write: true,
+        exec: false,
+        user: true,
+    };
     pub fn from_exception(e: Exception) -> Result<Self, ()> {
         match e {
             Exception::LoadPageFault => Ok(Self {
@@ -205,7 +208,8 @@ impl UserSpace {
         // 绕过 stack 借用检查
         let h = DelayHandler::box_new(PTEFlags::R | PTEFlags::W | PTEFlags::U);
         self.map_segment.force_push(self.stacks.max_area(), h)?;
-        self.map_segment.force_map(self.stacks.init_area(stack_reverse))?;
+        self.map_segment
+            .force_map(self.stacks.init_area(stack_reverse))?;
         Ok(self.stacks.init_sp())
     }
     pub fn get_brk(&self) -> UserAddr<u8> {
