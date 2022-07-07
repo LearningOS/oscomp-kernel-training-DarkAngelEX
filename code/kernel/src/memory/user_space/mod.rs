@@ -10,8 +10,7 @@ use riscv::register::scause::Exception;
 
 use crate::{
     config::{
-        PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, 
-        USER_STACK_RESERVE,
+        PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE,
     },
     fs::{Mode, OpenFlags},
     local,
@@ -266,6 +265,7 @@ impl UserSpace {
         elf_data: &[u8],
         stack_reverse: PageCount,
     ) -> Result<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
+        const PRINT_THIS: bool = false;
         stack_trace!();
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
@@ -302,7 +302,7 @@ impl UserSpace {
                 if ph_flags.is_execute() {
                     perm |= PTEFlags::X;
                 }
-                if true {
+                if PRINT_THIS {
                     println!(
                         "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
                         i,
@@ -327,7 +327,7 @@ impl UserSpace {
         }
         stack_trace!();
         let entry_point = elf_header.pt2.entry_point() as usize;
-        if false {
+        if PRINT_THIS {
             println!("\tentry_point: {:#x}", entry_point);
         }
         let mut auxv = AuxHeader::generate(
@@ -404,6 +404,7 @@ impl UserSpace {
     }
 
     pub async fn load_linker(&mut self, elf_data: &[u8]) -> Result<Option<UserAddr<u8>>, SysError> {
+        const PRINT_THIS: bool = false;
         let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
         let s = match elf.find_section_by_name(".interp") {
             Some(s) => s,
@@ -411,9 +412,10 @@ impl UserSpace {
         };
 
         let s = s.raw_data(&elf).to_vec();
-        println!("interp: {:?}", s);
         let mut s = String::from_utf8(s).unwrap();
-        println!("interp: {:?}", s);
+        if PRINT_THIS {
+            println!("load_linker interp: {:?}", s);
+        }
         if s == "/lib/ld-musl-riscv64-sf.so.1\0" {
             s = "/libc.so".to_string();
         }
@@ -451,7 +453,7 @@ impl UserSpace {
                 if ph_flags.is_execute() {
                     perm |= PTEFlags::X;
                 }
-                if true {
+                if PRINT_THIS {
                     println!(
                         "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
                         i,

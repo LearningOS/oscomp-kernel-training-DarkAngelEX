@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 use alloc::vec::Vec;
 
-use crate::config::{PAGE_SIZE, USER_KRW_RANDOM_BEGIN, USER_DYN_BEGIN};
+use crate::config::{PAGE_SIZE, USER_KRW_RANDOM_BEGIN};
 
 // Execution of programs
 pub const AT_NULL: usize = 0; /* end of vector */

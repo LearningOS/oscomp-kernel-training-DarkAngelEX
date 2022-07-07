@@ -58,13 +58,14 @@ impl MapSegment {
         self.handlers.find_free_range(range, n)
     }
     /// 检查区间是否是空闲的 如果 start >= end 将返回 Err(())
-    pub fn free_range_check(&self, range: URange) -> Result<(), ()> {
-        self.handlers.free_range_check(range)
+    pub fn range_is_free(&self, range: URange) -> Result<(), ()> {
+        self.handlers.range_is_free(range)
     }
     /// 范围必须不存在映射 否则 panic
     ///
     /// 返回初始化结果 失败则撤销映射
     pub fn force_push(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
+        debug_assert!(r.start < r.end);
         let pt = pt!(self);
         let h = self.handlers.try_push(r.clone(), h).ok().unwrap();
         let id = self.id_allocator.alloc();
@@ -87,6 +88,7 @@ impl MapSegment {
                 pte.reset();
             };
             let unique_release = |addr| h.unmap_ua(pt!(), addr);
+            // 释放共享页
             sc_manager.remove_release(r.clone(), shared_release, unique_release);
             // 共享页管理器只包括共享页，因此还要释放本进程分配的页面
             h.unmap(pt!(), r);
@@ -94,6 +96,7 @@ impl MapSegment {
     }
     /// 释放存在映射的空间
     pub fn unmap(&mut self, r: URange) {
+        debug_assert!(r.start < r.end);
         let sc_manager = &mut self.sc_manager; // stupid borrow checker
         let release = Self::release_impl(pt!(self), sc_manager);
         self.handlers.remove(r, release);
@@ -105,12 +108,14 @@ impl MapSegment {
         assert!(sc_manager.is_empty());
     }
     pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
+        debug_assert!(r.start < r.end);
         self.unmap(r.clone());
         self.force_push(r, h)
     }
     /// 如果进入 async 状态将 panic
     pub fn force_map(&self, r: URange) -> Result<(), SysError> {
         stack_trace!();
+        debug_assert!(r.start < r.end);
         let pt = pt!(self);
         let h = self.handlers.range_contain(r.clone()).unwrap();
         h.map(pt, r).map_err(|e| match e {
@@ -127,6 +132,7 @@ impl MapSegment {
         mut data: impl FrameDataIter,
     ) -> Result<(), SysError> {
         stack_trace!();
+        debug_assert!(r.start < r.end);
         let pt = pt!(self);
         self.force_map(r.clone())?;
         for addr in tools::range::ur_iter(r) {
@@ -195,6 +201,7 @@ impl MapSegment {
     /// COW 共享页: 不修改页表 只修改段标志位
     pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> Result<(), SysError> {
         stack_trace!();
+        debug_assert!(r.start < r.end);
         // 1. 检查区间与max标志位
         // 2. 边缘切割
         // 3. 修改段内标志位

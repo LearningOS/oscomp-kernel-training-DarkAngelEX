@@ -22,18 +22,17 @@ impl Syscall<'_> {
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =
             self.cx.into();
         const PRINT_THIS: bool = false;
+        let len = len.max(PAGE_SIZE);
+        // TODO: other flags
+        let prot = MmapProt::from_bits(prot).unwrap();
+        let flags = MmapFlags::from_bits(flags).unwrap();
         if PRINT_SYSCALL_MMAP || PRINT_THIS {
             let addr = addr.as_usize();
             println!(
-                "sys_mmap addr:{:#x} len:{} prot:{:#x} flags:{:#x} fd:{:?} offset:{} sepc:{:#x}",
+                "sys_mmap addr:{:#x} len:{} prot:{:?} flags:{:?} fd:{:?} offset:{} sepc:{:#x}",
                 addr, len, prot, flags, fd, offset, self.cx.user_sepc
             );
         }
-        let len = len.max(PAGE_SIZE);
-
-        // TODO: other flags
-        let prot = MmapProt::from_bits_truncate(prot);
-        let flags = MmapFlags::from_bits(flags).unwrap();
         let page_count = PageCount::page_ceil(len);
         let shared = match (
             flags.contains(MmapFlags::PRIVATE),
@@ -63,7 +62,7 @@ impl Syscall<'_> {
                     .map_err(|_| SysError::EFAULT)?;
                 if !flags.contains(MmapFlags::FIXED) {
                     manager
-                        .free_range_check(start..end)
+                        .range_is_free(start..end)
                         .map_err(|_| SysError::EFAULT)?;
                 }
                 start..end

@@ -39,7 +39,7 @@ impl Syscall<'_> {
             UserInOutPtr<u8>,
             UserInOutPtr<u32>,
         ) = self.cx.into();
-        const PRINT_THIS: bool = true;
+        const PRINT_THIS: bool = false;
         if PRINT_SYSCALL_PROCESS || PRINT_THIS {
             println!(
                 "sys_clone by {:?} sig: {} flag: {:?}\n\tsp: {:#x} ptid: {:#x} tls: {:#x} ctid: {:#x}",
@@ -149,10 +149,14 @@ impl Syscall<'_> {
         let (mut user_space, user_sp, mut entry_point, mut auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
                 .map_err(|_e| SysError::ENOEXEC)?;
-        println!("entry 0: {:#x}", entry_point.into_usize());
+        if PRINT_SYSCALL_PROCESS {
+            println!("entry 0: {:#x}", entry_point.into_usize());
+        }
         if let Some(dyn_entry_point) = user_space.load_linker(&elf_data).await.unwrap() {
             entry_point = dyn_entry_point;
-            println!("entry link: {:#x}", entry_point.into_usize());
+            if PRINT_SYSCALL_PROCESS {
+                println!("entry link: {:#x}", entry_point.into_usize());
+            }
             auxv.push(AuxHeader {
                 aux_type: AT_BASE,
                 value: USER_DYN_BEGIN,

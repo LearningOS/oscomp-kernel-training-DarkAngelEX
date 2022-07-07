@@ -51,7 +51,7 @@ impl Syscall<'_> {
         mode: Mode,
     ) -> Result<Arc<dyn VfsInode>, SysError> {
         let (base, path) = self.fd_path_impl(fd, path).await?;
-        if PRINT_SYSCALL_FS || true {
+        if PRINT_SYSCALL_FS {
             println!("fd_path_open path: {}", path);
         }
         fs::open_file(path::file_path_iter(&base), path.as_str(), flags, mode).await
@@ -329,7 +329,7 @@ impl Syscall<'_> {
     pub async fn sys_openat(&mut self) -> SysResult {
         stack_trace!();
         let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
-        if PRINT_SYSCALL_FS || true {
+        if PRINT_SYSCALL_FS {
             println!(
                 "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#o}",
                 fd,

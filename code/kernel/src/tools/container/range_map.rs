@@ -20,9 +20,9 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
     }
     pub fn try_insert(&mut self, Range { start, end }: Range<U>, value: V) -> Result<&mut V, V> {
         stack_trace!();
-        assert!(start < end);
-        if let Some((_, Node { end, .. })) = self.0.range(..end).next_back() {
-            if *end > start {
+        debug_assert!(start < end);
+        if let Some((_xstart, Node { end: xend, .. })) = self.0.range(..end).next_back() {
+            if *xend > start {
                 return Err(value);
             }
         }
@@ -83,8 +83,12 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         debug_assert!(offset(start, n) <= end);
         Some(start..offset(start, n))
     }
-    /// if is free, return Ok(())
-    pub fn free_range_check(&self, Range { start, end }: Range<U>) -> Result<(), ()> {
+    /// Check whether range is free
+    ///
+    /// if range is free, return Ok(())
+    ///
+    /// if start >= end, return Err(())
+    pub fn range_is_free(&self, Range { start, end }: Range<U>) -> Result<(), ()> {
         if start >= end {
             return Err(());
         }
@@ -137,41 +141,45 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         //  aaaaaaa  aaaaa
         //    bbb       bbbb
         //  aa---aa  aaa--
+        //  ^^       ^^^
+        // The left side will stay
         if let Some((&n_start, node)) = self.0.range_mut(..start).next_back() {
-            if start < node.end {
-                let mut v_m = split_r(&mut node.value, start, n_start..node.end);
-                if end < node.end {
-                    let v_r = split_r(&mut v_m, end, start..node.end);
+            let n_end = node.end;
+            if start < n_end {
+                node.end = start;
+                let mut v_m = split_r(&mut node.value, start, n_start..n_end);
+                if end < n_end {
+                    let v_r = split_r(&mut v_m, end, start..n_end);
                     release(v_m, start..end);
                     let value = Node {
-                        end: node.end,
+                        end: n_end,
                         value: v_r,
                     };
                     self.0.try_insert(end, value).ok().unwrap();
                 } else {
-                    release(v_m, start..node.end);
+                    release(v_m, start..n_end);
                 }
             }
         }
         //    aaaaaa
         //  bbbbb
         //    ---aaa
+        //       ^^^
+        // The right side will stay
         if let Some((&n_start, node)) = self.0.range_mut(..end).next_back() {
             if end < node.end {
-                release(
-                    split_l(&mut node.value, end, n_start..node.end),
-                    n_start..end,
-                );
+                let cut = split_l(&mut node.value, end, n_start..node.end);
+                release(cut, n_start..end);
                 let node = self.0.remove(&n_start).unwrap();
                 self.0.try_insert(end, node).ok().unwrap();
             }
         }
-        //    aaa
-        //  bbbbbbb
-        //    ---
-        while let Some((&n_start, node)) = self.0.range(start..end).next() {
-            let n_end = node.end;
-            release(self.0.remove(&n_start).unwrap().value, n_start..n_end);
+        //   aa aa aaa
+        //  bbbbbbbbbbb
+        //   -- -- ---
+        while let Some((&n_start, _node)) = self.0.range(start..end).next() {
+            let Node { end, value } = self.0.remove(&n_start).unwrap();
+            release(value, n_start..end);
         }
     }
     pub fn replace(
