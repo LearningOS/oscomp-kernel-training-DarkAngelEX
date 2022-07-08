@@ -21,6 +21,9 @@ use crate::{
     },
 };
 
+use self::base::HandlerBase;
+
+pub mod base;
 pub mod delay;
 pub mod manager;
 pub mod map_all;
@@ -58,6 +61,8 @@ pub trait UserAreaHandler: Send + 'static {
     fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
     }
+    fn base(&self) -> &HandlerBase;
+    fn base_mut(&mut self) -> &mut HandlerBase;
     /// 新加入管理器时将调用此函数 保证范围内无映射 此函数是唯一标记 &mut 的函数
     ///
     /// 必须设置正确的id
@@ -110,18 +115,20 @@ pub trait UserAreaHandler: Send + 'static {
     ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
     fn split_l(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
-        self.box_clone()
+        self.box_clone_spec()
     }
     /// 以 addr 为界切除 all 右侧, 即返回 addr..all.end, 自身变为 all.start..addr
     ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
     fn split_r(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
-        self.box_clone()
+        self.box_clone_spec()
     }
-    /// 复制
+    /// 只在fork中使用
     fn box_clone(&self) -> Box<dyn UserAreaHandler>;
+    /// 只复制base数据
+    fn box_clone_spec(&self) -> Box<dyn UserAreaHandler>;
     /// 进行映射, 跳过已经分配空间的区域
-    /// 
+    ///
     /// 默认实现不返回 TryRunFail
     fn default_map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
@@ -218,6 +225,7 @@ pub struct FileAsyncHandler {
     offset: usize,
     file: Arc<dyn File>,
 }
+
 impl FileAsyncHandler {
     pub fn new(
         id: HandlerID,

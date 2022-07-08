@@ -12,37 +12,57 @@ use crate::{
     },
 };
 
-use super::{AsyncHandler, HandlerID, UserAreaHandler};
+use super::{base::HandlerBase, AsyncHandler, HandlerID, UserAreaHandler};
 
+#[derive(Clone)]
+pub struct MapAllHandlerSpec {
+    id: HandlerID,
+    perm: PTEFlags,
+}
 /// init 调用时一次性将范围内的空间全部分配
 #[derive(Clone)]
 pub struct MapAllHandler {
-    id: HandlerID,
-    perm: PTEFlags,
+    spec: MapAllHandlerSpec,
+    base: HandlerBase,
 }
 
 impl MapAllHandler {
     pub fn raw_new(perm: PTEFlags) -> Self {
         Self {
-            id: HandlerID::invalid(),
-            perm,
+            spec: MapAllHandlerSpec {
+                id: HandlerID::invalid(),
+                perm,
+            },
+            base: HandlerBase::new(),
         }
     }
     pub fn box_new(perm: PTEFlags) -> Box<dyn UserAreaHandler> {
         Box::new(Self::raw_new(perm))
     }
     pub fn set_id(&mut self, id: HandlerID) {
-        self.id = id;
+        self.spec.id = id;
+    }
+    pub fn box_clone_spec(&self) -> Self {
+        Self {
+            spec: self.spec.clone(),
+            base: HandlerBase::new(),
+        }
     }
 }
 
 impl UserAreaHandler for MapAllHandler {
     fn id(&self) -> HandlerID {
-        debug_assert_ne!(self.id, HandlerID::invalid());
-        self.id
+        debug_assert_ne!(self.spec.id, HandlerID::invalid());
+        self.spec.id
     }
     fn perm(&self) -> PTEFlags {
-        self.perm
+        self.spec.perm
+    }
+    fn base(&self) -> &HandlerBase {
+        &self.base
+    }
+    fn base_mut(&mut self) -> &mut HandlerBase {
+        &mut self.base
     }
     fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError> {
         stack_trace!();
@@ -53,7 +73,7 @@ impl UserAreaHandler for MapAllHandler {
         })
     }
     fn modify_perm(&mut self, perm: PTEFlags) {
-        self.perm = perm;
+        self.spec.perm = perm;
     }
     fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         self.default_map(pt, range)
@@ -86,5 +106,8 @@ impl UserAreaHandler for MapAllHandler {
     }
     fn box_clone(&self) -> Box<dyn UserAreaHandler> {
         Box::new(self.clone())
+    }
+    fn box_clone_spec(&self) -> Box<dyn UserAreaHandler> {
+        Box::new(self.box_clone_spec())
     }
 }

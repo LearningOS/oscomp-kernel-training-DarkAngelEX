@@ -31,7 +31,7 @@ pub const CLOSE_TIME_INTERRUPT: bool = false;
 
 pub const NO_SYSCALL_PANIC: bool = false;
 
-pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样
+pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样, 不使用基于时钟的随机
 
 #[macro_use]
 pub mod trace;

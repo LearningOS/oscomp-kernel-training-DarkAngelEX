@@ -50,6 +50,7 @@ impl RcuDrop {
 
 /// Rcu类型宽度不能超过usize, align必须和size一致
 pub trait RcuCollect: Sized + 'static {
+    #[inline(always)]
     fn rcu_assert() {
         use core::mem::{align_of, size_of};
         assert_eq!(size_of::<Self>(), align_of::<Self>());

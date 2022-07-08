@@ -8,7 +8,7 @@ use crate::{
     tools::{range::URange, xasync::TryR, DynDropRun},
 };
 
-use super::{map_all::MapAllHandler, AsyncHandler, HandlerID, UserAreaHandler};
+use super::{base::HandlerBase, map_all::MapAllHandler, AsyncHandler, HandlerID, UserAreaHandler};
 
 /// 和 UniqueHandler 的唯一区别是 init_map 只映射参数区域
 ///
@@ -32,6 +32,12 @@ impl UserAreaHandler for DelayHandler {
     }
     fn perm(&self) -> PTEFlags {
         self.inner.perm()
+    }
+    fn base(&self) -> &HandlerBase {
+        self.inner.base()
+    }
+    fn base_mut(&mut self) -> &mut HandlerBase {
+        self.inner.base_mut()
     }
     /// 唯一的区别是放弃初始化
     fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> Result<(), SysError> {
@@ -71,5 +77,8 @@ impl UserAreaHandler for DelayHandler {
     }
     fn box_clone(&self) -> Box<dyn UserAreaHandler> {
         Box::new(self.clone())
+    }
+    fn box_clone_spec(&self) -> Box<dyn UserAreaHandler> {
+        Box::new(self.inner.box_clone_spec())
     }
 }
