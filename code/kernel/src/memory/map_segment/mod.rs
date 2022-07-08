@@ -270,7 +270,7 @@ impl MapSegment {
                                 break;
                             }
                         };
-                        debug_assert!(!dst.is_valid());
+                        debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
                         let sc = if !src.shared() {
                             src.become_shared(shared_writable);
                             self.sc_manager.insert_clone(addr)

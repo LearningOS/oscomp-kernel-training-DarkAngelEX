@@ -119,6 +119,9 @@ impl Syscall<'_> {
         let user_check = UserCheck::new(self.process);
         let path = String::from_utf8(user_check.array_zero_end(path).await?.to_vec())?;
         stack_trace!("sys_execve path: {}", path);
+        if PRINT_SYSCALL_PROCESS {
+            println!("execve path {:?}", path);
+        }
         let args: Vec<String> = user_check
             .array_2d_zero_end(args)
             .await?
@@ -218,7 +221,6 @@ impl Syscall<'_> {
             p => WaitFor::PGid(p as usize),
         };
         loop {
-            // this brace is for xlock which drop before .await but stupid rust can't see it.
             let this_pid = self.process.pid();
             let process = {
                 let mut alive = self.alive_lock()?;
@@ -229,7 +231,9 @@ impl Syscall<'_> {
                     WaitFor::AnyChildInGroup => unimplemented!(),
                 };
                 if p.is_none() && alive.children.is_empty() {
-                    println!("[FTL OS]wait4 fail: no child");
+                    if PRINT_SYSCALL_PROCESS {
+                        println!("[FTL OS]wait4 fail: no child");
+                    }
                     return Err(SysError::ECHILD);
                 }
                 p
@@ -269,7 +273,7 @@ impl Syscall<'_> {
                 self.do_exit = true;
                 return Err(SysError::ESRCH);
             }
-            // check then
+            // continue
         }
     }
     pub fn sys_set_tid_address(&mut self) -> SysResult {

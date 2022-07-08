@@ -1,4 +1,4 @@
-use alloc::{string::String, sync::Arc};
+use alloc::{string::String, sync::Arc, vec::Vec};
 
 use crate::{
     fs::{self, pipe, File, Iovec, Mode, OpenFlags, Pollfd, Seek, VfsInode},
@@ -228,6 +228,7 @@ impl Syscall<'_> {
         ret
     }
     pub async fn sys_writev(&mut self) -> SysResult {
+        stack_trace!();
         let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
@@ -246,6 +247,7 @@ impl Syscall<'_> {
     }
     /// 未实现功能
     pub async fn sys_ppoll(&mut self) -> SysResult {
+        stack_trace!();
         let (fds, nfds, timeout, sigmask, s_size): (
             UserInOutPtr<Pollfd>,
             usize,
@@ -254,7 +256,11 @@ impl Syscall<'_> {
             usize,
         ) = self.cx.into();
         let uc = UserCheck::new(self.process);
-        let _fds = uc.writable_slice(fds, nfds).await?;
+        let fds = uc.writable_slice(fds, nfds).await?;
+        if PRINT_SYSCALL_FS {
+            let fds: Vec<_> = fds.access().iter().map(|a| a.fd).collect();
+            println!("sys_ppoll fds: {:?} ..", fds);
+        }
         let _timeout = match timeout.nonnull() {
             Some(timeout) => Some(uc.readonly_value(timeout).await?.load()),
             None => None,
@@ -265,7 +271,7 @@ impl Syscall<'_> {
         } else {
             SignalSet::EMPTY
         };
-        Ok(0)
+        Ok(nfds)
     }
     pub async fn sys_readlinkat(&mut self) -> SysResult {
         stack_trace!();
