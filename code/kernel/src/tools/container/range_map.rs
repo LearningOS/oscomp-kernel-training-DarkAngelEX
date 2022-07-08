@@ -110,6 +110,14 @@ impl<U: Ord + Copy, V> RangeMap<U, V> {
         }
         None
     }
+    /// range 处于返回值对应的 range 内
+    pub fn range_contain_mut(&mut self, range: Range<U>) -> Option<&mut V> {
+        let (_, Node { end, value }) = self.0.range_mut(..=range.start).next_back()?;
+        if *end >= range.end {
+            return Some(value);
+        }
+        None
+    }
     /// range 完全匹配返回值所在范围
     pub fn range_match(&self, range: Range<U>) -> Option<&V> {
         let (start, Node { end, value }) = self.0.range(..=range.start).next_back()?;

@@ -88,13 +88,13 @@ impl UserAreaHandler for MmapHandler {
     fn modify_perm(&mut self, perm: PTEFlags) {
         self.spec.perm = perm;
     }
-    fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+    fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
         if range.start >= range.end {
             return Ok(());
         }
         let file = match self.spec.file.as_ref() {
-            None => return self.default_map(pt, range),
+            None => return self.default_map_spec(pt, range),
             Some(file) => file.clone(),
         };
         return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
@@ -105,15 +105,15 @@ impl UserAreaHandler for MmapHandler {
             file,
         ))));
     }
-    fn copy_map(
+    fn copy_map_spec(
         &self,
         src: &mut PageTable,
         dst: &mut PageTable,
         r: URange,
     ) -> Result<(), SysError> {
-        self.default_copy_map(src, dst, r)
+        self.default_copy_map_spec(src, dst, r)
     }
-    fn page_fault(
+    fn page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
@@ -123,7 +123,7 @@ impl UserAreaHandler for MmapHandler {
             .check(self.perm())
             .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;
         let file = match self.spec.file.as_ref() {
-            None => return self.default_page_fault(pt, addr, access),
+            None => return self.default_page_fault_spec(pt, addr, access),
             Some(file) => file.clone(),
         };
         return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
@@ -134,11 +134,11 @@ impl UserAreaHandler for MmapHandler {
             file,
         ))));
     }
-    fn unmap(&self, pt: &mut PageTable, range: URange) {
-        self.default_unmap(pt, range)
+    fn unmap_spec(&self, pt: &mut PageTable, range: URange) {
+        self.default_unmap_spec(pt, range)
     }
-    fn unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K) {
-        self.default_unmap_ua(pt, addr)
+    fn unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K) {
+        self.default_unmap_ua_spec(pt, addr)
     }
     fn box_clone(&self) -> Box<dyn UserAreaHandler> {
         Box::new(self.clone())

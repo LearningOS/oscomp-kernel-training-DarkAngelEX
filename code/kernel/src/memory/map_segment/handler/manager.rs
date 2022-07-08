@@ -97,6 +97,10 @@ impl HandlerManager {
         stack_trace!();
         self.map.range_contain(range).map(|a| a.as_ref())
     }
+    pub fn range_contain_mut(&mut self, range: URange) -> Option<&mut dyn UserAreaHandler> {
+        stack_trace!();
+        self.map.range_contain_mut(range).map(|a| a.as_mut())
+    }
     pub fn range_match(&self, range: URange) -> Option<&dyn UserAreaHandler> {
         self.map.range_match(range).map(|a| a.as_ref())
     }

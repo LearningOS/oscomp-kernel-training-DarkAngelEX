@@ -75,7 +75,7 @@ impl MapSegment {
         pt: &'a mut PageTable,
         sc_manager: &'a mut SCManager,
     ) -> impl FnMut(Box<dyn UserAreaHandler>, URange) + 'a {
-        move |h: Box<dyn UserAreaHandler>, r: URange| {
+        move |mut h: Box<dyn UserAreaHandler>, r: URange| {
             let pt = pt as *mut PageTable;
             macro_rules! pt {
                 () => {
@@ -113,11 +113,11 @@ impl MapSegment {
         self.force_push(r, h)
     }
     /// 如果进入 async 状态将 panic
-    pub fn force_map(&self, r: URange) -> Result<(), SysError> {
+    pub fn force_map(&mut self, r: URange) -> Result<(), SysError> {
         stack_trace!();
         debug_assert!(r.start < r.end);
         let pt = pt!(self);
-        let h = self.handlers.range_contain(r.clone()).unwrap();
+        let h = self.handlers.range_contain_mut(r.clone()).unwrap();
         h.map(pt, r).map_err(|e| match e {
             TryRunFail::Async(_a) => panic!(),
             TryRunFail::Error(e) => e,
@@ -127,14 +127,14 @@ impl MapSegment {
     ///
     /// TODO: 使用 copy_map获取只读共享页所有权
     pub fn force_write_range(
-        &self,
+        &mut self,
         r: URange,
         mut data: impl FrameDataIter,
     ) -> Result<(), SysError> {
         stack_trace!();
         debug_assert!(r.start < r.end);
-        let pt = pt!(self);
         self.force_map(r.clone())?;
+        let pt = pt!(self);
         for addr in tools::range::ur_iter(r) {
             pt.force_convert_user(addr, |pte| {
                 assert!(!pte.shared() || pte.writable());
@@ -151,7 +151,7 @@ impl MapSegment {
         debug_assert!(access.user);
         let h = self
             .handlers
-            .get(addr)
+            .get_mut(addr)
             .ok_or(TryRunFail::Error(SysError::EFAULT))?;
 
         let pt = pt!(self);
@@ -257,7 +257,7 @@ impl MapSegment {
         // flush 析构时将刷表
         let flush = src.flush_asid_fn();
         let mut err_1 = Ok(());
-        for (r, h) in self.handlers.iter() {
+        for (r, h) in self.handlers.iter_mut() {
             match h.may_shared() {
                 Some(shared_writable) => {
                     let mut err_2 = Ok(());
@@ -322,7 +322,7 @@ impl MapSegment {
         // 错误回退
         let (rr, e) = err_1.unwrap_err();
         new_sm.check_remove_all();
-        for (r, h) in self.handlers.iter() {
+        for (r, h) in self.handlers.iter_mut() {
             if r == rr {
                 break;
             }

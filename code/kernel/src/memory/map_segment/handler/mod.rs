@@ -84,19 +84,42 @@ pub trait UserAreaHandler: Send + 'static {
     /// try_xx user_space获得页表所有权，进程一定是有效的
     ///
     /// 如果操作失败且返回Async则改为调用 a_map.
-    fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>>;
+    fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>>;
+    fn map(&mut self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+        self.map_spec(pt, range)
+    }
     /// 从 src 复制 range 到 dst, dst 获得所有权
     ///
     /// 保证范围内无有效映射
-    fn copy_map(&self, src: &mut PageTable, dst: &mut PageTable, r: URange)
-        -> Result<(), SysError>;
+    fn copy_map_spec(
+        &self,
+        src: &mut PageTable,
+        dst: &mut PageTable,
+        r: URange,
+    ) -> Result<(), SysError>;
+    fn copy_map(
+        &mut self,
+        src: &mut PageTable,
+        dst: &mut PageTable,
+        r: URange,
+    ) -> Result<(), SysError> {
+        self.copy_map_spec(src, dst, r)
+    }
     /// 如果操作失败且返回Async则改为调用 a_page_fault.
-    fn page_fault(
+    fn page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>>;
+    fn page_fault(
+        &mut self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        access: AccessType,
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
+        self.page_fault_spec(pt, addr, access)
+    }
     /// 所有权取消映射
     ///
     /// 不保证范围内全部映射
@@ -104,24 +127,36 @@ pub trait UserAreaHandler: Send + 'static {
     /// 保证范围内不存在共享映射
     ///
     /// 调用后页表必须移除映射
-    fn unmap(&self, pt: &mut PageTable, range: URange);
+    fn unmap_spec(&self, pt: &mut PageTable, range: URange);
+    fn unmap(&mut self, pt: &mut PageTable, range: URange) {
+        self.unmap_spec(pt, range);
+    }
     /// 所有权取消映射一个页
     ///
     /// 保证此地址被映射 保证不是共享映射
     ///
     /// 调用后页表必须移除映射
-    fn unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K);
+    fn unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K);
+    fn unmap_ua(&mut self, pt: &mut PageTable, addr: UserAddr4K) {
+        self.unmap_ua_spec(pt, addr)
+    }
     /// 以 addr 为界切除 all 左侧, 即返回 all.start..addr, 自身变为 addr..all.end
     ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
-    fn split_l(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
+    fn split_l_spec(&self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
         self.box_clone_spec()
+    }
+    fn split_l(&mut self, addr: UserAddr4K, all: URange) -> Box<dyn UserAreaHandler> {
+        self.split_l_spec(addr, all)
     }
     /// 以 addr 为界切除 all 右侧, 即返回 addr..all.end, 自身变为 all.start..addr
     ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
-    fn split_r(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
+    fn split_r_spec(&self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
         self.box_clone_spec()
+    }
+    fn split_r(&mut self, addr: UserAddr4K, all: URange) -> Box<dyn UserAreaHandler> {
+        self.split_r_spec(addr, all)
     }
     /// 只在fork中使用
     fn box_clone(&self) -> Box<dyn UserAreaHandler>;
@@ -130,7 +165,11 @@ pub trait UserAreaHandler: Send + 'static {
     /// 进行映射, 跳过已经分配空间的区域
     ///
     /// 默认实现不返回 TryRunFail
-    fn default_map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+    fn default_map_spec(
+        &self,
+        pt: &mut PageTable,
+        range: URange,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
         if range.start >= range.end {
             return Ok(());
@@ -147,7 +186,7 @@ pub trait UserAreaHandler: Send + 'static {
         Ok(())
     }
     /// 利用全局内存分配器分配内存，复制src中存在的页
-    fn default_copy_map(
+    fn default_copy_map_spec(
         &self,
         src: &mut PageTable,
         dst: &mut PageTable,
@@ -170,7 +209,7 @@ pub trait UserAreaHandler: Send + 'static {
         }
         Ok(())
     }
-    fn default_page_fault(
+    fn default_page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
@@ -193,12 +232,12 @@ pub trait UserAreaHandler: Send + 'static {
         Ok(pt.flush_va_asid_fn(addr))
     }
     /// 所有权释放页表中存在映射的空间
-    fn default_unmap(&self, pt: &mut PageTable, range: URange) {
+    fn default_unmap_spec(&self, pt: &mut PageTable, range: URange) {
         stack_trace!();
         pt.unmap_user_range_lazy(self.user_area(range), &mut frame::defualt_allocator());
     }
     /// 所有权释放页表中存在映射的空间
-    fn default_unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K) {
+    fn default_unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K) {
         stack_trace!();
         let pte = pt.try_get_pte_user(addr).unwrap();
         debug_assert!(pte.is_leaf());

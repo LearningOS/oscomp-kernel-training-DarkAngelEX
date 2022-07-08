@@ -75,34 +75,34 @@ impl UserAreaHandler for MapAllHandler {
     fn modify_perm(&mut self, perm: PTEFlags) {
         self.spec.perm = perm;
     }
-    fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
-        self.default_map(pt, range)
+    fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+        self.default_map_spec(pt, range)
     }
-    fn copy_map(
+    fn copy_map_spec(
         &self,
         src: &mut PageTable,
         dst: &mut PageTable,
         r: URange,
     ) -> Result<(), SysError> {
         stack_trace!();
-        self.default_copy_map(src, dst, r)
+        self.default_copy_map_spec(src, dst, r)
     }
-    fn page_fault(
+    fn page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
-        self.default_page_fault(pt, addr, access)
+        self.default_page_fault_spec(pt, addr, access)
     }
-    fn unmap(&self, pt: &mut PageTable, range: URange) {
+    fn unmap_spec(&self, pt: &mut PageTable, range: URange) {
         stack_trace!();
-        self.default_unmap(pt, range)
+        self.default_unmap_spec(pt, range)
     }
-    fn unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K) {
+    fn unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K) {
         stack_trace!();
-        self.default_unmap_ua(pt, addr)
+        self.default_unmap_ua_spec(pt, addr)
     }
     fn box_clone(&self) -> Box<dyn UserAreaHandler> {
         Box::new(self.clone())
