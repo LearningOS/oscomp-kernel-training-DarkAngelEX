@@ -44,7 +44,6 @@ impl RawInode {
         self.cache.inner.shared_lock().attr()
     }
     pub async fn blk_num(&self, fat_list: &FatList) -> Result<usize, SysError> {
-        let cid = self.cache.inner.shared_lock().cid_start;
         let n = match self.get_list_last(fat_list).await? {
             Some((n, _)) => n + 1,
             None => 0,

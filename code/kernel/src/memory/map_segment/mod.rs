@@ -1,6 +1,7 @@
 use alloc::{boxed::Box, sync::Arc};
 
 use crate::{
+    futex::{FutexSet, OwnFutex},
     memory::{allocator::frame, asid, page_table::PageTableEntry},
     syscall::SysError,
     tools::{
@@ -20,7 +21,7 @@ use self::{
 };
 
 use super::{
-    address::{PageCount, UserAddr4K},
+    address::{PageCount, UserAddr, UserAddr4K},
     allocator::frame::iter::FrameDataIter,
     asid::Asid,
     AccessType, PTEFlags, PageTable,
@@ -41,6 +42,7 @@ pub struct MapSegment {
     pub page_table: Arc<SyncUnsafeCell<PageTable>>,
     handlers: HandlerManager,
     sc_manager: SCManager,
+    futexs: FutexSet,
     id_allocator: HandlerIDAllocator,
 }
 
@@ -50,8 +52,17 @@ impl MapSegment {
             page_table,
             handlers: HandlerManager::new(),
             sc_manager: SCManager::new(),
+            futexs: FutexSet::new(),
             id_allocator: HandlerIDAllocator::default(),
         }
+    }
+    pub fn fetch_futex(&mut self, ua: UserAddr<u32>) -> &mut OwnFutex {
+        self.futexs.fetch_create(ua, || {
+            !self.handlers.get(ua.floor()).unwrap().shared_always()
+        })
+    }
+    pub fn try_fetch_futex(&mut self, ua: UserAddr<u32>) -> Option<&mut OwnFutex> {
+        self.futexs.try_fetch(ua)
     }
     /// 查找 range 内第一个空闲的 URange
     pub fn find_free_range(&self, range: URange, n: PageCount) -> Option<URange> {
@@ -99,12 +110,14 @@ impl MapSegment {
         debug_assert!(r.start < r.end);
         let sc_manager = &mut self.sc_manager; // stupid borrow checker
         let release = Self::release_impl(pt!(self), sc_manager);
-        self.handlers.remove(r, release);
+        self.handlers.remove(r.clone(), release);
+        self.futexs.remove(r);
     }
     pub fn clear(&mut self) {
         let sc_manager = &mut self.sc_manager;
         let release = Self::release_impl(pt!(self), sc_manager);
         self.handlers.clear(release);
+        self.futexs.clear();
         assert!(sc_manager.is_empty());
     }
     pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
@@ -315,6 +328,7 @@ impl MapSegment {
                 page_table: Arc::new(SyncUnsafeCell::new(dst)),
                 handlers: self.handlers.fork(),
                 sc_manager: new_sm,
+                futexs: self.futexs.fork(),
                 id_allocator: self.id_allocator.clone(),
             };
             return Ok(new_ms);

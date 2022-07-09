@@ -1,4 +1,4 @@
-use core::convert::TryFrom;
+use core::{convert::TryFrom, sync::atomic::AtomicU32};
 
 use alloc::vec::Vec;
 
@@ -108,10 +108,8 @@ impl<'a> UserCheck<'a> {
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(SysError::EFAULT);
         }
-        let ubegin = UserAddr::try_from(ptr)?;
-        let uend = UserAddr::try_from(ptr.offset(len as isize))?;
-        let mut cur = ubegin.floor();
-        let uend4k = uend.ceil();
+        let mut cur = UserAddr::try_from(ptr)?.floor();
+        let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
         let check_impl = UserCheckImpl::new(self.process);
         while cur != uend4k {
             let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
@@ -137,10 +135,8 @@ impl<'a> UserCheck<'a> {
             );
             return Err(SysError::EFAULT);
         }
-        let ubegin = UserAddr::try_from(ptr)?;
-        let uend = UserAddr::try_from(ptr.offset(len as isize))?;
-        let mut cur = ubegin.floor();
-        let uend4k = uend.ceil();
+        let mut cur = UserAddr::try_from(ptr)?.floor();
+        let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
         let check_impl = UserCheckImpl::new(self.process);
         while cur != uend4k {
             let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
@@ -154,7 +150,7 @@ impl<'a> UserCheck<'a> {
     pub async fn atomic_u32<P: Write>(
         &self,
         ptr: UserPtr<u32, P>,
-    ) -> Result<UserDataMut<u32>, SysError> {
+    ) -> Result<UserDataMut<AtomicU32>, SysError> {
         if ptr.as_usize() % core::mem::align_of::<u32>() != 0 {
             println!(
                 "[kernel]user atomic_u32 check fail: no align. ptr: {:#x} align: {}",
@@ -167,7 +163,7 @@ impl<'a> UserCheck<'a> {
         check_impl
             .atomic_u32_check_async(UserWritePtr::from_usize(ptr.as_usize()))
             .await?;
-        let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), 1);
+        let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut().cast(), 1);
         Ok(UserDataMut::new(slice))
     }
 }

@@ -165,7 +165,7 @@ impl ThreadSignalMailbox {
                 self.std.insert(mask);
                 self.send_id += 1;
             }
-            34..SIG_N_U32 => {
+            32..SIG_N_U32 => {
                 self.realtime.push_back(sig);
                 self.send_id += 1;
             }
@@ -221,7 +221,7 @@ impl ThreadSignalManager {
                 sig @ 1..32 => self
                     .std_pending
                     .insert(StdSignalSet::from_bits_truncate(sig)),
-                34..SIG_N_U32 => self.real_pending.receive(sig),
+                32..SIG_N_U32 => self.real_pending.receive(sig),
                 _ => (),
             }
         }

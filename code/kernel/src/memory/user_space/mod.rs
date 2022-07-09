@@ -13,6 +13,7 @@ use crate::{
         PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE,
     },
     fs::{Mode, OpenFlags},
+    futex::OwnFutex,
     local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
@@ -138,7 +139,6 @@ pub struct UserSpace {
     pub map_segment: MapSegment,
     stacks: StackSpaceManager,
     heap: HeapManager,
-    // mmap_size: usize,
 }
 
 unsafe impl Send for UserSpace {}
@@ -164,6 +164,14 @@ impl UserSpace {
             stacks: StackSpaceManager::new(PageCount::page_floor(USER_STACK_RESERVE)),
             heap: HeapManager::new(),
         })
+    }
+    pub fn fetch_futex(&mut self, ua: UserAddr<u32>) -> &mut OwnFutex {
+        debug_assert!(ua.is_align());
+        self.map_segment.fetch_futex(ua)
+    }
+    pub fn try_fetch_futex(&mut self, ua: UserAddr<u32>) -> Option<&mut OwnFutex> {
+        debug_assert!(ua.is_align());
+        self.map_segment.try_fetch_futex(ua)
     }
     fn page_table(&self) -> &PageTable {
         unsafe { &*self.map_segment.page_table.get() }

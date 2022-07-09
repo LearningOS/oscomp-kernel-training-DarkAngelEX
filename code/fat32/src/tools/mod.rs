@@ -1,7 +1,5 @@
 use core::{
     cell::UnsafeCell,
-    convert::Infallible,
-    marker::PhantomData,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicUsize, Ordering},
 };

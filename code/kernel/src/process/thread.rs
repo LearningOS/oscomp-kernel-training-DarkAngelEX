@@ -16,9 +16,14 @@ use riscv::register::sstatus;
 
 use crate::{
     fs::VfsInode,
-    futex::RobustListHead,
+    futex::{Futex, FutexIndex, RobustListHead},
     hart::floating,
-    memory::{self, address::PageCount, user_ptr::UserInOutPtr, UserSpace},
+    memory::{
+        self,
+        address::{PageCount, UserAddr},
+        user_ptr::UserInOutPtr,
+        UserSpace,
+    },
     signal::{
         context::SignalContext,
         manager::{ProcSignalManager, ThreadSignalManager},
@@ -27,6 +32,7 @@ use crate::{
     syscall::SysError,
     trap::context::UKContext,
     user::check::UserCheck,
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::{
@@ -94,6 +100,9 @@ impl Thread {
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn settid(&self) {
         if let Some(ptr) = self.inner().set_child_tid.nonnull_mut() {
+            if PRINT_SYSCALL_ALL {
+                println!("settid: {:#x}", ptr.as_usize());
+            }
             if let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
                 buf.store(self.tid().0 as u32)
             }
@@ -142,6 +151,7 @@ pub struct ThreadInner {
     /// 进程退出后将向父进程发送此信号
     pub exit_signal: u32,
     pub robust_list: UserInOutPtr<RobustListHead>,
+    pub futex_index: FutexIndex,
 }
 
 impl Thread {
@@ -191,6 +201,7 @@ impl Thread {
                 tls: UserInOutPtr::null(),
                 exit_signal: 0,
                 robust_list: UserInOutPtr::null(),
+                futex_index: FutexIndex::new(),
             }),
         };
         thread.inner.get_mut().uk_context.exec_init(
@@ -252,6 +263,7 @@ impl Thread {
                 tls,
                 exit_signal,
                 robust_list: inner.robust_list,
+                futex_index: inner.futex_index.fork(),
             }),
         });
         search::insert_thread(&thread);
@@ -274,6 +286,7 @@ impl Thread {
         tls: UserInOutPtr<u8>,
         exit_signal: u32,
     ) -> Result<Arc<Self>, SysError> {
+        stack_trace!();
         debug_assert!(flag.contains(CloneFlag::CLONE_THREAD));
         debug_assert!(new_sp != 0);
         let tid = super::tid::alloc_tid_own();
@@ -291,6 +304,7 @@ impl Thread {
                 tls,
                 exit_signal,
                 robust_list: inner.robust_list,
+                futex_index: inner.futex_index.fork(),
             }),
         });
         search::insert_thread(&thread);
@@ -303,6 +317,31 @@ impl Thread {
             .alive_then(|a| a.threads.push(&thread))
             .unwrap();
         Ok(thread)
+    }
+
+    pub fn fetch_futex(&self, ua: UserAddr<u32>) -> Result<Arc<Futex>, Dead> {
+        stack_trace!();
+        if let Some(fx) = self.inner().futex_index.try_fetch(ua) && !fx.closed() {
+            return Ok(fx);
+        }
+        let fx = self
+            .process
+            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc())?;
+        self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
+        Ok(fx)
+    }
+    pub fn try_fetch_futex(&self, ua: UserAddr<u32>) -> Result<Option<Arc<Futex>>, Dead> {
+        stack_trace!();
+        if let Some(fx) = self.inner().futex_index.try_fetch(ua) {
+            return Ok(Some(fx));
+        }
+        let fx = self
+            .process
+            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))?;
+        if let Some(fx) = fx.as_ref() {
+            self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
+        }
+        Ok(fx)
     }
 }
 

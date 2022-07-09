@@ -20,12 +20,20 @@ use crate::{
     syscall::Syscall,
     timer,
     user::{trap_handler, AutoSie},
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::thread::Thread;
 
 async fn userloop(thread: Arc<Thread>) {
     stack_trace!(to_yellow!("running in user loop"));
+    if PRINT_SYSCALL_ALL {
+        println!(
+            "{}<new thread into userloop>{}",
+            to_yellow!(),
+            reset_color!()
+        );
+    }
     if thread.process.is_alive() {
         thread.settid().await;
     }

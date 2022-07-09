@@ -77,6 +77,18 @@ impl<T> ListNode<T> {
             false
         }
     }
+    pub unsafe fn set_prev(&mut self, prev: *mut Self) {
+        self.prev = prev;
+    }
+    pub unsafe fn set_next(&mut self, next: *mut Self) {
+        self.next = next;
+    }
+    pub fn get_prev(&self) -> *mut Self {
+        self.prev
+    }
+    pub fn get_next(&self) -> *mut Self {
+        self.next
+    }
     #[inline(always)]
     pub fn push_prev(&mut self, new: &mut Self) {
         debug_assert!(self as *mut _ != new as *mut _);
@@ -121,6 +133,14 @@ impl<T> ListNode<T> {
         }
         self.init();
     }
+    /// 此函数不会重置自身
+    #[inline(always)]
+    pub unsafe fn pop_self_fast(&self) {
+        let prev = self.prev;
+        let next = self.next;
+        (*prev).next = next;
+        (*next).prev = prev;
+    }
     #[inline(always)]
     pub fn pop_prev(&mut self) -> Option<NonNull<Self>> {
         if self.is_empty() {
@@ -153,15 +173,25 @@ impl<T> ListNode<T> {
         }
         NonNull::new(r)
     }
-    /// 按next序扫描一圈, 当 need_pop 返回true时删除这个节点, 删除后再调用 release, 至多删除max个节点
-    ///
-    /// 分离need_pop和release是为了保证release调用时不存在任何引用, 因为release调用时node可能已经被销毁了
+    /// 详细介绍见 pop_many_ex
     #[inline]
     pub fn pop_many_when(
         &mut self,
         max: usize,
-        mut need_pop: impl FnMut(&T) -> bool,
+        need_pop: impl FnMut(&T) -> bool,
         mut release: impl FnMut(&mut T),
+    ) -> usize {
+        self.pop_many_ex(max, need_pop, move |v| release(v.data_mut()))
+    }
+    /// 按next序扫描一圈, 当 need_pop 返回true时删除这个节点, 删除后再调用 release, 至多删除max个节点
+    ///
+    /// 分离need_pop和release是为了保证release调用时不存在任何引用, 因为release调用时node可能已经被销毁了
+    #[inline]
+    pub fn pop_many_ex(
+        &mut self,
+        max: usize,
+        mut need_pop: impl FnMut(&T) -> bool,
+        mut release: impl FnMut(&mut ListNode<T>),
     ) -> usize {
         let mut n = 0;
         unsafe {
@@ -171,7 +201,7 @@ impl<T> ListNode<T> {
                 let next = (*cur).next;
                 if need_pop(&(*cur).data) {
                     (*cur).pop_self();
-                    release(&mut (*cur).data);
+                    release(&mut *cur);
                     n += 1;
                     if n == max {
                         return n;

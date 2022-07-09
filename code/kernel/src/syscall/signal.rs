@@ -182,7 +182,7 @@ impl Syscall<'_> {
         let manager = &mut self.thread.inner().signal_manager;
         let sig_mask = manager.mask_mut();
         if PRINT_SYSCALL_SIGNAL {
-            println!("old: {:#x?}", sig_mask);
+            println!("old: {:#x}", sig_mask.0[0]);
         }
         let user_check = UserCheck::new(self.process);
         if let Some(oldset) = oldset.nonnull_mut() {
@@ -193,7 +193,7 @@ impl Syscall<'_> {
             return Ok(0);
         }
         if PRINT_SYSCALL_SIGNAL {
-            println!("new: {:#x?}", sig_mask);
+            println!("new: {:#x?}", sig_mask.0[0]);
         }
         let newset = user_check.readonly_slice(newset, s_size).await?;
         let newset = SignalSet::from_bytes(&*newset.access());

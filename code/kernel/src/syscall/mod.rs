@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use alloc::sync::Arc;
 
 use crate::{
-    process::{thread::Thread, AliveProcess, Process},
+    process::{thread::Thread, AliveProcess, Dead, Process},
     trap::context::UKContext,
     xdebug::PRINT_SYSCALL_ALL,
 };
@@ -184,7 +184,15 @@ impl<'a> Syscall<'a> {
         if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
             if ![63, 64].contains(&self.cx.a7()) {
-                println!("syscall {} -> {:#x}", self.cx.a7(), a0);
+                print!("{}", to_yellow!());
+                println!(
+                    "{:?} syscall {} -> {:#x} spec:{:#x}",
+                    self.thread.tid(),
+                    self.cx.a7(),
+                    a0,
+                    self.cx.user_sepc
+                );
+                print!("{}", reset_color!());
             }
         }
         self.cx.set_user_a0(a0);
@@ -215,6 +223,13 @@ impl<'a> Syscall<'a> {
             return Err(UniqueSysError);
         }
         return Ok(AliveGurad(lock));
+    }
+    #[inline]
+    pub fn dead_forward<T>(&mut self, v: Result<T, Dead>) -> Result<T, Dead> {
+        if v.is_err() {
+            self.do_exit = true;
+        }
+        v
     }
 }
 

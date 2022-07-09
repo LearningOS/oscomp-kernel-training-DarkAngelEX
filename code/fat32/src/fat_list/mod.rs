@@ -1,6 +1,6 @@
 use core::{
     future::Future,
-    ops::{ControlFlow, Try},
+    ops::ControlFlow,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
@@ -13,7 +13,6 @@ use crate::{
     layout::bpb::RawBPB,
     mutex::{Semaphore, SleepMutex, SpinMutex},
     tools::{
-        self,
         xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
         AIDAllocator, CID,
     },

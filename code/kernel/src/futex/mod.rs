@@ -1,7 +1,4 @@
-use core::{
-    ptr::NonNull,
-    sync::atomic::{AtomicPtr, Ordering},
-};
+use core::ops::Range;
 
 use alloc::{
     collections::BTreeMap,
@@ -10,13 +7,14 @@ use alloc::{
 use ftl_util::rcu::RcuCollect;
 
 use crate::{
-    memory::{address::UserAddr4K, user_ptr::UserInOutPtr},
-    process::thread::Thread,
+    memory::{address::UserAddr, user_ptr::UserInOutPtr},
+    process::Pid,
     sync::mutex::SpinNoIrqLock,
     timer::TimeTicks,
+    tools::range::URange,
 };
 
-use self::queue::FutexQueue;
+use self::queue::{FutexQueue, TempQueue};
 
 mod queue;
 
@@ -46,6 +44,13 @@ pub enum WaitStatus {
     Closed,
 }
 
+#[must_use]
+pub enum WakeStatus {
+    Ok(usize),
+    Fail,
+    Closed,
+}
+
 pub struct Futex {
     queue: SpinNoIrqLock<FutexQueue>,
 }
@@ -65,19 +70,54 @@ impl Futex {
     pub fn closed(&self) -> bool {
         unsafe { self.queue.unsafe_get().closed() }
     }
-    #[inline]
-    pub fn wake(&self, mask: u32, n: usize) -> usize {
-        self.queue.lock().wake(mask, n)
+    pub fn wake(
+        &self,
+        mask: u32,
+        max: usize,
+        pid: Option<Pid>,
+        mut fail: impl FnMut() -> bool,
+    ) -> WakeStatus {
+        if self.closed() {
+            return WakeStatus::Closed;
+        }
+        if fail() {
+            return WakeStatus::Fail;
+        }
+        self.queue.lock().wake(mask, max, pid, fail)
+    }
+    pub fn wake_requeue(
+        &self,
+        max_wake: usize,
+        max_requeue: usize,
+        pid: Option<Pid>,
+        mut fail: impl FnMut() -> bool,
+    ) -> (WakeStatus, Option<TempQueue>) {
+        if self.closed() {
+            return (WakeStatus::Closed, None);
+        }
+        if fail() {
+            return (WakeStatus::Fail, None);
+        }
+        self.queue
+            .lock()
+            .wake_requeue(max_wake, max_requeue, pid, fail)
+    }
+    // 返回Err表明futex已经关闭, 不会对q产生任何修改
+    pub fn append(&self, q: &mut TempQueue) -> Result<(), ()> {
+        if self.closed() {
+            return Err(());
+        }
+        self.queue.lock().append(q, self)
     }
     #[inline]
     pub fn wake_all_close(&self) {
         self.queue.lock().wake_all_close();
     }
-    #[inline]
     pub async fn wait(
         &self,
         mask: u32,
         timeout: TimeTicks,
+        pid: Option<Pid>,
         mut fail: impl FnMut() -> bool,
     ) -> WaitStatus {
         if self.closed() {
@@ -87,14 +127,17 @@ impl Futex {
         if fail() {
             return WaitStatus::Fail;
         }
-        FutexQueue::wait(&self.queue, mask, timeout, fail).await
+        FutexQueue::wait(self, mask, timeout, pid, fail).await
     }
 }
 
 /// 用于页面管理器的Futex对象
 ///
 /// 使用RCU释放futex, 保证 ViewFutex 指针指向的内存必然有效
-pub struct OwnFutex(Option<Arc<Futex>>);
+///
+/// (futex, process_private)
+#[derive(Clone)]
+pub struct OwnFutex(Option<Arc<Futex>>, bool);
 
 impl Drop for OwnFutex {
     fn drop(&mut self) {
@@ -105,130 +148,104 @@ impl Drop for OwnFutex {
 }
 
 impl OwnFutex {
-    pub fn new() -> Self {
-        Self(Some(Arc::new(Futex::new())))
+    pub fn new(private: bool) -> Self {
+        let mut fx = Arc::new(Futex::new());
+        unsafe { Arc::get_mut_unchecked(&mut fx).init() }
+        Self(Some(fx), private)
+    }
+    pub fn private(&self) -> bool {
+        self.1
     }
     fn assume_some(&self) {
         debug_assert!(self.0.is_some());
         unsafe { core::intrinsics::assume(self.0.is_some()) }
     }
-    pub fn take_weak(&self) -> Weak<Futex> {
+    pub fn take_arc(&self) -> Arc<Futex> {
         self.assume_some();
-        Arc::downgrade(&self.0.as_ref().unwrap())
-    }
-    fn take_view(&self) -> ViewFutex {
-        self.assume_some();
-        ViewFutex(AtomicPtr::new(
-            self.0.as_ref().unwrap() as *const _ as *mut _
-        ))
+        debug_assert!(!self.0.as_ref().unwrap().closed());
+        self.0.as_ref().unwrap().clone()
     }
 }
 
 /// 用于页表管理器的futex集合
-pub struct FutexSet(BTreeMap<UserAddr4K, OwnFutex>);
-
-/// only run when fork
-impl Clone for FutexSet {
-    fn clone(&self) -> Self {
-        todo!()
-    }
-}
+pub struct FutexSet(BTreeMap<UserAddr<u32>, OwnFutex>);
 
 impl FutexSet {
     pub const fn new() -> Self {
         Self(BTreeMap::new())
     }
-}
-
-/// 被等待器持有的futex指针
-///
-///     0 -> 已发射
-///     dangling -> 等待
-///     Other -> 存在队列
-///
-/// 转移的过程:
-///    ---A---    >>>>    ---B---
-///    | lock |          | lock |
-/// ptr:  A -->-- wait -->-- B
-///
-struct ViewFutex(AtomicPtr<Futex>);
-
-enum ViewOp {
-    Issued,
-    Queued(*mut Futex),
-    Waited,
-}
-
-impl ViewFutex {
-    const ISSUED_V: *mut Futex = core::ptr::null_mut();
-    const WAITED_V: *mut Futex = NonNull::<Futex>::dangling().as_ptr();
-    #[inline]
-    fn fetch(&self) -> ViewOp {
-        let p = self.0.load(Ordering::Relaxed);
-        if p == Self::ISSUED_V {
-            ViewOp::Issued
-        } else if p != Self::WAITED_V {
-            ViewOp::Queued(p)
+    /// if futex does not exist in ua, create a new one by private flag
+    ///
+    /// this is the only way to create futex
+    pub fn fetch_create(
+        &mut self,
+        ua: UserAddr<u32>,
+        private: impl FnOnce() -> bool,
+    ) -> &mut OwnFutex {
+        debug_assert!(ua.is_align());
+        self.0
+            .entry(ua)
+            .or_insert_with(move || OwnFutex::new(private()))
+    }
+    pub fn try_fetch(&mut self, ua: UserAddr<u32>) -> Option<&mut OwnFutex> {
+        debug_assert!(ua.is_align());
+        self.0.get_mut(&ua)
+    }
+    pub fn remove(&mut self, URange { start, end }: URange) {
+        if self.0.is_empty() {
+            return;
+        }
+        let r: Range<UserAddr<u32>> = start.into()..end.into();
+        let cnt = self.0.range(r.clone()).map(|(&k, _)| k).count();
+        if cnt == 0 {
+            return;
+        } else if cnt == self.0.len() {
+            self.0.clear();
+        } else if cnt * 4 > self.0.len() {
+            self.0.retain(move |&k, _| k < r.start || k >= r.end);
         } else {
-            ViewOp::Waited // unlikely
-        }
-    }
-    pub fn set_issued(&self) {
-        debug_assert!(matches!(self.fetch(), ViewOp::Issued));
-        self.0.store(Self::ISSUED_V, Ordering::Relaxed);
-    }
-    pub fn set_waited(&self) {
-        debug_assert!(matches!(self.fetch(), ViewOp::Queued(_)));
-        self.0.store(Self::WAITED_V, Ordering::Relaxed);
-    }
-    pub fn set_queued(&self, new: &Futex) {
-        debug_assert!(matches!(self.fetch(), ViewOp::Waited));
-        self.0.store(new as *const _ as *mut _, Ordering::Relaxed);
-    }
-    /// None: issued
-    ///
-    /// Some(p): queued
-    #[inline]
-    fn load_queue(&self) -> Option<*mut Futex> {
-        #[cfg(debug_assertions)]
-        let mut cnt = 0;
-        loop {
-            match self.fetch() {
-                ViewOp::Issued => return None,
-                ViewOp::Queued(p) => return Some(p),
-                ViewOp::Waited => (),
-            }
-            #[cfg(debug_assertions)]
-            {
-                cnt += 1;
-                assert!(cnt < 1000000, "ViewFutex deadlock");
+            while let Some((&k, _)) = self.0.range(r.clone()).next() {
+                drop(self.0.remove(&k).unwrap());
             }
         }
     }
-    /// 使用双重检查法获取锁并运行函数
-    ///
-    /// Ok(()): success lock
-    ///
-    /// Err(()): issued
-    #[inline]
-    pub fn lock_queue_run<T>(&self, f: impl FnOnce(&mut FutexQueue) -> T) -> Result<T, ()> {
-        stack_trace!();
-        // 猜测自己的队列指针是被使用的, 所有修改都要在获取锁的情况下进行!
-        let mut p = self.load_queue().ok_or(())?;
-        loop {
-            let queue = &mut *unsafe { &*p }.queue.lock();
-            let q = self.load_queue().ok_or(())?;
-            if p != q {
-                p = q;
-                continue;
-            }
-            // 现在获取的锁和自身的队列是同一个
-            debug_assert!(!queue.closed());
-            return Ok(f(queue));
-        }
+    pub fn clear(&mut self) {
+        self.0.clear();
+    }
+    pub fn fork(&self) -> Self {
+        let new: BTreeMap<UserAddr<u32>, OwnFutex> = self
+            .0
+            .iter()
+            .filter(|(_, v)| !v.private())
+            .map(|(&k, v)| (k, v.clone()))
+            .collect();
+        Self(new)
     }
 }
 
-pub async fn wait(_thread: &Thread) {
-    todo!()
+pub struct FutexIndex(BTreeMap<UserAddr<u32>, Weak<Futex>>);
+
+impl FutexIndex {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+    /// 此函数会无锁确认closed标志位
+    pub fn try_fetch(&self, ua: UserAddr<u32>) -> Option<Arc<Futex>> {
+        debug_assert!(ua.is_align());
+        self.0
+            .get(&ua)
+            .and_then(|p| p.upgrade())
+            .filter(|a| !a.closed())
+    }
+    pub fn insert(&mut self, ua: UserAddr<u32>, v: Weak<Futex>) {
+        debug_assert!(ua.is_align());
+        drop(self.0.insert(ua, v));
+    }
+    pub fn garbage_collection(&mut self) {
+        self.0.retain(|_, v| v.strong_count() != 0);
+    }
+    pub fn fork(&mut self) -> Self {
+        self.garbage_collection();
+        Self(self.0.clone())
+    }
 }

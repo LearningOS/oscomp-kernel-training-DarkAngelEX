@@ -89,6 +89,7 @@ pub struct TimeTicks(u128);
 
 impl TimeTicks {
     pub const ZERO: Self = Self(0);
+    pub const FOREVER: Self = Self(usize::MAX as u128);
     pub fn from_usize(ticks: usize) -> Self {
         Self(ticks as u128)
     }

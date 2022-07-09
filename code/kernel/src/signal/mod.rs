@@ -14,6 +14,7 @@ use crate::{
     sync::even_bus::Event,
     syscall::SysResult,
     user::check::UserCheck,
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 pub const SIG_N: usize = 64;
@@ -325,7 +326,7 @@ impl SigAction {
         println!("handler:  {:#x}", self.handler);
         println!("flags:    {:#x}", self.flags);
         println!("restorer: {:#x}", self.restorer);
-        println!("mask:     {:#x?}", self.mask.0);
+        println!("mask:     {:#x}", self.mask.0[0]);
     }
 }
 
@@ -354,12 +355,21 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     };
     // 找到了一个待处理信号
     assert!(signal < SIG_N as u32);
+    if PRINT_SYSCALL_ALL {
+        println!(
+            "handle_signal - find signal: {} sepc: {:#x}",
+            signal, thread.uk_context.user_sepc
+        );
+    }
     let (act, sig_mask) = psm.get_action(signal);
     let (handler, ra) = match act {
         Action::Abort => return Err(Dead),
         Action::Ignore => return Ok(()),
         Action::Handler(h, ra) => (h, ra),
     };
+    if PRINT_SYSCALL_ALL {
+        println!("handle_signal - handler: {:#x} ra: {:#x}", handler, ra);
+    }
     // 使用handler的信号处理
     debug_assert!(![0, 1, usize::MAX].contains(&handler));
     let old_mask = mask;
