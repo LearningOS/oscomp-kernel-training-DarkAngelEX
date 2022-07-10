@@ -16,7 +16,7 @@ use riscv::register::sstatus;
 
 use crate::{
     fs::VfsInode,
-    futex::{Futex, FutexIndex, RobustListHead},
+    futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     hart::floating,
     memory::{
         self,
@@ -51,6 +51,9 @@ impl ThreadGroup {
             threads: BTreeMap::new(),
         }
     }
+    pub fn is_empty(&self) -> bool {
+        self.threads.is_empty()
+    }
     pub fn iter(&self) -> impl Iterator<Item = Arc<Thread>> + '_ {
         self.threads.iter().map(|(_id, td)| td.upgrade().unwrap())
     }
@@ -70,10 +73,6 @@ impl ThreadGroup {
         self.threads
             .get_key_value(&tid)
             .map(|(_, th)| th.upgrade().unwrap())
-    }
-    pub unsafe fn clear_thread_except(&mut self, tid: Tid) {
-        self.threads.retain(|&xtid, _b| xtid == tid);
-        assert!(self.threads.len() == 1);
     }
     pub fn len(&self) -> usize {
         self.threads.len()
@@ -112,8 +111,18 @@ impl Thread {
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn cleartid(&self) {
         if let Some(ptr) = self.inner().clear_child_tid.nonnull_mut() {
-            if let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
-                buf.store(self.tid().0 as u32)
+            while let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
+                if PRINT_SYSCALL_ALL {
+                    println!("cleartid: {:#x}", ptr.as_usize());
+                }
+                buf.store(0);
+                let futex = self.fetch_futex(ptr.as_uptr().unwrap());
+                match futex.wake(FUTEX_BITSET_MATCH_ANY, 1, None, || false) {
+                    WakeStatus::Ok(_) => (),
+                    WakeStatus::Closed => continue,
+                    WakeStatus::Fail => panic!(),
+                }
+                break;
             }
         }
     }
@@ -139,7 +148,7 @@ pub struct ThreadInner {
     pub scx_ptr: UserInOutPtr<SignalContext>,
     /// 当前用户上下文
     pub uk_context: UKContext,
-    /// 根据clone标志决定是否将此线程tid写入地址
+    /// 根据clone标志决定是否将此地址写入tid
     pub set_child_tid: UserInOutPtr<u32>,
     /// 如果线程退出时值非0则向此地址写入0并执行
     /// futex(clear_child_tid, FUTEX_WAKE, 1, NULL, NULL, 0)
@@ -150,6 +159,8 @@ pub struct ThreadInner {
     pub exit_signal: Option<Sig>,
     pub robust_list: UserInOutPtr<RobustListHead>,
     pub futex_index: FutexIndex,
+    /// 通过exit退出的线程将为true
+    pub exited: bool,
 }
 
 impl Thread {
@@ -200,6 +211,7 @@ impl Thread {
                 exit_signal: None,
                 robust_list: UserInOutPtr::null(),
                 futex_index: FutexIndex::new(),
+                exited: false,
             }),
         };
         thread.inner.get_mut().uk_context.exec_init(
@@ -262,6 +274,7 @@ impl Thread {
                 exit_signal: Sig::from_user(exit_signal).ok(),
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
+                exited: false,
             }),
         });
         search::insert_thread(&thread);
@@ -303,6 +316,7 @@ impl Thread {
                 exit_signal: Sig::from_user(exit_signal).ok(),
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
+                exited: false,
             }),
         });
         search::insert_thread(&thread);
@@ -317,29 +331,31 @@ impl Thread {
         Ok(thread)
     }
 
-    pub fn fetch_futex(&self, ua: UserAddr<u32>) -> Result<Arc<Futex>, Dead> {
+    pub fn fetch_futex(&self, ua: UserAddr<u32>) -> Arc<Futex> {
         stack_trace!();
         if let Some(fx) = self.inner().futex_index.try_fetch(ua) && !fx.closed() {
-            return Ok(fx);
+            return fx;
         }
         let fx = self
             .process
-            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc())?;
+            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc())
+            .unwrap();
         self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
-        Ok(fx)
+        fx
     }
-    pub fn try_fetch_futex(&self, ua: UserAddr<u32>) -> Result<Option<Arc<Futex>>, Dead> {
+    pub fn try_fetch_futex(&self, ua: UserAddr<u32>) -> Option<Arc<Futex>> {
         stack_trace!();
         if let Some(fx) = self.inner().futex_index.try_fetch(ua) {
-            return Ok(Some(fx));
+            return Some(fx);
         }
         let fx = self
             .process
-            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))?;
+            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))
+            .unwrap();
         if let Some(fx) = fx.as_ref() {
             self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
         }
-        Ok(fx)
+        fx
     }
 }
 

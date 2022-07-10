@@ -33,9 +33,9 @@ impl Syscall<'_> {
         let path = String::from_utf8(path)?;
         let base: Option<Arc<dyn File>> = if !path::is_absolute_path(&path) {
             Some(match fd {
-                AT_FDCWD => self.alive_then(|a| a.cwd.clone())?,
+                AT_FDCWD => self.alive_then(|a| a.cwd.clone()),
                 fd => self
-                    .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
+                    .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())
                     .ok_or(SysError::EBADF)?,
             })
         } else {
@@ -75,7 +75,7 @@ impl Syscall<'_> {
         let buf = UserCheck::new(self.process)
             .writable_slice(buf_in, len)
             .await?;
-        let lock = self.alive_lock()?;
+        let lock = self.alive_lock();
         let cwd_len = lock.cwd.path_iter().fold(0, |a, b| a + b.len() + 1) + 1;
         let cwd_len = cwd_len.max(2);
         if buf.len() <= cwd_len {
@@ -103,7 +103,7 @@ impl Syscall<'_> {
         let fd: usize = self.cx.para1();
         let fd = Fd::from_usize(fd);
         let new = self
-            .alive_then(move |a| a.fd_table.dup(fd))?
+            .alive_then(move |a| a.fd_table.dup(fd))
             .ok_or(SysError::EBADF)?;
         Ok(new.to_usize())
     }
@@ -121,7 +121,7 @@ impl Syscall<'_> {
         }
         new_fd.in_range()?;
         let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
-        self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, close_on_exec))??;
+        self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, close_on_exec))?;
         Ok(new_fd.to_usize())
     }
     pub async fn sys_getdents64(&mut self) -> SysResult {
@@ -144,7 +144,7 @@ impl Syscall<'_> {
             .writable_slice(dirp, count)
             .await?;
         let file = self
-            .alive_then(|a| a.fd_table.get(fd).cloned())?
+            .alive_then(|a| a.fd_table.get(fd).cloned())
             .ok_or(SysError::EBADF)?;
         let file = file.to_vfs_inode()?;
         let list = file.list().await?;
@@ -187,7 +187,7 @@ impl Syscall<'_> {
             println!("sys_read");
         }
         let file = self
-            .alive_then(|p| p.fd_table.get(fd).cloned())?
+            .alive_then(|p| p.fd_table.get(fd).cloned())
             .ok_or(SysError::EBADF)?;
         let whence = Seek::from_user(whence)?;
         file.lseek(offset, whence)
@@ -202,7 +202,7 @@ impl Syscall<'_> {
             .writable_slice(buf, len)
             .await?;
         let file = self
-            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
             .ok_or(SysError::EBADF)?;
         if !file.readable() {
             return Err(SysError::EPERM);
@@ -219,7 +219,7 @@ impl Syscall<'_> {
             .readonly_slice(buf, len)
             .await?;
         let file = self
-            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
             .ok_or(SysError::EBADF)?;
         if !file.writable() {
             return Err(SysError::EPERM);
@@ -231,7 +231,7 @@ impl Syscall<'_> {
         stack_trace!();
         let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();
         let file = self
-            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())?
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
             .ok_or(SysError::EBADF)?;
         if !file.writable() {
             return Err(SysError::EPERM);
@@ -323,13 +323,13 @@ impl Syscall<'_> {
         let path = String::from_utf8(path)?;
         let flags = OpenFlags::RDONLY | fs::OpenFlags::DIRECTORY;
         let inode = fs::open_file(
-            Some(Ok(self.alive_then(|a| a.cwd.clone())?.path_iter())),
+            Some(Ok(self.alive_then(|a| a.cwd.clone()).path_iter())),
             path.as_str(),
             flags,
             Mode(0o600),
         )
         .await?;
-        self.alive_then(|a| a.cwd = inode)?;
+        self.alive_then(|a| a.cwd = inode);
         Ok(0)
     }
     pub async fn sys_openat(&mut self) -> SysResult {
@@ -347,7 +347,7 @@ impl Syscall<'_> {
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
         let inode = self.fd_path_open(fd, path, flags, mode).await?;
         let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
-        let fd = self.alive_lock()?.fd_table.insert(inode, close_on_exec);
+        let fd = self.alive_lock().fd_table.insert(inode, close_on_exec);
         Ok(fd.to_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {
@@ -358,7 +358,7 @@ impl Syscall<'_> {
         }
         let fd = Fd::new(fd);
         let file = self
-            .alive_then(move |a| a.fd_table.remove(fd))?
+            .alive_then(move |a| a.fd_table.remove(fd))
             .ok_or(SysError::EBADF)?;
         drop(file); // just for clarity
         Ok(0)
@@ -381,7 +381,7 @@ impl Syscall<'_> {
             let rfd = a.fd_table.insert(reader, close_on_exec).to_usize();
             let wfd = a.fd_table.insert(writer, close_on_exec).to_usize();
             (rfd as u32, wfd as u32)
-        })?;
+        });
         write_to.store([rfd, wfd]);
         Ok(0)
     }
@@ -390,7 +390,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_fcntl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
-        self.alive_then(|a| a.fd_table.fcntl(Fd(fd), cmd, arg))?
+        self.alive_then(|a| a.fd_table.fcntl(Fd(fd), cmd, arg))
     }
     pub fn sys_ioctl(&mut self) -> SysResult {
         stack_trace!();
@@ -398,7 +398,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_ioctl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
-        self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())?
+        self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())
             .ok_or(SysError::ENFILE)?
             .ioctl(cmd, arg)
     }

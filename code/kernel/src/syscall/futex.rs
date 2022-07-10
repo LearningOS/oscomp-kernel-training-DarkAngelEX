@@ -105,7 +105,7 @@ impl Syscall<'_> {
         loop {
             let access = UserCheck::new(self.process).readonly_value(ua).await?;
             let access = &(&*access.access())[0];
-            let futex = self.dead_forward(self.thread.fetch_futex(addr))?;
+            let futex = self.thread.fetch_futex(addr);
             match futex
                 .wait(mask, timeout, pid, move || unsafe {
                     core::ptr::read_volatile(access) != val
@@ -135,7 +135,7 @@ impl Syscall<'_> {
         };
         let addr = ua.as_uptr().unwrap();
         loop {
-            let futex = self.dead_forward(self.thread.fetch_futex(addr))?;
+            let futex = self.thread.fetch_futex(addr);
             match futex.wake(mask, max as usize, pid, || false) {
                 WakeStatus::Ok(n) => return Ok(n),
                 WakeStatus::Closed => continue,
@@ -169,7 +169,7 @@ impl Syscall<'_> {
         let (n, q) = loop {
             let access = uc.readonly_value(ua).await?;
             let access = &(&*access.access())[0];
-            let futex = self.dead_forward(self.thread.fetch_futex(addr))?;
+            let futex = self.thread.fetch_futex(addr);
             let (s, q) =
                 futex.wake_requeue(max_wake as usize, max_requeue as usize, pid, || unsafe {
                     if let Some(v) = should {
@@ -190,7 +190,7 @@ impl Syscall<'_> {
         };
         loop {
             let _ = uc.readonly_value(ua2).await?;
-            let futex2 = self.dead_forward(self.thread.fetch_futex(addr2))?;
+            let futex2 = self.thread.fetch_futex(addr2);
             match futex2.append(&mut q) {
                 Ok(()) => break,
                 Err(()) => continue,
@@ -262,7 +262,7 @@ impl Syscall<'_> {
         let wake2 = cmp_fn(old, cmparg);
         let n1 = loop {
             let _ = uc.readonly_value(ua).await?;
-            let futex = self.dead_forward(self.thread.fetch_futex(addr))?;
+            let futex = self.thread.fetch_futex(addr);
             match futex.wake(FUTEX_BITSET_MATCH_ANY, max1 as usize, pid, || false) {
                 WakeStatus::Ok(n) => break n,
                 WakeStatus::Closed => continue,
@@ -273,7 +273,7 @@ impl Syscall<'_> {
         if wake2 {
             n2 = loop {
                 let _ = uc.readonly_value(ua2).await?;
-                let futex = self.dead_forward(self.thread.fetch_futex(addr2))?;
+                let futex = self.thread.fetch_futex(addr2);
                 match futex.wake(FUTEX_BITSET_MATCH_ANY, max2 as usize, pid, || false) {
                     WakeStatus::Ok(n) => break n,
                     WakeStatus::Closed => continue,

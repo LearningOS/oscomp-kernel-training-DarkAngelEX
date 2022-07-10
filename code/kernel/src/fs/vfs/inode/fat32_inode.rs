@@ -7,7 +7,7 @@ use crate::{
         AsyncFile, File, OpenFlags, Seek,
     },
     syscall::SysResult,
-    tools::{path, xasync::Async},
+    tools::xasync::Async,
     user::AutoSie,
 };
 use alloc::{
@@ -90,7 +90,7 @@ pub async fn list_apps() {
     println!("**************/");
 }
 
-pub async fn open_file<'a>(path: &[&str], flags: OpenFlags) -> Result<Arc<Fat32Inode>, SysError> {
+pub async fn open_file(path: &[&str], flags: OpenFlags) -> Result<Arc<Fat32Inode>, SysError> {
     stack_trace!();
     let _sie = AutoSie::new();
     let (f_r, f_w) = flags.read_write()?;
@@ -122,38 +122,16 @@ pub async fn open_file<'a>(path: &[&str], flags: OpenFlags) -> Result<Arc<Fat32I
     }))
 }
 
-pub async fn unlink<'a>(
-    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
-    path: &'a str,
-    _flags: OpenFlags,
-) -> Result<(), SysError> {
+pub async fn unlink<'a>(path: &[&str], _flags: OpenFlags) -> Result<(), SysError> {
     stack_trace!();
-    let mut stack = Vec::new();
-    match path.as_bytes().first() {
-        Some(b'/') => (),
-        _ => path::walk_iter_path(base.unwrap()?, &mut stack),
-    }
-    path::walk_path(path, &mut stack);
-    manager().delete_any(&stack).await
+    manager().delete_any(path).await
 }
 
-pub async fn create_any<'a>(
-    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
-    path: &'a str,
-    flags: OpenFlags,
-) -> Result<(), SysError> {
+pub async fn create_any(path: &[&str], flags: OpenFlags) -> Result<(), SysError> {
     stack_trace!();
     let _sie = AutoSie::new();
     let (f_r, _f_w) = flags.read_write()?;
-    let mut stack = Vec::new();
-    match path.as_bytes().first() {
-        Some(b'/') => (),
-        _ => path::walk_iter_path(base.unwrap()?, &mut stack),
-    }
-    path::walk_path(path, &mut stack);
-    manager()
-        .create_any(&stack, flags.dir(), f_r, false)
-        .await?;
+    manager().create_any(path, flags.dir(), f_r, false).await?;
     Ok(())
 }
 

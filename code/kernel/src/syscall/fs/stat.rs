@@ -18,7 +18,7 @@ impl Syscall<'_> {
             return Err(SysError::EINVAL);
         }
         let inode = self
-            .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())?
+            .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())
             .ok_or(SysError::EBADF)?;
         let mut stat = Stat::zeroed();
         inode.stat(&mut stat).await?;

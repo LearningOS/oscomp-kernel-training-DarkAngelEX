@@ -42,7 +42,7 @@ impl Syscall<'_> {
             (false, true) => true,
             _ => return Err(SysError::EINVAL),
         };
-        let mut alive = self.alive_lock()?;
+        let mut alive = self.alive_lock();
         let file = if !flags.contains(MmapFlags::ANONYMOUS) {
             let file = alive.fd_table.get(fd).ok_or(SysError::ENFILE)?;
             if !file.can_mmap() {
@@ -101,7 +101,7 @@ impl Syscall<'_> {
         let addr = addr.as_uptr_nullable().ok_or(SysError::EFAULT)?;
         let start = addr.floor();
         let end = UserAddr::try_from((addr.into_usize() + len) as *const u8)?.ceil();
-        let mut alive = self.alive_lock()?;
+        let mut alive = self.alive_lock();
         let manager = &mut alive.user_space.map_segment;
         manager.unmap(start..end);
         Ok(0)
@@ -121,7 +121,7 @@ impl Syscall<'_> {
         let start = start.as_uptr_nullable().ok_or(SysError::EFAULT)?.floor();
         let end = start.add_page_checked(PageCount::page_ceil(len))?;
         let perm = MmapProt::from_bits_truncate(prot).into_perm();
-        let mut alive = self.alive_lock()?;
+        let mut alive = self.alive_lock();
         alive.user_space.map_segment.modify_perm(start..end, perm)?;
         let asid = alive.asid();
         drop(alive);

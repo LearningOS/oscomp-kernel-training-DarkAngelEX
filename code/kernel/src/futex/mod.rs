@@ -46,8 +46,11 @@ pub enum WaitStatus {
 
 #[must_use]
 pub enum WakeStatus {
+    /// 正常结束wait
     Ok(usize),
+    /// 内存检查失败
     Fail,
+    /// 此futex已经被关闭, 需要重新获取
     Closed,
 }
 

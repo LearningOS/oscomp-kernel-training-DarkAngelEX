@@ -61,8 +61,7 @@ impl Syscall<'_> {
                 let proc = search::find_proc(pid).ok_or(SysError::ESRCH)?;
                 proc.signal_manager.receive(signal);
                 proc.event_bus
-                    .set(Event::RECEIVE_SIGNAL)
-                    .map_err(|_e| SysError::ESRCH)?;
+                    .set(Event::RECEIVE_SIGNAL)?;
             }
             Target::AllInGroup => todo!(),
             Target::All => todo!(),

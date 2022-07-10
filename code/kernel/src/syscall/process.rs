@@ -7,7 +7,6 @@ use crate::{
     fs::{self, Mode},
     local,
     memory::{
-        self,
         address::{PageCount, UserAddr},
         asid::USING_ASID,
         auxv::{AuxHeader, AT_BASE},
@@ -53,24 +52,24 @@ impl Syscall<'_> {
             );
         }
         let flag = CloneFlag::from_bits(flag as u64).ok_or(SysError::EINVAL)?;
-        let set_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_SETTID) {
-            ctid
-        } else {
-            UserInOutPtr::null()
-        };
-        let clear_child_tid = if flag.contains(CloneFlag::CLONE_CHILD_CLEARTID) {
-            ctid
-        } else {
-            UserInOutPtr::null()
-        };
+
+        let set_child_tid = flag
+            .contains(CloneFlag::CLONE_CHILD_SETTID)
+            .then_some(ctid)
+            .unwrap_or(UserInOutPtr::null());
+
+        let clear_child_tid = flag
+            .contains(CloneFlag::CLONE_CHILD_CLEARTID)
+            .then_some(ctid)
+            .unwrap_or(UserInOutPtr::null());
 
         let tls = flag.contains(CloneFlag::CLONE_SETTLS).then_some(tls);
 
-        let exit_signal = if !flag.contains(CloneFlag::CLONE_DETACHED) {
-            (flag & CloneFlag::EXIT_SIGNAL).bits() as u32
-        } else {
-            0
-        };
+        let exit_signal = flag
+            .contains(CloneFlag::CLONE_DETACHED)
+            .then_some(0)
+            .unwrap_or((flag & CloneFlag::EXIT_SIGNAL).bits() as u32);
+
         let new = match flag.contains(CloneFlag::CLONE_THREAD) {
             true => self.thread.clone_thread(
                 flag,
@@ -136,7 +135,7 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
-            Some(Ok(&mut self.alive_then(|a| a.cwd.clone())?.path_iter())),
+            Some(Ok(&mut self.alive_then(|a| a.cwd.clone()).path_iter())),
             path.as_str(),
             fs::OpenFlags::RDONLY,
             Mode(0o500),
@@ -164,7 +163,7 @@ impl Syscall<'_> {
             });
         }
         // TODO: kill other thread and await
-        let mut alive = self.alive_lock()?;
+        let mut alive = self.alive_lock();
         if alive.threads.len() > 1 {
             todo!();
         }
@@ -221,7 +220,7 @@ impl Syscall<'_> {
         loop {
             let this_pid = self.process.pid();
             let process = {
-                let mut alive = self.alive_lock()?;
+                let mut alive = self.alive_lock();
                 let p = match target {
                     WaitFor::AnyChild => alive.children.try_remove_zombie_any(),
                     WaitFor::Pid(pid) => alive.children.try_remove_zombie(pid),
@@ -339,7 +338,7 @@ impl Syscall<'_> {
                     .as_ref()
                     .and_then(|p| p.upgrade())
                     .map(|p| p.pid().0)
-            })?
+            })
             .unwrap_or(0); // initproc
         Ok(pid)
     }
@@ -369,30 +368,11 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exit {:?} {:?}", self.process.pid(), self.thread.tid());
         }
-        debug_assert!(
-            self.process.pid() != Pid::from_usize(0),
-            "{}",
-            to_red!("initproc exit")
-        );
-        self.do_exit = true;
         let exit_code: i32 = self.cx.para1();
-        self.process.exit_code.store(exit_code, Ordering::Relaxed);
-        self.process.event_bus.close();
-        let mut lock = self.process.alive.lock();
-        let alive = match lock.as_mut() {
-            Some(a) => a,
-            None => return Err(SysError::ESRCH),
-        };
-        // TODO: waiting other thread exit
-        memory::set_satp_by_global();
-        alive.clear_all(self.process.pid());
-        if let Some(sig) = self.thread.exit_send_signal() {
-            alive.parent.as_ref().and_then(|a| a.upgrade()).map(|a| {
-                a.signal_manager.receive(sig);
-                let _ = a.event_bus.set(Event::RECEIVE_SIGNAL);
-            });
-        }
-        *lock = None;
+        debug_assert!(self.process.pid() != Pid(0), "{}", to_red!("initproc exit"));
+        self.process.exit_code.store(exit_code, Ordering::Release);
+        self.do_exit = true;
+        self.thread.inner().exited = true;
         Ok(0)
     }
     pub fn sys_exit_group(&mut self) -> SysResult {
@@ -440,10 +420,10 @@ impl Syscall<'_> {
         let brk: usize = self.cx.para1();
         // println!("sys_brk: {:#x}", brk);
         let brk = if brk == 0 {
-            self.alive_then(|a| a.user_space.get_brk())?
+            self.alive_then(|a| a.user_space.get_brk())
         } else {
             let brk = UserAddr::try_from(brk as *const u8)?;
-            self.alive_then(|a| a.user_space.reset_brk(brk))??;
+            self.alive_then(|a| a.user_space.reset_brk(brk))?;
             brk
         };
         // println!("    -> {:#x}", brk);

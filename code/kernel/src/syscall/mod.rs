@@ -3,7 +3,7 @@ use core::ops::{Deref, DerefMut};
 use alloc::sync::Arc;
 
 use crate::{
-    process::{thread::Thread, AliveProcess, Dead, Process},
+    process::{thread::Thread, AliveProcess, Process},
     trap::context::UKContext,
     xdebug::PRINT_SYSCALL_ALL,
 };
@@ -198,38 +198,15 @@ impl<'a> Syscall<'a> {
         self.cx.set_user_a0(a0);
         self.do_exit
     }
-    /// if return Err will set do_exit = true
+    /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
-    pub fn alive_then<T>(
-        &mut self,
-        f: impl FnOnce(&mut AliveProcess) -> T,
-    ) -> Result<T, UniqueSysError<{ SysError::ESRCH as isize }>> {
-        self.process
-            .alive_then(f)
-            .inspect_err(|_e| self.do_exit = true)
-            .map_err(From::from)
+    pub fn alive_then<T>(&mut self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
+        self.process.alive_then(f).unwrap()
     }
-    /// if return Err will set do_exit = true
+    /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
-    pub fn alive_lock(
-        &mut self,
-    ) -> Result<
-        impl DerefMut<Target = AliveProcess> + 'a,
-        UniqueSysError<{ SysError::ESRCH as isize }>,
-    > {
-        let lock = self.process.alive.lock();
-        if lock.is_none() {
-            self.do_exit = true;
-            return Err(UniqueSysError);
-        }
-        return Ok(AliveGurad(lock));
-    }
-    #[inline]
-    pub fn dead_forward<T>(&mut self, v: Result<T, Dead>) -> Result<T, Dead> {
-        if v.is_err() {
-            self.do_exit = true;
-        }
-        v
+    pub fn alive_lock(&mut self) -> impl DerefMut<Target = AliveProcess> + '_ {
+        AliveGurad(self.process.alive.lock())
     }
 }
 

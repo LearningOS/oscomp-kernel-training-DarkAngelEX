@@ -15,8 +15,7 @@ use crate::{
     hart::sfence,
     local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
     memory::asid::USING_ASID,
-    process::{thread, Dead, Pid},
-    sync::even_bus::Event,
+    process::{exit, thread, Dead, Pid},
     syscall::Syscall,
     timer,
     user::{trap_handler, AutoSie},
@@ -28,22 +27,16 @@ use super::thread::Thread;
 async fn userloop(thread: Arc<Thread>) {
     stack_trace!(to_yellow!("running in user loop"));
     if PRINT_SYSCALL_ALL {
-        println!(
-            "{}<new thread into userloop>{}",
-            to_yellow!(),
-            reset_color!()
-        );
+        println!("{}", to_yellow!("<new thread into userloop>"));
     }
     if thread.process.is_alive() {
         thread.settid().await;
     }
     loop {
         local::handle_current_local();
-        let context = thread.as_ref().get_context();
+        let context = thread.get_context();
         let auto_sie = AutoSie::new();
-        // let mut do_yield = false;
         if false {
-            // debug
             sfence::sfence_vma_all_global();
         }
 
@@ -123,23 +116,10 @@ async fn userloop(thread: Arc<Thread>) {
             break;
         }
     }
-    if thread.process.is_alive() {
-        thread.cleartid().await;
-    }
     if thread.process.pid() == Pid(0) {
         panic!("initproc exit");
     }
-    if let Some(alive) = &mut *thread.process.alive.lock() {
-        // TODO: just last thread exit do this.
-        println!("[kernel]thread {:?} terminal", thread.tid());
-        alive.clear_all(thread.process.pid());
-        if let Some(sig) = thread.exit_send_signal() {
-            alive.parent.as_ref().and_then(|a| a.upgrade()).map(|a| {
-                a.signal_manager.receive(sig);
-                let _ = a.event_bus.set(Event::RECEIVE_SIGNAL);
-            });
-        }
-    }
+    exit::exit_impl(&thread).await;
 }
 
 pub fn spawn(thread: Arc<Thread>) {
