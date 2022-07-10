@@ -26,6 +26,7 @@ impl Write for Out {}
 impl Read for InOut {}
 impl Write for InOut {}
 
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct UserPtr<T: Clone + Copy + 'static, P: Policy> {
     ptr: *mut T,

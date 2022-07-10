@@ -27,6 +27,7 @@ use crate::{
     signal::{
         context::SignalContext,
         manager::{ProcSignalManager, ThreadSignalManager},
+        Sig,
     },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::SysError,
@@ -94,7 +95,7 @@ pub struct Thread {
 }
 
 impl Thread {
-    pub fn receive(&self, sig: u32) {
+    pub fn receive(&self, sig: Sig) {
         self.inner().signal_manager.receive(sig);
     }
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
@@ -116,11 +117,8 @@ impl Thread {
             }
         }
     }
-    pub fn exit_send_signal(&self) -> Option<u32> {
-        match self.inner().exit_signal {
-            0 => None,
-            s => Some(s),
-        }
+    pub fn exit_send_signal(&self) -> Option<Sig> {
+        self.inner().exit_signal
     }
 }
 
@@ -149,7 +147,7 @@ pub struct ThreadInner {
     /// 线程局部指针
     pub tls: UserInOutPtr<u8>,
     /// 进程退出后将向父进程发送此信号
-    pub exit_signal: u32,
+    pub exit_signal: Option<Sig>,
     pub robust_list: UserInOutPtr<RobustListHead>,
     pub futex_index: FutexIndex,
 }
@@ -186,7 +184,7 @@ impl Thread {
                 threads: ThreadGroup::new(),
                 fd_table: FdTable::new(),
             })),
-            exit_code: AtomicI32::new(0),
+            exit_code: AtomicI32::new(i32::MIN),
         });
         let mut thread = Self {
             tid,
@@ -199,7 +197,7 @@ impl Thread {
                 set_child_tid: UserInOutPtr::null(),
                 clear_child_tid: UserInOutPtr::null(),
                 tls: UserInOutPtr::null(),
-                exit_signal: 0,
+                exit_signal: None,
                 robust_list: UserInOutPtr::null(),
                 futex_index: FutexIndex::new(),
             }),
@@ -234,6 +232,7 @@ impl Thread {
     pub fn get_context(&self) -> &mut UKContext {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
+    #[inline]
     pub async fn handle_signal(&self) -> Result<(), Dead> {
         crate::signal::handle_signal(self.inner(), &self.process).await
     }
@@ -243,7 +242,7 @@ impl Thread {
         new_sp: usize,
         set_child_tid: UserInOutPtr<u32>,
         clear_child_tid: UserInOutPtr<u32>,
-        tls: UserInOutPtr<u8>,
+        tls: Option<UserInOutPtr<u8>>,
         exit_signal: u32,
     ) -> Result<Arc<Self>, SysError> {
         debug_assert!(!flag.contains(CloneFlag::CLONE_THREAD));
@@ -256,12 +255,11 @@ impl Thread {
             inner: UnsafeCell::new(ThreadInner {
                 signal_manager: inner.signal_manager.fork(),
                 scx_ptr: UserInOutPtr::null(),
-                uk_context: inner.uk_context.fork(),
-
+                uk_context: inner.uk_context.fork(tls.map(|v| v.as_usize())),
                 set_child_tid,
                 clear_child_tid,
-                tls,
-                exit_signal,
+                tls: tls.unwrap_or(inner.tls),
+                exit_signal: Sig::from_user(exit_signal).ok(),
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
             }),
@@ -283,7 +281,7 @@ impl Thread {
         new_sp: usize,
         set_child_tid: UserInOutPtr<u32>,
         clear_child_tid: UserInOutPtr<u32>,
-        tls: UserInOutPtr<u8>,
+        tls: Option<UserInOutPtr<u8>>,
         exit_signal: u32,
     ) -> Result<Arc<Self>, SysError> {
         stack_trace!();
@@ -298,11 +296,11 @@ impl Thread {
             inner: UnsafeCell::new(ThreadInner {
                 signal_manager: inner.signal_manager.fork(),
                 scx_ptr: UserInOutPtr::null(),
-                uk_context: inner.uk_context.fork(),
+                uk_context: inner.uk_context.fork(tls.map(|v| v.as_usize())),
                 set_child_tid,
                 clear_child_tid,
-                tls,
-                exit_signal,
+                tls: tls.unwrap_or(inner.tls),
+                exit_signal: Sig::from_user(exit_signal).ok(),
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
             }),

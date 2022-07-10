@@ -63,11 +63,9 @@ impl Syscall<'_> {
         } else {
             UserInOutPtr::null()
         };
-        let tls = if flag.contains(CloneFlag::CLONE_SETTLS) {
-            tls
-        } else {
-            UserInOutPtr::null()
-        };
+
+        let tls = flag.contains(CloneFlag::CLONE_SETTLS).then_some(tls);
+
         let exit_signal = if !flag.contains(CloneFlag::CLONE_DETACHED) {
             (flag & CloneFlag::EXIT_SIGNAL).bits() as u32
         } else {
@@ -369,7 +367,7 @@ impl Syscall<'_> {
     pub fn sys_exit(&mut self) -> SysResult {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
-            println!("sys_exit {:?}", self.process.pid());
+            println!("sys_exit {:?} {:?}", self.process.pid(), self.thread.tid());
         }
         debug_assert!(
             self.process.pid() != Pid::from_usize(0),
@@ -378,13 +376,13 @@ impl Syscall<'_> {
         );
         self.do_exit = true;
         let exit_code: i32 = self.cx.para1();
+        self.process.exit_code.store(exit_code, Ordering::Relaxed);
         self.process.event_bus.close();
         let mut lock = self.process.alive.lock();
         let alive = match lock.as_mut() {
             Some(a) => a,
             None => return Err(SysError::ESRCH),
         };
-        self.process.exit_code.store(exit_code, Ordering::Relaxed);
         // TODO: waiting other thread exit
         memory::set_satp_by_global();
         alive.clear_all(self.process.pid());

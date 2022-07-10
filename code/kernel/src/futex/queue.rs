@@ -277,7 +277,7 @@ impl ViewFutex {
         }
     }
     pub fn set_issued(&self) {
-        debug_assert!(matches!(self.fetch(), ViewOp::Issued));
+        debug_assert!(!matches!(self.fetch(), ViewOp::Issued));
         self.0.store(Self::ISSUED_V, Ordering::Relaxed);
     }
     pub fn set_waited(&self) {

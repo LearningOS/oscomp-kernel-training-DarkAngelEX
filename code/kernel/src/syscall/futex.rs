@@ -43,7 +43,7 @@ impl Syscall<'_> {
             u32,
         ) = self.cx.into();
 
-        if PRINT_SYSCALL_FUTEX || true {
+        if PRINT_SYSCALL_FUTEX {
             let ua = ua.as_usize();
             let timeout = timeout.as_usize();
             let ua2 = ua2.as_usize();

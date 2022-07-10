@@ -2,9 +2,10 @@ pub mod context;
 pub mod manager;
 mod rtqueue;
 
-use core::ops::ControlFlow;
+use core::{fmt::Debug, ops::ControlFlow};
 
 use alloc::sync::Arc;
+use ftl_util::error::SysError;
 
 use crate::{
     config::USER_KRX_BEGIN,
@@ -16,6 +17,38 @@ use crate::{
     user::check::UserCheck,
     xdebug::PRINT_SYSCALL_ALL,
 };
+
+/// 为了提高效率, Sig相比信号值都减去了1
+#[repr(transparent)]
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Sig(pub u32);
+impl Sig {
+    /// 减去 1 来提高 mask 的运算速度
+    #[inline(always)]
+    pub fn from_user(v: u32) -> Result<Self, SysError> {
+        if v > 0 && v <= SIG_N_U32 {
+            Ok(Self(v - 1))
+        } else {
+            Err(SysError::EINVAL)
+        }
+    }
+    #[inline(always)]
+    pub fn to_user(self) -> u32 {
+        self.0 + 1
+    }
+    /// 使用 assume 在 release 模式下为编译器提供更强的优化能力
+    #[inline(always)]
+    pub fn check(self) {
+        debug_assert!(self.0 < SIG_N_U32);
+        unsafe { core::intrinsics::assume(self.0 < SIG_N_U32) }
+    }
+}
+
+impl Debug for Sig {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_tuple("Sig").field(&(self.0 + 1)).finish()
+    }
+}
 
 pub const SIG_N: usize = 64;
 pub const SIG_N_U32: u32 = 64;
@@ -60,75 +93,82 @@ bitflags! {
 
 bitflags! {
     pub struct StdSignalSet: u32 {
-        const SIGHUP    = 1 <<  1;   // 用户终端连接结束
-        const SIGINT    = 1 <<  2;   // 程序终止 可能是Ctrl+C
-        const SIGQUIT   = 1 <<  3;   // 类似SIGINT Ctrl+\
-        const SIGILL    = 1 <<  4;   // 执行了非法指令 页错误 栈溢出
-        const SIGTRAP   = 1 <<  5;   // 断点指令产生 debugger使用
-        const SIGABRT   = 1 <<  6;   // abort函数产生
-        const SIGBUS    = 1 <<  7;   // 非法地址或地址未对齐
-        const SIGFPE    = 1 <<  8;   // 致命算数运算错误，浮点或溢出或除以0
-        const SIGKILL   = 1 <<  9;   // 强制立刻结束程序执行
-        const SIGUSR1   = 1 << 10;   // 用户保留1
-        const SIGSEGV   = 1 << 11;   // 试图读写未分配或无权限的地址
-        const SIGUSR2   = 1 << 12;   // 用户保留2
-        const SIGPIPE   = 1 << 13;   // 管道破裂，没有读管道
-        const SIGALRM   = 1 << 14;   // 时钟定时信号
-        const SIGTERM   = 1 << 15;   // 程序结束信号，用来要求程序自己正常退出
-        const SIGSTKFLT = 1 << 16;   //
-        const SIGCHLD   = 1 << 17;   // 子进程结束时父进程收到这个信号
-        const SIGCONT   = 1 << 18;   // 让停止的进程继续执行，不能阻塞 例如重新显示提示符
-        const SIGSTOP   = 1 << 19;   // 暂停进程 不能阻塞或忽略
-        const SIGTSTP   = 1 << 20;   // 暂停进程 可处理或忽略 Ctrl+Z
-        const SIGTTIN   = 1 << 21;   // 当后台作业要从用户终端读数据时, 该作业中的所有进程会收到SIGTTIN信号. 缺省时这些进程会停止执行
-        const SIGTTOU   = 1 << 22;   // 类似于SIGTTIN, 但在写终端(或修改终端模式)时收到.
-        const SIGURG    = 1 << 23;   // 有"紧急"数据或out-of-band数据到达socket时产生.
-        const SIGXCPU   = 1 << 24;   // 超过CPU时间资源限制 可以由getrlimit/setrlimit来读取/改变。
-        const SIGXFSZ   = 1 << 25;   // 进程企图扩大文件以至于超过文件大小资源限制
-        const SIGVTALRM = 1 << 26;   // 虚拟时钟信号, 类似于SIGALRM, 但是计算的是该进程占用的CPU时间.
-        const SIGPROF   = 1 << 27;   // 类似于SIGALRM/SIGVTALRM, 但包括该进程用的CPU时间以及系统调用的时间
-        const SIGWINCH  = 1 << 28;   // 窗口大小改变时发出
-        const SIGIO     = 1 << 29;   // 文件描述符准备就绪, 可以开始进行输入/输出操作.
-        const SIGPWR    = 1 << 30;   // Power failure
-        const SIGSYS    = 1 << 31;   // 非法的系统调用
+        const SIGHUP    = 1 << ( 1 - 1);   // 用户终端连接结束
+        const SIGINT    = 1 << ( 2 - 1);   // 程序终止 可能是Ctrl+C
+        const SIGQUIT   = 1 << ( 3 - 1);   // 类似SIGINT Ctrl+\
+        const SIGILL    = 1 << ( 4 - 1);   // 执行了非法指令 页错误 栈溢出
+        const SIGTRAP   = 1 << ( 5 - 1);   // 断点指令产生 debugger使用
+        const SIGABRT   = 1 << ( 6 - 1);   // abort函数产生
+        const SIGBUS    = 1 << ( 7 - 1);   // 非法地址或地址未对齐
+        const SIGFPE    = 1 << ( 8 - 1);   // 致命算数运算错误，浮点或溢出或除以0
+        const SIGKILL   = 1 << ( 9 - 1);   // 强制立刻结束程序执行
+        const SIGUSR1   = 1 << (10 - 1);   // 用户保留1
+        const SIGSEGV   = 1 << (11 - 1);   // 试图读写未分配或无权限的地址
+        const SIGUSR2   = 1 << (12 - 1);   // 用户保留2
+        const SIGPIPE   = 1 << (13 - 1);   // 管道破裂，没有读管道
+        const SIGALRM   = 1 << (14 - 1);   // 时钟定时信号
+        const SIGTERM   = 1 << (15 - 1);   // 程序结束信号，用来要求程序自己正常退出
+        const SIGSTKFLT = 1 << (16 - 1);   //
+        const SIGCHLD   = 1 << (17 - 1);   // 子进程结束时父进程收到这个信号
+        const SIGCONT   = 1 << (18 - 1);   // 让停止的进程继续执行，不能阻塞 例如重新显示提示符
+        const SIGSTOP   = 1 << (19 - 1);   // 暂停进程 不能阻塞或忽略
+        const SIGTSTP   = 1 << (20 - 1);   // 暂停进程 可处理或忽略 Ctrl+Z
+        const SIGTTIN   = 1 << (21 - 1);   // 当后台作业要从用户终端读数据时, 该作业中的所有进程会收到SIGTTIN信号. 缺省时这些进程会停止执行
+        const SIGTTOU   = 1 << (22 - 1);   // 类似于SIGTTIN, 但在写终端(或修改终端模式)时收到.
+        const SIGURG    = 1 << (23 - 1);   // 有"紧急"数据或out-of-band数据到达socket时产生.
+        const SIGXCPU   = 1 << (24 - 1);   // 超过CPU时间资源限制 可以由getrlimit/setrlimit来读取/改变。
+        const SIGXFSZ   = 1 << (25 - 1);   // 进程企图扩大文件以至于超过文件大小资源限制
+        const SIGVTALRM = 1 << (26 - 1);   // 虚拟时钟信号, 类似于SIGALRM, 但是计算的是该进程占用的CPU时间.
+        const SIGPROF   = 1 << (27 - 1);   // 类似于SIGALRM/SIGVTALRM, 但包括该进程用的CPU时间以及系统调用的时间
+        const SIGWINCH  = 1 << (28 - 1);   // 窗口大小改变时发出
+        const SIGIO     = 1 << (29 - 1);   // 文件描述符准备就绪, 可以开始进行输入/输出操作.
+        const SIGPWR    = 1 << (30 - 1);   // Power failure
+        const SIGSYS    = 1 << (31 - 1);   // 非法的系统调用
+        const SIGTIMER  = 1 << (32 - 1);   // 非法的系统调用
     }
 }
 
 impl StdSignalSet {
     pub const EMPTY: Self = Self::empty();
     pub const NEVER_CAPTURE: Self = Self::SIGKILL.union(Self::SIGSTOP);
+    pub fn from_sig(sig: Sig) -> Self {
+        match sig.0 {
+            0..32 => Self::from_bits_truncate(1 << sig.0),
+            _ => panic!(),
+        }
+    }
     #[inline(always)]
-    pub fn fetch_never_capture(&self) -> ControlFlow<u32> {
+    pub fn fetch_never_capture(&self) -> ControlFlow<Sig> {
         if core::intrinsics::unlikely(self.contains(StdSignalSet::NEVER_CAPTURE)) {
             if self.contains(StdSignalSet::SIGKILL) {
-                return ControlFlow::Break(SIGKILL as u32);
+                return ControlFlow::Break(Sig::from_user(SIGKILL as u32).unwrap());
             }
             if self.contains(StdSignalSet::SIGSTOP) {
-                return ControlFlow::Break(SIGSTOP as u32);
+                return ControlFlow::Break(Sig::from_user(SIGSTOP as u32).unwrap());
             }
         }
         ControlFlow::CONTINUE
     }
-    pub fn fetch_segv(&self) -> ControlFlow<u32> {
+    pub fn fetch_segv(&self) -> ControlFlow<Sig> {
         if self.contains(StdSignalSet::SIGSEGV) {
-            ControlFlow::Break(SIGSEGV as u32)
+            ControlFlow::Break(Sig::from_user(SIGSEGV as u32).unwrap())
         } else {
             ControlFlow::CONTINUE
         }
     }
-    pub fn fetch(&self) -> ControlFlow<u32> {
+    pub fn fetch(&self) -> ControlFlow<Sig> {
         if self.is_empty() {
             return ControlFlow::CONTINUE;
         }
         self.fetch_never_capture()?;
         self.fetch_segv()?;
-        let sig = self.bits.trailing_zeros();
-        debug_assert!(sig < 32);
+        let sig = Sig(self.bits.trailing_zeros());
+        debug_assert!(sig.0 < 32);
         ControlFlow::Break(sig)
     }
-    pub fn clear_sig(&mut self, sig: u32) {
+    pub fn clear_sig(&mut self, sig: Sig) {
         if !SignalSet::is_never_capture_sig(sig) {
-            self.remove(unsafe { StdSignalSet::from_bits_unchecked(1 << sig) })
+            self.remove(StdSignalSet::from_sig(sig))
         }
     }
 }
@@ -141,19 +181,18 @@ impl SignalSet {
     pub const NEVER_CAPTURE: Self = Self::never_capture();
     pub const fn never_capture() -> Self {
         let mut set = Self::EMPTY;
-        set.0[0] = SIGKILL | SIGSTOP;
+        set.0[0] = 1 << SIGKILL - 1 | 1 << SIGSTOP - 1;
         set
     }
     #[inline(always)]
-    pub const fn is_never_capture_sig(sig: u32) -> bool {
-        debug_assert!(sig < SIG_N as u32);
-        match sig as usize {
+    pub const fn is_never_capture_sig(sig: Sig) -> bool {
+        match (sig.0 + 1) as usize {
             SIGKILL | SIGSTOP => true,
             _ => false,
         }
     }
     pub fn std_signal(&self) -> StdSignalSet {
-        unsafe { StdSignalSet::from_bits_unchecked(self.0[0] as u32) }
+        StdSignalSet::from_bits_truncate(self.0[0] as u32)
     }
     pub fn bytes(&self) -> impl Iterator<Item = u8> + '_ {
         self.0.iter().flat_map(|&a| usize::to_ne_bytes(a))
@@ -201,14 +240,20 @@ impl SignalSet {
         self.apply_all(sigs, |a, b| a | b);
     }
     /// 将第place个bit置为1
-    pub fn insert_bit(&mut self, place: usize) {
-        self.0[place / usize::BITS as usize] |= 1 << (place % usize::BITS as usize);
+    pub fn insert_bit(&mut self, sig: Sig) {
+        sig.check();
+        let sig = sig.0 as usize;
+        self.0[sig / usize::BITS as usize] |= 1 << (sig % usize::BITS as usize);
     }
-    pub fn remove_bit(&mut self, place: usize) {
-        self.0[place / usize::BITS as usize] &= !(1 << (place % usize::BITS as usize));
+    pub fn remove_bit(&mut self, sig: Sig) {
+        sig.check();
+        let sig = sig.0 as usize;
+        self.0[sig / usize::BITS as usize] &= !(1 << (sig % usize::BITS as usize));
     }
-    pub fn get_bit(&self, place: usize) -> bool {
-        (self.0[place / usize::BITS as usize] & (1 << (place % usize::BITS as usize))) != 0
+    pub fn get_bit(&self, sig: Sig) -> bool {
+        sig.check();
+        let sig = sig.0 as usize;
+        (self.0[sig / usize::BITS as usize] & (1 << (sig % usize::BITS as usize))) != 0
     }
     /// A &= !B
     pub fn remove(&mut self, sigs: &Self) {
@@ -316,7 +361,7 @@ impl SigAction {
         }
     }
     #[inline(always)]
-    pub fn reset_never_capture(&mut self, sig: u32) {
+    pub fn reset_never_capture(&mut self, sig: Sig) {
         if SignalSet::is_never_capture_sig(sig) {
             self.handler = SIG_DFL;
         }
@@ -330,12 +375,21 @@ impl SigAction {
     }
 }
 
-pub fn send_signal(process: Arc<Process>, sig: u32) -> Result<(), Dead> {
+pub fn send_signal(process: Arc<Process>, sig: Sig) -> Result<(), Dead> {
     process.signal_manager.receive(sig);
     process.event_bus.set(Event::RECEIVE_SIGNAL)?;
     Ok(())
 }
 
+static mut HANDLE_CNT: usize = 0;
+
+///
+/// signal handler包含如下参数: (sig, si, ctx), 其中:
+///
+///     sig: 信号ID
+///     si:  siginfo_t  cancel_handler用不上
+///     ctx: ucontext_t 保存的原上下文
+///
 pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Result<(), Dead> {
     stack_trace!();
     let tsm = &mut thread.signal_manager;
@@ -354,12 +408,17 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         None => return Ok(()),
     };
     // 找到了一个待处理信号
-    assert!(signal < SIG_N as u32);
     if PRINT_SYSCALL_ALL {
         println!(
-            "handle_signal - find signal: {} sepc: {:#x}",
+            "handle_signal - find signal: {:?} sepc: {:#x}",
             signal, thread.uk_context.user_sepc
         );
+    }
+    unsafe {
+        HANDLE_CNT += 1;
+        if HANDLE_CNT > 30 {
+            panic!("handle too many signal!");
+        }
     }
     let (act, sig_mask) = psm.get_action(signal);
     let (handler, ra) = match act {
@@ -375,7 +434,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     let old_mask = mask;
     let mut new_mask = mask;
     new_mask.insert(sig_mask);
-    new_mask.insert_bit(signal as usize);
+    new_mask.insert_bit(signal);
     tsm.set_mask(&new_mask);
     let old_scxptr = thread.scx_ptr;
     let uk_cx = &mut thread.uk_context;
@@ -390,7 +449,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         .await
         .map_err(|_e| Dead)?;
     scx.access_mut()[0].load(uk_cx, old_scxptr, old_mask);
-    uk_cx.set_user_a0(signal as usize);
+    uk_cx.set_signal_paramater(signal, 0, scx_ptr.as_usize());
     uk_cx.set_user_sp(sp);
     uk_cx.set_user_ra(ra);
     uk_cx.set_user_sepc(handler);
@@ -408,6 +467,9 @@ pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysResult
         (scx_ptr, mask) => {
             thread.scx_ptr = scx_ptr;
             thread.signal_manager.set_mask(mask);
+            if PRINT_SYSCALL_ALL {
+                println!("sigreturn restore mask: {:#x}", mask.0[0]);
+            }
         }
     }
     Ok(thread.uk_context.a0())

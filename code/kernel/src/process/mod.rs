@@ -145,7 +145,7 @@ impl Process {
             event_bus: EventBus::new(),
             signal_manager: self.signal_manager.fork(),
             alive: Mutex::new(Some(new_alive)),
-            exit_code: AtomicI32::new(0),
+            exit_code: AtomicI32::new(i32::MIN),
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();

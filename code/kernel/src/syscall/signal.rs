@@ -1,7 +1,7 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::{search, Pid, Tid},
-    signal::{SigAction, SignalSet, SignalStack, SIG_N, SIG_N_U32},
+    signal::{Sig, SigAction, SignalSet, SignalStack, SIG_N},
     sync::even_bus::Event,
     syscall::SysError,
     user::check::UserCheck,
@@ -38,9 +38,10 @@ impl Syscall<'_> {
             println!("sys_kill pid:{} signal:{}", pid, signal);
         }
 
-        if signal >= SIG_N as u32 {
-            return Err(SysError::EINVAL);
+        if signal == 0 {
+            unimplemented!();
         }
+        let signal = Sig::from_user(signal)?;
 
         enum Target {
             Pid(Pid),     // > 0
@@ -72,14 +73,13 @@ impl Syscall<'_> {
     pub fn sys_tkill(&mut self) -> SysResult {
         stack_trace!();
         let (tid, sig): (Tid, u32) = self.cx.into();
-        if PRINT_SYSCALL_SIGNAL || true {
+        if PRINT_SYSCALL_SIGNAL {
             println!("sys_tkill tid: {:?} signal: {}", tid, sig);
         }
-        if sig >= SIG_N_U32 {
-            return Err(SysError::EINVAL);
-        }
         let thread = search::find_thread(tid).ok_or(SysError::ESRCH)?;
-        thread.receive(sig);
+        if sig != 0 {
+            thread.receive(Sig::from_user(sig)?);
+        }
         Ok(0)
     }
     pub fn sys_tgkill(&mut self) -> SysResult {
@@ -92,7 +92,9 @@ impl Syscall<'_> {
         if thread.process.pid() != pid {
             return Err(SysError::ESRCH);
         }
-        thread.receive(signal);
+        if signal != 0 {
+            thread.receive(Sig::from_user(signal)?);
+        }
         Ok(0)
     }
     pub async fn sys_sigaltstack(&mut self) -> SysResult {
@@ -135,6 +137,7 @@ impl Syscall<'_> {
                 s_size
             );
         }
+        let sig = Sig::from_user(sig)?;
         debug_assert!(s_size <= SIG_N);
         let manager = &self.process.signal_manager;
         let user_check = UserCheck::new(self.process);
@@ -192,9 +195,6 @@ impl Syscall<'_> {
         if newset.as_uptr_nullable().ok_or(SysError::EINVAL)?.is_null() {
             return Ok(0);
         }
-        if PRINT_SYSCALL_SIGNAL {
-            println!("new: {:#x?}", sig_mask.0[0]);
-        }
         let newset = user_check.readonly_slice(newset, s_size).await?;
         let newset = SignalSet::from_bytes(&*newset.access());
         match how {
@@ -202,6 +202,9 @@ impl Syscall<'_> {
             SIG_UNBLOCK => sig_mask.remove(&newset),
             SIG_SETMASK => *sig_mask = newset,
             _ => return Err(SysError::EINVAL),
+        }
+        if PRINT_SYSCALL_SIGNAL {
+            println!("new: {:#x?}", sig_mask.0[0]);
         }
         Ok(0)
     }
