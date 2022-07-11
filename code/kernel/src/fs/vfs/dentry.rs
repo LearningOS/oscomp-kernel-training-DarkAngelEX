@@ -6,8 +6,9 @@ use alloc::{
     string::String,
     sync::{Arc, Weak},
 };
+use ftl_util::fs::VfsInode;
 
-use crate::{fs::VfsInode, sync::mutex::SpinNoIrqLock};
+use crate::sync::mutex::SpinNoIrqLock;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NameHash(usize);

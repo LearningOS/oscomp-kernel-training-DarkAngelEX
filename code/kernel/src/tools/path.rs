@@ -1,7 +1,5 @@
 use alloc::{sync::Arc, vec::Vec};
-use ftl_util::error::SysError;
-
-use crate::fs::File;
+use ftl_util::{error::SysError, fs::File};
 
 pub fn walk_iter_path<'a>(src: impl Iterator<Item = &'a str>, dst: &mut Vec<&'a str>) {
     for s in src {

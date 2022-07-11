@@ -442,7 +442,7 @@ pub mod test {
     ) {
         assert!(producer + consumer <= cpu::count());
         tools::wait_all_hart();
-        let begin = timer::get_time_ticks();
+        let begin = timer::get_time();
         let n = if hart < producer {
             let n = if hart != producer - 1 {
                 total / producer
@@ -480,7 +480,7 @@ pub mod test {
         } else {
             0
         };
-        let end = timer::get_time_ticks();
+        let end = timer::get_time();
         for i in 0..cpu::count() {
             tools::wait_all_hart();
             if i == hart {
@@ -489,7 +489,7 @@ pub mod test {
                     tools::n_space(off),
                     hart,
                     n,
-                    (end - begin).millisecond()
+                    (end - begin).as_millis()
                 );
             }
         }
@@ -533,14 +533,14 @@ pub mod test {
         }
         stack_trace!();
         tools::wait_all_hart();
-        let t0 = timer::get_time_ticks();
+        let t0 = timer::get_time();
         tools::wait_all_hart();
         test_push_pop_impl(hart, producer, consumer, total, push, pop, off + 4);
         tools::wait_all_hart();
-        let t1 = timer::get_time_ticks();
+        let t1 = timer::get_time();
         tools::wait_all_hart();
         if hart == 0 {
-            let ms = (t1 - t0).millisecond();
+            let ms = (t1 - t0).as_millis();
             println!("{}time: {}ms", tools::n_space(off), ms);
             if false {
                 println!("{}check begin", tools::n_space(off));
@@ -574,7 +574,7 @@ pub mod test {
         }
         tools::wait_all_hart();
         unsafe { SET_TABLE[hart].clear() };
-        let t0 = timer::get_time_ticks();
+        let t0 = timer::get_time();
         tools::wait_all_hart();
         loop {
             let begin = COUNT_PUSH.fetch_add(batch, Ordering::Relaxed);
@@ -600,10 +600,10 @@ pub mod test {
             }
         }
         tools::wait_all_hart();
-        let t1 = timer::get_time_ticks();
+        let t1 = timer::get_time();
         tools::wait_all_hart();
         if hart == 0 {
-            let ms = (t1 - t0).millisecond();
+            let ms = (t1 - t0).as_millis();
             println!("{}time: {}ms", tools::n_space(off), ms);
             assert_eq!(TEST_QUEUE_0.pop().unwrap(), None);
             if false {
@@ -633,7 +633,7 @@ pub mod test {
         }
         tools::wait_all_hart();
         unsafe { SET_TABLE[hart].clear() };
-        let t0 = timer::get_time_ticks();
+        let t0 = timer::get_time();
         tools::wait_all_hart();
 
         match hart {
@@ -732,10 +732,10 @@ pub mod test {
             }
             assert!(pop().is_none());
         }
-        let t1 = timer::get_time_ticks();
+        let t1 = timer::get_time();
         tools::wait_all_hart();
         if hart == 0 {
-            let ms = (t1 - t0).millisecond();
+            let ms = (t1 - t0).as_millis();
             println!("{}time: {}ms", tools::n_space(off), ms);
             assert_eq!(TEST_QUEUE_0.pop().unwrap(), None);
             if false {

@@ -1,7 +1,10 @@
+use core::time::Duration;
+
 use alloc::boxed::Box;
 
-use super::{AsyncFile, File};
 use crate::{console, sync::SleepMutex};
+
+use ftl_util::{async_tools::AsyncFile, fs::File};
 
 pub struct Stdin;
 
@@ -30,8 +33,8 @@ impl File for Stdin {
                     c = console::getchar() as usize;
                     if [0, u32::MAX as usize].contains(&c) {
                         if !crate::xdebug::CLOSE_TIME_INTERRUPT {
-                            use crate::timer::{sleep, TimeTicks};
-                            sleep::just_wait(TimeTicks::from_millisecond(5)).await;
+                            use crate::timer::sleep;
+                            sleep::just_wait(Duration::from_millis(5)).await;
                         } else {
                             crate::process::thread::yield_now().await;
                         }

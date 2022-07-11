@@ -1,4 +1,4 @@
-use core::ops::Range;
+use core::{ops::Range, time::Duration};
 
 use alloc::{
     collections::BTreeMap,
@@ -10,7 +10,6 @@ use crate::{
     memory::{address::UserAddr, user_ptr::UserInOutPtr},
     process::Pid,
     sync::mutex::SpinNoIrqLock,
-    timer::TimeTicks,
     tools::range::URange,
 };
 
@@ -119,7 +118,7 @@ impl Futex {
     pub async fn wait(
         &self,
         mask: u32,
-        timeout: TimeTicks,
+        timeout: Duration,
         pid: Option<Pid>,
         mut fail: impl FnMut() -> bool,
     ) -> WaitStatus {

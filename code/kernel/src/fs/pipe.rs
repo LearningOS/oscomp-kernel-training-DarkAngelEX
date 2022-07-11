@@ -9,7 +9,11 @@ use alloc::{
     boxed::Box,
     sync::{Arc, Weak},
 };
-use ftl_util::error::SysError;
+use ftl_util::{
+    async_tools::AsyncFile,
+    error::SysError,
+    fs::{File, Seek},
+};
 
 use crate::{
     config::PAGE_SIZE,
@@ -18,8 +22,6 @@ use crate::{
     syscall::SysResult,
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
 };
-
-use super::{AsyncFile, File, Seek};
 
 const RING_PAGE: usize = 4;
 const RING_SIZE: usize = RING_PAGE * PAGE_SIZE;

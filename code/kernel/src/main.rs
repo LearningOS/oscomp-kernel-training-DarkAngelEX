@@ -60,7 +60,6 @@ extern crate async_task;
 extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;
-extern crate easy_fs;
 extern crate fat32;
 extern crate riscv;
 extern crate xmas_elf;

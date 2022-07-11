@@ -6,13 +6,13 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
+use ftl_util::fs::{Mode, OpenFlags};
 use riscv::register::scause::Exception;
 
 use crate::{
     config::{
         PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE,
     },
-    fs::{Mode, OpenFlags},
     futex::OwnFutex,
     local,
     memory::{
@@ -384,7 +384,7 @@ impl UserSpace {
             fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
                 let seed = match CLOSE_RANDOM {
                     true => 1,
-                    false => timer::get_time_ticks().into_usize() as u64 ^ 0xcdba,
+                    false => timer::get_time().as_nanos() as u64 ^ 0xcdba,
                 };
                 let mut s = (0x1u64, seed);
                 for dst in dst {

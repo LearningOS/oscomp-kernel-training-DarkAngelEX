@@ -19,7 +19,7 @@ pub fn fetch_random_state() -> (u64, u64) {
     loop {
         let old = RANDOM_STATE.load(Ordering::Relaxed);
         let seed = match CLOSE_RANDOM {
-            false => (timer::get_time_ticks().into_usize() as u64) ^ 0x16785955_81750151,
+            false => (timer::get_time().as_nanos() as u64) ^ 0x16785955_81750151,
             true => 1,
         };
         let new = tools::xor_shift_128_plus((seed, old));

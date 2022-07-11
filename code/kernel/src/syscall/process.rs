@@ -1,11 +1,14 @@
-use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering};
+use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering, time::Duration};
 
 use alloc::{string::String, vec::Vec};
+use ftl_util::{
+    fs::{Mode, OpenFlags},
+    time::TimeSpec,
+};
 
 use crate::{
     config::{PAGE_SIZE, USER_DYN_BEGIN, USER_STACK_RESERVE},
-    fs::{self, Mode},
-    local,
+    fs, local,
     memory::{
         address::{PageCount, UserAddr},
         asid::USING_ASID,
@@ -18,7 +21,7 @@ use crate::{
         search, thread, userloop, CloneFlag, Pid,
     },
     sync::even_bus::{self, Event},
-    timer::{self, TimeSpec, TimeTicks},
+    timer,
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -137,14 +140,13 @@ impl Syscall<'_> {
         let inode = fs::open_file(
             Some(Ok(&mut self.alive_then(|a| a.cwd.clone()).path_iter())),
             path.as_str(),
-            fs::OpenFlags::RDONLY,
+            OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await?;
         let mut iter = inode.path_iter();
         iter.next_back();
-        let dir =
-            fs::open_file(Some(Ok(&mut iter)), "", fs::OpenFlags::RDONLY, Mode(0o500)).await?;
+        let dir = fs::open_file(Some(Ok(&mut iter)), "", OpenFlags::RDONLY, Mode(0o500)).await?;
         let elf_data = inode.read_all().await?;
         let (mut user_space, user_sp, mut entry_point, mut auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -399,16 +401,18 @@ impl Syscall<'_> {
             None => None,
             Some(rem) => Some(UserCheck::new(self.process).writable_value(rem).await?),
         };
-        let deadline = timer::get_time_ticks() + TimeTicks::from_time_spec(req);
-        let ret = timer::sleep::sleep(deadline, &self.process.event_bus).await;
+        let now = timer::get_time();
+        let dur = req.as_duration();
+        let deadline = now + dur;
+        let ret = timer::sleep::sleep(dur, &self.process.event_bus).await;
         if let Some(rem) = rem {
-            let time_end = timer::get_time_ticks();
+            let time_end = timer::get_time();
             let time_rem = if time_end < deadline {
                 deadline - time_end
             } else {
-                TimeTicks::ZERO
+                Duration::ZERO
             };
-            rem.store(time_rem.time_sepc());
+            rem.store(TimeSpec::from_duration(time_rem));
         }
         ret
     }

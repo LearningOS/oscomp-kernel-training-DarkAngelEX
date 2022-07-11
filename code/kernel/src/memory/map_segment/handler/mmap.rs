@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, sync::Arc};
+use ftl_util::fs::File;
 
 use crate::{
-    fs::File,
     memory::{
         address::UserAddr4K,
         asid::Asid,

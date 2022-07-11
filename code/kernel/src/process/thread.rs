@@ -12,10 +12,10 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
+use ftl_util::fs::VfsInode;
 use riscv::register::sstatus;
 
 use crate::{
-    fs::VfsInode,
     futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     hart::floating,
     memory::{

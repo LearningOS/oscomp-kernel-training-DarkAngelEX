@@ -4,15 +4,16 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::{error::SysError, fs::DentryType};
-
-use crate::{
+use ftl_util::{
+    async_tools::AsyncFile,
+    error::SysError,
     fs::{
         stat::{Stat, S_IFCHR},
-        AsyncFile, File, VfsInode,
+        DentryType, File, VfsInode,
     },
-    tools::xasync::Async,
 };
+
+use crate::tools::xasync::Async;
 
 pub struct NullInode;
 

@@ -1,9 +1,12 @@
-use crate::{
+use ftl_util::{
     fs::{stat::Stat, Mode, OpenFlags},
+    time::TimeSpec,
+};
+
+use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::{fs::PRINT_SYSCALL_FS, SysError, SysResult, Syscall},
-    timer::TimeSpec,
     user::check::UserCheck,
 };
 

@@ -1,16 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crate::{
-    drivers, executor,
-    fs::{
-        stat::{Stat, S_IFDIR, S_IFREG},
-        AsyncFile, File, OpenFlags, Seek,
-    },
-    syscall::SysResult,
-    timer::TimeSpec,
-    tools::xasync::Async,
-    user::AutoSie,
-};
+use crate::{drivers, executor, syscall::SysResult, tools::xasync::Async, user::AutoSie, timer};
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -18,7 +8,16 @@ use alloc::{
     vec::Vec,
 };
 use fat32::Fat32Manager;
-use ftl_util::{error::SysError, fs::DentryType, utc_time::UtcTime};
+use ftl_util::{
+    async_tools::AsyncFile,
+    error::SysError,
+    fs::{
+        stat::{Stat, S_IFDIR, S_IFREG},
+        DentryType, File, OpenFlags, Seek,
+    },
+    time::TimeSpec,
+    utc_time::UtcTime,
+};
 
 pub use fat32::AnyInode;
 
@@ -244,7 +243,7 @@ impl File for Fat32Inode {
     }
     fn utimensat(&self, times: [TimeSpec; 2]) -> Async<SysResult> {
         Box::pin(async move {
-            let [access, modify] = times.try_map(|ts| ts.to_utc_time())?;
+            let [access, modify] = times.try_map(timer::time_sepc_to_utc)?;
             self.inode
                 .update_time(access.as_ref(), modify.as_ref())
                 .await;

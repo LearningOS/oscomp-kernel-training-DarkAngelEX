@@ -1,32 +1,13 @@
-use crate::{
-    fs::{File, Mode, OpenFlags},
-    syscall::SysError,
-    tools::{path, xasync::Async},
-};
-use alloc::{string::String, sync::Arc, vec::Vec};
+use crate::{syscall::SysError, tools::path};
+use alloc::{sync::Arc, vec::Vec};
 
-use ftl_util::fs::DentryType;
+use ftl_util::fs::{Mode, OpenFlags, VfsInode};
 
 // type InodeImpl = easyfs_inode::EasyFsInode;
 type InodeImpl = fat32_inode::Fat32Inode;
 
 pub mod dev;
-mod easyfs_inode;
 mod fat32_inode;
-
-pub trait VfsInode: File {
-    fn read_all(&self) -> Async<Result<Vec<u8>, SysError>>;
-    fn list(&self) -> Async<Result<Vec<(DentryType, String)>, SysError>>;
-    fn path(&self) -> &[String];
-}
-
-impl dyn VfsInode {
-    pub fn path_iter(
-        &self,
-    ) -> impl DoubleEndedIterator<Item = &str> + ExactSizeIterator<Item = &str> {
-        self.path().iter().map(|s| s.as_str())
-    }
-}
 
 pub async fn init() {
     dev::init();

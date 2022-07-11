@@ -2,6 +2,8 @@ use core::{alloc::AllocError, fmt, ops::ControlFlow};
 
 use alloc::string::FromUtf8Error;
 
+pub type SysResult = Result<usize, SysError>;
+
 #[allow(dead_code, clippy::upper_case_acronyms)]
 #[repr(isize)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

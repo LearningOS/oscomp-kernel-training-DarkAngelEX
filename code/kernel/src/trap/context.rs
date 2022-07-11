@@ -1,17 +1,16 @@
-use riscv::register::fcsr::FCSR;
-use riscv::register::sstatus::FS;
+use ftl_util::fs::Mode;
 
-use crate::fs::Mode;
-use crate::hart::floating;
-use crate::riscv::register::sstatus::Sstatus;
-use crate::signal::Sig;
-use crate::tools::allocator::from_usize_allocator::FromUsize;
+use riscv::register::{fcsr::FCSR, sstatus::FS};
+
 use crate::{
-    hart::floating::FLOAT_ENABLE,
+    hart::floating::{self, FLOAT_ENABLE},
     memory::{
         address::UserAddr,
         user_ptr::{Policy, UserPtr},
     },
+    riscv::register::sstatus::Sstatus,
+    signal::Sig,
+    tools::allocator::from_usize_allocator::FromUsize,
 };
 
 /// user-kernel context

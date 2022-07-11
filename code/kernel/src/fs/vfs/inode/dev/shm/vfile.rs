@@ -6,14 +6,13 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::{error::SysError, fs::DentryType};
-
-use crate::{
-    fs::{AsyncFile, File, Seek, VfsInode},
-    sync::RwSleepMutex,
-    syscall::SysResult,
-    tools::xasync::Async,
+use ftl_util::{
+    async_tools::AsyncFile,
+    error::SysError,
+    fs::{DentryType, File, Seek, VfsInode},
 };
+
+use crate::{sync::RwSleepMutex, syscall::SysResult, tools::xasync::Async};
 
 static mut ROOT_DIR: Option<Arc<ShmInode>> = None;
 

@@ -4,14 +4,18 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::{error::SysError, fs::DentryType};
+use ftl_util::{
+    async_tools::AsyncFile,
+    error::SysError,
+    fs::{
+        stat::{Stat, S_IFCHR},
+        DentryType, File, Seek, VfsInode,
+    },
+};
 
 use crate::{
     config::PAGE_SIZE,
-    fs::{
-        stat::{Stat, S_IFCHR},
-        AsyncFile, File, Seek, Stdin, Stdout, VfsInode,
-    },
+    fs::{Stdin, Stdout},
     syscall::SysResult,
     tools::xasync::Async,
 };

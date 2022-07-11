@@ -1,6 +1,8 @@
+use ftl_util::time::{TimeSpec, TimeVal, TimeZone};
+
 use crate::{
     memory::user_ptr::UserWritePtr,
-    timer::{self, TimeSpec, TimeVal, TimeZone, Tms},
+    timer::{self, Tms},
     user::check::UserCheck,
 };
 
@@ -10,7 +12,7 @@ impl Syscall<'_> {
     pub async fn sys_clock_gettime(&mut self) -> SysResult {
         stack_trace!();
         let (_clkid, tp): (usize, UserWritePtr<TimeSpec>) = self.cx.into();
-        let cur = TimeSpec::from_ticks(timer::get_time_ticks());
+        let cur = TimeSpec::from_duration(timer::get_time());
         UserCheck::new(self.process)
             .writable_value(tp)
             .await?
@@ -25,7 +27,7 @@ impl Syscall<'_> {
             let tms = Tms::zeroed();
             dst.store(tms);
         }
-        Ok(timer::get_time_ticks().second() as usize)
+        Ok(timer::get_time().as_secs() as usize)
     }
     pub async fn sys_gettimeofday(&mut self) -> SysResult {
         stack_trace!();
@@ -40,7 +42,7 @@ impl Syscall<'_> {
         } else {
             None
         };
-        let (tv, tz) = timer::get_time_ticks().tv_tz();
+        let (tv, tz) = timer::dur_to_tv_tz(timer::get_time());
         u_tv.map(|p| p.store(tv));
         u_tz.map(|p| p.store(tz));
         Ok(0)

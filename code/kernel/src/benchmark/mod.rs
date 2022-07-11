@@ -1,6 +1,7 @@
 use core::{
     arch::{asm, global_asm},
     sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
 };
 
 use riscv::register::{stvec, utvec::TrapMode};
@@ -9,8 +10,7 @@ use crate::{
     board::CLOCK_FREQ,
     hart::{sbi, sfence},
     sync::mutex::{SpinLock, SpinNoIrqLock},
-    timer::{self, TimeTicks},
-    trap,
+    timer, trap,
     user::AutoSie,
 };
 
@@ -41,26 +41,28 @@ pub fn run_all() {
 }
 
 pub struct BenchmarkTimer {
-    tick: TimeTicks,
+    tick: Duration,
 }
 
 impl BenchmarkTimer {
     pub fn new() -> Self {
         Self {
-            tick: timer::get_time_ticks(),
+            tick: timer::get_time(),
         }
     }
     // pub fn reset(&mut self) {
     //     self.tick = timer::get_time_ticks();
     // }
     #[inline(never)]
-    pub fn check(&mut self, msg: &'static str, base_time: TimeTicks, ratio: usize) -> TimeTicks {
-        let dur = TimeTicks::from_usize((timer::get_time_ticks() - self.tick).into_usize() * ratio);
-        let base = dur.into_usize() * 100 / base_time.into_usize();
+    pub fn check(&mut self, msg: &'static str, base_time: Duration, ratio: usize) -> Duration {
+        let dur = Duration::from_micros(
+            ((timer::get_time() - self.tick).as_micros() * ratio as u128) as u64,
+        );
+        let base = dur.as_micros() * 100 / base_time.as_micros();
         println!("    {}", msg);
         print!(
             "        {:>5}ms {:>4}.{:0<2}",
-            dur.millisecond(),
+            dur.as_millis(),
             base / 100,
             base % 100
         );
@@ -79,7 +81,7 @@ impl BenchmarkTimer {
         }
         print!("\x1b[0m");
         println!();
-        self.tick = timer::get_time_ticks();
+        self.tick = timer::get_time();
         dur
     }
 }
@@ -91,20 +93,15 @@ fn frequent_test() {
     }
     println!("[FTL OS]frequent test begin");
     const BASE: usize = 200_000_000;
-    let start = timer::get_time_ticks();
+    let start = timer::get_time();
     unsafe { __time_frequent_test_impl(BASE) };
-    let dur = (timer::get_time_ticks() - start).into_usize();
-    println!(
-        "run {}M using {} ticks time: {}ms",
-        BASE / 1000_000,
-        dur,
-        dur * 1000 / CLOCK_FREQ as usize
-    );
+    let dur = (timer::get_time() - start).as_micros() as usize;
+    println!("run {}M using time: {}ms", BASE / 1000_000, dur / 1000);
     print!("{}", to_yellow!());
     println!(
         "clock: {}KHz, core: {}MHz",
         CLOCK_FREQ / 1000,
-        BASE * CLOCK_FREQ as usize / dur / 1000_000
+        BASE / dur
     );
     print!("{}", reset_color!());
 }
@@ -121,7 +118,7 @@ fn atomic_test() {
         // a += x;
     }
     black(a);
-    let base_time = timer.check("native for", TimeTicks::from_millisecond(10), 1);
+    let base_time = timer.check("native for", Duration::from_millis(10), 1);
 
     let ratio = 1;
     let a = AtomicUsize::new(0);

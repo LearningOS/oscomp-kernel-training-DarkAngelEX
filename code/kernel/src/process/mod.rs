@@ -4,9 +4,10 @@ use alloc::{
     vec::Vec,
 };
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use ftl_util::fs::{Mode, OpenFlags, VfsInode};
 
 use crate::{
-    fs::{self, Mode, VfsInode},
+    fs,
     memory::{asid::Asid, UserSpace},
     signal::manager::ProcSignalManager,
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
@@ -174,7 +175,7 @@ pub async fn init() {
     let cwd = fs::open_file(
         Some(Ok([].into_iter())),
         "/",
-        fs::OpenFlags::RDONLY,
+        OpenFlags::RDONLY,
         Mode(0o500),
     )
     .await
@@ -190,7 +191,7 @@ pub async fn init() {
         let inode = fs::open_file(
             Some(Ok([].into_iter())),
             initproc,
-            fs::OpenFlags::RDONLY,
+            OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await

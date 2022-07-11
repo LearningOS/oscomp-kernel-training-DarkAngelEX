@@ -1,7 +1,8 @@
 use alloc::sync::Arc;
-use ftl_util::error::SysError;
-
-use crate::fs::{Mode, OpenFlags};
+use ftl_util::{
+    error::SysError,
+    fs::{Mode, OpenFlags},
+};
 
 use super::VfsInode;
 

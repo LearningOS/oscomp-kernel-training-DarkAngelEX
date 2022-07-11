@@ -4,15 +4,13 @@ use core::{
     ptr::NonNull,
     sync::atomic::{AtomicPtr, Ordering},
     task::{Context, Poll, Waker},
+    time::Duration,
 };
 
 use alloc::boxed::Box;
 use ftl_util::{async_tools, list::ListNode};
 
-use crate::{
-    process::Pid,
-    timer::{self, TimeTicks},
-};
+use crate::{process::Pid, timer};
 
 use super::{Futex, WaitStatus, WakeStatus};
 
@@ -65,7 +63,7 @@ impl FutexQueue {
     pub async fn wait(
         futex: &Futex,
         mask: u32,
-        timeout: TimeTicks,
+        timeout: Duration,
         pid: Option<Pid>,
         fail: impl FnOnce() -> bool,
     ) -> WaitStatus {
@@ -334,7 +332,7 @@ impl ViewFutex {
 
 struct FutexFuture {
     node: ListNode<Node>,
-    timeout: TimeTicks,
+    timeout: Duration,
 }
 
 impl FutexFuture {
@@ -357,7 +355,7 @@ impl Future for FutexFuture {
         if let ViewOp::Issued = self.node.data().futex.fetch() {
             return Poll::Ready(());
         }
-        if self.timeout > timer::get_time_ticks() {
+        if self.timeout > timer::get_time() {
             return Poll::Pending;
         }
         // remove self

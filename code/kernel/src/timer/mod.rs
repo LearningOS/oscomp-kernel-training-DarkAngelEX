@@ -1,6 +1,13 @@
-use core::ops::{Add, AddAssign, Sub, SubAssign};
+use core::{
+    ops::{Add, AddAssign, Sub, SubAssign},
+    time::Duration,
+};
 
-use ftl_util::{error::SysError, utc_time::UtcTime};
+use ftl_util::{
+    error::SysError,
+    time::{TimeSpec, TimeVal, TimeZone},
+    utc_time::UtcTime,
+};
 
 use crate::{board::CLOCK_FREQ, hart::sbi, riscv::register::time, xdebug::PRINT_TICK};
 
@@ -35,82 +42,30 @@ impl Tms {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct TimeSpec {
-    pub tv_sec: usize,
-    pub tv_nsec: usize, // 纳秒
-}
-
-impl TimeSpec {
-    pub const UTIME_NOW: usize = (1 << 30) - 1;
-    pub const UTIME_OMIT: usize = (1 << 30) - 2;
-    pub const NOW: Self = TimeSpec {
-        tv_sec: 0,
-        tv_nsec: Self::UTIME_NOW,
+pub fn time_sepc_to_utc(ts: TimeSpec) -> Result<Option<UtcTime>, SysError> {
+    if ts.is_omit() {
+        return Ok(None);
+    }
+    let p = if ts.is_now() {
+        get_time_ticks()
+    } else {
+        ts.valid()?;
+        TimeTicks::from_time_spec(ts)
     };
-    pub const OMIT: Self = TimeSpec {
-        tv_sec: 0,
-        tv_nsec: Self::UTIME_OMIT,
+    Ok(Some(p.utc()))
+}
+
+pub fn dur_to_tv_tz(dur: Duration) -> (TimeVal, TimeZone) {
+    let tv = TimeVal::from_duration(dur);
+    let tz = TimeZone {
+        tz_minuteswest: 0,
+        tz_dsttime: 0,
     };
-    pub const fn is_now(self) -> bool {
-        self.tv_nsec == Self::UTIME_NOW
-    }
-    pub const fn is_omit(self) -> bool {
-        self.tv_nsec == Self::UTIME_OMIT
-    }
-    pub fn to_utc_time(self) -> Result<Option<UtcTime>, SysError> {
-        if self.is_omit() {
-            return Ok(None);
-        }
-        let p = if self.is_now() {
-            get_time_ticks()
-        } else {
-            self.valid()?;
-            TimeTicks::from_time_spec(self)
-        };
-        Ok(Some(p.utc()))
-    }
-    pub fn valid(&self) -> Result<(), SysError> {
-        if self.tv_nsec >= 1000_000_000 {
-            return Err(SysError::EINVAL);
-        }
-        Ok(())
-    }
-    pub fn from_ticks(ticks: TimeTicks) -> Self {
-        let nsec = ticks.nanosecond();
-        TimeSpec {
-            tv_sec: (nsec / 1000_000_000) as usize,
-            tv_nsec: (nsec % 1000_000_000) as usize,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct TimeVal {
-    pub tv_sec: usize,
-    pub tv_usec: usize, // 微妙
-}
-impl TimeVal {
-    pub fn from_ticks(ticks: TimeTicks) -> Self {
-        let usec = ticks.microsecond();
-        Self {
-            tv_sec: (usec / 1000_000) as usize,
-            tv_usec: (usec % 1000_000) as usize,
-        }
-    }
-}
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct TimeZone {
-    tz_minuteswest: u32,
-    tz_dsttime: u32,
+    (tv, tz)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub struct TimeTicks(u128);
+struct TimeTicks(u128);
 
 impl TimeTicks {
     pub const ZERO: Self = Self(0);
@@ -123,9 +78,6 @@ impl TimeTicks {
     }
     pub fn from_time_spec(ts: TimeSpec) -> Self {
         Self::from_second(ts.tv_sec as u128) + Self::from_nanosecond(ts.tv_nsec as u128)
-    }
-    pub fn time_sepc(self) -> TimeSpec {
-        TimeSpec::from_ticks(self)
     }
     /// compute v * m / d in 128bit
     ///
@@ -172,14 +124,6 @@ impl TimeTicks {
     pub fn nanosecond(self) -> u128 {
         Self::mul_div_128::<1000_000_000, CLOCK_FREQ>(self.0)
     }
-    pub fn tv_tz(self) -> (TimeVal, TimeZone) {
-        let tv = TimeVal::from_ticks(self);
-        let tz = TimeZone {
-            tz_minuteswest: 0,
-            tz_dsttime: 0,
-        };
-        (tv, tz)
-    }
     pub fn utc(self) -> UtcTime {
         let second = self.second();
         let nano = (self.nanosecond() - second * 1000_000_000) as usize;
@@ -225,11 +169,16 @@ impl From<usize> for TimeTicks {
     }
 }
 
-pub fn get_time_ticks() -> TimeTicks {
+pub fn get_time() -> Duration {
+    let cur = get_time_ticks();
+    Duration::from_micros(cur.microsecond() as u64)
+}
+
+fn get_time_ticks() -> TimeTicks {
     TimeTicks::from_usize(time::read())
 }
 
-pub fn set_time_ticks(ticks: TimeTicks) {
+fn set_time_ticks(ticks: TimeTicks) {
     stack_trace!();
     sbi::set_timer(ticks.into_usize() as u64)
 }

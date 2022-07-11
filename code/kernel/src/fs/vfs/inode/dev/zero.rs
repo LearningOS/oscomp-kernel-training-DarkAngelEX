@@ -4,12 +4,13 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::{error::SysError, fs::DentryType};
-
-use crate::{
-    fs::{AsyncFile, File, VfsInode},
-    tools::xasync::Async,
+use ftl_util::{
+    async_tools::AsyncFile,
+    error::SysError,
+    fs::{DentryType, File, VfsInode},
 };
+
+use crate::tools::xasync::Async;
 
 pub struct ZeroInode;
 

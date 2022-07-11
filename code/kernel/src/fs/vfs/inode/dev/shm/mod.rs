@@ -1,9 +1,12 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize};
 
 use alloc::sync::Arc;
-use ftl_util::error::SysError;
+use ftl_util::{
+    error::SysError,
+    fs::{Mode, OpenFlags, VfsInode},
+};
 
-use crate::fs::{dev::shm::vfile::ShmVfile, Mode, OpenFlags, VfsInode};
+use crate::fs::dev::shm::vfile::ShmVfile;
 
 use self::vfile::ShmInode;
 

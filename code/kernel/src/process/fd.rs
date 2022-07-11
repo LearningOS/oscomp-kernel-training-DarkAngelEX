@@ -1,8 +1,8 @@
 use alloc::{collections::BTreeMap, sync::Arc};
+use ftl_util::fs::{File, OpenFlags};
 
 use crate::{
     config::USER_FNO_DEFAULT,
-    fs::{File, OpenFlags},
     syscall::{SysError, SysResult, UniqueSysError},
     tools,
 };

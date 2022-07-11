@@ -11,7 +11,7 @@ use crate::{
 
 use super::{block::BPB_CID, crc, BlockDevice};
 use alloc::boxed::Box;
-use ftl_util::device::AsyncRet;
+use ftl_util::async_tools::AsyncRet;
 
 pub struct SDCard<T: SPIActions> {
     spi: T,

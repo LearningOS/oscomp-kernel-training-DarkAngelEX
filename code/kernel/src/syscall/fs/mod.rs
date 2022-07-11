@@ -1,12 +1,15 @@
 use alloc::{string::String, sync::Arc, vec::Vec};
+use ftl_util::{
+    fs::{File, Mode, OpenFlags, Seek, VfsInode},
+    time::TimeSpec,
+};
 
 use crate::{
-    fs::{self, pipe, File, Iovec, Mode, OpenFlags, Pollfd, Seek, VfsInode},
+    fs::{self, pipe, Iovec, Pollfd},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::fd::Fd,
     signal::SignalSet,
     syscall::SysError,
-    timer::TimeSpec,
     tools::{allocator::from_usize_allocator::FromUsize, path},
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -336,7 +339,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_mkdirat {} {:#x} {:#x}", fd, path.as_usize(), mode.0);
         }
-        let flags = fs::OpenFlags::RDWR | fs::OpenFlags::CREAT | fs::OpenFlags::DIRECTORY;
+        let flags = OpenFlags::RDWR | OpenFlags::CREAT | OpenFlags::DIRECTORY;
 
         self.fd_path_create_any(fd, path, flags, mode).await?;
         Ok(0)
@@ -359,7 +362,7 @@ impl Syscall<'_> {
             .await?
             .to_vec();
         let path = String::from_utf8(path)?;
-        let flags = OpenFlags::RDONLY | fs::OpenFlags::DIRECTORY;
+        let flags = OpenFlags::RDONLY | OpenFlags::DIRECTORY;
         let inode = fs::open_file(
             Some(Ok(self.alive_then(|a| a.cwd.clone()).path_iter())),
             path.as_str(),
@@ -382,9 +385,9 @@ impl Syscall<'_> {
                 mode.0
             );
         }
-        let flags = fs::OpenFlags::from_bits(flags).unwrap();
+        let flags = OpenFlags::from_bits(flags).unwrap();
         let inode = self.fd_path_open(fd, path, flags, mode).await?;
-        let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
+        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
         let fd = self
             .alive_lock()
             .fd_table

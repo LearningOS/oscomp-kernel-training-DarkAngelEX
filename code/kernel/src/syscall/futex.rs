@@ -1,12 +1,12 @@
-use core::sync::atomic::Ordering;
+use core::{sync::atomic::Ordering, time::Duration};
 
-use ftl_util::error::SysError;
+use ftl_util::{error::SysError, time::TimeSpec};
 
 use crate::{
     futex::{RobustListHead, WaitStatus, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::{search, Tid},
-    timer::{self, TimeSpec, TimeTicks},
+    timer,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
@@ -97,13 +97,13 @@ impl Syscall<'_> {
                 .readonly_value(timeout.0)
                 .await?
                 .load();
-            let mut ts = TimeTicks::from_time_spec(ts);
+            let mut ts = ts.as_duration();
             if timeout.1 {
-                ts += timer::get_time_ticks();
+                ts += timer::get_time();
             }
             ts
         } else {
-            TimeTicks::FOREVER
+            Duration::MAX
         };
         let addr = ua.as_uptr().unwrap();
         let pid = if (op & FUTEX_PRIVATE_FLAG) != 0 {
