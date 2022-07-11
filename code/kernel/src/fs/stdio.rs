@@ -19,21 +19,28 @@ impl File for Stdin {
     }
     fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
         Box::pin(async move {
+            const PRINT_STDIN: bool = false;
             let len = buf.len();
             for i in 0..len {
                 let mut c: usize;
+                if PRINT_STDIN {
+                    print!("?");
+                }
                 loop {
                     c = console::getchar() as usize;
                     if [0, u32::MAX as usize].contains(&c) {
                         if !crate::xdebug::CLOSE_TIME_INTERRUPT {
-                            use crate::timer::{sleep::JustWaitFuture, TimeTicks};
-                            JustWaitFuture::new(TimeTicks::from_millisecond(5)).await;
+                            use crate::timer::{sleep, TimeTicks};
+                            sleep::just_wait(TimeTicks::from_millisecond(5)).await;
                         } else {
                             crate::process::thread::yield_now().await;
                         }
                         continue;
                     }
                     break;
+                }
+                if PRINT_STDIN {
+                    print!("!");
                 }
                 buf[i] = c as u8;
             }

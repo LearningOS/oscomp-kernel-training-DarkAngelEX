@@ -103,6 +103,7 @@ async fn userloop(thread: Arc<Thread>) {
                 Interrupt::SupervisorTimer => {
                     timer::tick();
                     if !do_exit {
+                        // println!("yield: {:?}", thread.tid());
                         thread::yield_now().await;
                     }
                 }

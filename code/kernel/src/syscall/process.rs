@@ -18,7 +18,7 @@ use crate::{
         search, thread, userloop, CloneFlag, Pid,
     },
     sync::even_bus::{self, Event},
-    timer::{self, sleep::SleepFuture, TimeSpec, TimeTicks},
+    timer::{self, TimeSpec, TimeTicks},
     tools::allocator::from_usize_allocator::FromUsize,
     user::check::UserCheck,
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
@@ -400,7 +400,7 @@ impl Syscall<'_> {
             Some(rem) => Some(UserCheck::new(self.process).writable_value(rem).await?),
         };
         let deadline = timer::get_time_ticks() + TimeTicks::from_time_spec(req);
-        let ret = SleepFuture::new(deadline, self.process.event_bus.clone()).await;
+        let ret = timer::sleep::sleep(deadline, &self.process.event_bus).await;
         if let Some(rem) = rem {
             let time_end = timer::get_time_ticks();
             let time_rem = if time_end < deadline {

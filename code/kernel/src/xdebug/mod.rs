@@ -8,13 +8,13 @@ use riscv::register::sstatus;
 
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = false;
-pub const PRINT_SYSCALL_ALL: bool = false;
+pub const PRINT_SYSCALL_ALL: bool = true;
 // fork return and exec return
 pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie
 pub const PRINT_DROP_TCB: bool = false;
-
 pub const PRINT_PAGE_FAULT: bool = false;
+pub const PRINT_TICK: bool = false;
 
 pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;

@@ -6,6 +6,7 @@ use crate::board::CLOCK_FREQ;
 use crate::hart::sbi;
 
 use crate::riscv::register::time;
+use crate::xdebug::PRINT_TICK;
 
 pub mod sleep;
 
@@ -199,6 +200,9 @@ pub fn set_next_trigger() {
 }
 
 pub fn tick() {
+    if PRINT_TICK {
+        print!("!");
+    }
     sleep::check_timer();
     set_next_trigger();
 }

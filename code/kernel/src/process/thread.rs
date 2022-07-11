@@ -87,7 +87,7 @@ impl ThreadGroup {
 // only run in local thread
 pub struct Thread {
     // never change
-    pub tid: TidHandle,
+    tid: TidHandle,
     pub process: Arc<Process>,
     // thread local
     inner: UnsafeCell<ThreadInner>,
@@ -369,14 +369,11 @@ impl Future for YieldFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        use core::sync::atomic;
         if self.0 {
-            Poll::Ready(())
-        } else {
-            self.0 = true;
-            atomic::fence(atomic::Ordering::SeqCst);
-            cx.waker().wake_by_ref();
-            Poll::Pending
+            return Poll::Ready(());
         }
+        self.0 = true;
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }
