@@ -4,7 +4,7 @@ use crate::config::USER_STACK_SIZE;
 
 use super::Process;
 
-const RLIM_INFINITY: u32 = i32::MAX as u32;
+pub const RLIM_INFINITY: usize = i32::MAX as usize;
 const _STK_LIM: u32 = 8 * 1024 * 1024;
 
 const RLIMIT_CPU: u32 = 0;
@@ -28,23 +28,29 @@ const RLIM_NLIMITS: u32 = 16;
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct RLimit {
-    rlim_cur: usize, /* Soft limit */
-    rlim_max: usize, /* Hard limit (ceiling for rlim_cur) */
+    pub rlim_cur: usize, /* Soft limit */
+    pub rlim_max: usize, /* Hard limit (ceiling for rlim_cur) */
 }
 
 impl RLimit {
-    pub fn new(cur: u32, max: u32) -> Self {
+    pub const INFINITY: Self = Self::new(RLIM_INFINITY, RLIM_INFINITY);
+    pub const fn new(cur: usize, max: usize) -> Self {
         Self {
-            rlim_cur: cur as usize,
-            rlim_max: max as usize,
+            rlim_cur: cur,
+            rlim_max: max,
         }
+    }
+    pub fn check(self) -> Result<(), SysError> {
+        (self.rlim_cur <= RLIM_INFINITY && self.rlim_max <= RLIM_INFINITY)
+            .then_some(())
+            .ok_or(SysError::EINVAL)
     }
 }
 
 pub fn prlimit_impl(
-    _proc: &Process,
+    proc: &Process,
     resource: u32,
-    _new: Option<RLimit>,
+    new: Option<RLimit>,
 ) -> Result<RLimit, SysError> {
     match resource {
         RLIMIT_CPU => todo!(),
@@ -52,12 +58,12 @@ pub fn prlimit_impl(
         RLIMIT_DATA => todo!(),
         RLIMIT_STACK => {
             // debug_assert!(new.is_none());
-            Ok(RLimit::new(USER_STACK_SIZE as u32, RLIM_INFINITY))
+            Ok(RLimit::new(USER_STACK_SIZE, RLIM_INFINITY))
         }
         RLIMIT_CORE => todo!(),
         RLIMIT_RSS => todo!(),
         RLIMIT_NPROC => todo!(),
-        RLIMIT_NOFILE => todo!(),
+        RLIMIT_NOFILE => Ok(proc.alive_then(|a| a.fd_table.set_limit(new))??),
         RLIMIT_MEMLOCK => todo!(),
         RLIMIT_AS => todo!(),
         RLIMIT_LOCKS => todo!(),

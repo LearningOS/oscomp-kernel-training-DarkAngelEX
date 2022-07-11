@@ -1,10 +1,13 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 
 use crate::{
-    fs::File,
+    config::USER_FNO_DEFAULT,
+    fs::{File, OpenFlags},
     syscall::{SysError, SysResult, UniqueSysError},
     tools,
 };
+
+use super::resource::RLimit;
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub struct Fd(pub usize);
@@ -39,15 +42,17 @@ const F_SETOWN: u32 = 8;
 const F_GETOWN: u32 = 9;
 
 #[derive(Clone)]
-struct FdNode {
+pub struct FdNode {
     file: Arc<dyn File>,
     close_on_exec: bool,
+    op: OpenFlags,
 }
 
 #[derive(Clone)]
 pub struct FdTable {
     map: BTreeMap<Fd, FdNode>,
     search_start: Fd,
+    limit: RLimit,
 }
 
 impl FdTable {
@@ -55,13 +60,28 @@ impl FdTable {
         let mut ret = Self {
             map: BTreeMap::new(),
             search_start: Fd(0),
+            limit: USER_FNO_DEFAULT,
         };
         use crate::fs::dev::tty;
         // [0, 1, 2] => [stdin, stdout, stderr]
-        ret.insert(tty::inode(), false).assert_eq(0);
-        ret.insert(tty::inode(), false).assert_eq(1);
-        ret.insert(tty::inode(), false).assert_eq(2);
+        ret.insert(tty::inode(), false, OpenFlags::empty())
+            .unwrap()
+            .assert_eq(0);
+        ret.insert(tty::inode(), false, OpenFlags::empty())
+            .unwrap()
+            .assert_eq(1);
+        ret.insert(tty::inode(), false, OpenFlags::empty())
+            .unwrap()
+            .assert_eq(2);
         ret
+    }
+    pub fn set_limit(&mut self, new: Option<RLimit>) -> Result<RLimit, SysError> {
+        let old = self.limit;
+        if let Some(new) = new {
+            new.check()?;
+            self.limit = new;
+        }
+        Ok(old)
     }
     pub fn exec_run(&mut self) {
         let mut search = Fd(0);
@@ -77,11 +97,14 @@ impl FdTable {
             !n.close_on_exec
         });
     }
-    fn alloc_fd(&mut self) -> Fd {
+    fn alloc_fd(&mut self) -> Result<Fd, SysError> {
         self.alloc_fd_min(Fd(0))
     }
     /// 寻找不小于min的最小Fd
-    fn alloc_fd_min(&mut self, min: Fd) -> Fd {
+    fn alloc_fd_min(&mut self, min: Fd) -> Result<Fd, SysError> {
+        if self.map.len() >= self.limit.rlim_max {
+            return Err(SysError::EMFILE);
+        }
         let Fd(mut min) = min.max(self.search_start);
         let search_from_start = Fd(min) == self.search_start;
         for fd in self.map.range(Fd(min)..).map(|(&Fd(fd), _b)| fd) {
@@ -94,36 +117,52 @@ impl FdTable {
         if search_from_start {
             self.search_start = Fd(min);
         }
-        return Fd(min);
+        return Ok(Fd(min));
     }
     /// 自动选择
-    pub fn insert(&mut self, file: Arc<dyn File>, close_on_exec: bool) -> Fd {
-        self.insert_min(Fd(0), file, close_on_exec)
+    pub fn insert(
+        &mut self,
+        file: Arc<dyn File>,
+        close_on_exec: bool,
+        op: OpenFlags,
+    ) -> Result<Fd, SysError> {
+        self.insert_min(Fd(0), file, close_on_exec, op)
     }
     /// 寻找不小于min的最小fd并插入
-    pub fn insert_min(&mut self, min: Fd, file: Arc<dyn File>, close_on_exec: bool) -> Fd {
-        let fd = self.alloc_fd_min(min);
+    pub fn insert_min(
+        &mut self,
+        min: Fd,
+        file: Arc<dyn File>,
+        close_on_exec: bool,
+        op: OpenFlags,
+    ) -> Result<Fd, SysError> {
+        let fd = self.alloc_fd_min(min)?;
         let node = FdNode {
             file,
             close_on_exec,
+            op,
         };
         self.map
             .try_insert(fd, node)
             .ok()
             .expect("FdTable double insert same fd");
-        fd
+        Ok(fd)
     }
     /// 覆盖存在的文件
-    pub fn set_insert(&mut self, fd: Fd, file: Arc<dyn File>, close_on_exec: bool) {
+    pub fn set_insert(&mut self, fd: Fd, file: Arc<dyn File>, close_on_exec: bool, op: OpenFlags) {
         let node = FdNode {
             file,
             close_on_exec,
+            op,
         };
         let _ = self.map.insert(fd, node);
         self.search_start = self.search_start.min(fd.next());
     }
     pub fn get(&self, fd: Fd) -> Option<&Arc<dyn File>> {
         self.map.get(&fd).map(|n| &n.file)
+    }
+    pub fn get_node(&self, fd: Fd) -> Option<&FdNode> {
+        self.map.get(&fd)
     }
     pub fn fcntl(&mut self, fd: Fd, cmd: u32, arg: usize) -> SysResult {
         const FD_CLOEXEC: usize = 1;
@@ -134,7 +173,8 @@ impl FdTable {
                 let min = Fd(arg);
                 let file = node.file.clone();
                 let close_on_exec = node.close_on_exec;
-                let fd = self.insert_min(min, file, close_on_exec);
+                let op = node.op;
+                let fd = self.insert_min(min, file, close_on_exec, op)?;
                 Ok(fd.0)
             }
             F_GETFD => return Ok(if node.close_on_exec { FD_CLOEXEC } else { 0 }),
@@ -142,8 +182,12 @@ impl FdTable {
                 node.close_on_exec = arg & FD_CLOEXEC != 0;
                 return Ok(0);
             }
-            F_GETFL => todo!(),
-            F_SETFL => todo!(),
+            F_GETFL => Ok(node.op.bits() as usize),
+            F_SETFL => {
+                node.op = OpenFlags::from_bits_truncate(arg as u32);
+                node.close_on_exec = arg & FD_CLOEXEC != 0;
+                Ok(0)
+            }
             F_GETLK => todo!(),
             F_SETLK => todo!(),
             F_SETLKW => todo!(),
@@ -157,27 +201,31 @@ impl FdTable {
         let file = self.map.remove(&fd);
         file.map(|n| n.file)
     }
-    pub fn dup(&mut self, fd: Fd) -> Option<Fd> {
-        let file = self.get(fd)?.clone();
-        let new_fd = self.insert(file.clone(), false);
-        Some(new_fd)
+    pub fn dup(&mut self, fd: Fd) -> Result<Fd, SysError> {
+        let file = self.get_node(fd).ok_or(SysError::EBADF)?.clone();
+        let new_fd = self.insert(file.file, false, file.op)?;
+        Ok(new_fd)
     }
     pub fn replace_dup(
         &mut self,
         old_fd: Fd,
         new_fd: Fd,
-        close_on_exec: bool,
+        flags: OpenFlags,
     ) -> Result<(), SysError> {
         if old_fd == new_fd {
             return Err(SysError::EINVAL);
         }
         let file = self.get(old_fd).ok_or(SysError::EBADF)?.clone();
-        let node = FdNode {
-            file,
-            close_on_exec,
-        };
+        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
         // close previous file
-        let _ = self.map.insert(new_fd, node);
+        let _ = self.map.insert(
+            new_fd,
+            FdNode {
+                file,
+                close_on_exec,
+                op: flags,
+            },
+        );
         Ok(())
     }
 }

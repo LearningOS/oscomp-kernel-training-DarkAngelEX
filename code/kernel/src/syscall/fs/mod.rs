@@ -102,9 +102,7 @@ impl Syscall<'_> {
         stack_trace!();
         let fd: usize = self.cx.para1();
         let fd = Fd::from_usize(fd);
-        let new = self
-            .alive_then(move |a| a.fd_table.dup(fd))
-            .ok_or(SysError::EBADF)?;
+        let new = self.alive_then(move |a| a.fd_table.dup(fd))?;
         Ok(new.to_usize())
     }
     pub fn sys_dup3(&mut self) -> SysResult {
@@ -120,8 +118,7 @@ impl Syscall<'_> {
             // return Err(SysError::EINVAL);
         }
         new_fd.in_range()?;
-        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
-        self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, close_on_exec))?;
+        self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, flags))?;
         Ok(new_fd.to_usize())
     }
     pub async fn sys_getdents64(&mut self) -> SysResult {
@@ -197,7 +194,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_read");
         }
-        let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.para3();
+        let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
         let buf = UserCheck::new(self.process)
             .writable_slice(buf, len)
             .await?;
@@ -214,7 +211,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("sys_write");
         }
-        let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.para3();
+        let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
         let buf = UserCheck::new(self.process)
             .readonly_slice(buf, len)
             .await?;
@@ -229,7 +226,10 @@ impl Syscall<'_> {
     }
     pub async fn sys_readv(&mut self) -> SysResult {
         stack_trace!();
-        let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();
+        if PRINT_SYSCALL_FS {
+            println!("sys_readv");
+        }
+        let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.into();
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
             .ok_or(SysError::EBADF)?;
@@ -247,7 +247,10 @@ impl Syscall<'_> {
     }
     pub async fn sys_writev(&mut self) -> SysResult {
         stack_trace!();
-        let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();
+        if PRINT_SYSCALL_FS {
+            println!("sys_writev");
+        }
+        let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.into();
         let file = self
             .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
             .ok_or(SysError::EBADF)?;
@@ -262,6 +265,23 @@ impl Syscall<'_> {
             cnt += file.write(&*buf.access()).await?;
         }
         Ok(cnt)
+    }
+    pub async fn sys_pread64(&mut self) -> SysResult {
+        stack_trace!();
+        if PRINT_SYSCALL_FS {
+            println!("sys_pread64");
+        }
+        let (fd, buf, len, offset): (usize, UserWritePtr<u8>, usize, usize) = self.cx.into();
+        let buf = UserCheck::new(self.process)
+            .writable_slice(buf, len)
+            .await?;
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
+        if !file.readable() {
+            return Err(SysError::EPERM);
+        }
+        file.read_at(offset, &mut *buf.access_mut()).await
     }
     /// 未实现功能
     pub async fn sys_ppoll(&mut self) -> SysResult {
@@ -365,7 +385,10 @@ impl Syscall<'_> {
         let flags = fs::OpenFlags::from_bits(flags).unwrap();
         let inode = self.fd_path_open(fd, path, flags, mode).await?;
         let close_on_exec = flags.contains(fs::OpenFlags::CLOEXEC);
-        let fd = self.alive_lock().fd_table.insert(inode, close_on_exec);
+        let fd = self
+            .alive_lock()
+            .fd_table
+            .insert(inode, close_on_exec, flags)?;
         Ok(fd.to_usize())
     }
     pub fn sys_close(&mut self) -> SysResult {
@@ -395,11 +418,11 @@ impl Syscall<'_> {
             unimplemented!();
         }
         let (reader, writer) = pipe::make_pipe()?;
-        let (rfd, wfd) = self.alive_then(move |a| {
-            let rfd = a.fd_table.insert(reader, close_on_exec).to_usize();
-            let wfd = a.fd_table.insert(writer, close_on_exec).to_usize();
-            (rfd as u32, wfd as u32)
-        });
+        let (rfd, wfd) = self.alive_then(move |a| -> Result<_, SysError> {
+            let rfd = a.fd_table.insert(reader, close_on_exec, flags)?.to_usize();
+            let wfd = a.fd_table.insert(writer, close_on_exec, flags)?.to_usize();
+            Ok((rfd as u32, wfd as u32))
+        })?;
         write_to.store([rfd, wfd]);
         Ok(0)
     }

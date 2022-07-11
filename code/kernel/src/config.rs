@@ -1,18 +1,17 @@
 #![allow(dead_code)]
+use core::ops::Range;
+
+use crate::{memory::address::UserAddr, process::resource::RLimit, tools::range::URange};
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
-
+pub const USER_FNO_DEFAULT: RLimit = RLimit::INFINITY;
 /// ============================== KERNEL ==============================
 ///
 /// 0x8_0000 = 512KB
 /// 0x10_0000 = 1MB
 pub const KERNEL_HEAP_SIZE: usize = 0x200_0000; // 2MB
-
-use core::ops::Range;
-
-use crate::{memory::address::UserAddr, tools::range::URange};
 
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12

@@ -112,7 +112,7 @@ impl Syscall<'_> {
             UserReadPtr<u8>,
             UserReadPtr<UserReadPtr<u8>>,
             UserReadPtr<UserReadPtr<u8>>,
-        ) = self.cx.para3();
+        ) = self.cx.into();
         let user_check = UserCheck::new(self.process);
         let path = String::from_utf8(user_check.array_zero_end(path).await?.to_vec())?;
         stack_trace!("sys_execve path: {}", path);
@@ -485,7 +485,6 @@ impl Syscall<'_> {
             );
         }
 
-        let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
         let uc = UserCheck::new(self.process);
         let new = match new_limit.is_null() {
             false => Some(uc.readonly_value(new_limit).await?.load()),
@@ -494,7 +493,16 @@ impl Syscall<'_> {
         if (PRINT_SYSCALL_PROCESS || false) && let Some(new) = new {
             println!("new: {:?}", new);
         }
-        let old = resource::prlimit_impl(&process, resource, new)?;
+        let old;
+        match pid {
+            Pid(0) => {
+                old = resource::prlimit_impl(self.process, resource, new)?;
+            }
+            _ => {
+                let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
+                old = resource::prlimit_impl(&process, resource, new)?;
+            }
+        };
         if !old_limit.is_null() {
             uc.writable_value(old_limit).await?.store(old);
         }
