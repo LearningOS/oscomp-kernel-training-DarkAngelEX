@@ -6,7 +6,7 @@ use crate::{
     futex::{RobustListHead, WaitStatus, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::{search, Tid},
-    timer::{TimeSpec, TimeTicks},
+    timer::{self, TimeSpec, TimeTicks},
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
@@ -58,7 +58,10 @@ impl Syscall<'_> {
         let val2 = timeout.as_usize() as u32;
         let match_any = FUTEX_BITSET_MATCH_ANY;
         match op & 0xf {
-            FUTEX_WAIT => self.futex_wait(op, ua, val, timeout, match_any).await,
+            FUTEX_WAIT => {
+                self.futex_wait(op, ua, val, (timeout, true), match_any)
+                    .await
+            }
             FUTEX_WAKE => self.futex_wake(op, ua, val, match_any).await,
             FUTEX_FD => {
                 println!("futex FUTEX_FD has removed");
@@ -67,7 +70,7 @@ impl Syscall<'_> {
             FUTEX_REQUEUE => self.futex_requeue(op, ua, ua2, None, val, val2).await,
             FUTEX_CMP_REQUEUE => self.futex_requeue(op, ua, ua2, Some(val3), val, val2).await,
             FUTEX_WAKE_OP => self.futex_wake_op_impl(op, ua, ua2, val, val2, val3).await,
-            FUTEX_WAIT_BITSET => self.futex_wait(op, ua, val, timeout, val3).await,
+            FUTEX_WAIT_BITSET => self.futex_wait(op, ua, val, (timeout, false), val3).await,
             FUTEX_WAKE_BITSET => self.futex_wake(op, ua, val, val3).await,
             _ => panic!(),
         }
@@ -75,24 +78,30 @@ impl Syscall<'_> {
     /// 如果uaddr中的值和val相同则睡眠并等待FUTEX_WAKE按mask唤醒, 如果不同则操作失败并返回EAGAIN。
     ///
     /// mask 不能为 0
+    ///
+    /// timeout.1: 使用相对时间
     async fn futex_wait(
         &mut self,
         op: u32,
         ua: UserInOutPtr<u32>,
         val: u32,
-        timeout: UserReadPtr<TimeSpec>,
+        timeout: (UserReadPtr<TimeSpec>, bool),
         mask: u32,
     ) -> SysResult {
         stack_trace!();
         if mask == 0 {
             return Err(SysError::EINVAL);
         }
-        let timeout = if !timeout.is_null() {
+        let timeout = if !timeout.0.is_null() {
             let ts = UserCheck::new(self.process)
-                .readonly_value(timeout)
+                .readonly_value(timeout.0)
                 .await?
                 .load();
-            TimeTicks::from_time_spec(ts)
+            let mut ts = TimeTicks::from_time_spec(ts);
+            if timeout.1 {
+                ts += timer::get_time_ticks();
+            }
+            ts
         } else {
             TimeTicks::FOREVER
         };
