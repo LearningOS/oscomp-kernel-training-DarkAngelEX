@@ -36,11 +36,13 @@ const SYSCALL_GETDENTS64: usize = 61;
 const SYSCALL_LSEEK: usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
+const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_PPOLL: usize = 73;
 const SYSCALL_READLINKAT: usize = 78;
 const SYSCALL_NEWFSTATAT: usize = 79;
 const SYSCALL_FSTAT: usize = 80;
+const SYSCALL_UTIMENSAT: usize = 88;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_EXIT_GROUP: usize = 94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
@@ -127,11 +129,13 @@ impl<'a> Syscall<'a> {
             SYSCALL_LSEEK => self.sys_lseek(),
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
+            SYSCALL_READV => self.sys_readv().await,
             SYSCALL_WRITEV => self.sys_writev().await,
             SYSCALL_PPOLL => self.sys_ppoll().await,
             SYSCALL_READLINKAT => self.sys_readlinkat().await,
             SYSCALL_NEWFSTATAT => self.sys_newfstatat().await,
             SYSCALL_FSTAT => self.sys_fstat().await,
+            SYSCALL_UTIMENSAT => self.sys_utimensat().await,
             SYSCALL_EXIT => self.sys_exit(),
             SYSCALL_EXIT_GROUP => self.sys_exit_group(),
             SYSCALL_SET_TID_ADDRESS => self.sys_set_tid_address(),
@@ -177,22 +181,21 @@ impl<'a> Syscall<'a> {
         };
         let a0 = match result {
             Ok(a) => a,
-            // Err(e) => -(e as isize) as usize,
-            Err(_e) => -1isize as usize,
+            Err(e) => -(e as isize) as usize,
+            // Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
         if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
             if ![63, 64].contains(&self.cx.a7()) {
                 print!("{}", to_yellow!());
-                println!(
-                    "{:?} syscall {} -> {:#x} spec:{:#x}",
-                    self.thread.tid(),
-                    self.cx.a7(),
-                    a0,
-                    self.cx.user_sepc
-                );
-                print!("{}", reset_color!());
+                print!("{:?} syscall {} -> ", self.thread.tid(), self.cx.a7(),);
+                match result {
+                    Ok(n) => print!("{:#x} ", n),
+                    Err(e) => print!("{:?} ", e),
+                }
+                print!("sepc:{:#x}", self.cx.user_sepc);
+                println!("{}", reset_color!());
             }
         }
         self.cx.set_user_a0(a0);

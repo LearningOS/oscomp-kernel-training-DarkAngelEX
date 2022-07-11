@@ -40,7 +40,7 @@ impl Syscall<'_> {
         } else {
             None
         };
-        let (tv, tz) = timer::get_time_ticks().into_tv_tz();
+        let (tv, tz) = timer::get_time_ticks().tv_tz();
         u_tv.map(|p| p.store(tv));
         u_tz.map(|p| p.store(tz));
         Ok(0)

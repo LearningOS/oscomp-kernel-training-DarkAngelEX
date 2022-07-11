@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use ftl_util::error::SysError;
+use ftl_util::{error::SysError, utc_time::UtcTime};
 
 use crate::{
     layout::name::{Attr, RawShortName},
@@ -67,6 +67,18 @@ impl AnyInode {
         match self {
             AnyInode::Dir(v) => &v.inode,
             AnyInode::File(v) => &v.inode,
+        }
+    }
+    pub async fn update_time(&self, access: Option<&UtcTime>, modify: Option<&UtcTime>) {
+        if access.is_none() && modify.is_none() {
+            return;
+        }
+        let lk = self.raw_inode().unique_lock().await;
+        if let Some(ut) = access {
+            lk.update_access_time(ut)
+        }
+        if let Some(ut) = modify {
+            lk.update_modify_time(ut)
         }
     }
 }

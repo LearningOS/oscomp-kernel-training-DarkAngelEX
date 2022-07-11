@@ -16,6 +16,7 @@ pub use self::{
 use crate::{
     memory::user_ptr::UserInOutPtr,
     syscall::{SysError, SysResult, UniqueSysError},
+    timer::TimeSpec,
     tools::xasync::Async,
 };
 
@@ -149,13 +150,13 @@ pub trait File: Send + Sync + 'static {
         false
     }
     fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
-        unimplemented!("lseek unimplement: {}", core::any::type_name::<Self>())
+        unimplemented!("lseek {}", core::any::type_name::<Self>())
     }
     fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
-        unimplemented!()
+        unimplemented!("read_at {}", core::any::type_name::<Self>())
     }
     fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
-        unimplemented!()
+        unimplemented!("write_at {}", core::any::type_name::<Self>())
     }
     fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile;
     fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile;
@@ -164,5 +165,8 @@ pub trait File: Send + Sync + 'static {
     }
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
         Box::pin(async move { Err(SysError::EACCES) })
+    }
+    fn utimensat(&self, _times: [TimeSpec; 2]) -> Async<SysResult> {
+        unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
 }

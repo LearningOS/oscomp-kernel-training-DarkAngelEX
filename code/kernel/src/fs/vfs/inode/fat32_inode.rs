@@ -7,6 +7,7 @@ use crate::{
         AsyncFile, File, OpenFlags, Seek,
     },
     syscall::SysResult,
+    timer::TimeSpec,
     tools::xasync::Async,
     user::AutoSie,
 };
@@ -239,6 +240,15 @@ impl File for Fat32Inode {
             stat.st_ctime = modify_time.second();
             stat.st_ctime_nsec = access_time.nanosecond();
             Ok(())
+        })
+    }
+    fn utimensat(&self, times: [TimeSpec; 2]) -> Async<SysResult> {
+        Box::pin(async move {
+            let [access, modify] = times.try_map(|ts| ts.to_utc_time())?;
+            self.inode
+                .update_time(access.as_ref(), modify.as_ref())
+                .await;
+            Ok(0)
         })
     }
 }

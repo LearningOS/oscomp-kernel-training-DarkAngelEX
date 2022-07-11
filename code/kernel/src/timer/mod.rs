@@ -1,12 +1,8 @@
 use core::ops::{Add, AddAssign, Sub, SubAssign};
 
-use ftl_util::error::SysError;
+use ftl_util::{error::SysError, utc_time::UtcTime};
 
-use crate::board::CLOCK_FREQ;
-use crate::hart::sbi;
-
-use crate::riscv::register::time;
-use crate::xdebug::PRINT_TICK;
+use crate::{board::CLOCK_FREQ, hart::sbi, riscv::register::time, xdebug::PRINT_TICK};
 
 pub mod sleep;
 
@@ -47,6 +43,34 @@ pub struct TimeSpec {
 }
 
 impl TimeSpec {
+    pub const UTIME_NOW: usize = (1 << 30) - 1;
+    pub const UTIME_OMIT: usize = (1 << 30) - 2;
+    pub const NOW: Self = TimeSpec {
+        tv_sec: 0,
+        tv_nsec: Self::UTIME_NOW,
+    };
+    pub const OMIT: Self = TimeSpec {
+        tv_sec: 0,
+        tv_nsec: Self::UTIME_OMIT,
+    };
+    pub const fn is_now(self) -> bool {
+        self.tv_nsec == Self::UTIME_NOW
+    }
+    pub const fn is_omit(self) -> bool {
+        self.tv_nsec == Self::UTIME_OMIT
+    }
+    pub fn to_utc_time(self) -> Result<Option<UtcTime>, SysError> {
+        if self.is_omit() {
+            return Ok(None);
+        }
+        let p = if self.is_now() {
+            get_time_ticks()
+        } else {
+            self.valid()?;
+            TimeTicks::from_time_spec(self)
+        };
+        Ok(Some(p.utc()))
+    }
     pub fn valid(&self) -> Result<(), SysError> {
         if self.tv_nsec >= 1000_000_000 {
             return Err(SysError::EINVAL);
@@ -148,13 +172,28 @@ impl TimeTicks {
     pub fn nanosecond(self) -> u128 {
         Self::mul_div_128::<1000_000_000, CLOCK_FREQ>(self.0)
     }
-    pub fn into_tv_tz(self) -> (TimeVal, TimeZone) {
+    pub fn tv_tz(self) -> (TimeVal, TimeZone) {
         let tv = TimeVal::from_ticks(self);
         let tz = TimeZone {
             tz_minuteswest: 0,
             tz_dsttime: 0,
         };
         (tv, tz)
+    }
+    pub fn utc(self) -> UtcTime {
+        let second = self.second();
+        let nano = (self.nanosecond() - second * 1000_000_000) as usize;
+        let second = second as usize;
+        let min = second / 60;
+        let hour = min / 60;
+        let day = hour / 24;
+        let month = day / 30;
+        let year = month / 12;
+        UtcTime {
+            ymd: (year + 1980, month - year * 12, day - month * 30),
+            hms: (hour - day * 24, min - hour * 60, second - min * 60),
+            nano,
+        }
     }
 }
 impl Add for TimeTicks {

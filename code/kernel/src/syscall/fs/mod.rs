@@ -227,6 +227,24 @@ impl Syscall<'_> {
         let ret = file.write(&*buf.access()).await;
         ret
     }
+    pub async fn sys_readv(&mut self) -> SysResult {
+        stack_trace!();
+        let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
+        if !file.readable() {
+            return Err(SysError::EPERM);
+        }
+        let uc = UserCheck::new(self.process);
+        let vbuf = uc.readonly_slice(iov, vlen).await?;
+        let mut cnt = 0;
+        for &Iovec { iov_base, iov_len } in vbuf.access().iter() {
+            let buf = uc.writable_slice(iov_base, iov_len).await?;
+            cnt += file.read(&mut *buf.access_mut()).await?;
+        }
+        Ok(cnt)
+    }
     pub async fn sys_writev(&mut self) -> SysResult {
         stack_trace!();
         let (fd, iov, vlen): (usize, UserReadPtr<Iovec>, usize) = self.cx.para3();

@@ -27,6 +27,9 @@ pub async fn open_file(
         Some((&"null", [])) => null::inode(),
         Some((&"zero", [])) => zero::inode(),
         Some((&"shm", path)) => shm::open_file(path, flags, mode).await?,
+        Some((&"tty", _)) | Some((&"null", _)) | Some((&"zero", _)) => {
+            return Err(SysError::ENOTDIR)
+        }
         _ => return Err(SysError::ENOENT),
     };
     Ok(inode)
