@@ -40,6 +40,12 @@ impl RLimit {
             rlim_max: max,
         }
     }
+    pub const fn new_equal(n: usize) -> Self {
+        Self {
+            rlim_cur: n,
+            rlim_max: n,
+        }
+    }
     pub fn check(self) -> Result<(), SysError> {
         (self.rlim_cur <= RLIM_INFINITY && self.rlim_max <= RLIM_INFINITY)
             .then_some(())

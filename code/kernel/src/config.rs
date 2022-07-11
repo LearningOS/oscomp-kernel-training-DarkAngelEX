@@ -6,7 +6,7 @@ use crate::{memory::address::UserAddr, process::resource::RLimit, tools::range::
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
-pub const USER_FNO_DEFAULT: RLimit = RLimit::INFINITY;
+pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(100);
 /// ============================== KERNEL ==============================
 ///
 /// 0x8_0000 = 512KB
