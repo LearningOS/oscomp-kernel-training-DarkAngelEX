@@ -15,7 +15,7 @@ use crate::{
     sync::even_bus::Event,
     syscall::SysResult,
     user::check::UserCheck,
-    xdebug::PRINT_SYSCALL_ALL,
+    xdebug::{LIMIT_SIGNAL_COUNT, PRINT_SYSCALL_ALL},
 };
 
 /// 为了提高效率, Sig相比信号值都减去了1
@@ -53,6 +53,8 @@ impl Debug for Sig {
 pub const SIG_N: usize = 64;
 pub const SIG_N_U32: u32 = 64;
 pub const SIG_N_BYTES: usize = SIG_N / 8;
+pub const SIG_N_USIZE: usize = SIG_N / usize::BITS as usize;
+pub const SIG_LIMIT_USIZE: usize = 1024 / 64;
 
 pub const SIGHUP: usize = 1;
 pub const SIGINT: usize = 2;
@@ -173,8 +175,14 @@ impl StdSignalSet {
     }
 }
 
+/// 用来补齐 SignalSet 到 Linux 标准长度
+#[repr(C)]
 #[derive(Debug, Clone, Copy)]
-pub struct SignalSet(pub [usize; SIG_N / usize::BITS as usize]);
+pub struct SignalSetDummy(pub [usize; SIG_LIMIT_USIZE - SIG_N_USIZE]);
+
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SignalSet(pub [usize; SIG_N_USIZE]);
 
 impl SignalSet {
     pub const EMPTY: Self = Self([0; _]);
@@ -381,7 +389,7 @@ pub fn send_signal(process: Arc<Process>, sig: Sig) -> Result<(), Dead> {
     Ok(())
 }
 
-static mut HANDLE_CNT: usize = 0;
+static mut HANDLE_CNT: usize = LIMIT_SIGNAL_COUNT.unwrap_or(0);
 
 ///
 /// signal handler包含如下参数: (sig, si, ctx), 其中:
@@ -414,18 +422,20 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
             signal, thread.uk_context.user_sepc
         );
     }
-    unsafe {
-        HANDLE_CNT += 1;
-        if HANDLE_CNT > 30 {
-            panic!("handle too many signal!");
-        }
-    }
     let (act, sig_mask) = psm.get_action(signal);
     let (handler, ra) = match act {
         Action::Abort => return Err(Dead),
         Action::Ignore => return Ok(()),
         Action::Handler(h, ra) => (h, ra),
     };
+    if LIMIT_SIGNAL_COUNT.is_some() {
+        unsafe {
+            HANDLE_CNT -= 1;
+            if HANDLE_CNT == 0 {
+                panic!("handle too many signal!");
+            }
+        }
+    }
     if PRINT_SYSCALL_ALL {
         println!("handle_signal - handler: {:#x} ra: {:#x}", handler, ra);
     }
@@ -468,7 +478,10 @@ pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysResult
             thread.scx_ptr = scx_ptr;
             thread.signal_manager.set_mask(mask);
             if PRINT_SYSCALL_ALL {
-                println!("sigreturn restore mask: {:#x}", mask.0[0]);
+                println!(
+                    "sigreturn restore mask: {:#x} sepc: {:#x}",
+                    mask.0[0], thread.uk_context.user_sepc
+                );
             }
         }
     }

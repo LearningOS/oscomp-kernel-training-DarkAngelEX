@@ -43,6 +43,7 @@
 #![feature(slice_from_ptr_range)]
 #![feature(core_intrinsics)]
 #![feature(control_flow_enum)]
+#![feature(const_option_ext)]
 #![feature(try_trait_v2)]
 #![feature(mixed_integer_ops)]
 #![feature(trait_upcasting)]

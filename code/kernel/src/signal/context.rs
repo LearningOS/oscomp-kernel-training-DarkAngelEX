@@ -2,7 +2,11 @@ use riscv::register::fcsr::FCSR;
 
 use crate::{hart::floating, memory::user_ptr::UserInOutPtr, trap::context::UKContext};
 
-use super::{SignalSet, SignalStack};
+use super::{SignalSet, SignalSetDummy, SignalStack};
+
+#[repr(C, align(16))]
+#[derive(Clone, Copy)]
+struct Align16;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -11,13 +15,20 @@ pub struct SignalContext {
     pub scx_ptr: UserInOutPtr<SignalContext>,
     pub stack: SignalStack,
     pub mask: SignalSet,
+    pub dummy: SignalSetDummy,
+    align16: Align16,
     pub urx: [usize; 32],
     pub ufx: [f64; 32],
     pub fcsr: FCSR,
-    pub sepc: usize,
 }
 
 impl SignalContext {
+    fn set_sepc(&mut self, sepc: usize) {
+        self.urx[0] = sepc;
+    }
+    fn sepc(&self) -> usize {
+        self.urx[0]
+    }
     pub fn load(
         &mut self,
         uk_cx: &mut UKContext,
@@ -27,21 +38,21 @@ impl SignalContext {
         self.scx_ptr = scx_ptr;
         // ignore stack
         self.mask = mask;
-        self.urx = uk_cx.user_rx;
+        self.set_sepc(uk_cx.user_sepc);
+        self.urx[1..].copy_from_slice(&uk_cx.user_rx[1..]);
         unsafe { floating::load_fx(&mut uk_cx.user_fx) };
         self.ufx = uk_cx.user_fx.fx;
         self.fcsr = uk_cx.user_fx.fcsr;
-        self.sepc = uk_cx.user_sepc;
     }
     pub fn store(&self, uk_cx: &mut UKContext) -> (UserInOutPtr<SignalContext>, &SignalSet) {
         // ignore stack
-        uk_cx.user_rx = self.urx;
+        uk_cx.user_rx[1..].copy_from_slice(&self.urx[1..]);
         if uk_cx.user_fx.sig_dirty != 0 {
             uk_cx.user_fx.fx = self.ufx;
             uk_cx.user_fx.sig_dirty = 0;
         }
         uk_cx.user_fx.fcsr = self.fcsr;
-        uk_cx.user_sepc = self.sepc;
+        uk_cx.user_sepc = self.sepc();
         (self.scx_ptr, &self.mask)
     }
 }

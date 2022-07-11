@@ -17,7 +17,7 @@ use crate::{
 /// user-kernel context
 #[repr(C)]
 pub struct UKContext {
-    pub user_rx: [usize; 32],   // 0-31
+    pub user_rx: [usize; 32],   // 0-31, sepc is [0]
     pub user_sepc: usize,       // 32
     pub user_sstatus: Sstatus,  // 33
     pub kernel_sx: [usize; 12], // 34-45
@@ -141,7 +141,7 @@ impl UKContext {
     }
     #[inline(always)]
     pub fn a0(&self) -> usize {
-        self.user_rx[0]
+        self.user_rx[10]
     }
     #[inline(always)]
     pub fn a7(&self) -> usize {
@@ -149,7 +149,7 @@ impl UKContext {
     }
     #[inline(always)]
     pub fn a0_a7(&self) -> &[usize] {
-        &self.user_rx[10..17]
+        &self.user_rx[10..=17]
     }
     #[inline(always)]
     pub fn ra(&self) -> usize {
@@ -181,7 +181,7 @@ impl UKContext {
     }
     #[inline(always)]
     pub fn set_signal_paramater(&mut self, sig: Sig, si: usize, ctx: usize) {
-        self.user_rx[10..13].copy_from_slice(&[sig.to_user() as usize, si, ctx]);
+        self.user_rx[10..=12].copy_from_slice(&[sig.to_user() as usize, si, ctx]);
     }
     #[inline(always)]
     pub fn set_argc_argv_envp(&mut self, argc: usize, argv: usize, envp: usize) {

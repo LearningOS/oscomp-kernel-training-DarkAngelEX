@@ -60,8 +60,7 @@ impl Syscall<'_> {
             Target::Pid(pid) => {
                 let proc = search::find_proc(pid).ok_or(SysError::ESRCH)?;
                 proc.signal_manager.receive(signal);
-                proc.event_bus
-                    .set(Event::RECEIVE_SIGNAL)?;
+                proc.event_bus.set(Event::RECEIVE_SIGNAL)?;
             }
             Target::AllInGroup => todo!(),
             Target::All => todo!(),
@@ -222,12 +221,14 @@ impl Syscall<'_> {
             println!("sys_rt_sigreturn");
         }
         if self.thread.inner().scx_ptr.is_null() {
+            println!("signal::sigreturn fail 0");
             self.do_exit = true;
             return Err(SysError::EPERM);
         }
         match crate::signal::sigreturn(self.thread.inner(), self.process).await {
             Ok(a0) => Ok(a0),
             Err(e) => {
+                println!("signal::sigreturn fail 1");
                 self.do_exit = true;
                 Err(e)
             }
