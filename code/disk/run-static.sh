@@ -14,7 +14,7 @@
 ./runtest.exe -w entry-static.exe mbc
 ./runtest.exe -w entry-static.exe memstream
 ./runtest.exe -w entry-static.exe pthread_cancel_points
-./runtest.exe -w entry-static.exe pthread_cancelc:\Users\dark7\AppData\Local\Programs\Microsoft VS Code\resources\app\out\vs\code\electron-browser\workbench\workbench.html
+./runtest.exe -w entry-static.exe pthread_cancel
 ./runtest.exe -w entry-static.exe pthread_cond
 ./runtest.exe -w entry-static.exe pthread_tsd
 ./runtest.exe -w entry-static.exe qsort

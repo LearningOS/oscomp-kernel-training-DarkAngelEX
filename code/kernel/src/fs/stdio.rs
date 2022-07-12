@@ -1,7 +1,10 @@
+use core::time::Duration;
+
 use alloc::boxed::Box;
 
-use super::{AsyncFile, File};
 use crate::{console, sync::SleepMutex};
+
+use ftl_util::{async_tools::ASysRet, fs::File};
 
 pub struct Stdin;
 
@@ -17,17 +20,21 @@ impl File for Stdin {
     fn can_mmap(&self) -> bool {
         false
     }
-    fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
+            const PRINT_STDIN: bool = false;
             let len = buf.len();
             for i in 0..len {
                 let mut c: usize;
+                if PRINT_STDIN {
+                    print!("?");
+                }
                 loop {
                     c = console::getchar() as usize;
                     if [0, u32::MAX as usize].contains(&c) {
                         if !crate::xdebug::CLOSE_TIME_INTERRUPT {
-                            use crate::timer::{sleep::JustWaitFuture, TimeTicks};
-                            JustWaitFuture::new(TimeTicks::from_millisecond(5)).await;
+                            use crate::timer::sleep;
+                            sleep::just_wait(Duration::from_millis(5)).await;
                         } else {
                             crate::process::thread::yield_now().await;
                         }
@@ -35,12 +42,15 @@ impl File for Stdin {
                     }
                     break;
                 }
+                if PRINT_STDIN {
+                    print!("!");
+                }
                 buf[i] = c as u8;
             }
             Ok(len)
         })
     }
-    fn write<'a>(&'a self, _buf: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, _buf: &'a [u8]) -> ASysRet {
         panic!("Cannot write to stdin!");
     }
 }
@@ -54,10 +64,10 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read<'a>(&'a self, _buf: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, _buf: &'a mut [u8]) -> ASysRet {
         panic!("Cannot read from stdout!");
     }
-    fn write<'a>(&'a self, buf: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, buf: &'a [u8]) -> ASysRet {
         Box::pin(async move {
             use core::str::lossy;
             let lock = STDOUT_MUTEX.lock().await;

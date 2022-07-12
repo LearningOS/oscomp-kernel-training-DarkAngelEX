@@ -2,11 +2,11 @@ use ftl_util::sync::MutexSupport;
 
 use crate::hart::interrupt;
 
-pub mod mutex;
 pub mod even_bus;
+pub mod mutex;
 
 pub type SleepMutex<T> = ftl_util::sync::sleep_mutex::SleepMutex<T, SpinNoIrq>;
-
+pub type RwSleepMutex<T> = ftl_util::sync::rw_sleep_mutex::RwSleepMutex<T, SpinNoIrq>;
 
 /// Spin & no-interrupt lock
 #[derive(Debug)]

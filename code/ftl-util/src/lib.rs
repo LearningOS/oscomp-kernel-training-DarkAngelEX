@@ -9,6 +9,9 @@ use crate::rcu::RcuDrop;
 use xdebug::stack::XInfo;
 
 #[macro_use]
+extern crate bitflags;
+
+#[macro_use]
 pub mod xmarco;
 #[macro_use]
 pub mod console;
@@ -24,6 +27,7 @@ pub mod fs;
 pub mod rcu;
 pub mod sync;
 pub mod utc_time;
+pub mod time;
 
 extern crate alloc;
 

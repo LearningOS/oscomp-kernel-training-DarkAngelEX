@@ -454,6 +454,10 @@ impl<T> UserAddr<T> {
         (self.into_usize() % PAGE_SIZE) == 0
     }
     #[inline(always)]
+    pub const fn is_align(self) -> bool {
+        (self.into_usize() % core::mem::align_of::<T>()) == 0
+    }
+    #[inline(always)]
     pub const fn valid(self) -> Result<(), ()> {
         tools::bool_result(self.0 <= USER_END)
     }

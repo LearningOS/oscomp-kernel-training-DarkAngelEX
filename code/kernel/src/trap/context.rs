@@ -1,22 +1,22 @@
-use riscv::register::fcsr::FCSR;
-use riscv::register::sstatus::FS;
+use ftl_util::fs::Mode;
 
-use crate::fs::Mode;
-use crate::hart::floating;
-use crate::riscv::register::sstatus::Sstatus;
-use crate::tools::allocator::from_usize_allocator::FromUsize;
+use riscv::register::{fcsr::FCSR, sstatus::FS};
+
 use crate::{
-    hart::floating::FLOAT_ENABLE,
+    hart::floating::{self, FLOAT_ENABLE},
     memory::{
         address::UserAddr,
         user_ptr::{Policy, UserPtr},
     },
+    riscv::register::sstatus::Sstatus,
+    signal::Sig,
+    tools::allocator::from_usize_allocator::FromUsize,
 };
 
 /// user-kernel context
 #[repr(C)]
 pub struct UKContext {
-    pub user_rx: [usize; 32],   // 0-31
+    pub user_rx: [usize; 32],   // 0-31, sepc is [0]
     pub user_sepc: usize,       // 32
     pub user_sstatus: Sstatus,  // 33
     pub kernel_sx: [usize; 12], // 34-45
@@ -34,6 +34,7 @@ pub struct FloatContext {
     // because of repr(C), use u8 instead of bool
     pub need_save: u8, // become 1 when dirty, run save when switch context
     pub need_load: u8, // become 1 when switch context, run load when into user
+    pub sig_dirty: u8, // become 1 when dirty, clean when signal return
 }
 
 impl FloatContext {
@@ -42,6 +43,7 @@ impl FloatContext {
         self.fcsr = fcsr;
         self.need_load = 1;
         self.need_save = 0;
+        self.sig_dirty = 0;
     }
 }
 
@@ -78,11 +80,13 @@ usize_forward_impl!(*const T, a, a as *const T, T);
 usize_forward_impl!(*mut T, a, a as *mut T, T);
 
 impl<T: Clone + Copy + 'static, P: Policy> UsizeForward for UserPtr<T, P> {
+    #[inline(always)]
     fn usize_forward(a: usize) -> Self {
         Self::from_usize(a)
     }
 }
 impl<T: FromUsize> UsizeForward for T {
+    #[inline(always)]
     fn usize_forward(a: usize) -> Self {
         T::from_usize(a)
     }
@@ -90,12 +94,14 @@ impl<T: FromUsize> UsizeForward for T {
 
 macro_rules! para_impl {
     ($fn_name: ident, $T:tt) => {
+        #[inline(always)]
         pub fn $fn_name<$T: UsizeForward>(&self) -> $T {
             $T::usize_forward(self.user_rx[10])
         }
     };
     ($fn_name: ident, $($T:tt),*) => {
         #[allow(dead_code)]
+        #[inline(always)]
         pub fn $fn_name<$($T: UsizeForward,)*>(&self) -> ($($T,)*)
         {
             let mut i = 0..;
@@ -132,33 +138,51 @@ impl UKContext {
     pub fn new() -> Self {
         unsafe { core::mem::zeroed() }
     }
+    #[inline(always)]
     pub fn a0(&self) -> usize {
-        self.user_rx[0]
+        self.user_rx[10]
     }
+    #[inline(always)]
     pub fn a7(&self) -> usize {
         self.user_rx[17]
     }
+    #[inline(always)]
     pub fn a0_a7(&self) -> &[usize] {
-        &self.user_rx[10..17]
+        &self.user_rx[10..=17]
     }
+    #[inline(always)]
     pub fn ra(&self) -> usize {
         self.user_rx[1]
     }
+    #[inline(always)]
     pub fn sp(&self) -> usize {
         self.user_rx[2]
     }
+    #[inline(always)]
     pub fn set_user_sepc(&mut self, sepc: usize) {
         self.user_sepc = sepc;
     }
+    #[inline(always)]
     pub fn set_user_ra(&mut self, ra: usize) {
         self.user_rx[1] = ra;
     }
+    #[inline(always)]
     pub fn set_user_sp(&mut self, sp: usize) {
         self.user_rx[2] = sp;
     }
+    #[inline(always)]
+    pub fn set_user_tp(&mut self, tp: usize) {
+        self.user_rx[4] = tp;
+    }
+    #[inline(always)]
     pub fn set_user_a0(&mut self, a0: usize) {
         self.user_rx[10] = a0;
     }
+    #[inline(always)]
+    pub fn set_signal_paramater(&mut self, sig: Sig, si: usize, ctx: usize) {
+        self.user_rx[10..=12].copy_from_slice(&[sig.to_user() as usize, si, ctx]);
+    }
+    #[inline(always)]
     pub fn set_argc_argv_envp(&mut self, argc: usize, argv: usize, envp: usize) {
         self.user_rx[10] = argc;
         self.user_rx[11] = argv;
@@ -177,6 +201,7 @@ impl UKContext {
     //     rx.rsplit_array_ref::<22>().1.split_array_ref().0
     // }
     /// sepc += 4
+    #[inline(always)]
     pub fn set_next_instruction(&mut self) {
         self.user_sepc += 4;
     }
@@ -199,9 +224,10 @@ impl UKContext {
         self.user_sstatus = sstatus;
     }
 
-    pub fn fork(&self) -> Self {
+    pub fn fork(&self, tls: Option<usize>) -> Self {
         let mut new = Self::new();
         new.user_rx = self.user_rx;
+        tls.map(|tp| new.set_user_tp(tp));
         new.user_sepc = self.user_sepc;
         new.user_sstatus = self.user_sstatus;
         if FLOAT_ENABLE {

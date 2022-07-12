@@ -12,7 +12,7 @@ use crate::{
 
 use super::BlockDevice;
 use alloc::boxed::Box;
-use fat32::AsyncRet;
+use ftl_util::async_tools::ASysR;
 use virtio_drivers::{VirtIOBlk, VirtIOHeader};
 
 #[allow(unused)]
@@ -27,7 +27,7 @@ impl BlockDevice for VirtIOBlock {
     fn sector_bytes(&self) -> usize {
         512
     }
-    fn read_block<'a>(&'a self, mut block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
+    fn read_block<'a>(&'a self, mut block_id: usize, buf: &'a mut [u8]) -> ASysR<()> {
         Box::pin(async move {
             stack_trace!();
             let io = &mut *self.0.lock().await;
@@ -39,7 +39,7 @@ impl BlockDevice for VirtIOBlock {
             Ok(())
         })
     }
-    fn write_block<'a>(&'a self, mut block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
+    fn write_block<'a>(&'a self, mut block_id: usize, buf: &'a [u8]) -> ASysR<()> {
         Box::pin(async move {
             stack_trace!();
             let io = &mut *self.0.lock().await;

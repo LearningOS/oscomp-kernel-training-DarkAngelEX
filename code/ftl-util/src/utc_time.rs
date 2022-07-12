@@ -1,7 +1,7 @@
 pub struct UtcTime {
     pub ymd: (usize, usize, usize),
     pub hms: (usize, usize, usize),
-    pub ms: usize,
+    pub nano: usize,
 }
 
 impl UtcTime {
@@ -23,7 +23,7 @@ impl UtcTime {
         self.hms = (hour, minute, second);
     }
     pub fn set_ms(&mut self, ms: u8) {
-        self.ms = ms as usize * 10;
+        self.nano = ms as usize * 1000 * 1000;
     }
     pub fn second(&self) -> usize {
         let mut cur = (self.ymd.0 - 1980) * 365 * 24 * 3600;
@@ -35,6 +35,6 @@ impl UtcTime {
         cur
     }
     pub fn nanosecond(&self) -> usize {
-        self.ms * 1000 * 1000
+        self.nano
     }
 }

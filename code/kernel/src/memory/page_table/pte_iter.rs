@@ -30,26 +30,29 @@ impl<'a> VaildPteIter<'a> {
 impl<'a> Iterator for VaildPteIter<'a> {
     type Item = (UserAddr4K, &'a mut PageTableEntry);
     fn next(&mut self) -> Option<Self::Item> {
+        fn next_pte(a: PhyAddr4K, i: usize) -> &'static mut PageTableEntry {
+            &mut a.into_ref().as_pte_array_mut()[i]
+        }
+        fn base_ceil(a: UserAddr4K, base: usize) -> UserAddr4K {
+            let base: usize = 1usize << (12 + 9 * base);
+            unsafe { core::intrinsics::assume(a.into_usize() % 0x1000 == 0) };
+            unsafe { UserAddr4K::from_usize((a.into_usize() & !(base - 1usize)) + base) }
+        }
         if self.cur >= self.end {
             return None;
         }
         stack_trace!();
-        let next_pte = |a: PhyAddr4K, i| &mut a.into_ref().as_pte_array_mut()[i];
-        let base_ceil = |a: UserAddr4K, base| unsafe {
-            let base: usize = 1usize << (12 + 9 * base);
-            UserAddr4K::from_usize((a.into_usize() & !(base - 1usize)) + base)
-        };
 
         let mut cur = self.cur;
         'outer: while cur < self.end {
-            let idx = cur.indexes();
-            let pte = next_pte(self.pt.root_pa(), idx[0]);
+            let [idx0, idx1, _] = cur.indexes();
+            let pte = next_pte(self.pt.root_pa(), idx0);
             if !pte.is_valid() {
                 cur = base_ceil(cur, 2);
                 continue;
             }
             debug_assert!(pte.is_directory());
-            let pte = next_pte(pte.phy_addr(), idx[1]);
+            let pte = next_pte(pte.phy_addr(), idx1);
             if !pte.is_valid() {
                 cur = base_ceil(cur, 1);
                 continue;
@@ -68,12 +71,13 @@ impl<'a> Iterator for VaildPteIter<'a> {
                 if cur.into_usize() & mask == 0 {
                     continue 'outer;
                 }
-                if cur > self.end {
+                if cur >= self.end {
                     break 'outer;
                 }
             };
             debug_assert!(pte.is_leaf());
             self.cur = cur.add_one_page();
+            debug_assert!(cur < self.end);
             return Some((cur, pte));
         }
         self.cur = cur;

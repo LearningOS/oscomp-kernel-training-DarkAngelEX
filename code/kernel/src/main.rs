@@ -1,51 +1,53 @@
 #![no_std]
 #![no_main]
-#![feature(panic_info_message)]
-#![feature(const_slice_from_raw_parts)]
-#![feature(alloc_error_handler)]
-#![feature(default_free_fn)]
-#![feature(bench_black_box)]
-#![feature(split_array)]
-#![feature(bool_to_option)]
 #![feature(asm_const)]
-#![feature(trait_alias)]
-#![feature(const_btree_new)]
-#![feature(map_first_last)]
-#![feature(never_type)]
-#![feature(slice_pattern)]
-#![feature(map_try_insert)]
-#![feature(unboxed_closures)]
-#![feature(negative_impls)]
-#![feature(slice_ptr_len)]
-#![feature(nonzero_ops)]
-#![feature(generic_arg_infer)]
-#![feature(once_cell)]
-#![feature(get_mut_unchecked)]
-#![feature(new_uninit)]
-#![feature(const_trait_impl)]
+#![feature(array_chunks)]
+#![feature(array_try_map)]
+#![feature(alloc_error_handler)]
+#![feature(allocator_api)]
+#![feature(associated_type_bounds)]
+#![feature(bool_to_option)]
+#![feature(bench_black_box)]
+#![feature(core_intrinsics)]
+#![feature(const_for)]
 #![feature(const_try)]
-#![feature(const_mut_refs)]
 #![feature(const_option)]
 #![feature(const_convert)]
-#![feature(const_for)]
-#![feature(associated_type_bounds)]
-#![feature(let_chains)]
-#![feature(result_option_inspect)]
-#![feature(half_open_range_patterns)]
-#![feature(exclusive_range_pattern)]
-#![feature(riscv_target_feature)]
-#![feature(slice_ptr_get)]
-#![feature(maybe_uninit_as_bytes)]
+#![feature(const_mut_refs)]
+#![feature(const_btree_new)]
+#![feature(const_option_ext)]
+#![feature(const_trait_impl)]
+#![feature(const_slice_from_raw_parts)]
 #![feature(custom_test_frameworks)]
-#![feature(allocator_api)]
-#![feature(str_internals)]
-#![feature(array_chunks)]
-#![feature(slice_from_ptr_range)]
-#![feature(core_intrinsics)]
 #![feature(control_flow_enum)]
-#![feature(try_trait_v2)]
+#![feature(default_free_fn)]
+#![feature(exclusive_range_pattern)]
+#![feature(generic_arg_infer)]
+#![feature(get_mut_unchecked)]
+#![feature(half_open_range_patterns)]
+#![feature(let_chains)]
+#![feature(map_first_last)]
+#![feature(map_try_insert)]
 #![feature(mixed_integer_ops)]
+#![feature(maybe_uninit_as_bytes)]
+#![feature(new_uninit)]
+#![feature(never_type)]
+#![feature(nonzero_ops)]
+#![feature(negative_impls)]
+#![feature(once_cell)]
+#![feature(panic_info_message)]
+#![feature(riscv_target_feature)]
+#![feature(result_option_inspect)]
+#![feature(str_internals)]
+#![feature(split_array)]
+#![feature(slice_pattern)]
+#![feature(slice_ptr_len)]
+#![feature(slice_ptr_get)]
+#![feature(slice_from_ptr_range)]
+#![feature(try_trait_v2)]
+#![feature(trait_alias)]
 #![feature(trait_upcasting)]
+#![feature(unboxed_closures)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
 #![allow(dead_code)]
@@ -58,7 +60,6 @@ extern crate async_task;
 extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;
-extern crate easy_fs;
 extern crate fat32;
 extern crate riscv;
 extern crate xmas_elf;
@@ -82,8 +83,9 @@ mod drivers;
 mod executor;
 mod fdt;
 mod fs;
+mod futex;
 mod hart;
-pub mod hifive;
+mod hifive;
 mod lang_items;
 mod local;
 mod memory;
@@ -94,7 +96,6 @@ mod syscall;
 mod timer;
 mod trap;
 mod user;
-pub mod futex;
 
 use riscv::register::sstatus;
 

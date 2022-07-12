@@ -93,7 +93,9 @@ pub unsafe fn load_fx(fx: &mut FloatContext) {
 }
 
 pub fn store_fx_mark(fx: &mut FloatContext, ss: &mut Sstatus) {
-    fx.need_save |= (ss.fs() == FS::Dirty) as u8;
+    let dirty = (ss.fs() == FS::Dirty) as u8;
+    fx.need_save |= dirty;
+    fx.sig_dirty |= dirty;
 }
 
 pub fn switch_out(fx: &mut FloatContext) {

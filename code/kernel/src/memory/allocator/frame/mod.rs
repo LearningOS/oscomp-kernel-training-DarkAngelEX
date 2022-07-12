@@ -13,6 +13,7 @@ use self::global::FrameTracker;
 
 pub trait FrameAllocator = TrackerAllocator<PhyAddrRef4K, FrameTracker>;
 
+#[inline]
 pub fn defualt_allocator() -> impl FrameAllocator {
     GlobalRefFrameAllocator::new()
 }
@@ -20,16 +21,18 @@ pub fn defualt_allocator() -> impl FrameAllocator {
 struct GlobalRefFrameAllocator;
 
 impl TrackerAllocator<PhyAddrRef4K, FrameTracker> for GlobalRefFrameAllocator {
+    #[inline]
     fn alloc(&mut self) -> Result<FrameTracker, FrameOOM> {
         global::alloc()
     }
-
+    #[inline]
     unsafe fn dealloc(&mut self, value: PhyAddrRef4K) {
         global::dealloc(value)
     }
 }
 
 impl GlobalRefFrameAllocator {
+    #[inline]
     pub fn new() -> Self {
         Self
     }

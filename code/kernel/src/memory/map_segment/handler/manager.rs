@@ -97,6 +97,10 @@ impl HandlerManager {
         stack_trace!();
         self.map.range_contain(range).map(|a| a.as_ref())
     }
+    pub fn range_contain_mut(&mut self, range: URange) -> Option<&mut dyn UserAreaHandler> {
+        stack_trace!();
+        self.map.range_contain_mut(range).map(|a| a.as_mut())
+    }
     pub fn range_match(&self, range: URange) -> Option<&dyn UserAreaHandler> {
         self.map.range_match(range).map(|a| a.as_ref())
     }
@@ -104,8 +108,8 @@ impl HandlerManager {
         self.map
             .find_free_range(range, n.0, |a, n| a.add_page(PageCount(n)))
     }
-    pub fn free_range_check(&self, range: URange) -> Result<(), ()> {
-        self.map.free_range_check(range)
+    pub fn range_is_free(&self, range: URange) -> Result<(), ()> {
+        self.map.range_is_free(range)
     }
     /// 内部值使用 box_clone 复制
     pub fn fork(&mut self) -> Self {

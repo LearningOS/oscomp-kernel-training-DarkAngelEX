@@ -1,6 +1,7 @@
 use core::ops::{Deref, DerefMut};
 
 use alloc::sync::Arc;
+use ftl_util::error::SysRet;
 
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
@@ -28,6 +29,7 @@ const SYSCALL_MKDIRAT: usize = 34;
 const SYSCALL_UNLINKAT: usize = 35;
 const SYSCALL_UMOUNT2: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
+const SYSCALL_STATFS: usize = 43;
 const SYSCALL_CHDIR: usize = 49;
 const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
@@ -36,11 +38,14 @@ const SYSCALL_GETDENTS64: usize = 61;
 const SYSCALL_LSEEK: usize = 62;
 const SYSCALL_READ: usize = 63;
 const SYSCALL_WRITE: usize = 64;
+const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
+const SYSCALL_PREAD64: usize = 67;
 const SYSCALL_PPOLL: usize = 73;
 const SYSCALL_READLINKAT: usize = 78;
 const SYSCALL_NEWFSTATAT: usize = 79;
 const SYSCALL_FSTAT: usize = 80;
+const SYSCALL_UTIMENSAT: usize = 88;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_EXIT_GROUP: usize = 94;
 const SYSCALL_SET_TID_ADDRESS: usize = 96;
@@ -70,6 +75,7 @@ const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
 const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
+const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
@@ -108,7 +114,7 @@ impl<'a> Syscall<'a> {
     pub async fn syscall(&mut self) -> bool {
         stack_trace!();
         self.cx.set_next_instruction();
-        let result: SysResult = match self.cx.a7() {
+        let result: SysRet = match self.cx.a7() {
             SYSCALL_GETCWD => self.sys_getcwd().await,
             SYSCALL_DUP => self.sys_dup(),
             SYSCALL_DUP3 => self.sys_dup3(),
@@ -118,6 +124,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_UNLINKAT => self.sys_unlinkat().await,
             SYSCALL_UMOUNT2 => self.sys_umount2().await,
             SYSCALL_MOUNT => self.sys_mount().await,
+            SYSCALL_STATFS => self.sys_statfs().await,
             SYSCALL_CHDIR => self.sys_chdir().await,
             SYSCALL_OPENAT => self.sys_openat().await,
             SYSCALL_CLOSE => self.sys_close(),
@@ -126,19 +133,22 @@ impl<'a> Syscall<'a> {
             SYSCALL_LSEEK => self.sys_lseek(),
             SYSCALL_READ => self.sys_read().await,
             SYSCALL_WRITE => self.sys_write().await,
+            SYSCALL_READV => self.sys_readv().await,
             SYSCALL_WRITEV => self.sys_writev().await,
+            SYSCALL_PREAD64 => self.sys_pread64().await,
             SYSCALL_PPOLL => self.sys_ppoll().await,
             SYSCALL_READLINKAT => self.sys_readlinkat().await,
             SYSCALL_NEWFSTATAT => self.sys_newfstatat().await,
             SYSCALL_FSTAT => self.sys_fstat().await,
+            SYSCALL_UTIMENSAT => self.sys_utimensat().await,
             SYSCALL_EXIT => self.sys_exit(),
             SYSCALL_EXIT_GROUP => self.sys_exit_group(),
             SYSCALL_SET_TID_ADDRESS => self.sys_set_tid_address(),
-            SYSCALL_FUTEX => self.futex().await,
-            SYSCALL_SET_ROBUST_LIST => self.set_robust_list().await,
-            SYSCALL_GET_ROBUST_LIST => self.get_robust_list().await,
+            SYSCALL_FUTEX => self.sys_futex().await,
+            SYSCALL_SET_ROBUST_LIST => self.sys_set_robust_list().await,
+            SYSCALL_GET_ROBUST_LIST => self.sys_get_robust_list().await,
             SYSCALL_NANOSLEEP => self.sys_nanosleep().await,
-            SYSCALL_CLOCK_GETTIME => self.clock_gettime().await,
+            SYSCALL_CLOCK_GETTIME => self.sys_clock_gettime().await,
             SYSCALL_SCHED_YIELD => self.sys_sched_yield().await,
             SYSCALL_KILL => self.sys_kill(),
             SYSCALL_TKILL => self.sys_tkill(),
@@ -160,6 +170,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETPPID => self.sys_getppid(),
             SYSCALL_GETUID => self.sys_getuid(),
             SYSCALL_GETEUID => self.sys_geteuid(),
+            SYSCALL_GETEGID => self.sys_getegid(),
             SYSCALL_GETTID => self.sys_gettid(),
             SYSCALL_BRK => self.sys_brk(),
             SYSCALL_MUNMAP => self.sys_munmap(),
@@ -175,44 +186,35 @@ impl<'a> Syscall<'a> {
         };
         let a0 = match result {
             Ok(a) => a,
-            // Err(e) => -(e as isize) as usize,
-            Err(_e) => -1isize as usize,
+            Err(e) => -(e as isize) as usize,
+            // Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
         if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
             if ![63, 64].contains(&self.cx.a7()) {
-                println!("syscall {} -> {:#x}", self.cx.a7(), a0);
+                print!("{}", to_yellow!());
+                print!("{:?} syscall {} -> ", self.thread.tid(), self.cx.a7(),);
+                match result {
+                    Ok(n) => print!("{:#x} ", n),
+                    Err(e) => print!("{:?} ", e),
+                }
+                print!("sepc:{:#x}", self.cx.user_sepc);
+                println!("{}", reset_color!());
             }
         }
         self.cx.set_user_a0(a0);
         self.do_exit
     }
-    /// if return Err will set do_exit = true
+    /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
-    pub fn alive_then<T>(
-        &mut self,
-        f: impl FnOnce(&mut AliveProcess) -> T,
-    ) -> Result<T, UniqueSysError<{ SysError::ESRCH as isize }>> {
-        self.process
-            .alive_then(f)
-            .inspect_err(|_e| self.do_exit = true)
-            .map_err(From::from)
+    pub fn alive_then<T>(&mut self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
+        self.process.alive_then(f).unwrap()
     }
-    /// if return Err will set do_exit = true
+    /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
-    pub fn alive_lock(
-        &mut self,
-    ) -> Result<
-        impl DerefMut<Target = AliveProcess> + 'a,
-        UniqueSysError<{ SysError::ESRCH as isize }>,
-    > {
-        let lock = self.process.alive.lock();
-        if lock.is_none() {
-            self.do_exit = true;
-            return Err(UniqueSysError);
-        }
-        return Ok(AliveGurad(lock));
+    pub fn alive_lock(&mut self) -> impl DerefMut<Target = AliveProcess> + '_ {
+        AliveGurad(self.process.alive.lock())
     }
 }
 
@@ -229,5 +231,3 @@ impl<M: DAP> DerefMut for AliveGurad<M> {
         unsafe { self.0.as_mut().unwrap_unchecked() }
     }
 }
-
-pub type SysResult = Result<usize, SysError>;

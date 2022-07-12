@@ -21,6 +21,9 @@ impl SharedCounter {
     }
 }
 
+/// 管理共享页的引用计数, 原子计数实现
+///
+/// 此管理器的全部操作默认map中一定可以找到参数地址, 否则panic
 pub struct SCManager(BTreeMap<UserAddr4K, Arc<AtomicUsize>>);
 
 impl Drop for SCManager {
@@ -29,9 +32,6 @@ impl Drop for SCManager {
     }
 }
 
-/// 管理共享页的引用计数, 原子计数实现
-///
-/// 此管理器的全部操作默认map中一定可以找到参数地址, 否则panic
 impl SCManager {
     pub const fn new() -> Self {
         Self(BTreeMap::new())

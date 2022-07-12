@@ -13,8 +13,8 @@ pub const PRINT_SYSCALL_ALL: bool = false;
 pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie
 pub const PRINT_DROP_TCB: bool = false;
-
 pub const PRINT_PAGE_FAULT: bool = false;
+pub const PRINT_TICK: bool = false;
 
 pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;
@@ -31,7 +31,9 @@ pub const CLOSE_TIME_INTERRUPT: bool = false;
 
 pub const NO_SYSCALL_PANIC: bool = false;
 
-pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样
+pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样, 不使用基于时钟的随机
+
+pub const LIMIT_SIGNAL_COUNT: Option<usize> = None; // 信号处理超过预定数量时panic
 
 #[macro_use]
 pub mod trace;

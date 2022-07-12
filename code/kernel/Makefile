@@ -143,15 +143,15 @@ debug: build
 		tmux split-window -h "riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'" && \
 		tmux -2 attach-session -d
 
-debug_run: build
+drun: build
 	@qemu-system-riscv64 -machine virt -nographic -bios $(BOOTLOADER) -m $(MEMORY_SIZE) \
 		-device loader,file=$(KERNEL_BIN),addr=$(KERNEL_ENTRY_PA) \
 		-drive file=$(FS_IMG),if=none,format=raw,id=x0 \
 		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 		-s -S
 
-debug_gdb:
-	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../disk/entry-dynamic.exe' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+dgdb:
+	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../disk/entry-static.exe' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
 
 #qemu-riscv64
 

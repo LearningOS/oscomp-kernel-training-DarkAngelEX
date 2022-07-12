@@ -1,7 +1,10 @@
 use core::ops::ControlFlow;
 
 use alloc::{sync::Arc, vec::Vec};
-use ftl_util::{error::SysError, utc_time::UtcTime};
+use ftl_util::{
+    error::{SysR, SysRet},
+    utc_time::UtcTime,
+};
 
 use crate::{
     block::bcache::Cache,
@@ -43,8 +46,7 @@ impl RawInode {
     pub fn attr(&self) -> Attr {
         self.cache.inner.shared_lock().attr()
     }
-    pub async fn blk_num(&self, fat_list: &FatList) -> Result<usize, SysError> {
-        let cid = self.cache.inner.shared_lock().cid_start;
+    pub async fn blk_num(&self, fat_list: &FatList) -> SysRet {
         let n = match self.get_list_last(fat_list).await? {
             Some((n, _)) => n + 1,
             None => 0,
@@ -76,11 +78,7 @@ impl RawInode {
     /// 此函数将更新缓存
     ///
     /// 如果长度不足, 返回Ok(Err(Fat链表长度)))
-    async fn get_nth_block_cid(
-        &self,
-        fat_list: &FatList,
-        n: usize,
-    ) -> Result<Result<CID, usize>, SysError> {
+    async fn get_nth_block_cid(&self, fat_list: &FatList, n: usize) -> SysR<Result<CID, usize>> {
         stack_trace!();
         let (cur, cid) = {
             let cache = self.cache.inner.shared_lock();
@@ -120,7 +118,7 @@ impl RawInode {
     /// 返回最后一个簇的(偏移, CID) 链表长度为偏移+1
     ///
     /// 空链表返回None
-    async fn get_list_last(&self, fat_list: &FatList) -> Result<Option<(usize, CID)>, SysError> {
+    async fn get_list_last(&self, fat_list: &FatList) -> SysR<Option<(usize, CID)>> {
         let last_save = self.cache.inner.shared_lock().list_last_save();
         let (cur, cid) = match last_save {
             None => return Ok(None),
@@ -151,7 +149,7 @@ impl RawInode {
         &self,
         manager: &Fat32Manager,
         n: usize,
-    ) -> Result<Result<(CID, Arc<Cache>), usize>, SysError> {
+    ) -> SysR<Result<(CID, Arc<Cache>), usize>> {
         stack_trace!();
         if let Some((ln, c)) = &*self.last_cache.shared_lock() {
             if *ln == n {
@@ -183,7 +181,7 @@ impl RawInode {
         manager: &Fat32Manager,
         n: usize,
         mut init: impl FnMut(&mut [T]),
-    ) -> Result<(CID, Arc<Cache>), SysError> {
+    ) -> SysR<(CID, Arc<Cache>)> {
         let mut cur_len = match self.get_nth_block(manager, n).await? {
             Ok(tup) => return Ok(tup),
             Err(cur_len) => cur_len,
@@ -220,7 +218,7 @@ impl RawInode {
         &mut self,
         manager: &Fat32Manager,
         init: impl FnMut(&mut [T]),
-    ) -> Result<(usize, CID, Arc<Cache>), SysError> {
+    ) -> SysR<(usize, CID, Arc<Cache>)> {
         let (n, cid) = match self.get_list_last(&manager.list).await? {
             None => (0, manager.list.alloc_block().await?),
             Some((off, cid)) => (off, manager.list.alloc_block_after(cid).await?),
@@ -235,7 +233,7 @@ impl RawInode {
         manager: &Fat32Manager,
         n: usize,
         init: impl FnMut(&mut [T]),
-    ) -> Result<(), SysError> {
+    ) -> SysR<()> {
         if n == 0 {
             let cid = match self.get_nth_block_cid(&manager.list, 0).await? {
                 Err(len) => {
@@ -260,7 +258,7 @@ impl RawInode {
         }
         Ok(())
     }
-    pub async fn short_entry_sync(&self, manager: &Fat32Manager) -> Result<(), SysError> {
+    pub async fn short_entry_sync(&self, manager: &Fat32Manager) -> SysR<()> {
         stack_trace!();
         if self.is_root {
             return Ok(());

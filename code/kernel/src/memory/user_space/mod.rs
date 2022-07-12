@@ -1,10 +1,22 @@
 use core::mem::MaybeUninit;
 
-use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
+use alloc::{
+    boxed::Box,
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
+use ftl_util::{
+    error::SysR,
+    fs::{Mode, OpenFlags},
+};
 use riscv::register::scause::Exception;
 
 use crate::{
-    config::{PAGE_SIZE, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE},
+    config::{
+        PAGE_SIZE, USER_DYN_BEGIN, USER_KRW_RANDOM_RANGE, USER_KRX_RANGE, USER_STACK_RESERVE,
+    },
+    futex::OwnFutex,
     local,
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
@@ -45,13 +57,16 @@ pub struct AccessType {
     pub user: bool,
 }
 impl AccessType {
-    pub fn write() -> Self {
-        Self {
-            write: true,
-            exec: false,
-            user: true,
-        }
-    }
+    pub const RO: Self = Self {
+        write: false,
+        exec: false,
+        user: true,
+    };
+    pub const RW: Self = Self {
+        write: true,
+        exec: false,
+        user: true,
+    };
     pub fn from_exception(e: Exception) -> Result<Self, ()> {
         match e {
             Exception::LoadPageFault => Ok(Self {
@@ -113,6 +128,11 @@ impl UserArea {
     pub fn user_assert(&self) {
         assert!(self.perm & PTEFlags::U != PTEFlags::empty());
     }
+    pub fn offset(&mut self, offset: UserAddr4K) {
+        let n = PageCount::page_floor(offset.into_usize());
+        self.range.start.add_page_assign(n);
+        self.range.end.add_page_assign(n);
+    }
 }
 
 /// auto free root space.
@@ -122,7 +142,6 @@ pub struct UserSpace {
     pub map_segment: MapSegment,
     stacks: StackSpaceManager,
     heap: HeapManager,
-    // mmap_size: usize,
 }
 
 unsafe impl Send for UserSpace {}
@@ -149,6 +168,14 @@ impl UserSpace {
             heap: HeapManager::new(),
         })
     }
+    pub fn fetch_futex(&mut self, ua: UserAddr<u32>) -> &mut OwnFutex {
+        debug_assert!(ua.is_align());
+        self.map_segment.fetch_futex(ua)
+    }
+    pub fn try_fetch_futex(&mut self, ua: UserAddr<u32>) -> Option<&mut OwnFutex> {
+        debug_assert!(ua.is_align());
+        self.map_segment.try_fetch_futex(ua)
+    }
     fn page_table(&self) -> &PageTable {
         unsafe { &*self.map_segment.page_table.get() }
     }
@@ -171,16 +198,12 @@ impl UserSpace {
     pub fn in_using(&self) -> bool {
         self.page_table().in_using()
     }
-    fn force_map_delay(&mut self, map_area: UserArea) -> Result<(), SysError> {
+    fn force_map_delay(&mut self, map_area: UserArea) -> SysR<()> {
         stack_trace!();
         self.map_segment
             .force_push(map_area.range, MapAllHandler::box_new(map_area.perm))
     }
-    fn force_map_delay_write(
-        &mut self,
-        map_area: UserArea,
-        data: impl FrameDataIter,
-    ) -> Result<(), SysError> {
+    fn force_map_delay_write(&mut self, map_area: UserArea, data: impl FrameDataIter) -> SysR<()> {
         stack_trace!();
         let r = map_area.range;
         self.map_segment
@@ -200,18 +223,19 @@ impl UserSpace {
         todo!()
     }
     /// (stack, user_sp)
-    pub fn stack_init(&mut self, stack_reverse: PageCount) -> Result<UserAddr4K, SysError> {
+    pub fn stack_init(&mut self, stack_reverse: PageCount) -> SysR<UserAddr4K> {
         stack_trace!();
         // 绕过 stack 借用检查
         let h = DelayHandler::box_new(PTEFlags::R | PTEFlags::W | PTEFlags::U);
         self.map_segment.force_push(self.stacks.max_area(), h)?;
-        self.map_segment.force_map(self.stacks.init_area(stack_reverse))?;
+        self.map_segment
+            .force_map(self.stacks.init_area(stack_reverse))?;
         Ok(self.stacks.init_sp())
     }
     pub fn get_brk(&self) -> UserAddr<u8> {
         self.heap.brk()
     }
-    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> Result<(), SysError> {
+    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> SysR<()> {
         let ms = &mut self.map_segment;
         self.heap.set_brk(new_brk, move |r, f| {
             if f {
@@ -247,7 +271,8 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-    ) -> Result<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
+    ) -> SysR<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>)> {
+        const PRINT_THIS: bool = false;
         stack_trace!();
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
@@ -270,7 +295,7 @@ impl UserSpace {
             if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
                 let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
                 let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
-                if start_va.is_4k_align() {
+                if head_va == 0 {
                     head_va = start_va.into_usize();
                 }
                 let mut perm = PTEFlags::U;
@@ -284,9 +309,10 @@ impl UserSpace {
                 if ph_flags.is_execute() {
                     perm |= PTEFlags::X;
                 }
-                if false {
+                if PRINT_THIS {
                     println!(
-                        "\t{:?} -> {:?} \tperm: {:?} file_size:{:#x}",
+                        "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
+                        i,
                         start_va,
                         end_va,
                         perm,
@@ -308,7 +334,7 @@ impl UserSpace {
         }
         stack_trace!();
         let entry_point = elf_header.pt2.entry_point() as usize;
-        if false {
+        if PRINT_THIS {
             println!("\tentry_point: {:#x}", entry_point);
         }
         let mut auxv = AuxHeader::generate(
@@ -357,7 +383,7 @@ impl UserSpace {
             fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
                 let seed = match CLOSE_RANDOM {
                     true => 1,
-                    false => timer::get_time_ticks().into_usize() as u64 ^ 0xcdba,
+                    false => timer::get_time().as_nanos() as u64 ^ 0xcdba,
                 };
                 let mut s = (0x1u64, seed);
                 for dst in dst {
@@ -383,7 +409,86 @@ impl UserSpace {
 
         Ok((space, user_sp, entry_point.into(), auxv))
     }
-    pub fn fork(&mut self) -> Result<Self, SysError> {
+
+    pub async fn load_linker(&mut self, elf_data: &[u8]) -> SysR<Option<UserAddr<u8>>> {
+        const PRINT_THIS: bool = false;
+        let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
+        let s = match elf.find_section_by_name(".interp") {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+
+        let s = s.raw_data(&elf).to_vec();
+        let mut s = String::from_utf8(s).unwrap();
+        if PRINT_THIS {
+            println!("load_linker interp: {:?}", s);
+        }
+        if s == "/lib/ld-musl-riscv64-sf.so.1\0" {
+            s = "/libc.so".to_string();
+        }
+        let dyn_offset = UserAddr4K::from_usize_check(USER_DYN_BEGIN);
+        let inode = crate::fs::open_file_abs(&s, OpenFlags::RDONLY, Mode(0o500))
+            .await
+            .unwrap();
+        let linker = inode.read_all().await.unwrap();
+        let elf_fail = |str| {
+            println!("{}", str);
+            SysError::EFAULT
+        };
+        let elf = xmas_elf::ElfFile::new(&linker).map_err(elf_fail)?;
+        let elf_header = elf.header;
+        let magic = elf_header.pt1.magic;
+        assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
+        let ph_count = elf_header.pt2.ph_count();
+
+        let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+
+        for i in 0..ph_count {
+            stack_trace!();
+            let ph = elf.program_header(i).map_err(elf_fail)?;
+            if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
+                let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
+                let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+                let mut perm = PTEFlags::U;
+                let ph_flags = ph.flags();
+                if ph_flags.is_read() {
+                    perm |= PTEFlags::R;
+                }
+                if ph_flags.is_write() {
+                    perm |= PTEFlags::W;
+                }
+                if ph_flags.is_execute() {
+                    perm |= PTEFlags::X;
+                }
+                if PRINT_THIS {
+                    println!(
+                        "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
+                        i,
+                        start_va,
+                        end_va,
+                        perm,
+                        ph.file_size()
+                    );
+                }
+                // assert!(start_va.is_4k_align(), "{:?}", start_va);
+                assert!(start_va.floor() >= max_end_4k);
+                let mut map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
+                max_end_4k = map_area.end();
+                map_area.offset(dyn_offset);
+                stack_trace!();
+                // 用一个小trick补全偏移量
+                let data = &elf.input[ph.offset() as usize - start_va.page_offset()
+                    ..(ph.offset() + ph.file_size()) as usize];
+                stack_trace!();
+                let slice_iter = SliceFrameDataIter::new(data);
+                self.force_map_delay_write(map_area, slice_iter)?;
+            }
+        }
+        let entry_point = elf.header.pt2.entry_point() as usize + dyn_offset.into_usize();
+        Ok(Some(entry_point.into()))
+    }
+
+    pub fn fork(&mut self) -> SysR<Self> {
         memory_trace!("UserSpace::fork");
         // let page_table = self.page_table_mut().fork(allocator)?;
         let map_segment = self.map_segment.fork()?;

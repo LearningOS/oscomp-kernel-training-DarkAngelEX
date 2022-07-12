@@ -100,7 +100,7 @@ impl ChildrenSet {
     pub fn take(&mut self) -> Self {
         core::mem::take(self)
     }
-    pub fn append(&mut self, mut src: Self) {
+    pub fn append(&mut self, src: &mut Self) {
         self.alive.append(&mut src.alive);
         self.zombie.append(&mut src.zombie);
         // self.zombie_pending.append(&mut src.zombie_pending);

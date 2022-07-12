@@ -1,9 +1,12 @@
     .section .text
+    .attribute arch, "rv64imac"
     .global __try_read_user_u8
     .global __try_write_user_u8
+    .global __try_write_user_u32_atomic
     .global __try_access_user_error_trap
     .global __try_access_user_error_vector
     .align 6
+// 在测试之前需要先设置错误处理
 __try_read_user_u8:
     mv a1, a0
     mv a0, zero
@@ -15,17 +18,21 @@ __try_write_user_u8:
     mv a0, zero
     sb a1, 0(a2)
     ret
+    .align 2
+__try_write_user_u32_atomic:
+    mv a1, a0
+    mv a0, zero
+    amoadd.w a1, a0, (a1)
+    ret
 
-// if page fault happen, a0 will become 1, a1 will become scause.
+// if pagefault occurs, (a0, a1) <- (1, scause).
     .align 6
 __try_access_user_error_trap:
     addi sp, sp, -16
     sd   ra, 8(sp)
     csrr ra, scause
     bltz ra, access_interrupt
-    csrr a0, sepc
-    addi a0, a0, 4
-    csrw sepc, a0
+    csrw sepc, ra
     li   a0, 1
     csrr a1, scause
     ld   ra, 8(sp)
@@ -36,10 +43,9 @@ access_interrupt:
     addi sp, sp, 16
     j __kernel_default_interrupt_entry
 
+// if page fault happen, (a0, a1) <- (1, scause).
 try_access_user_error:
-    csrr a0, sepc
-    addi a0, a0, 4
-    csrw sepc, a0
+    csrw sepc, ra
     li   a0, 1
     csrr a1, scause
     sret

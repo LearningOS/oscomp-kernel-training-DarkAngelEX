@@ -6,6 +6,14 @@ use core::{
     task::{Context, Poll, Waker},
 };
 
+use alloc::boxed::Box;
+
+use crate::error::{SysR, SysRet};
+
+pub type Async<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
+pub type ASysR<'a, T> = Async<'a, SysR<T>>;
+pub type ASysRet<'a> = Async<'a, SysRet>;
+
 /// 此函数保证不会阻塞, 自旋锁可以安全跨越
 #[inline(always)]
 pub async fn take_waker() -> Waker {

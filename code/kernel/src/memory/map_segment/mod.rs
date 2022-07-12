@@ -1,6 +1,8 @@
 use alloc::{boxed::Box, sync::Arc};
+use ftl_util::error::SysR;
 
 use crate::{
+    futex::{FutexSet, OwnFutex},
     memory::{allocator::frame, asid, page_table::PageTableEntry},
     syscall::SysError,
     tools::{
@@ -20,7 +22,7 @@ use self::{
 };
 
 use super::{
-    address::{PageCount, UserAddr4K},
+    address::{PageCount, UserAddr, UserAddr4K},
     allocator::frame::iter::FrameDataIter,
     asid::Asid,
     AccessType, PTEFlags, PageTable,
@@ -41,6 +43,7 @@ pub struct MapSegment {
     pub page_table: Arc<SyncUnsafeCell<PageTable>>,
     handlers: HandlerManager,
     sc_manager: SCManager,
+    futexs: FutexSet,
     id_allocator: HandlerIDAllocator,
 }
 
@@ -50,21 +53,31 @@ impl MapSegment {
             page_table,
             handlers: HandlerManager::new(),
             sc_manager: SCManager::new(),
+            futexs: FutexSet::new(),
             id_allocator: HandlerIDAllocator::default(),
         }
+    }
+    pub fn fetch_futex(&mut self, ua: UserAddr<u32>) -> &mut OwnFutex {
+        self.futexs.fetch_create(ua, || {
+            !self.handlers.get(ua.floor()).unwrap().shared_always()
+        })
+    }
+    pub fn try_fetch_futex(&mut self, ua: UserAddr<u32>) -> Option<&mut OwnFutex> {
+        self.futexs.try_fetch(ua)
     }
     /// 查找 range 内第一个空闲的 URange
     pub fn find_free_range(&self, range: URange, n: PageCount) -> Option<URange> {
         self.handlers.find_free_range(range, n)
     }
     /// 检查区间是否是空闲的 如果 start >= end 将返回 Err(())
-    pub fn free_range_check(&self, range: URange) -> Result<(), ()> {
-        self.handlers.free_range_check(range)
+    pub fn range_is_free(&self, range: URange) -> Result<(), ()> {
+        self.handlers.range_is_free(range)
     }
     /// 范围必须不存在映射 否则 panic
     ///
     /// 返回初始化结果 失败则撤销映射
-    pub fn force_push(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
+    pub fn force_push(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> SysR<()> {
+        debug_assert!(r.start < r.end);
         let pt = pt!(self);
         let h = self.handlers.try_push(r.clone(), h).ok().unwrap();
         let id = self.id_allocator.alloc();
@@ -74,7 +87,7 @@ impl MapSegment {
         pt: &'a mut PageTable,
         sc_manager: &'a mut SCManager,
     ) -> impl FnMut(Box<dyn UserAreaHandler>, URange) + 'a {
-        move |h: Box<dyn UserAreaHandler>, r: URange| {
+        move |mut h: Box<dyn UserAreaHandler>, r: URange| {
             let pt = pt as *mut PageTable;
             macro_rules! pt {
                 () => {
@@ -87,6 +100,7 @@ impl MapSegment {
                 pte.reset();
             };
             let unique_release = |addr| h.unmap_ua(pt!(), addr);
+            // 释放共享页
             sc_manager.remove_release(r.clone(), shared_release, unique_release);
             // 共享页管理器只包括共享页，因此还要释放本进程分配的页面
             h.unmap(pt!(), r);
@@ -94,25 +108,30 @@ impl MapSegment {
     }
     /// 释放存在映射的空间
     pub fn unmap(&mut self, r: URange) {
+        debug_assert!(r.start < r.end);
         let sc_manager = &mut self.sc_manager; // stupid borrow checker
         let release = Self::release_impl(pt!(self), sc_manager);
-        self.handlers.remove(r, release);
+        self.handlers.remove(r.clone(), release);
+        self.futexs.remove(r);
     }
     pub fn clear(&mut self) {
         let sc_manager = &mut self.sc_manager;
         let release = Self::release_impl(pt!(self), sc_manager);
         self.handlers.clear(release);
+        self.futexs.clear();
         assert!(sc_manager.is_empty());
     }
-    pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
+    pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> SysR<()> {
+        debug_assert!(r.start < r.end);
         self.unmap(r.clone());
         self.force_push(r, h)
     }
     /// 如果进入 async 状态将 panic
-    pub fn force_map(&self, r: URange) -> Result<(), SysError> {
+    pub fn force_map(&mut self, r: URange) -> SysR<()> {
         stack_trace!();
+        debug_assert!(r.start < r.end);
         let pt = pt!(self);
-        let h = self.handlers.range_contain(r.clone()).unwrap();
+        let h = self.handlers.range_contain_mut(r.clone()).unwrap();
         h.map(pt, r).map_err(|e| match e {
             TryRunFail::Async(_a) => panic!(),
             TryRunFail::Error(e) => e,
@@ -121,14 +140,11 @@ impl MapSegment {
     /// 此函数可以向只读映射写入数据 但不能修改只读共享页
     ///
     /// TODO: 使用 copy_map获取只读共享页所有权
-    pub fn force_write_range(
-        &self,
-        r: URange,
-        mut data: impl FrameDataIter,
-    ) -> Result<(), SysError> {
+    pub fn force_write_range(&mut self, r: URange, mut data: impl FrameDataIter) -> SysR<()> {
         stack_trace!();
-        let pt = pt!(self);
+        debug_assert!(r.start < r.end);
         self.force_map(r.clone())?;
+        let pt = pt!(self);
         for addr in tools::range::ur_iter(r) {
             pt.force_convert_user(addr, |pte| {
                 assert!(!pte.shared() || pte.writable());
@@ -145,7 +161,7 @@ impl MapSegment {
         debug_assert!(access.user);
         let h = self
             .handlers
-            .get(addr)
+            .get_mut(addr)
             .ok_or(TryRunFail::Error(SysError::EFAULT))?;
 
         let pt = pt!(self);
@@ -193,8 +209,9 @@ impl MapSegment {
     /// 唯一页 / 永久共享页: 修改页表标志位和段标志位
     ///
     /// COW 共享页: 不修改页表 只修改段标志位
-    pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> Result<(), SysError> {
+    pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> SysR<()> {
         stack_trace!();
+        debug_assert!(r.start < r.end);
         // 1. 检查区间与max标志位
         // 2. 边缘切割
         // 3. 修改段内标志位
@@ -241,7 +258,7 @@ impl MapSegment {
     /// 发生错误时回退到执行前的状态
     ///
     /// 将写标志位设置为 may_shared()
-    pub fn fork(&mut self) -> Result<Self, SysError> {
+    pub fn fork(&mut self) -> SysR<Self> {
         stack_trace!();
         let src = pt!(self);
         let mut dst = PageTable::from_global(asid::alloc_asid())?;
@@ -250,7 +267,7 @@ impl MapSegment {
         // flush 析构时将刷表
         let flush = src.flush_asid_fn();
         let mut err_1 = Ok(());
-        for (r, h) in self.handlers.iter() {
+        for (r, h) in self.handlers.iter_mut() {
             match h.may_shared() {
                 Some(shared_writable) => {
                     let mut err_2 = Ok(());
@@ -263,7 +280,7 @@ impl MapSegment {
                                 break;
                             }
                         };
-                        debug_assert!(!dst.is_valid());
+                        debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
                         let sc = if !src.shared() {
                             src.become_shared(shared_writable);
                             self.sc_manager.insert_clone(addr)
@@ -308,6 +325,7 @@ impl MapSegment {
                 page_table: Arc::new(SyncUnsafeCell::new(dst)),
                 handlers: self.handlers.fork(),
                 sc_manager: new_sm,
+                futexs: self.futexs.fork(),
                 id_allocator: self.id_allocator.clone(),
             };
             return Ok(new_ms);
@@ -315,7 +333,7 @@ impl MapSegment {
         // 错误回退
         let (rr, e) = err_1.unwrap_err();
         new_sm.check_remove_all();
-        for (r, h) in self.handlers.iter() {
+        for (r, h) in self.handlers.iter_mut() {
             if r == rr {
                 break;
             }

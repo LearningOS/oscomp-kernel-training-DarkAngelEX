@@ -12,21 +12,27 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
+use ftl_util::{error::SysR, fs::VfsInode};
 use riscv::register::sstatus;
 
 use crate::{
-    fs::VfsInode,
-    futex::RobustListHead,
+    futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     hart::floating,
-    memory::{self, address::PageCount, user_ptr::UserInOutPtr, UserSpace},
+    memory::{
+        self,
+        address::{PageCount, UserAddr},
+        user_ptr::UserInOutPtr,
+        UserSpace,
+    },
     signal::{
         context::SignalContext,
         manager::{ProcSignalManager, ThreadSignalManager},
+        Sig,
     },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
-    syscall::SysError,
     trap::context::UKContext,
     user::check::UserCheck,
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::{
@@ -43,6 +49,9 @@ impl ThreadGroup {
         Self {
             threads: BTreeMap::new(),
         }
+    }
+    pub fn is_empty(&self) -> bool {
+        self.threads.is_empty()
     }
     pub fn iter(&self) -> impl Iterator<Item = Arc<Thread>> + '_ {
         self.threads.iter().map(|(_id, td)| td.upgrade().unwrap())
@@ -64,10 +73,6 @@ impl ThreadGroup {
             .get_key_value(&tid)
             .map(|(_, th)| th.upgrade().unwrap())
     }
-    pub unsafe fn clear_thread_except(&mut self, tid: Tid) {
-        self.threads.retain(|&xtid, _b| xtid == tid);
-        assert!(self.threads.len() == 1);
-    }
     pub fn len(&self) -> usize {
         self.threads.len()
     }
@@ -81,23 +86,23 @@ impl ThreadGroup {
 // only run in local thread
 pub struct Thread {
     // never change
-    pub tid: TidHandle,
+    tid: TidHandle,
     pub process: Arc<Process>,
     // thread local
     inner: UnsafeCell<ThreadInner>,
 }
 
 impl Thread {
-    pub fn receive(&self, sig: u32) {
+    pub fn receive(&self, sig: Sig) {
         self.inner().signal_manager.receive(sig);
     }
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn settid(&self) {
         if let Some(ptr) = self.inner().set_child_tid.nonnull_mut() {
-            if let Ok(buf) = UserCheck::new(&self.process)
-                .translated_user_writable_value(ptr)
-                .await
-            {
+            if PRINT_SYSCALL_ALL {
+                println!("settid: {:#x}", ptr.as_usize());
+            }
+            if let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
                 buf.store(self.tid().0 as u32)
             }
         }
@@ -105,19 +110,23 @@ impl Thread {
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn cleartid(&self) {
         if let Some(ptr) = self.inner().clear_child_tid.nonnull_mut() {
-            if let Ok(buf) = UserCheck::new(&self.process)
-                .translated_user_writable_value(ptr)
-                .await
-            {
-                buf.store(self.tid().0 as u32)
+            while let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
+                if PRINT_SYSCALL_ALL {
+                    println!("cleartid: {:#x}", ptr.as_usize());
+                }
+                buf.store(0);
+                let futex = self.fetch_futex(ptr.as_uptr().unwrap());
+                match futex.wake(FUTEX_BITSET_MATCH_ANY, 1, None, || false) {
+                    WakeStatus::Ok(_) => (),
+                    WakeStatus::Closed => continue,
+                    WakeStatus::Fail => panic!(),
+                }
+                break;
             }
         }
     }
-    pub fn exit_send_signal(&self) -> Option<u32> {
-        match self.inner().exit_signal {
-            0 => None,
-            s => Some(s),
-        }
+    pub fn exit_send_signal(&self) -> Option<Sig> {
+        self.inner().exit_signal
     }
 }
 
@@ -138,7 +147,7 @@ pub struct ThreadInner {
     pub scx_ptr: UserInOutPtr<SignalContext>,
     /// 当前用户上下文
     pub uk_context: UKContext,
-    /// 根据clone标志决定是否将此线程tid写入地址
+    /// 根据clone标志决定是否将此地址写入tid
     pub set_child_tid: UserInOutPtr<u32>,
     /// 如果线程退出时值非0则向此地址写入0并执行
     /// futex(clear_child_tid, FUTEX_WAKE, 1, NULL, NULL, 0)
@@ -146,8 +155,11 @@ pub struct ThreadInner {
     /// 线程局部指针
     pub tls: UserInOutPtr<u8>,
     /// 进程退出后将向父进程发送此信号
-    pub exit_signal: u32,
+    pub exit_signal: Option<Sig>,
     pub robust_list: UserInOutPtr<RobustListHead>,
+    pub futex_index: FutexIndex,
+    /// 通过exit退出的线程将为true
+    pub exited: bool,
 }
 
 impl Thread {
@@ -182,7 +194,7 @@ impl Thread {
                 threads: ThreadGroup::new(),
                 fd_table: FdTable::new(),
             })),
-            exit_code: AtomicI32::new(0),
+            exit_code: AtomicI32::new(i32::MIN),
         });
         let mut thread = Self {
             tid,
@@ -195,8 +207,10 @@ impl Thread {
                 set_child_tid: UserInOutPtr::null(),
                 clear_child_tid: UserInOutPtr::null(),
                 tls: UserInOutPtr::null(),
-                exit_signal: 0,
+                exit_signal: None,
                 robust_list: UserInOutPtr::null(),
+                futex_index: FutexIndex::new(),
+                exited: false,
             }),
         };
         thread.inner.get_mut().uk_context.exec_init(
@@ -229,6 +243,7 @@ impl Thread {
     pub fn get_context(&self) -> &mut UKContext {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
+    #[inline]
     pub async fn handle_signal(&self) -> Result<(), Dead> {
         crate::signal::handle_signal(self.inner(), &self.process).await
     }
@@ -238,9 +253,9 @@ impl Thread {
         new_sp: usize,
         set_child_tid: UserInOutPtr<u32>,
         clear_child_tid: UserInOutPtr<u32>,
-        tls: UserInOutPtr<u8>,
+        tls: Option<UserInOutPtr<u8>>,
         exit_signal: u32,
-    ) -> Result<Arc<Self>, SysError> {
+    ) -> SysR<Arc<Self>> {
         debug_assert!(!flag.contains(CloneFlag::CLONE_THREAD));
         let (tid, pid) = super::tid::alloc_tid_pid();
         let process = self.process.fork(pid)?;
@@ -251,13 +266,14 @@ impl Thread {
             inner: UnsafeCell::new(ThreadInner {
                 signal_manager: inner.signal_manager.fork(),
                 scx_ptr: UserInOutPtr::null(),
-                uk_context: inner.uk_context.fork(),
-
+                uk_context: inner.uk_context.fork(tls.map(|v| v.as_usize())),
                 set_child_tid,
                 clear_child_tid,
-                tls,
-                exit_signal,
+                tls: tls.unwrap_or(inner.tls),
+                exit_signal: Sig::from_user(exit_signal).ok(),
                 robust_list: inner.robust_list,
+                futex_index: inner.futex_index.fork(),
+                exited: false,
             }),
         });
         search::insert_thread(&thread);
@@ -277,9 +293,10 @@ impl Thread {
         new_sp: usize,
         set_child_tid: UserInOutPtr<u32>,
         clear_child_tid: UserInOutPtr<u32>,
-        tls: UserInOutPtr<u8>,
+        tls: Option<UserInOutPtr<u8>>,
         exit_signal: u32,
-    ) -> Result<Arc<Self>, SysError> {
+    ) -> SysR<Arc<Self>> {
+        stack_trace!();
         debug_assert!(flag.contains(CloneFlag::CLONE_THREAD));
         debug_assert!(new_sp != 0);
         let tid = super::tid::alloc_tid_own();
@@ -291,12 +308,14 @@ impl Thread {
             inner: UnsafeCell::new(ThreadInner {
                 signal_manager: inner.signal_manager.fork(),
                 scx_ptr: UserInOutPtr::null(),
-                uk_context: inner.uk_context.fork(),
+                uk_context: inner.uk_context.fork(tls.map(|v| v.as_usize())),
                 set_child_tid,
                 clear_child_tid,
-                tls,
-                exit_signal,
+                tls: tls.unwrap_or(inner.tls),
+                exit_signal: Sig::from_user(exit_signal).ok(),
                 robust_list: inner.robust_list,
+                futex_index: inner.futex_index.fork(),
+                exited: false,
             }),
         });
         search::insert_thread(&thread);
@@ -310,6 +329,33 @@ impl Thread {
             .unwrap();
         Ok(thread)
     }
+
+    pub fn fetch_futex(&self, ua: UserAddr<u32>) -> Arc<Futex> {
+        stack_trace!();
+        if let Some(fx) = self.inner().futex_index.try_fetch(ua) && !fx.closed() {
+            return fx;
+        }
+        let fx = self
+            .process
+            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc())
+            .unwrap();
+        self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
+        fx
+    }
+    pub fn try_fetch_futex(&self, ua: UserAddr<u32>) -> Option<Arc<Futex>> {
+        stack_trace!();
+        if let Some(fx) = self.inner().futex_index.try_fetch(ua) {
+            return Some(fx);
+        }
+        let fx = self
+            .process
+            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))
+            .unwrap();
+        if let Some(fx) = fx.as_ref() {
+            self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
+        }
+        fx
+    }
 }
 
 pub async fn yield_now() {
@@ -322,14 +368,11 @@ impl Future for YieldFuture {
     type Output = ();
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        use core::sync::atomic;
         if self.0 {
-            Poll::Ready(())
-        } else {
-            self.0 = true;
-            atomic::fence(atomic::Ordering::SeqCst);
-            cx.waker().wake_by_ref();
-            Poll::Pending
+            return Poll::Ready(());
         }
+        self.0 = true;
+        cx.waker().wake_by_ref();
+        Poll::Pending
     }
 }

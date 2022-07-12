@@ -6,7 +6,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc};
-use ftl_util::{device::BlockDevice, error::SysError};
+use ftl_util::{device::BlockDevice, error::SysR};
 
 use crate::{
     layout::bpb::RawBPB,
@@ -49,7 +49,7 @@ impl CacheManager {
         self.inner.lock().await.set_waker(waker)
     }
     /// 获取簇号对应的缓存块
-    pub async fn get_block(&self, cid: CID) -> Result<Arc<Cache>, SysError> {
+    pub async fn get_block(&self, cid: CID) -> SysR<Arc<Cache>> {
         stack_trace!();
         debug_assert!(cid.is_next());
         if let Some(c) = self.index.get(cid) {
@@ -66,7 +66,7 @@ impl CacheManager {
         &self,
         cid: CID,
         init: impl FnOnce(&mut [T]),
-    ) -> Result<Arc<Cache>, SysError> {
+    ) -> SysR<Arc<Cache>> {
         let mut blk = {
             let inner = &mut *self.inner.lock().await;
             // debug_assert!(!inner.have_block_of(cid));
@@ -87,7 +87,7 @@ impl CacheManager {
         cid: CID,
         cache: &Cache,
         op: impl FnOnce(&mut [T]) -> V,
-    ) -> Result<V, SysError> {
+    ) -> SysR<V> {
         stack_trace!();
         let sem = self.dirty_semaphore.take().await;
         let r = cache.access_rw(op).await?;

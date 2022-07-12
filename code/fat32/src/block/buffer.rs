@@ -1,7 +1,7 @@
 use core::ops::Deref;
 
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::error::SysError;
+use ftl_util::error::SysR;
 
 use crate::tools;
 
@@ -29,7 +29,7 @@ impl Deref for SharedBuffer {
 }
 
 impl Buffer {
-    pub fn new(bytes: usize) -> Result<Self, SysError> {
+    pub fn new(bytes: usize) -> SysR<Self> {
         unsafe {
             let ptr = Box::try_new_uninit_slice(bytes)?.assume_init();
             Ok(Self::Unique(ptr))
@@ -57,10 +57,10 @@ impl Buffer {
             Buffer::Shared(ptr) => ptr,
         }
     }
-    pub fn access_rw<T: Copy>(&mut self) -> Result<&mut [T], SysError> {
+    pub fn access_rw<T: Copy>(&mut self) -> SysR<&mut [T]> {
         Ok(tools::from_bytes_slice_mut(self.access_rw_u8()?))
     }
-    pub fn access_rw_u8(&mut self) -> Result<&mut [u8], SysError> {
+    pub fn access_rw_u8(&mut self) -> SysR<&mut [u8]> {
         match self {
             Buffer::Unique(ptr) => Ok(ptr),
             Buffer::Shared(SharedBuffer(ptr)) => {

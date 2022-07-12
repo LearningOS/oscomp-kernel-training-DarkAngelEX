@@ -1,4 +1,4 @@
-use ftl_util::error::SysError;
+use ftl_util::error::{SysError, SysR};
 
 use crate::{
     config::{USER_STACK_BEGIN, USER_STACK_END, USER_STACK_SIZE},
@@ -29,7 +29,7 @@ impl StackSpaceManager {
     pub fn init_sp(&self) -> UserAddr4K {
         Self::STACK_END
     }
-    pub fn set_max_size(&mut self, size: usize) -> Result<(), SysError> {
+    pub fn set_max_size(&mut self, size: usize) -> SysR<()> {
         let max = USER_STACK_END - USER_STACK_BEGIN;
         if size > max {
             return Err(SysError::ENOMEM);

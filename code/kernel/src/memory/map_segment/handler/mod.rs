@@ -1,7 +1,7 @@
 use alloc::{boxed::Box, sync::Arc};
+use ftl_util::{async_tools::ASysR, error::SysR, fs::File};
 
 use crate::{
-    fs::File,
     memory::{
         address::UserAddr4K,
         allocator::frame,
@@ -16,11 +16,14 @@ use crate::{
         self,
         allocator::TrackerAllocator,
         range::URange,
-        xasync::{AsyncR, HandlerID, TryR, TryRunFail},
+        xasync::{HandlerID, TryR, TryRunFail},
         DynDropRun,
     },
 };
 
+use self::base::HandlerBase;
+
+pub mod base;
 pub mod delay;
 pub mod manager;
 pub mod map_all;
@@ -58,10 +61,12 @@ pub trait UserAreaHandler: Send + 'static {
     fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
     }
+    fn base(&self) -> &HandlerBase;
+    fn base_mut(&mut self) -> &mut HandlerBase;
     /// 新加入管理器时将调用此函数 保证范围内无映射 此函数是唯一标记 &mut 的函数
     ///
     /// 必须设置正确的id
-    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError>;
+    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> SysR<()>;
     /// 此项初始化后禁止修改
     fn max_perm(&self) -> PTEFlags {
         PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U
@@ -79,19 +84,32 @@ pub trait UserAreaHandler: Send + 'static {
     /// try_xx user_space获得页表所有权，进程一定是有效的
     ///
     /// 如果操作失败且返回Async则改为调用 a_map.
-    fn map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>>;
+    fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>>;
+    fn map(&mut self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+        self.map_spec(pt, range)
+    }
     /// 从 src 复制 range 到 dst, dst 获得所有权
     ///
     /// 保证范围内无有效映射
-    fn copy_map(&self, src: &mut PageTable, dst: &mut PageTable, r: URange)
-        -> Result<(), SysError>;
+    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()>;
+    fn copy_map(&mut self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
+        self.copy_map_spec(src, dst, r)
+    }
     /// 如果操作失败且返回Async则改为调用 a_page_fault.
-    fn page_fault(
+    fn page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>>;
+    fn page_fault(
+        &mut self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        access: AccessType,
+    ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
+        self.page_fault_spec(pt, addr, access)
+    }
     /// 所有权取消映射
     ///
     /// 不保证范围内全部映射
@@ -99,31 +117,49 @@ pub trait UserAreaHandler: Send + 'static {
     /// 保证范围内不存在共享映射
     ///
     /// 调用后页表必须移除映射
-    fn unmap(&self, pt: &mut PageTable, range: URange);
+    fn unmap_spec(&self, pt: &mut PageTable, range: URange);
+    fn unmap(&mut self, pt: &mut PageTable, range: URange) {
+        self.unmap_spec(pt, range);
+    }
     /// 所有权取消映射一个页
     ///
     /// 保证此地址被映射 保证不是共享映射
     ///
     /// 调用后页表必须移除映射
-    fn unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K);
+    fn unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K);
+    fn unmap_ua(&mut self, pt: &mut PageTable, addr: UserAddr4K) {
+        self.unmap_ua_spec(pt, addr)
+    }
     /// 以 addr 为界切除 all 左侧, 即返回 all.start..addr, 自身变为 addr..all.end
     ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
-    fn split_l(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
-        self.box_clone()
+    fn split_l_spec(&self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
+        self.box_clone_spec()
+    }
+    fn split_l(&mut self, addr: UserAddr4K, all: URange) -> Box<dyn UserAreaHandler> {
+        self.split_l_spec(addr, all)
     }
     /// 以 addr 为界切除 all 右侧, 即返回 addr..all.end, 自身变为 all.start..addr
     ///
     /// 某些 handler 可能使用偏移量定位, 这时必须重写此函数 返回值使用相同的 id
-    fn split_r(&mut self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
-        self.box_clone()
+    fn split_r_spec(&self, _addr: UserAddr4K, _all: URange) -> Box<dyn UserAreaHandler> {
+        self.box_clone_spec()
     }
-    /// 复制
+    fn split_r(&mut self, addr: UserAddr4K, all: URange) -> Box<dyn UserAreaHandler> {
+        self.split_r_spec(addr, all)
+    }
+    /// 只在fork中使用
     fn box_clone(&self) -> Box<dyn UserAreaHandler>;
+    /// 只复制base数据
+    fn box_clone_spec(&self) -> Box<dyn UserAreaHandler>;
     /// 进行映射, 跳过已经分配空间的区域
-    /// 
+    ///
     /// 默认实现不返回 TryRunFail
-    fn default_map(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+    fn default_map_spec(
+        &self,
+        pt: &mut PageTable,
+        range: URange,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
         if range.start >= range.end {
             return Ok(());
@@ -140,12 +176,12 @@ pub trait UserAreaHandler: Send + 'static {
         Ok(())
     }
     /// 利用全局内存分配器分配内存，复制src中存在的页
-    fn default_copy_map(
+    fn default_copy_map_spec(
         &self,
         src: &mut PageTable,
         dst: &mut PageTable,
         r: URange,
-    ) -> Result<(), SysError> {
+    ) -> SysR<()> {
         let allocator = &mut frame::defualt_allocator();
         for a in tools::range::ur_iter(r) {
             let src = src.try_get_pte_user(a);
@@ -163,7 +199,7 @@ pub trait UserAreaHandler: Send + 'static {
         }
         Ok(())
     }
-    fn default_page_fault(
+    fn default_page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
@@ -186,12 +222,12 @@ pub trait UserAreaHandler: Send + 'static {
         Ok(pt.flush_va_asid_fn(addr))
     }
     /// 所有权释放页表中存在映射的空间
-    fn default_unmap(&self, pt: &mut PageTable, range: URange) {
+    fn default_unmap_spec(&self, pt: &mut PageTable, range: URange) {
         stack_trace!();
         pt.unmap_user_range_lazy(self.user_area(range), &mut frame::defualt_allocator());
     }
     /// 所有权释放页表中存在映射的空间
-    fn default_unmap_ua(&self, pt: &mut PageTable, addr: UserAddr4K) {
+    fn default_unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K) {
         stack_trace!();
         let pte = pt.try_get_pte_user(addr).unwrap();
         debug_assert!(pte.is_leaf());
@@ -202,13 +238,12 @@ pub trait UserAreaHandler: Send + 'static {
 pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
     fn perm(&self) -> PTEFlags;
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange)
-        -> AsyncR<Option<DynDropRun<Asid>>>;
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> ASysR<Option<DynDropRun<Asid>>>;
     fn a_page_fault<'a>(
         &'a self,
         process: &'a Process,
         addr: UserAddr4K,
-    ) -> AsyncR<DynDropRun<(UserAddr4K, Asid)>>;
+    ) -> ASysR<DynDropRun<(UserAddr4K, Asid)>>;
 }
 
 pub struct FileAsyncHandler {
@@ -218,6 +253,7 @@ pub struct FileAsyncHandler {
     offset: usize,
     file: Arc<dyn File>,
 }
+
 impl FileAsyncHandler {
     pub fn new(
         id: HandlerID,
@@ -243,11 +279,7 @@ impl AsyncHandler for FileAsyncHandler {
     fn perm(&self) -> PTEFlags {
         self.perm | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
-    fn a_map<'a>(
-        &'a self,
-        process: &'a Process,
-        range: URange,
-    ) -> AsyncR<Option<DynDropRun<Asid>>> {
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> ASysR<Option<DynDropRun<Asid>>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -264,7 +296,7 @@ impl AsyncHandler for FileAsyncHandler {
                     .read_at(offset, frame.data().as_bytes_array_mut())
                     .await?;
                 frame.data().as_bytes_array_mut()[n..].fill(0);
-                flush = Some(process.alive_then(|a| -> Result<_, SysError> {
+                flush = Some(process.alive_then(|a| -> SysR<_> {
                     let pte = a
                         .user_space
                         .page_table_mut()
@@ -282,7 +314,7 @@ impl AsyncHandler for FileAsyncHandler {
         &'a self,
         process: &'a Process,
         addr: UserAddr4K,
-    ) -> AsyncR<DynDropRun<(UserAddr4K, Asid)>> {
+    ) -> ASysR<DynDropRun<(UserAddr4K, Asid)>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -297,7 +329,7 @@ impl AsyncHandler for FileAsyncHandler {
                 .read_at(offset, frame.data().as_bytes_array_mut())
                 .await?;
             frame.data().as_bytes_array_mut()[n..].fill(0);
-            let flush = process.alive_then(|a| -> Result<_, SysError> {
+            let flush = process.alive_then(|a| -> SysR<_> {
                 let pte = a
                     .user_space
                     .page_table_mut()

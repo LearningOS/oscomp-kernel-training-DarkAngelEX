@@ -1,3 +1,14 @@
+//文件类型
+pub const S_IFMT: u32 = 0o170000; // 文件类型掩码
+pub const S_IFSOCK: u32 = 0o140000; // socket
+pub const S_IFLNK: u32 = 0o120000; // 链接文件
+pub const S_IFREG: u32 = 0o100000; // 普通文件
+pub const S_IFBLK: u32 = 0o060000; // 块设备
+pub const S_IFNAM: u32 = 0o050000; // 名字文件
+pub const S_IFDIR: u32 = 0o040000; // 目录文件
+pub const S_IFCHR: u32 = 0o020000; // 字符设备文件
+pub const S_IFIFO: u32 = 0o010000; // FIFO
+
 #[derive(Clone, Copy)]
 #[repr(C)]
 pub struct Stat {

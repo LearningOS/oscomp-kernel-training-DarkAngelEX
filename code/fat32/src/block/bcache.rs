@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
 
-use ftl_util::error::SysError;
+use ftl_util::error::SysR;
 
 use crate::{mutex::RwSleepMutex, tools::AID};
 
@@ -30,15 +30,12 @@ impl Cache {
     /// 以读写模式打开一个缓存块
     ///
     /// 请使用CacheManager进行写访问
-    pub(super) async fn access_rw<T: Copy, V>(
-        &self,
-        op: impl FnOnce(&mut [T]) -> V,
-    ) -> Result<V, SysError> {
+    pub(super) async fn access_rw<T: Copy, V>(&self, op: impl FnOnce(&mut [T]) -> V) -> SysR<V> {
         stack_trace!();
         Ok(op(self.buffer.unique_lock().await.access_rw()?))
     }
     /// 只有manager可以获取mut
-    pub(super) fn init_buffer<T: Copy>(&mut self) -> Result<&mut [T], SysError> {
+    pub(super) fn init_buffer<T: Copy>(&mut self) -> SysR<&mut [T]> {
         stack_trace!();
         self.buffer.get_mut().access_rw()
     }

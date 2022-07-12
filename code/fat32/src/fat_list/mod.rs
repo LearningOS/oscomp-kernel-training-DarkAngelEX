@@ -1,19 +1,18 @@
 use core::{
     future::Future,
-    ops::{ControlFlow, Try},
+    ops::ControlFlow,
     pin::Pin,
     sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};
-use ftl_util::{device::BlockDevice, error::SysError};
+use ftl_util::{device::BlockDevice, error::SysR};
 
 use crate::{
     layout::bpb::RawBPB,
     mutex::{Semaphore, SleepMutex, SpinMutex},
     tools::{
-        self,
         xasync::{GetWakerFuture, WaitSemFuture, WaitingEventFuture},
         AIDAllocator, CID,
     },
@@ -82,11 +81,11 @@ impl FatList {
         (UnitID(a as u32), b)
     }
     /// LRU替换一个旧的块
-    async fn get_unit(&self, id: UnitID) -> Result<Arc<ListUnit>, SysError> {
+    async fn get_unit(&self, id: UnitID) -> SysR<Arc<ListUnit>> {
         stack_trace!();
         self.manager.lock().await.get_unit(id).await
     }
-    pub async fn get_next(&self, cid: CID) -> Result<CID, SysError> {
+    pub async fn get_next(&self, cid: CID) -> SysR<CID> {
         // debug_assert!(cid.is_next() && cid < self.max_cid);
         debug_assert!(cid < self.max_cid);
         let (off, i2) = self.get_unit_of_cid(cid);
@@ -112,7 +111,7 @@ impl FatList {
         start_off: usize,
         init: A,
         mut op: impl FnMut(A, CID, usize) -> ControlFlow<B, A>,
-    ) -> Result<ControlFlow<B, A>, SysError> {
+    ) -> SysR<ControlFlow<B, A>> {
         stack_trace!();
         let mut cur = cid;
         let mut accum = init;
@@ -135,12 +134,12 @@ impl FatList {
         }
         Ok(try { accum })
     }
-    pub async fn alloc_block(&self) -> Result<CID, SysError> {
+    pub async fn alloc_block(&self) -> SysR<CID> {
         let sem = self.dirty_semaphore.take().await;
         self.manager.lock().await.alloc_cluster(sem).await
     }
     /// cid 必须是链表的最后一项, 即FAT链表NEXT为LAST
-    pub async fn alloc_block_after(&self, cid: CID) -> Result<CID, SysError> {
+    pub async fn alloc_block_after(&self, cid: CID) -> SysR<CID> {
         let mut sems = self.dirty_semaphore.take_n(2).await;
         self.manager
             .lock()
@@ -149,7 +148,7 @@ impl FatList {
             .await
     }
     /// 释放CID对应的簇
-    pub async fn free_cluster(&self, cid: CID) -> Result<(), SysError> {
+    pub async fn free_cluster(&self, cid: CID) -> SysR<()> {
         stack_trace!();
         debug_assert!(cid.is_next());
         let sem = self.dirty_semaphore.take().await;
@@ -162,7 +161,7 @@ impl FatList {
     /// 返回释放了多少个簇
     ///
     /// A -> B -> C -> D -> E 如果释放D时出错将变为 A -> D -> E
-    pub async fn free_cluster_at(&self, cid: CID) -> (usize, Result<(), SysError>) {
+    pub async fn free_cluster_at(&self, cid: CID) -> (usize, SysR<()>) {
         stack_trace!();
         debug_assert!(cid.is_next());
         let n = (self.dirty_semaphore.max() / 4).max(2).min(10);

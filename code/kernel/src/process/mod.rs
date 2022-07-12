@@ -4,15 +4,16 @@ use alloc::{
     vec::Vec,
 };
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
+use ftl_util::{
+    error::SysR,
+    fs::{Mode, OpenFlags, VfsInode},
+};
 
 use crate::{
-    fs::{self, Mode, VfsInode},
+    fs,
     memory::{asid::Asid, UserSpace},
     signal::manager::ProcSignalManager,
-    sync::{
-        even_bus::{Event, EventBus},
-        mutex::SpinNoIrqLock as Mutex,
-    },
+    sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     syscall::{SysError, UniqueSysError},
     xdebug::NeverFail,
 };
@@ -25,6 +26,7 @@ use self::{
 };
 
 pub mod children;
+pub mod exit;
 pub mod fd;
 pub mod pid;
 pub mod resource;
@@ -124,7 +126,7 @@ impl Process {
         }
     }
     // fork and release all thread except tid
-    pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> Result<Arc<Self>, SysError> {
+    pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> SysR<Arc<Self>> {
         let mut alive_guard = self.alive.lock();
         let alive = alive_guard.as_mut().unwrap();
         let user_space = alive.user_space.fork()?;
@@ -145,7 +147,7 @@ impl Process {
             event_bus: EventBus::new(),
             signal_manager: self.signal_manager.fork(),
             alive: Mutex::new(Some(new_alive)),
-            exit_code: AtomicI32::new(0),
+            exit_code: AtomicI32::new(i32::MIN),
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();
@@ -158,39 +160,11 @@ impl AliveProcess {
     pub fn asid(&self) -> Asid {
         self.user_space.asid()
     }
-    // return parent
-    pub fn clear_all(&mut self, pid: Pid) {
-        let this_parent = self.parent.take().and_then(|p| p.upgrade());
-        let mut this_parent_alive = this_parent.as_ref().map(|p| (&p.event_bus, p.alive.lock()));
-        let bus = match &mut this_parent_alive {
-            Some((bus, ref mut p)) if p.is_some() => {
-                // println!("origin's zombie, move:");
-                // self.children.show();
-                let p = p.as_mut().unwrap();
-                p.children.become_zombie(pid);
-                bus.clone()
-            }
-            _ => {
-                // println!("initproc's zombie");
-                let initproc = search::get_initproc();
-                let mut initproc_alive = initproc.alive.lock();
-                let p = initproc_alive.as_mut().unwrap();
-                p.children.become_zombie(pid);
-                initproc.event_bus.clone()
-            }
-        };
-        drop(this_parent_alive);
-        let _ = bus.set(Event::CHILD_PROCESS_QUIT);
-        if !self.children.is_empty() {
-            let initproc = search::get_initproc();
-            let mut initproc_alive = initproc.alive.lock();
-            let ich = &mut initproc_alive.as_mut().unwrap().children;
-            ich.append(self.children.take());
-            if ich.have_zombies() {
-                drop(initproc_alive);
-                let _ = initproc.event_bus.set(Event::CHILD_PROCESS_QUIT);
-            }
-        }
+    /// return: (parent, children)
+    pub fn take_parent_children(&mut self) -> (Option<Weak<Process>>, ChildrenSet) {
+        let parent = self.parent.take();
+        let children = self.children.take();
+        (parent, children)
     }
 }
 
@@ -204,7 +178,7 @@ pub async fn init() {
     let cwd = fs::open_file(
         Some(Ok([].into_iter())),
         "/",
-        fs::OpenFlags::RDONLY,
+        OpenFlags::RDONLY,
         Mode(0o500),
     )
     .await
@@ -220,7 +194,7 @@ pub async fn init() {
         let inode = fs::open_file(
             Some(Ok([].into_iter())),
             initproc,
-            fs::OpenFlags::RDONLY,
+            OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await

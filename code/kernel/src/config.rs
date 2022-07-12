@@ -1,18 +1,17 @@
 #![allow(dead_code)]
+use core::ops::Range;
+
+use crate::{memory::address::UserAddr, process::resource::RLimit, tools::range::URange};
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
-
+pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(100);
 /// ============================== KERNEL ==============================
 ///
 /// 0x8_0000 = 512KB
 /// 0x10_0000 = 1MB
 pub const KERNEL_HEAP_SIZE: usize = 0x200_0000; // 2MB
-
-use core::ops::Range;
-
-use crate::{memory::address::UserAddr, tools::range::URange};
 
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12
@@ -70,9 +69,14 @@ pub const USER_HEAP_END: usize = 0x10_0000_0000;
 pub const USER_STACK_BEGIN: usize = 0x10_0000_0000;
 pub const USER_STACK_END: usize = 0x20_0000_0000;
 pub const USER_MAX_THREADS: usize = (USER_STACK_END - USER_STACK_BEGIN) / USER_STACK_SIZE;
+
+pub const USER_DYN_BEGIN: usize = 0x20_0000_0000;
+pub const USER_DYN_END: usize = 0x30_0000_0000;
+pub const USER_DYN_RANGE: URange = get_range(USER_DYN_BEGIN..USER_DYN_END);
+
 /// full range of user
 pub const USER_MMAP_BEGIN: usize = USER_DATA_BEGIN;
-pub const USER_MMAP_SEARCH: usize = 0x20_0000_0000;
+pub const USER_MMAP_SEARCH: usize = 0x30_0000_0000;
 pub const USER_MMAP_END: usize = 0x38_0000_0000;
 
 pub const USER_KRX_BEGIN: usize = USER_END - 0x10000 + 0x4000; // 放置提供给用户的一些代码

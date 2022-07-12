@@ -178,9 +178,9 @@ impl RawShortName {
     }
     pub fn set_create_time(&mut self, utc_time: &UtcTime) {
         stack_trace!();
-        debug_assert!(utc_time.ms < 1000);
+        debug_assert!(utc_time.nano < 1000_000_000);
         let (hms, date) = Self::time_tran(&utc_time.ymd, &utc_time.hms);
-        self.create_ms = (utc_time.ms / 10) as u8;
+        self.create_ms = (utc_time.nano / 10_000_000) as u8;
         self.create_hms = hms;
         self.create_date = date;
     }
