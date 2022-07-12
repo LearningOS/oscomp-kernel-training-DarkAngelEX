@@ -4,7 +4,7 @@ use crate::{
     memory::user_ptr::UserWritePtr, timer, tools, user::check::UserCheck, xdebug::CLOSE_RANDOM,
 };
 
-use super::{SysResult, Syscall};
+use super::{SysRet, Syscall};
 
 bitflags! {
     pub struct GRND: u32 {
@@ -33,7 +33,7 @@ pub fn fetch_random_state() -> (u64, u64) {
 }
 
 impl Syscall<'_> {
-    pub async fn sys_getrandom(&mut self) -> SysResult {
+    pub async fn sys_getrandom(&mut self) -> SysRet {
         stack_trace!();
         let (buf, len, flags): (UserWritePtr<u8>, usize, u32) = self.cx.into();
         let _flags = unsafe { GRND::from_bits_unchecked(flags) };

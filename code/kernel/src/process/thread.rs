@@ -12,7 +12,7 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use ftl_util::fs::VfsInode;
+use ftl_util::{error::SysR, fs::VfsInode};
 use riscv::register::sstatus;
 
 use crate::{
@@ -30,7 +30,6 @@ use crate::{
         Sig,
     },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
-    syscall::SysError,
     trap::context::UKContext,
     user::check::UserCheck,
     xdebug::PRINT_SYSCALL_ALL,
@@ -256,7 +255,7 @@ impl Thread {
         clear_child_tid: UserInOutPtr<u32>,
         tls: Option<UserInOutPtr<u8>>,
         exit_signal: u32,
-    ) -> Result<Arc<Self>, SysError> {
+    ) -> SysR<Arc<Self>> {
         debug_assert!(!flag.contains(CloneFlag::CLONE_THREAD));
         let (tid, pid) = super::tid::alloc_tid_pid();
         let process = self.process.fork(pid)?;
@@ -296,7 +295,7 @@ impl Thread {
         clear_child_tid: UserInOutPtr<u32>,
         tls: Option<UserInOutPtr<u8>>,
         exit_signal: u32,
-    ) -> Result<Arc<Self>, SysError> {
+    ) -> SysR<Arc<Self>> {
         stack_trace!();
         debug_assert!(flag.contains(CloneFlag::CLONE_THREAD));
         debug_assert!(new_sp != 0);

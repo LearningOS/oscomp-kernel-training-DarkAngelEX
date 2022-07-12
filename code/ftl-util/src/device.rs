@@ -1,4 +1,4 @@
-use crate::async_tools::AsyncRet;
+use crate::async_tools::ASysR;
 
 /// buf的长度必须为sector_bytes的倍数
 pub trait BlockDevice: Send + Sync + 'static {
@@ -8,8 +8,8 @@ pub trait BlockDevice: Send + Sync + 'static {
     fn sector_bytes(&self) -> usize;
     /// device -> buf
     #[must_use]
-    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a>;
+    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> ASysR<'a, ()>;
     /// buf -> device
     #[must_use]
-    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a>;
+    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> ASysR<'a, ()>;
 }

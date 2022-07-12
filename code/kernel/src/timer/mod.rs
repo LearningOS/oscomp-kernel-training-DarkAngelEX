@@ -4,7 +4,7 @@ use core::{
 };
 
 use ftl_util::{
-    error::SysError,
+    error::SysR,
     time::{TimeSpec, TimeVal, TimeZone},
     utc_time::UtcTime,
 };
@@ -42,7 +42,7 @@ impl Tms {
     }
 }
 
-pub fn time_sepc_to_utc(ts: TimeSpec) -> Result<Option<UtcTime>, SysError> {
+pub fn time_sepc_to_utc(ts: TimeSpec) -> SysR<Option<UtcTime>> {
     if ts.is_omit() {
         return Ok(None);
     }

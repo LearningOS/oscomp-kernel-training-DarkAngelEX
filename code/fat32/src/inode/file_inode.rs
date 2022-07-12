@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use ftl_util::error::SysError;
+use ftl_util::error::SysRet;
 
 use crate::{layout::name::Attr, mutex::RwSleepMutex, Fat32Manager};
 
@@ -34,7 +34,7 @@ impl FileInode {
         manager: &Fat32Manager,
         offset: usize,
         buffer: &mut [u8],
-    ) -> Result<usize, SysError> {
+    ) -> SysRet {
         stack_trace!();
         let inode = &*self.inode.shared_lock().await;
         let bytes = inode.cache.inner.shared_lock().file_bytes();
@@ -63,12 +63,7 @@ impl FileInode {
         Ok(cur - offset)
     }
     /// 自动扩容
-    pub async fn write_at(
-        &self,
-        manager: &Fat32Manager,
-        offset: usize,
-        buffer: &[u8],
-    ) -> Result<usize, SysError> {
+    pub async fn write_at(&self, manager: &Fat32Manager, offset: usize, buffer: &[u8]) -> SysRet {
         stack_trace!();
         let mut cur = offset;
         let inode = self.inode.shared_lock().await;
@@ -123,11 +118,7 @@ impl FileInode {
         Ok(cur - offset)
     }
     /// 在文件末尾写
-    pub async fn write_append(
-        &self,
-        manager: &Fat32Manager,
-        mut buffer: &[u8],
-    ) -> Result<usize, SysError> {
+    pub async fn write_append(&self, manager: &Fat32Manager, mut buffer: &[u8]) -> SysRet {
         let inode = &mut *self.inode.unique_lock().await;
         let offset = inode.cache.inner.shared_lock().file_bytes();
         let mut cur = offset;

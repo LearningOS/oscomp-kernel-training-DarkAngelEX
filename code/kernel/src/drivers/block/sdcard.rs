@@ -7,7 +7,7 @@ use crate::sync::mutex::SpinNoIrqLock;
 use super::BlockDevice;
 use alloc::boxed::Box;
 use core::convert::TryInto;
-use fat32::AsyncRet;
+use fat32::ASysR;
 use k210_hal::prelude::*;
 use k210_pac::{Peripherals, SPI0};
 use k210_soc::{
@@ -758,7 +758,7 @@ impl BlockDevice for SDCardWrapper {
     fn sector_bytes(&self) -> usize {
         512
     }
-    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
+    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> ASysR<()> {
         Box::pin(async move {
             self.0
                 .lock()
@@ -767,7 +767,7 @@ impl BlockDevice for SDCardWrapper {
             Ok(())
         })
     }
-    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
+    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> ASysR<()> {
         Box::pin(async move {
             self.0
                 .lock()

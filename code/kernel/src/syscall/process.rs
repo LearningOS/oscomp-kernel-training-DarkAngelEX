@@ -27,12 +27,12 @@ use crate::{
     xdebug::{NeverFail, PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
-use super::{SysError, SysResult, Syscall};
+use super::{SysError, SysRet, Syscall};
 
 const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
-    pub async fn sys_clone(&mut self) -> SysResult {
+    pub async fn sys_clone(&mut self) -> SysRet {
         stack_trace!();
         let (flag, new_sp, ptid, tls, ctid): (
             usize,
@@ -106,7 +106,7 @@ impl Syscall<'_> {
         }
         Ok(tid.0)
     }
-    pub async fn sys_execve(&mut self) -> SysResult {
+    pub async fn sys_execve(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_execve {:?}", self.process.pid());
@@ -196,7 +196,7 @@ impl Syscall<'_> {
         let rtld_fini = 0;
         Ok(rtld_fini)
     }
-    pub async fn sys_wait4(&mut self) -> SysResult {
+    pub async fn sys_wait4(&mut self) -> SysRet {
         stack_trace!();
         let (pid, exit_code_ptr, _option, _rusage): (
             isize,
@@ -275,7 +275,7 @@ impl Syscall<'_> {
             // continue
         }
     }
-    pub fn sys_set_tid_address(&mut self) -> SysResult {
+    pub fn sys_set_tid_address(&mut self) -> SysRet {
         stack_trace!();
         let clear_child_tid: UserInOutPtr<u32> = self.cx.para1();
         self.thread.inner().clear_child_tid = clear_child_tid;
@@ -284,7 +284,7 @@ impl Syscall<'_> {
     /// 设置pgid
     ///
     /// 如果pid为0则处理本进程, 如果pgid为0则设置为pid
-    pub fn sys_setpgid(&mut self) -> SysResult {
+    pub fn sys_setpgid(&mut self) -> SysRet {
         let (pid, pgid): (Pid, Pid) = self.cx.into();
         if PRINT_SYSCALL_ALL {
             println!("sys_setpgid pid: {:?} pgid: {:?}", pid, pgid);
@@ -307,7 +307,7 @@ impl Syscall<'_> {
     /// 获取pgid
     ///
     /// 如果参数为0则获取自身进程pgid
-    pub fn sys_getpgid(&mut self) -> SysResult {
+    pub fn sys_getpgid(&mut self) -> SysRet {
         stack_trace!();
         let pid: Pid = self.cx.para1();
         if PRINT_SYSCALL_ALL {
@@ -322,14 +322,14 @@ impl Syscall<'_> {
         };
         return Ok(pid);
     }
-    pub fn sys_getpid(&mut self) -> SysResult {
+    pub fn sys_getpid(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getpid -> {:?}", self.process.pid());
         }
         Ok(self.process.pid().0)
     }
-    pub fn sys_getppid(&mut self) -> SysResult {
+    pub fn sys_getppid(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getpid");
@@ -344,28 +344,28 @@ impl Syscall<'_> {
             .unwrap_or(0); // initproc
         Ok(pid)
     }
-    pub fn sys_getuid(&mut self) -> SysResult {
+    pub fn sys_getuid(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getuid");
         }
         Ok(0)
     }
-    pub fn sys_geteuid(&mut self) -> SysResult {
+    pub fn sys_geteuid(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_geteuid");
         }
         Ok(0)
     }
-    pub fn sys_getegid(&mut self) -> SysResult {
+    pub fn sys_getegid(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
             println!("sys_getegid");
         }
         Ok(0)
     }
-    pub fn sys_exit(&mut self) -> SysResult {
+    pub fn sys_exit(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_exit {:?} {:?}", self.process.pid(), self.thread.tid());
@@ -377,16 +377,16 @@ impl Syscall<'_> {
         self.thread.inner().exited = true;
         Ok(0)
     }
-    pub fn sys_exit_group(&mut self) -> SysResult {
+    pub fn sys_exit_group(&mut self) -> SysRet {
         stack_trace!();
         self.sys_exit()
     }
-    pub async fn sys_sched_yield(&mut self) -> SysResult {
+    pub async fn sys_sched_yield(&mut self) -> SysRet {
         stack_trace!();
         thread::yield_now().await;
         Ok(0)
     }
-    pub async fn sys_nanosleep(&mut self) -> SysResult {
+    pub async fn sys_nanosleep(&mut self) -> SysRet {
         stack_trace!();
         let (req, rem): (UserReadPtr<TimeSpec>, UserWritePtr<TimeSpec>) = self.cx.into();
         if req.is_null() {
@@ -416,7 +416,7 @@ impl Syscall<'_> {
         }
         ret
     }
-    pub fn sys_brk(&mut self) -> SysResult {
+    pub fn sys_brk(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_PROCESS {
             println!("sys_brk");
@@ -433,7 +433,7 @@ impl Syscall<'_> {
         // println!("    -> {:#x}", brk);
         Ok(brk.into_usize())
     }
-    pub async fn sys_uname(&mut self) -> SysResult {
+    pub async fn sys_uname(&mut self) -> SysRet {
         stack_trace!();
 
         if PRINT_SYSCALL_PROCESS {
@@ -470,7 +470,7 @@ impl Syscall<'_> {
         Ok(0)
     }
     /// 设置系统资源
-    pub async fn sys_prlimit64(&mut self) -> SysResult {
+    pub async fn sys_prlimit64(&mut self) -> SysRet {
         stack_trace!();
         let (pid, resource, new_limit, old_limit): (
             Pid,

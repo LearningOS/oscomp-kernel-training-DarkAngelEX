@@ -6,10 +6,10 @@ use crate::{
     user::check::UserCheck,
 };
 
-use super::{SysResult, Syscall};
+use super::{SysRet, Syscall};
 
 impl Syscall<'_> {
-    pub async fn sys_clock_gettime(&mut self) -> SysResult {
+    pub async fn sys_clock_gettime(&mut self) -> SysRet {
         stack_trace!();
         let (_clkid, tp): (usize, UserWritePtr<TimeSpec>) = self.cx.into();
         let cur = TimeSpec::from_duration(timer::get_time());
@@ -19,7 +19,7 @@ impl Syscall<'_> {
             .store(cur);
         Ok(0)
     }
-    pub async fn sys_times(&mut self) -> SysResult {
+    pub async fn sys_times(&mut self) -> SysRet {
         stack_trace!();
         let ptr: UserWritePtr<Tms> = self.cx.para1();
         if !ptr.is_null() {
@@ -29,7 +29,7 @@ impl Syscall<'_> {
         }
         Ok(timer::get_time().as_secs() as usize)
     }
-    pub async fn sys_gettimeofday(&mut self) -> SysResult {
+    pub async fn sys_gettimeofday(&mut self) -> SysRet {
         stack_trace!();
         let (tv, tz): (UserWritePtr<TimeVal>, UserWritePtr<TimeZone>) = self.cx.into();
         let u_tv = if !tv.is_null() {

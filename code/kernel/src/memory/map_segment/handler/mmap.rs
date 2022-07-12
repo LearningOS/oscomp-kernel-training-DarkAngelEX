@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::fs::File;
+use ftl_util::{error::SysR, fs::File};
 
 use crate::{
     memory::{
@@ -72,7 +72,7 @@ impl UserAreaHandler for MmapHandler {
     fn base_mut(&mut self) -> &mut HandlerBase {
         &mut self.base
     }
-    fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> Result<(), SysError> {
+    fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> SysR<()> {
         self.spec.id = Some(id);
         Ok(())
     }
@@ -111,12 +111,7 @@ impl UserAreaHandler for MmapHandler {
             file,
         ))));
     }
-    fn copy_map_spec(
-        &self,
-        src: &mut PageTable,
-        dst: &mut PageTable,
-        r: URange,
-    ) -> Result<(), SysError> {
+    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
         self.default_copy_map_spec(src, dst, r)
     }
     fn page_fault_spec(

@@ -1,9 +1,12 @@
 use alloc::{collections::BTreeMap, sync::Arc};
-use ftl_util::fs::{File, OpenFlags};
+use ftl_util::{
+    error::{SysR, SysRet},
+    fs::{File, OpenFlags},
+};
 
 use crate::{
     config::USER_FNO_DEFAULT,
-    syscall::{SysError, SysResult, UniqueSysError},
+    syscall::{SysError, UniqueSysError},
     tools,
 };
 
@@ -75,7 +78,7 @@ impl FdTable {
             .assert_eq(2);
         ret
     }
-    pub fn set_limit(&mut self, new: Option<RLimit>) -> Result<RLimit, SysError> {
+    pub fn set_limit(&mut self, new: Option<RLimit>) -> SysR<RLimit> {
         let old = self.limit;
         if let Some(new) = new {
             new.check()?;
@@ -97,11 +100,11 @@ impl FdTable {
             !n.close_on_exec
         });
     }
-    fn alloc_fd(&mut self) -> Result<Fd, SysError> {
+    fn alloc_fd(&mut self) -> SysR<Fd> {
         self.alloc_fd_min(Fd(0))
     }
     /// 寻找不小于min的最小Fd
-    fn alloc_fd_min(&mut self, min: Fd) -> Result<Fd, SysError> {
+    fn alloc_fd_min(&mut self, min: Fd) -> SysR<Fd> {
         if self.map.len() >= self.limit.rlim_max {
             return Err(SysError::EMFILE);
         }
@@ -120,12 +123,7 @@ impl FdTable {
         return Ok(Fd(min));
     }
     /// 自动选择
-    pub fn insert(
-        &mut self,
-        file: Arc<dyn File>,
-        close_on_exec: bool,
-        op: OpenFlags,
-    ) -> Result<Fd, SysError> {
+    pub fn insert(&mut self, file: Arc<dyn File>, close_on_exec: bool, op: OpenFlags) -> SysR<Fd> {
         self.insert_min(Fd(0), file, close_on_exec, op)
     }
     /// 寻找不小于min的最小fd并插入
@@ -135,7 +133,7 @@ impl FdTable {
         file: Arc<dyn File>,
         close_on_exec: bool,
         op: OpenFlags,
-    ) -> Result<Fd, SysError> {
+    ) -> SysR<Fd> {
         let fd = self.alloc_fd_min(min)?;
         let node = FdNode {
             file,
@@ -164,7 +162,7 @@ impl FdTable {
     pub fn get_node(&self, fd: Fd) -> Option<&FdNode> {
         self.map.get(&fd)
     }
-    pub fn fcntl(&mut self, fd: Fd, cmd: u32, arg: usize) -> SysResult {
+    pub fn fcntl(&mut self, fd: Fd, cmd: u32, arg: usize) -> SysRet {
         const FD_CLOEXEC: usize = 1;
         let node = self.map.get_mut(&fd).ok_or(SysError::EBADF)?;
         match cmd {
@@ -201,17 +199,12 @@ impl FdTable {
         let file = self.map.remove(&fd);
         file.map(|n| n.file)
     }
-    pub fn dup(&mut self, fd: Fd) -> Result<Fd, SysError> {
+    pub fn dup(&mut self, fd: Fd) -> SysR<Fd> {
         let file = self.get_node(fd).ok_or(SysError::EBADF)?.clone();
         let new_fd = self.insert(file.file, false, file.op)?;
         Ok(new_fd)
     }
-    pub fn replace_dup(
-        &mut self,
-        old_fd: Fd,
-        new_fd: Fd,
-        flags: OpenFlags,
-    ) -> Result<(), SysError> {
+    pub fn replace_dup(&mut self, old_fd: Fd, new_fd: Fd, flags: OpenFlags) -> SysR<()> {
         if old_fd == new_fd {
             return Err(SysError::EINVAL);
         }

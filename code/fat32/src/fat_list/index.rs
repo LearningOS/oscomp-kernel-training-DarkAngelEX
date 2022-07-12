@@ -7,7 +7,7 @@ use alloc::{
     boxed::Box,
     sync::{Arc, Weak},
 };
-use ftl_util::error::SysError;
+use ftl_util::error::SysR;
 
 use crate::mutex::RwSpinMutex;
 
@@ -33,7 +33,7 @@ impl ListIndex {
             lock: Box::new([]),
         }
     }
-    pub fn init(&mut self, size: usize) -> Result<(), SysError> {
+    pub fn init(&mut self, size: usize) -> SysR<()> {
         assert!(self.weak.is_empty());
         assert!(self.lock.is_empty());
         let mut weak = Box::try_new_uninit_slice(size)?;

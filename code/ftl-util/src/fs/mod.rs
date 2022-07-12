@@ -3,8 +3,8 @@ pub mod stat;
 use alloc::{boxed::Box, string::String, vec::Vec};
 
 use crate::{
-    async_tools::{Async, AsyncFile},
-    error::{SysError, SysResult},
+    async_tools::{ASysR, ASysRet},
+    error::{SysError, SysR, SysRet},
     time::TimeSpec,
 };
 
@@ -29,7 +29,7 @@ pub enum Seek {
 }
 
 impl Seek {
-    pub fn from_user(v: u32) -> Result<Self, SysError> {
+    pub fn from_user(v: u32) -> SysR<Self> {
         const SEEK_SET: u32 = 0;
         const SEEK_CUR: u32 = 1;
         const SEEK_END: u32 = 2;
@@ -68,7 +68,7 @@ bitflags! {
 impl OpenFlags {
     /// Do not check validity for simplicity
     /// Return (readable, writable)
-    pub fn read_write(self) -> Result<(bool, bool), SysError> {
+    pub fn read_write(self) -> SysR<(bool, bool)> {
         use core::ops::BitAnd;
         let v = match self.bitand(Self::ACCMODE) {
             Self::RDONLY => (true, false),
@@ -115,8 +115,8 @@ impl Mode {
 }
 
 pub trait VfsInode: File {
-    fn read_all(&self) -> Async<Result<Vec<u8>, SysError>>;
-    fn list(&self) -> Async<Result<Vec<(DentryType, String)>, SysError>>;
+    fn read_all(&self) -> ASysR<Vec<u8>>;
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>>;
     fn path(&self) -> &[String];
 }
 
@@ -130,7 +130,7 @@ impl dyn VfsInode {
 
 pub trait File: Send + Sync + 'static {
     // 这个文件的工作路径
-    fn to_vfs_inode(&self) -> Result<&dyn VfsInode, SysError> {
+    fn to_vfs_inode(&self) -> SysR<&dyn VfsInode> {
         Err(SysError::ENOTDIR)
     }
     fn readable(&self) -> bool;
@@ -144,24 +144,24 @@ pub trait File: Send + Sync + 'static {
     fn can_write_offset(&self) -> bool {
         false
     }
-    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
         unimplemented!("lseek {}", core::any::type_name::<Self>())
     }
-    fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
+    fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> ASysRet {
         unimplemented!("read_at {}", core::any::type_name::<Self>())
     }
-    fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
+    fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> ASysRet {
         unimplemented!("write_at {}", core::any::type_name::<Self>())
     }
-    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile;
-    fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile;
-    fn ioctl(&self, _cmd: u32, _arg: usize) -> SysResult {
+    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> ASysRet;
+    fn write<'a>(&'a self, read_only: &'a [u8]) -> ASysRet;
+    fn ioctl(&self, _cmd: u32, _arg: usize) -> SysRet {
         Ok(0)
     }
-    fn stat<'a>(&'a self, _stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
+    fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move { Err(SysError::EACCES) })
     }
-    fn utimensat(&self, _times: [TimeSpec; 2]) -> Async<SysResult> {
+    fn utimensat(&self, _times: [TimeSpec; 2]) -> ASysRet {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
 }

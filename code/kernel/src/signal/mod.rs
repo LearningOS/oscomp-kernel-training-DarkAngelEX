@@ -5,7 +5,7 @@ mod rtqueue;
 use core::{fmt::Debug, ops::ControlFlow};
 
 use alloc::sync::Arc;
-use ftl_util::error::SysError;
+use ftl_util::error::{SysError, SysR, SysRet};
 
 use crate::{
     config::USER_KRX_BEGIN,
@@ -13,7 +13,6 @@ use crate::{
     process::{thread::ThreadInner, Dead, Process},
     signal::context::SignalContext,
     sync::even_bus::Event,
-    syscall::SysResult,
     user::check::UserCheck,
     xdebug::{LIMIT_SIGNAL_COUNT, PRINT_SYSCALL_ALL},
 };
@@ -25,7 +24,7 @@ pub struct Sig(pub u32);
 impl Sig {
     /// 减去 1 来提高 mask 的运算速度
     #[inline(always)]
-    pub fn from_user(v: u32) -> Result<Self, SysError> {
+    pub fn from_user(v: u32) -> SysR<Self> {
         if v > 0 && v <= SIG_N_U32 {
             Ok(Self(v - 1))
         } else {
@@ -467,7 +466,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     Ok(())
 }
 
-pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysResult {
+pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysRet {
     stack_trace!();
     debug_assert!(!thread.scx_ptr.is_null());
     let scx = UserCheck::new(process)

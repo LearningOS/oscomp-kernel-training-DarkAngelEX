@@ -11,7 +11,7 @@ use crate::{
 
 use super::{block::BPB_CID, crc, BlockDevice};
 use alloc::boxed::Box;
-use ftl_util::async_tools::AsyncRet;
+use ftl_util::async_tools::ASysR;
 
 pub struct SDCard<T: SPIActions> {
     spi: T,
@@ -777,7 +777,7 @@ impl BlockDevice for SDCardWrapper {
     fn sector_bytes(&self) -> usize {
         512
     }
-    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> AsyncRet<'a> {
+    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> ASysR<()> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
             if let Err(_) = lock.read_sector(buf, (block_id + BPB_CID) as u32) {
@@ -786,7 +786,7 @@ impl BlockDevice for SDCardWrapper {
             Ok(())
         })
     }
-    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> AsyncRet<'a> {
+    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> ASysR<()> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
             if let Err(_) = lock.write_sector(buf, (block_id + BPB_CID) as u32) {

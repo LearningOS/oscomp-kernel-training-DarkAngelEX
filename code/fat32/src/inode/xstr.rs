@@ -1,5 +1,5 @@
 use alloc::{string::String, vec::Vec};
-use ftl_util::error::SysError;
+use ftl_util::error::{SysError, SysR};
 
 use crate::{layout::name::RawShortName, tools::Align8};
 
@@ -26,7 +26,7 @@ fn name_trim(str: &str) -> &str {
 /// 检测名字的合法性, 并进行trim
 ///
 /// 长度只进行粗略检测
-pub fn name_check(str: &str) -> Result<&str, SysError> {
+pub fn name_check(str: &str) -> SysR<&str> {
     let err = SysError::ENOENT;
     let str = name_trim(str);
     if str.is_empty() {
@@ -103,7 +103,7 @@ pub fn str_to_just_short(str: &str) -> Option<([u8; 8], [u8; 3])> {
 /// utf16顺序放置, 写入时应倒序遍历
 ///
 /// 最大数组长度为31
-pub fn str_to_utf16(str: &str) -> Result<Vec<[u16; 13]>, SysError> {
+pub fn str_to_utf16(str: &str) -> SysR<Vec<[u16; 13]>> {
     debug_assert_eq!(str.len(), name_check(str).unwrap().len());
     const MAX_LEN: usize = 31;
     if str.is_empty() {

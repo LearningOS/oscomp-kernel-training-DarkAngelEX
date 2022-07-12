@@ -4,7 +4,10 @@ use alloc::{
     vec::Vec,
 };
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
-use ftl_util::fs::{Mode, OpenFlags, VfsInode};
+use ftl_util::{
+    error::SysR,
+    fs::{Mode, OpenFlags, VfsInode},
+};
 
 use crate::{
     fs,
@@ -123,7 +126,7 @@ impl Process {
         }
     }
     // fork and release all thread except tid
-    pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> Result<Arc<Self>, SysError> {
+    pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> SysR<Arc<Self>> {
         let mut alive_guard = self.alive.lock();
         let alive = alive_guard.as_mut().unwrap();
         let user_space = alive.user_space.fork()?;

@@ -2,7 +2,8 @@ use core::{alloc::AllocError, fmt, ops::ControlFlow};
 
 use alloc::string::FromUtf8Error;
 
-pub type SysResult = Result<usize, SysError>;
+pub type SysR<T> = Result<T, SysError>;
+pub type SysRet = SysR<usize>;
 
 #[allow(dead_code, clippy::upper_case_acronyms)]
 #[repr(isize)]
@@ -323,7 +324,7 @@ impl From<AllocError> for SysError {
     }
 }
 
-impl<B> From<SysError> for ControlFlow<Result<B, SysError>, B> {
+impl<B> From<SysError> for ControlFlow<SysR<B>, B> {
     fn from(e: SysError) -> Self {
         ControlFlow::Break(Err(e))
     }

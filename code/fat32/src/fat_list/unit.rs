@@ -1,12 +1,11 @@
 //! FAT链表扇区缓存
 use core::cell::UnsafeCell;
 
-use ftl_util::error::SysError;
+use ftl_util::error::SysR;
 
 use crate::{
     block::buffer::{Buffer, SharedBuffer},
     tools::{AID, CID},
-
 };
 
 // 此单元是链表的第几个扇区 ListUnit不变标识符
@@ -28,7 +27,7 @@ unsafe impl Send for ListUnit {}
 unsafe impl Sync for ListUnit {}
 
 impl ListUnit {
-    pub fn new_uninit(sector_bytes: usize) -> Result<Self, SysError> {
+    pub fn new_uninit(sector_bytes: usize) -> SysR<Self> {
         let buffer = Buffer::new(sector_bytes)?;
         Ok(Self {
             buffer: UnsafeCell::new(buffer),
@@ -58,19 +57,19 @@ impl ListUnit {
     /// 只有manager可以操作此函数
     ///
     /// 操作manager必须持有list的排他锁
-    pub unsafe fn set(&self, index: usize, cid: CID) -> Result<(), SysError> {
+    pub unsafe fn set(&self, index: usize, cid: CID) -> SysR<()> {
         (&mut *self.buffer.get()).access_rw()?[index] = cid;
         Ok(())
     }
     /// 此函数没有加锁
-    pub unsafe fn to_unique(&self) -> Result<(), SysError> {
+    pub unsafe fn to_unique(&self) -> SysR<()> {
         (&mut *self.buffer.get()).access_rw::<u8>()?;
         Ok(())
     }
     pub fn buffer_ro(&self) -> &[CID] {
         unsafe { (&*self.buffer.get()).access_ro() }
     }
-    pub fn buffer_rw(&mut self) -> Result<&mut [CID], SysError> {
+    pub fn buffer_rw(&mut self) -> SysR<&mut [CID]> {
         unsafe { (&mut *self.buffer.get()).access_rw() }
     }
     pub fn shared(&self) -> SharedBuffer {

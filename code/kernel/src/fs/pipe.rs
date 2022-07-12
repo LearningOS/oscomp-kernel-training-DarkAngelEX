@@ -10,8 +10,8 @@ use alloc::{
     sync::{Arc, Weak},
 };
 use ftl_util::{
-    async_tools::AsyncFile,
-    error::SysError,
+    async_tools::ASysRet,
+    error::{SysError, SysRet},
     fs::{File, Seek},
 };
 
@@ -19,7 +19,6 @@ use crate::{
     config::PAGE_SIZE,
     memory::allocator::frame::{self, global::FrameTracker},
     sync::{mutex::SpinNoIrqLock, SleepMutex},
-    syscall::SysResult,
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
 };
 
@@ -140,10 +139,10 @@ impl File for PipeReader {
     fn writable(&self) -> bool {
         false
     }
-    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
         Err(SysError::ESPIPE)
     }
-    fn read<'a>(&'a self, buffer: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
             if buffer.len() == 0 {
                 return Ok(0);
@@ -160,7 +159,7 @@ impl File for PipeReader {
             future.await
         })
     }
-    fn write<'a>(&'a self, _read_only: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, _read_only: &'a [u8]) -> ASysRet {
         panic!("write to PipeReader");
     }
 }
@@ -187,13 +186,13 @@ impl File for PipeWriter {
     fn writable(&self) -> bool {
         true
     }
-    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
         Err(SysError::ESPIPE)
     }
-    fn read<'a>(&'a self, _write_only: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, _write_only: &'a mut [u8]) -> ASysRet {
         panic!("read from PipeWriter");
     }
-    fn write<'a>(&'a self, buffer: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet {
         Box::pin(async move {
             if buffer.len() == 0 {
                 return Ok(0);
@@ -238,7 +237,7 @@ impl ReadPipeFuture<'_> {
 }
 
 impl Future for ReadPipeFuture<'_> {
-    type Output = SysResult;
+    type Output = SysRet;
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             if self.current == self.buffer.len() {
@@ -286,7 +285,7 @@ impl WritePipeFuture<'_> {
     }
 }
 impl Future for WritePipeFuture<'_> {
-    type Output = SysResult;
+    type Output = SysRet;
 
     fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {

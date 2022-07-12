@@ -1,7 +1,10 @@
-use crate::{syscall::SysError, tools::path};
+use crate::tools::path;
 use alloc::{sync::Arc, vec::Vec};
 
-use ftl_util::fs::{Mode, OpenFlags, VfsInode};
+use ftl_util::{
+    error::SysR,
+    fs::{Mode, OpenFlags, VfsInode},
+};
 
 // type InodeImpl = easyfs_inode::EasyFsInode;
 type InodeImpl = fat32_inode::Fat32Inode;
@@ -19,11 +22,11 @@ pub async fn list_apps() {
 }
 
 pub async fn create_any<'a>(
-    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
+    base: Option<SysR<impl Iterator<Item = &'a str>>>,
     path: &'a str,
     flags: OpenFlags,
     _mode: Mode,
-) -> Result<(), SysError> {
+) -> SysR<()> {
     stack_trace!();
     let mut stack = Vec::new();
     match path.as_bytes().first() {
@@ -34,11 +37,11 @@ pub async fn create_any<'a>(
     fat32_inode::create_any(&stack, flags).await
 }
 pub async fn open_file<'a>(
-    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
+    base: Option<SysR<impl Iterator<Item = &'a str>>>,
     path: &'a str,
     flags: OpenFlags,
     mode: Mode,
-) -> Result<Arc<dyn VfsInode>, SysError> {
+) -> SysR<Arc<dyn VfsInode>> {
     stack_trace!();
     let mut stack = Vec::new();
     match path.as_bytes().first() {
@@ -56,7 +59,7 @@ pub async fn open_file_abs<'a>(
     path: &'a str,
     flags: OpenFlags,
     mode: Mode,
-) -> Result<Arc<dyn VfsInode>, SysError> {
+) -> SysR<Arc<dyn VfsInode>> {
     stack_trace!();
     let mut stack = Vec::new();
     match path.as_bytes().first() {
@@ -72,10 +75,10 @@ pub async fn open_file_abs<'a>(
 }
 
 pub async fn unlink<'a>(
-    base: Option<Result<impl Iterator<Item = &'a str>, SysError>>,
+    base: Option<SysR<impl Iterator<Item = &'a str>>>,
     path: &'a str,
     flags: OpenFlags,
-) -> Result<(), SysError> {
+) -> SysR<()> {
     stack_trace!();
     let mut stack = Vec::new();
     match path.as_bytes().first() {

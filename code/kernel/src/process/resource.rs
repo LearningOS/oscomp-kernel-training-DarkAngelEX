@@ -1,4 +1,4 @@
-use ftl_util::error::SysError;
+use ftl_util::error::{SysError, SysR};
 
 use crate::config::USER_STACK_SIZE;
 
@@ -46,18 +46,14 @@ impl RLimit {
             rlim_max: n,
         }
     }
-    pub fn check(self) -> Result<(), SysError> {
+    pub fn check(self) -> SysR<()> {
         (self.rlim_cur <= RLIM_INFINITY && self.rlim_max <= RLIM_INFINITY)
             .then_some(())
             .ok_or(SysError::EINVAL)
     }
 }
 
-pub fn prlimit_impl(
-    proc: &Process,
-    resource: u32,
-    new: Option<RLimit>,
-) -> Result<RLimit, SysError> {
+pub fn prlimit_impl(proc: &Process, resource: u32, new: Option<RLimit>) -> SysR<RLimit> {
     match resource {
         RLIMIT_CPU => todo!(),
         RLIMIT_FSIZE => todo!(),

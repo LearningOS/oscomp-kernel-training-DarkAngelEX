@@ -6,7 +6,10 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::fs::{Mode, OpenFlags};
+use ftl_util::{
+    error::SysR,
+    fs::{Mode, OpenFlags},
+};
 use riscv::register::scause::Exception;
 
 use crate::{
@@ -195,16 +198,12 @@ impl UserSpace {
     pub fn in_using(&self) -> bool {
         self.page_table().in_using()
     }
-    fn force_map_delay(&mut self, map_area: UserArea) -> Result<(), SysError> {
+    fn force_map_delay(&mut self, map_area: UserArea) -> SysR<()> {
         stack_trace!();
         self.map_segment
             .force_push(map_area.range, MapAllHandler::box_new(map_area.perm))
     }
-    fn force_map_delay_write(
-        &mut self,
-        map_area: UserArea,
-        data: impl FrameDataIter,
-    ) -> Result<(), SysError> {
+    fn force_map_delay_write(&mut self, map_area: UserArea, data: impl FrameDataIter) -> SysR<()> {
         stack_trace!();
         let r = map_area.range;
         self.map_segment
@@ -224,7 +223,7 @@ impl UserSpace {
         todo!()
     }
     /// (stack, user_sp)
-    pub fn stack_init(&mut self, stack_reverse: PageCount) -> Result<UserAddr4K, SysError> {
+    pub fn stack_init(&mut self, stack_reverse: PageCount) -> SysR<UserAddr4K> {
         stack_trace!();
         // 绕过 stack 借用检查
         let h = DelayHandler::box_new(PTEFlags::R | PTEFlags::W | PTEFlags::U);
@@ -236,7 +235,7 @@ impl UserSpace {
     pub fn get_brk(&self) -> UserAddr<u8> {
         self.heap.brk()
     }
-    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> Result<(), SysError> {
+    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> SysR<()> {
         let ms = &mut self.map_segment;
         self.heap.set_brk(new_brk, move |r, f| {
             if f {
@@ -272,7 +271,7 @@ impl UserSpace {
     pub fn from_elf(
         elf_data: &[u8],
         stack_reverse: PageCount,
-    ) -> Result<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>), SysError> {
+    ) -> SysR<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>)> {
         const PRINT_THIS: bool = false;
         stack_trace!();
         let elf_fail = |str| {
@@ -411,7 +410,7 @@ impl UserSpace {
         Ok((space, user_sp, entry_point.into(), auxv))
     }
 
-    pub async fn load_linker(&mut self, elf_data: &[u8]) -> Result<Option<UserAddr<u8>>, SysError> {
+    pub async fn load_linker(&mut self, elf_data: &[u8]) -> SysR<Option<UserAddr<u8>>> {
         const PRINT_THIS: bool = false;
         let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
         let s = match elf.find_section_by_name(".interp") {
@@ -489,7 +488,7 @@ impl UserSpace {
         Ok(Some(entry_point.into()))
     }
 
-    pub fn fork(&mut self) -> Result<Self, SysError> {
+    pub fn fork(&mut self) -> SysR<Self> {
         memory_trace!("UserSpace::fork");
         // let page_table = self.page_table_mut().fork(allocator)?;
         let map_segment = self.map_segment.fork()?;

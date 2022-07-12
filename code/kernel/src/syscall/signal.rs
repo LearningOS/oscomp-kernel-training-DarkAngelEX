@@ -8,7 +8,7 @@ use crate::{
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
-use super::{SysResult, Syscall};
+use super::{SysRet, Syscall};
 
 const PRINT_SYSCALL_SIGNAL: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL || false;
 
@@ -30,7 +30,7 @@ bitflags! {
 }
 
 impl Syscall<'_> {
-    pub fn sys_kill(&mut self) -> SysResult {
+    pub fn sys_kill(&mut self) -> SysRet {
         stack_trace!();
         let (pid, signal): (isize, u32) = self.cx.into();
 
@@ -68,7 +68,7 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
-    pub fn sys_tkill(&mut self) -> SysResult {
+    pub fn sys_tkill(&mut self) -> SysRet {
         stack_trace!();
         let (tid, sig): (Tid, u32) = self.cx.into();
         if PRINT_SYSCALL_SIGNAL {
@@ -80,7 +80,7 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
-    pub fn sys_tgkill(&mut self) -> SysResult {
+    pub fn sys_tgkill(&mut self) -> SysRet {
         stack_trace!();
         let (pid, tid, signal): (Pid, Tid, u32) = self.cx.into();
         if PRINT_SYSCALL_SIGNAL {
@@ -95,7 +95,7 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
-    pub async fn sys_sigaltstack(&mut self) -> SysResult {
+    pub async fn sys_sigaltstack(&mut self) -> SysRet {
         stack_trace!();
         /* Structure describing a signal stack.  */
         let (new, old): (UserReadPtr<SignalStack>, UserWritePtr<SignalStack>) = self.cx.into();
@@ -113,12 +113,12 @@ impl Syscall<'_> {
 
         todo!()
     }
-    pub async fn sys_rt_sigsuspend(&mut self) -> SysResult {
+    pub async fn sys_rt_sigsuspend(&mut self) -> SysRet {
         todo!()
     }
     /// 设置信号行为
     ///
-    pub async fn sys_rt_sigaction(&mut self) -> SysResult {
+    pub async fn sys_rt_sigaction(&mut self) -> SysRet {
         stack_trace!();
         let (sig, new_act, old_act, s_size): (
             u32,
@@ -165,7 +165,7 @@ impl Syscall<'_> {
     /// 设置信号阻塞位并返回原先值
     ///
     /// 仅修改当前线程 mask 等价于 pthread_sigmask
-    pub async fn sys_rt_sigprocmask(&mut self) -> SysResult {
+    pub async fn sys_rt_sigprocmask(&mut self) -> SysRet {
         stack_trace!();
         // s_size is bytes
         let (how, newset, oldset, s_size): (usize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
@@ -206,17 +206,17 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
-    pub async fn sys_rt_sigpending(&mut self) -> SysResult {
+    pub async fn sys_rt_sigpending(&mut self) -> SysRet {
         todo!()
     }
-    pub async fn sys_rt_sigtimedwait(&mut self) -> SysResult {
+    pub async fn sys_rt_sigtimedwait(&mut self) -> SysRet {
         // todo!()
         Ok(0)
     }
-    pub async fn sys_rt_sigqueueinfo(&mut self) -> SysResult {
+    pub async fn sys_rt_sigqueueinfo(&mut self) -> SysRet {
         todo!()
     }
-    pub async fn sys_rt_sigreturn(&mut self) -> SysResult {
+    pub async fn sys_rt_sigreturn(&mut self) -> SysRet {
         if PRINT_SYSCALL_SIGNAL {
             println!("sys_rt_sigreturn");
         }

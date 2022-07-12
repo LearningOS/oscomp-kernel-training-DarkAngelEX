@@ -1,5 +1,6 @@
 use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
+    error::SysR,
     fs::{File, Mode, OpenFlags, Seek, VfsInode},
     time::TimeSpec,
 };
@@ -17,7 +18,7 @@ use crate::{
 pub mod mount;
 pub mod stat;
 
-use super::{SysResult, Syscall};
+use super::{SysRet, Syscall};
 
 const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
@@ -28,7 +29,7 @@ impl Syscall<'_> {
         &mut self,
         fd: isize,
         path: UserReadPtr<u8>,
-    ) -> Result<(Option<Arc<dyn File>>, String), SysError> {
+    ) -> SysR<(Option<Arc<dyn File>>, String)> {
         let path = UserCheck::new(self.process)
             .array_zero_end(path)
             .await?
@@ -52,7 +53,7 @@ impl Syscall<'_> {
         path: UserReadPtr<u8>,
         flags: OpenFlags,
         mode: Mode,
-    ) -> Result<Arc<dyn VfsInode>, SysError> {
+    ) -> SysR<Arc<dyn VfsInode>> {
         let (base, path) = self.fd_path_impl(fd, path).await?;
         if PRINT_SYSCALL_FS {
             println!("fd_path_open path: {}", path);
@@ -65,11 +66,11 @@ impl Syscall<'_> {
         path: UserReadPtr<u8>,
         flags: OpenFlags,
         mode: Mode,
-    ) -> Result<(), SysError> {
+    ) -> SysR<()> {
         let (base, path) = self.fd_path_impl(fd, path).await?;
         fs::create_any(path::file_path_iter(&base), path.as_str(), flags, mode).await
     }
-    pub async fn sys_getcwd(&mut self) -> SysResult {
+    pub async fn sys_getcwd(&mut self) -> SysRet {
         stack_trace!();
         let (buf_in, len): (UserWritePtr<u8>, usize) = self.cx.into();
         if buf_in.is_null() {
@@ -101,14 +102,14 @@ impl Syscall<'_> {
         buf[0] = b'\0';
         return Ok(buf_in.as_usize());
     }
-    pub fn sys_dup(&mut self) -> SysResult {
+    pub fn sys_dup(&mut self) -> SysRet {
         stack_trace!();
         let fd: usize = self.cx.para1();
         let fd = Fd::from_usize(fd);
         let new = self.alive_then(move |a| a.fd_table.dup(fd))?;
         Ok(new.to_usize())
     }
-    pub fn sys_dup3(&mut self) -> SysResult {
+    pub fn sys_dup3(&mut self) -> SysRet {
         stack_trace!();
         let (old_fd, new_fd, flags): (Fd, Fd, u32) = self.cx.into();
         if PRINT_SYSCALL_FS {
@@ -124,7 +125,7 @@ impl Syscall<'_> {
         self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, flags))?;
         Ok(new_fd.to_usize())
     }
-    pub async fn sys_getdents64(&mut self) -> SysResult {
+    pub async fn sys_getdents64(&mut self) -> SysRet {
         stack_trace!();
 
         #[repr(C)]
@@ -181,7 +182,7 @@ impl Syscall<'_> {
         }
         Ok(cnt)
     }
-    pub fn sys_lseek(&mut self) -> SysResult {
+    pub fn sys_lseek(&mut self) -> SysRet {
         let (fd, offset, whence): (Fd, isize, u32) = self.cx.into();
         if PRINT_SYSCALL_FS {
             println!("sys_read");
@@ -192,7 +193,7 @@ impl Syscall<'_> {
         let whence = Seek::from_user(whence)?;
         file.lseek(offset, whence)
     }
-    pub async fn sys_read(&mut self) -> SysResult {
+    pub async fn sys_read(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_read");
@@ -209,7 +210,7 @@ impl Syscall<'_> {
         }
         file.read(&mut *buf.access_mut()).await
     }
-    pub async fn sys_write(&mut self) -> SysResult {
+    pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_write");
@@ -227,7 +228,7 @@ impl Syscall<'_> {
         let ret = file.write(&*buf.access()).await;
         ret
     }
-    pub async fn sys_readv(&mut self) -> SysResult {
+    pub async fn sys_readv(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_readv");
@@ -248,7 +249,7 @@ impl Syscall<'_> {
         }
         Ok(cnt)
     }
-    pub async fn sys_writev(&mut self) -> SysResult {
+    pub async fn sys_writev(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_writev");
@@ -269,7 +270,7 @@ impl Syscall<'_> {
         }
         Ok(cnt)
     }
-    pub async fn sys_pread64(&mut self) -> SysResult {
+    pub async fn sys_pread64(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_pread64");
@@ -287,7 +288,7 @@ impl Syscall<'_> {
         file.read_at(offset, &mut *buf.access_mut()).await
     }
     /// 未实现功能
-    pub async fn sys_ppoll(&mut self) -> SysResult {
+    pub async fn sys_ppoll(&mut self) -> SysRet {
         stack_trace!();
         let (fds, nfds, timeout, sigmask, s_size): (
             UserInOutPtr<Pollfd>,
@@ -314,7 +315,7 @@ impl Syscall<'_> {
         };
         Ok(nfds)
     }
-    pub async fn sys_readlinkat(&mut self) -> SysResult {
+    pub async fn sys_readlinkat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, buf, size): (isize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =
             self.cx.into();
@@ -333,7 +334,7 @@ impl Syscall<'_> {
         Ok(plen.min(size))
     }
 
-    pub async fn sys_mkdirat(&mut self) -> SysResult {
+    pub async fn sys_mkdirat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, mode): (isize, UserReadPtr<u8>, Mode) = self.cx.into();
         if PRINT_SYSCALL_FS {
@@ -344,7 +345,7 @@ impl Syscall<'_> {
         self.fd_path_create_any(fd, path, flags, mode).await?;
         Ok(0)
     }
-    pub async fn sys_unlinkat(&mut self) -> SysResult {
+    pub async fn sys_unlinkat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, flags): (isize, UserReadPtr<u8>, u32) = self.cx.into();
         if flags != 0 {
@@ -354,7 +355,7 @@ impl Syscall<'_> {
         fs::unlink(path::file_path_iter(&base), &path, OpenFlags::empty()).await?;
         Ok(0)
     }
-    pub async fn sys_chdir(&mut self) -> SysResult {
+    pub async fn sys_chdir(&mut self) -> SysRet {
         stack_trace!();
         let path: UserReadPtr<u8> = self.cx.para1();
         let path = UserCheck::new(self.process)
@@ -373,7 +374,7 @@ impl Syscall<'_> {
         self.alive_then(|a| a.cwd = inode);
         Ok(0)
     }
-    pub async fn sys_openat(&mut self) -> SysResult {
+    pub async fn sys_openat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
         if PRINT_SYSCALL_FS {
@@ -394,7 +395,7 @@ impl Syscall<'_> {
             .insert(inode, close_on_exec, flags)?;
         Ok(fd.to_usize())
     }
-    pub fn sys_close(&mut self) -> SysResult {
+    pub fn sys_close(&mut self) -> SysRet {
         stack_trace!();
         let fd = self.cx.para1();
         if PRINT_SYSCALL_FS {
@@ -408,7 +409,7 @@ impl Syscall<'_> {
         Ok(0)
     }
     /// 管道的读端只有当管道中无数据时才会阻塞, 如果存在数据则必然返回, 即使读取的数量没有达到要求
-    pub async fn sys_pipe2(&mut self) -> SysResult {
+    pub async fn sys_pipe2(&mut self) -> SysRet {
         stack_trace!();
         let (pipe, flags): (UserWritePtr<[u32; 2]>, u32) = self.cx.into();
         if PRINT_SYSCALL_FS {
@@ -421,7 +422,7 @@ impl Syscall<'_> {
             unimplemented!();
         }
         let (reader, writer) = pipe::make_pipe()?;
-        let (rfd, wfd) = self.alive_then(move |a| -> Result<_, SysError> {
+        let (rfd, wfd) = self.alive_then(move |a| -> SysR<_> {
             let rfd = a.fd_table.insert(reader, close_on_exec, flags)?.to_usize();
             let wfd = a.fd_table.insert(writer, close_on_exec, flags)?.to_usize();
             Ok((rfd as u32, wfd as u32))
@@ -429,14 +430,14 @@ impl Syscall<'_> {
         write_to.store([rfd, wfd]);
         Ok(0)
     }
-    pub fn sys_fcntl(&mut self) -> SysResult {
+    pub fn sys_fcntl(&mut self) -> SysRet {
         let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
         if PRINT_SYSCALL_FS {
             println!("sys_fcntl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
         self.alive_then(|a| a.fd_table.fcntl(Fd(fd), cmd, arg))
     }
-    pub fn sys_ioctl(&mut self) -> SysResult {
+    pub fn sys_ioctl(&mut self) -> SysRet {
         stack_trace!();
         let (fd, cmd, arg): (usize, u32, usize) = self.cx.into();
         if PRINT_SYSCALL_FS {

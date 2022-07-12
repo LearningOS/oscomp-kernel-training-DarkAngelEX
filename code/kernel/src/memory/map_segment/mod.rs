@@ -1,4 +1,5 @@
 use alloc::{boxed::Box, sync::Arc};
+use ftl_util::error::SysR;
 
 use crate::{
     futex::{FutexSet, OwnFutex},
@@ -75,7 +76,7 @@ impl MapSegment {
     /// 范围必须不存在映射 否则 panic
     ///
     /// 返回初始化结果 失败则撤销映射
-    pub fn force_push(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
+    pub fn force_push(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> SysR<()> {
         debug_assert!(r.start < r.end);
         let pt = pt!(self);
         let h = self.handlers.try_push(r.clone(), h).ok().unwrap();
@@ -120,13 +121,13 @@ impl MapSegment {
         self.futexs.clear();
         assert!(sc_manager.is_empty());
     }
-    pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> Result<(), SysError> {
+    pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> SysR<()> {
         debug_assert!(r.start < r.end);
         self.unmap(r.clone());
         self.force_push(r, h)
     }
     /// 如果进入 async 状态将 panic
-    pub fn force_map(&mut self, r: URange) -> Result<(), SysError> {
+    pub fn force_map(&mut self, r: URange) -> SysR<()> {
         stack_trace!();
         debug_assert!(r.start < r.end);
         let pt = pt!(self);
@@ -139,11 +140,7 @@ impl MapSegment {
     /// 此函数可以向只读映射写入数据 但不能修改只读共享页
     ///
     /// TODO: 使用 copy_map获取只读共享页所有权
-    pub fn force_write_range(
-        &mut self,
-        r: URange,
-        mut data: impl FrameDataIter,
-    ) -> Result<(), SysError> {
+    pub fn force_write_range(&mut self, r: URange, mut data: impl FrameDataIter) -> SysR<()> {
         stack_trace!();
         debug_assert!(r.start < r.end);
         self.force_map(r.clone())?;
@@ -212,7 +209,7 @@ impl MapSegment {
     /// 唯一页 / 永久共享页: 修改页表标志位和段标志位
     ///
     /// COW 共享页: 不修改页表 只修改段标志位
-    pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> Result<(), SysError> {
+    pub fn modify_perm(&mut self, r: URange, perm: PTEFlags) -> SysR<()> {
         stack_trace!();
         debug_assert!(r.start < r.end);
         // 1. 检查区间与max标志位
@@ -261,7 +258,7 @@ impl MapSegment {
     /// 发生错误时回退到执行前的状态
     ///
     /// 将写标志位设置为 may_shared()
-    pub fn fork(&mut self) -> Result<Self, SysError> {
+    pub fn fork(&mut self) -> SysR<Self> {
         stack_trace!();
         let src = pt!(self);
         let mut dst = PageTable::from_global(asid::alloc_asid())?;

@@ -7,12 +7,12 @@ use alloc::{
     vec::Vec,
 };
 use ftl_util::{
-    async_tools::AsyncFile,
-    error::SysError,
+    async_tools::{ASysR, ASysRet},
+    error::{SysError, SysR, SysRet},
     fs::{DentryType, File, Seek, VfsInode},
 };
 
-use crate::{sync::RwSleepMutex, syscall::SysResult, tools::xasync::Async};
+use crate::sync::RwSleepMutex;
 
 static mut ROOT_DIR: Option<Arc<ShmInode>> = None;
 
@@ -38,13 +38,13 @@ impl ShmInode {
             ShmInodeInner::Dir(_) => true,
         }
     }
-    pub async fn search_any(&self, name: &str) -> Result<Arc<ShmInode>, SysError> {
+    pub async fn search_any(&self, name: &str) -> SysR<Arc<ShmInode>> {
         match &*self.inner.shared_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => d.get(name).cloned().ok_or(SysError::ENOENT),
         }
     }
-    pub async fn create_dir(&self, name: &str, _read_only: bool) -> Result<(), SysError> {
+    pub async fn create_dir(&self, name: &str, _read_only: bool) -> SysR<()> {
         match &mut *self.inner.unique_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => {
@@ -55,7 +55,7 @@ impl ShmInode {
             }
         }
     }
-    pub async fn create_file(&self, name: &str, _read_only: bool) -> Result<(), SysError> {
+    pub async fn create_file(&self, name: &str, _read_only: bool) -> SysR<()> {
         match &mut *self.inner.unique_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => {
@@ -66,7 +66,7 @@ impl ShmInode {
             }
         }
     }
-    pub async fn delete_file(&self, name: &str) -> Result<(), SysError> {
+    pub async fn delete_file(&self, name: &str) -> SysR<()> {
         match &mut *self.inner.unique_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => {
@@ -81,7 +81,7 @@ impl ShmInode {
             }
         }
     }
-    pub async fn delete_dir(&self, name: &str) -> Result<(), SysError> {
+    pub async fn delete_dir(&self, name: &str) -> SysR<()> {
         match &mut *self.inner.unique_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => {
@@ -96,7 +96,7 @@ impl ShmInode {
             }
         }
     }
-    pub async fn delete_any(&self, name: &str) -> Result<(), SysError> {
+    pub async fn delete_any(&self, name: &str) -> SysR<()> {
         match &mut *self.inner.unique_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => match d.remove(name) {
@@ -123,7 +123,7 @@ impl ShmInode {
             inner: RwSleepMutex::new(ShmInodeInner::File(Vec::new())),
         }
     }
-    pub async fn search_dir(&self, name: &str) -> Result<Arc<ShmInode>, SysError> {
+    pub async fn search_dir(&self, name: &str) -> SysR<Arc<ShmInode>> {
         match &*self.inner.shared_lock().await {
             ShmInodeInner::File(_) => Err(SysError::ENOTDIR),
             ShmInodeInner::Dir(d) => d.get(name).cloned().ok_or(SysError::ENOENT),
@@ -142,7 +142,7 @@ impl ShmVfile {}
 
 impl File for ShmVfile {
     // 这个文件的工作路径
-    fn to_vfs_inode(&self) -> Result<&dyn VfsInode, SysError> {
+    fn to_vfs_inode(&self) -> SysR<&dyn VfsInode> {
         Ok(self)
     }
     fn readable(&self) -> bool {
@@ -157,29 +157,29 @@ impl File for ShmVfile {
     fn can_write_offset(&self) -> bool {
         todo!()
     }
-    fn lseek(&self, _offset: isize, _whence: Seek) -> SysResult {
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
         unimplemented!("lseek unimplement: {}", core::any::type_name::<Self>())
     }
-    fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> AsyncFile {
+    fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> ASysRet {
         unimplemented!()
     }
-    fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> AsyncFile {
+    fn write_at<'a>(&'a self, _offset: usize, _buf: &'a [u8]) -> ASysRet {
         unimplemented!()
     }
-    fn read<'a>(&'a self, _write_only: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, _write_only: &'a mut [u8]) -> ASysRet {
         todo!()
     }
-    fn write<'a>(&'a self, _read_only: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, _read_only: &'a [u8]) -> ASysRet {
         todo!()
     }
 }
 
 impl VfsInode for ShmVfile {
-    fn read_all(&self) -> Async<Result<Vec<u8>, SysError>> {
+    fn read_all(&self) -> ASysR<Vec<u8>> {
         todo!()
     }
 
-    fn list(&self) -> Async<Result<Vec<(DentryType, String)>, SysError>> {
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         todo!()
     }
 

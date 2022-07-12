@@ -7,7 +7,10 @@ use core::{
 };
 
 use alloc::collections::BinaryHeap;
-use ftl_util::{async_tools, error::SysError};
+use ftl_util::{
+    async_tools,
+    error::{SysError, SysRet},
+};
 
 use crate::{
     process::thread,
@@ -15,7 +18,6 @@ use crate::{
         even_bus::{Event, EventBus},
         mutex::SpinNoIrqLock,
     },
-    syscall::SysResult,
 };
 
 struct TimerCondVar {
@@ -128,7 +130,7 @@ impl Future for JustWaitFuture {
     }
 }
 
-pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysResult {
+pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
     let deadline = super::get_time() + dur;
     thread::yield_now().await;
     if super::get_time() >= deadline {
@@ -163,7 +165,7 @@ impl<'a> SleepFuture<'a> {
 }
 
 impl<'a> Future for SleepFuture<'a> {
-    type Output = SysResult;
+    type Output = SysRet;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         stack_trace!();

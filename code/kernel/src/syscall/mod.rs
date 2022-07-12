@@ -1,6 +1,7 @@
 use core::ops::{Deref, DerefMut};
 
 use alloc::sync::Arc;
+use ftl_util::error::SysRet;
 
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
@@ -113,7 +114,7 @@ impl<'a> Syscall<'a> {
     pub async fn syscall(&mut self) -> bool {
         stack_trace!();
         self.cx.set_next_instruction();
-        let result: SysResult = match self.cx.a7() {
+        let result: SysRet = match self.cx.a7() {
             SYSCALL_GETCWD => self.sys_getcwd().await,
             SYSCALL_DUP => self.sys_dup(),
             SYSCALL_DUP3 => self.sys_dup3(),
@@ -230,5 +231,3 @@ impl<M: DAP> DerefMut for AliveGurad<M> {
         unsafe { self.0.as_mut().unwrap_unchecked() }
     }
 }
-
-pub type SysResult = Result<usize, SysError>;

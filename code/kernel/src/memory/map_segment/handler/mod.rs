@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::fs::File;
+use ftl_util::{async_tools::ASysR, error::SysR, fs::File};
 
 use crate::{
     memory::{
@@ -16,7 +16,7 @@ use crate::{
         self,
         allocator::TrackerAllocator,
         range::URange,
-        xasync::{AsyncR, HandlerID, TryR, TryRunFail},
+        xasync::{HandlerID, TryR, TryRunFail},
         DynDropRun,
     },
 };
@@ -66,7 +66,7 @@ pub trait UserAreaHandler: Send + 'static {
     /// 新加入管理器时将调用此函数 保证范围内无映射 此函数是唯一标记 &mut 的函数
     ///
     /// 必须设置正确的id
-    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError>;
+    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> SysR<()>;
     /// 此项初始化后禁止修改
     fn max_perm(&self) -> PTEFlags {
         PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U
@@ -91,18 +91,8 @@ pub trait UserAreaHandler: Send + 'static {
     /// 从 src 复制 range 到 dst, dst 获得所有权
     ///
     /// 保证范围内无有效映射
-    fn copy_map_spec(
-        &self,
-        src: &mut PageTable,
-        dst: &mut PageTable,
-        r: URange,
-    ) -> Result<(), SysError>;
-    fn copy_map(
-        &mut self,
-        src: &mut PageTable,
-        dst: &mut PageTable,
-        r: URange,
-    ) -> Result<(), SysError> {
+    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()>;
+    fn copy_map(&mut self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
         self.copy_map_spec(src, dst, r)
     }
     /// 如果操作失败且返回Async则改为调用 a_page_fault.
@@ -191,7 +181,7 @@ pub trait UserAreaHandler: Send + 'static {
         src: &mut PageTable,
         dst: &mut PageTable,
         r: URange,
-    ) -> Result<(), SysError> {
+    ) -> SysR<()> {
         let allocator = &mut frame::defualt_allocator();
         for a in tools::range::ur_iter(r) {
             let src = src.try_get_pte_user(a);
@@ -248,13 +238,12 @@ pub trait UserAreaHandler: Send + 'static {
 pub trait AsyncHandler: Send + Sync {
     fn id(&self) -> HandlerID;
     fn perm(&self) -> PTEFlags;
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange)
-        -> AsyncR<Option<DynDropRun<Asid>>>;
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> ASysR<Option<DynDropRun<Asid>>>;
     fn a_page_fault<'a>(
         &'a self,
         process: &'a Process,
         addr: UserAddr4K,
-    ) -> AsyncR<DynDropRun<(UserAddr4K, Asid)>>;
+    ) -> ASysR<DynDropRun<(UserAddr4K, Asid)>>;
 }
 
 pub struct FileAsyncHandler {
@@ -290,11 +279,7 @@ impl AsyncHandler for FileAsyncHandler {
     fn perm(&self) -> PTEFlags {
         self.perm | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
-    fn a_map<'a>(
-        &'a self,
-        process: &'a Process,
-        range: URange,
-    ) -> AsyncR<Option<DynDropRun<Asid>>> {
+    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> ASysR<Option<DynDropRun<Asid>>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -311,7 +296,7 @@ impl AsyncHandler for FileAsyncHandler {
                     .read_at(offset, frame.data().as_bytes_array_mut())
                     .await?;
                 frame.data().as_bytes_array_mut()[n..].fill(0);
-                flush = Some(process.alive_then(|a| -> Result<_, SysError> {
+                flush = Some(process.alive_then(|a| -> SysR<_> {
                     let pte = a
                         .user_space
                         .page_table_mut()
@@ -329,7 +314,7 @@ impl AsyncHandler for FileAsyncHandler {
         &'a self,
         process: &'a Process,
         addr: UserAddr4K,
-    ) -> AsyncR<DynDropRun<(UserAddr4K, Asid)>> {
+    ) -> ASysR<DynDropRun<(UserAddr4K, Asid)>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -344,7 +329,7 @@ impl AsyncHandler for FileAsyncHandler {
                 .read_at(offset, frame.data().as_bytes_array_mut())
                 .await?;
             frame.data().as_bytes_array_mut()[n..].fill(0);
-            let flush = process.alive_then(|a| -> Result<_, SysError> {
+            let flush = process.alive_then(|a| -> SysR<_> {
                 let pte = a
                     .user_space
                     .page_table_mut()

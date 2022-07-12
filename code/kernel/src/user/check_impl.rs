@@ -1,5 +1,6 @@
 use core::arch::global_asm;
 
+use ftl_util::error::SysR;
 use riscv::register::{
     scause::{self, Exception, Scause},
     sepc, stval, stvec,
@@ -47,7 +48,7 @@ impl<'a> UserCheckImpl<'a> {
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status
     }
-    pub fn atomic_u32_check_rough(&self, ptr: UserReadPtr<u32>) -> Result<(), SysError> {
+    pub fn atomic_u32_check_rough(&self, ptr: UserReadPtr<u32>) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_write_user_u32_atomic(ptr) {
             Ok(_) => return Ok(()),
@@ -69,7 +70,7 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub async fn atomic_u32_check_async(&self, ptr: UserWritePtr<u32>) -> Result<(), SysError> {
+    pub async fn atomic_u32_check_async(&self, ptr: UserWritePtr<u32>) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_write_user_u32_atomic(ptr) {
             Ok(_) => return Ok(()),
@@ -91,7 +92,7 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub fn read_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
+    pub fn read_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
@@ -109,7 +110,7 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub fn write_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
+    pub fn write_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> SysR<()> {
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
@@ -139,7 +140,7 @@ impl<'a> UserCheckImpl<'a> {
             }
         }
     }
-    pub async fn read_check_async<T: Copy>(&self, ptr: UserReadPtr<T>) -> Result<(), SysError> {
+    pub async fn read_check_async<T: Copy>(&self, ptr: UserReadPtr<T>) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
@@ -161,7 +162,7 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub async fn write_check_async<T: Copy>(&self, ptr: UserWritePtr<T>) -> Result<(), SysError> {
+    pub async fn write_check_async<T: Copy>(&self, ptr: UserWritePtr<T>) -> SysR<()> {
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
@@ -196,28 +197,28 @@ impl<'a> UserCheckImpl<'a> {
         Ok(())
     }
     #[inline]
-    fn handle_read_fault_rough(&self, ptr: usize) -> Result<(), SysError> {
+    fn handle_read_fault_rough(&self, ptr: usize) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!(" handle_read_fault_rough {:#x}", ptr);
         }
         self.handle_fault_rough(ptr, AccessType::RO)
     }
     #[inline]
-    fn handle_write_fault_rough(&self, ptr: usize) -> Result<(), SysError> {
+    fn handle_write_fault_rough(&self, ptr: usize) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!("handle_write_fault_rough {:#x}", ptr);
         }
         self.handle_fault_rough(ptr, AccessType::RW)
     }
     #[inline]
-    async fn handle_read_fault_async(&self, ptr: usize) -> Result<(), SysError> {
+    async fn handle_read_fault_async(&self, ptr: usize) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!("handle_read_fault_async {:#x}", ptr);
         }
         self.handle_fault_async(ptr, AccessType::RO).await
     }
     #[inline]
-    async fn handle_write_fault_async(&self, ptr: usize) -> Result<(), SysError> {
+    async fn handle_write_fault_async(&self, ptr: usize) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!("handle_write_fault_async {:#x}", ptr);
         }
@@ -227,7 +228,7 @@ impl<'a> UserCheckImpl<'a> {
     ///
     /// 此函数不需要异步上下文!
     #[inline]
-    fn handle_fault_rough(&self, ptr: usize, access: AccessType) -> Result<(), SysError> {
+    fn handle_fault_rough(&self, ptr: usize, access: AccessType) -> SysR<()> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
         let r = self
             .0
@@ -243,7 +244,7 @@ impl<'a> UserCheckImpl<'a> {
     }
     /// 此函数处理完整的页错误并可能阻塞线程
     #[inline]
-    async fn handle_fault_async(&self, ptr: usize, access: AccessType) -> Result<(), SysError> {
+    async fn handle_fault_async(&self, ptr: usize, access: AccessType) -> SysR<()> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
         let r = self
             .0
@@ -272,7 +273,7 @@ impl<'a> UserCheckImpl<'a> {
 }
 
 #[inline]
-fn try_read_user_u8(ptr: usize) -> Result<u8, SysError> {
+fn try_read_user_u8(ptr: usize) -> SysR<u8> {
     #[allow(improper_ctypes)]
     extern "C" {
         /// return false if success, return true if error.
@@ -297,7 +298,7 @@ fn try_read_user_u8(ptr: usize) -> Result<u8, SysError> {
 }
 
 #[inline]
-fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), SysError> {
+fn try_write_user_u8(ptr: usize, value: u8) -> SysR<()> {
     #[allow(improper_ctypes)]
     extern "C" {
         /// return false if success, return true if error.
@@ -323,7 +324,7 @@ fn try_write_user_u8(ptr: usize, value: u8) -> Result<(), SysError> {
 
 /// 使用 ptr.fetch_add(0) 来测试写权限并保证不修改值
 #[inline]
-fn try_write_user_u32_atomic(ptr: usize) -> Result<(), SysError> {
+fn try_write_user_u32_atomic(ptr: usize) -> SysR<()> {
     #[allow(improper_ctypes)]
     extern "C" {
         /// amoadd.d a1, zero, (a1)

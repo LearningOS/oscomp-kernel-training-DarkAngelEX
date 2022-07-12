@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
+use ftl_util::error::SysR;
 
 use crate::{
     memory::{
         address::UserAddr4K, asid::Asid, page_table::PTEFlags, user_space::AccessType, PageTable,
     },
-    syscall::SysError,
     tools::{range::URange, xasync::TryR, DynDropRun},
 };
 
@@ -40,7 +40,7 @@ impl UserAreaHandler for DelayHandler {
         self.inner.base_mut()
     }
     /// 唯一的区别是放弃初始化
-    fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> Result<(), SysError> {
+    fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> SysR<()> {
         self.inner.set_id(id);
         Ok(())
     }
@@ -51,12 +51,7 @@ impl UserAreaHandler for DelayHandler {
         stack_trace!();
         self.inner.map_spec(pt, range)
     }
-    fn copy_map_spec(
-        &self,
-        src: &mut PageTable,
-        dst: &mut PageTable,
-        r: URange,
-    ) -> Result<(), SysError> {
+    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
         stack_trace!();
         self.inner.copy_map_spec(src, dst, r)
     }

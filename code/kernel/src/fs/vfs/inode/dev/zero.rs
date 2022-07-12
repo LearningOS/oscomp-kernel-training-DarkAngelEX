@@ -5,12 +5,10 @@ use alloc::{
     vec::Vec,
 };
 use ftl_util::{
-    async_tools::AsyncFile,
-    error::SysError,
+    async_tools::{ASysR, ASysRet},
+    error::{SysError, SysR},
     fs::{DentryType, File, VfsInode},
 };
-
-use crate::tools::xasync::Async;
 
 pub struct ZeroInode;
 
@@ -30,7 +28,7 @@ pub fn inode() -> Arc<ZeroInode> {
 }
 
 impl File for ZeroInode {
-    fn to_vfs_inode(&self) -> Result<&dyn VfsInode, SysError> {
+    fn to_vfs_inode(&self) -> SysR<&dyn VfsInode> {
         Ok(self)
     }
     fn readable(&self) -> bool {
@@ -39,23 +37,23 @@ impl File for ZeroInode {
     fn writable(&self) -> bool {
         true
     }
-    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, write_only: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
             write_only.fill(0);
             Ok(write_only.len())
         })
     }
-    fn write<'a>(&'a self, read_only: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, read_only: &'a [u8]) -> ASysRet {
         Box::pin(async move { Ok(read_only.len()) })
     }
 }
 
 impl VfsInode for ZeroInode {
-    fn read_all(&self) -> Async<Result<Vec<u8>, SysError>> {
+    fn read_all(&self) -> ASysR<Vec<u8>> {
         Box::pin(async move { Err(SysError::EPERM) })
     }
 
-    fn list(&self) -> Async<Result<Vec<(DentryType, String)>, SysError>> {
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }
 

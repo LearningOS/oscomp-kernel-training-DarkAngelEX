@@ -1,6 +1,6 @@
 use core::time::Duration;
 
-use crate::error::SysError;
+use crate::error::{SysError, SysR};
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -26,7 +26,7 @@ impl TimeSpec {
     pub const fn is_omit(self) -> bool {
         self.tv_nsec == Self::UTIME_OMIT
     }
-    pub fn valid(&self) -> Result<(), SysError> {
+    pub fn valid(&self) -> SysR<()> {
         if self.tv_nsec >= 1000_000_000 {
             return Err(SysError::EINVAL);
         }

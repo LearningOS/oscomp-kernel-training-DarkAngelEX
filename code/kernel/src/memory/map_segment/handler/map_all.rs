@@ -1,10 +1,10 @@
 use alloc::boxed::Box;
+use ftl_util::error::SysR;
 
 use crate::{
     memory::{
         address::UserAddr4K, asid::Asid, page_table::PTEFlags, user_space::AccessType, PageTable,
     },
-    syscall::SysError,
     tools::{
         range::URange,
         xasync::{TryR, TryRunFail},
@@ -64,7 +64,7 @@ impl UserAreaHandler for MapAllHandler {
     fn base_mut(&mut self) -> &mut HandlerBase {
         &mut self.base
     }
-    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> Result<(), SysError> {
+    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> SysR<()> {
         stack_trace!();
         self.set_id(id);
         self.map(pt, all).map_err(|e| match e {
@@ -78,12 +78,7 @@ impl UserAreaHandler for MapAllHandler {
     fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
         self.default_map_spec(pt, range)
     }
-    fn copy_map_spec(
-        &self,
-        src: &mut PageTable,
-        dst: &mut PageTable,
-        r: URange,
-    ) -> Result<(), SysError> {
+    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
         stack_trace!();
         self.default_copy_map_spec(src, dst, r)
     }

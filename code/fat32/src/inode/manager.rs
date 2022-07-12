@@ -2,7 +2,7 @@ use alloc::{
     collections::BTreeMap,
     sync::{Arc, Weak},
 };
-use ftl_util::error::SysError;
+use ftl_util::error::{SysError, SysR};
 
 use crate::{
     mutex::RwSpinMutex,
@@ -54,7 +54,7 @@ impl InodeManager {
     /// Ok(false) 无缓存
     ///
     /// Err(EBUSY) busy
-    pub fn unused_release(&self, iid: IID) -> Result<bool, SysError> {
+    pub fn unused_release(&self, iid: IID) -> SysR<bool> {
         self.inner.unique_lock().unused_release(iid)
     }
 }
@@ -157,7 +157,7 @@ impl InodeManagerInner {
         return Ok(true);
     }
     ///
-    pub fn unused_release(&mut self, iid: IID) -> Result<bool, SysError> {
+    pub fn unused_release(&mut self, iid: IID) -> SysR<bool> {
         if PRINT_INODE_OP {
             println!("inode unused_release: {:?}", iid);
         }

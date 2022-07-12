@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use ftl_util::{error::SysError, utc_time::UtcTime};
+use ftl_util::{error::SysRet, utc_time::UtcTime};
 
 use crate::{
     layout::name::{Attr, RawShortName},
@@ -56,7 +56,7 @@ impl AnyInode {
     pub fn file_bytes(&self) -> Option<usize> {
         self.file().map(|f| f.bytes())
     }
-    pub async fn blk_num(&self, manager: &Fat32Manager) -> Result<usize, SysError> {
+    pub async fn blk_num(&self, manager: &Fat32Manager) -> SysRet {
         self.raw_inode()
             .shared_lock()
             .await

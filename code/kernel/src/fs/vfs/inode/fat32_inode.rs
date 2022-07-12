@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use crate::{drivers, executor, syscall::SysResult, tools::xasync::Async, user::AutoSie, timer};
+use crate::{drivers, executor, timer, user::AutoSie};
 use alloc::{
     boxed::Box,
     string::{String, ToString},
@@ -9,8 +9,8 @@ use alloc::{
 };
 use fat32::Fat32Manager;
 use ftl_util::{
-    async_tools::AsyncFile,
-    error::SysError,
+    async_tools::{ASysR, ASysRet},
+    error::{SysError, SysR, SysRet},
     fs::{
         stat::{Stat, S_IFDIR, S_IFREG},
         DentryType, File, OpenFlags, Seek,
@@ -35,7 +35,7 @@ impl Fat32Inode {
     pub fn path(&self) -> &[String] {
         &self.path
     }
-    pub async fn read_all(&self) -> Result<Vec<u8>, SysError> {
+    pub async fn read_all(&self) -> SysR<Vec<u8>> {
         stack_trace!();
         let buffer_size = 4096;
         let mut buffer = unsafe { Box::try_new_uninit_slice(buffer_size)?.assume_init() };
@@ -53,7 +53,7 @@ impl Fat32Inode {
         v.shrink_to_fit();
         Ok(v)
     }
-    pub async fn list(&self) -> Result<Vec<(DentryType, String)>, SysError> {
+    pub async fn list(&self) -> SysR<Vec<(DentryType, String)>> {
         let dir = self.inode.dir().ok_or(SysError::ENOTDIR)?;
         dir.list(manager()).await
     }
@@ -90,7 +90,7 @@ pub async fn list_apps() {
     println!("**************/");
 }
 
-pub async fn open_file(path: &[&str], flags: OpenFlags) -> Result<Arc<Fat32Inode>, SysError> {
+pub async fn open_file(path: &[&str], flags: OpenFlags) -> SysR<Arc<Fat32Inode>> {
     stack_trace!();
     let _sie = AutoSie::new();
     let (f_r, f_w) = flags.read_write()?;
@@ -122,12 +122,12 @@ pub async fn open_file(path: &[&str], flags: OpenFlags) -> Result<Arc<Fat32Inode
     }))
 }
 
-pub async fn unlink<'a>(path: &[&str], _flags: OpenFlags) -> Result<(), SysError> {
+pub async fn unlink<'a>(path: &[&str], _flags: OpenFlags) -> SysR<()> {
     stack_trace!();
     manager().delete_any(path).await
 }
 
-pub async fn create_any(path: &[&str], flags: OpenFlags) -> Result<(), SysError> {
+pub async fn create_any(path: &[&str], flags: OpenFlags) -> SysR<()> {
     stack_trace!();
     let _sie = AutoSie::new();
     let (f_r, _f_w) = flags.read_write()?;
@@ -136,7 +136,7 @@ pub async fn create_any(path: &[&str], flags: OpenFlags) -> Result<(), SysError>
 }
 
 impl File for Fat32Inode {
-    fn to_vfs_inode(&self) -> Result<&dyn VfsInode, SysError> {
+    fn to_vfs_inode(&self) -> SysR<&dyn VfsInode> {
         Ok(self)
     }
     fn readable(&self) -> bool {
@@ -151,7 +151,7 @@ impl File for Fat32Inode {
     fn can_write_offset(&self) -> bool {
         true
     }
-    fn lseek(&self, offset: isize, whence: Seek) -> SysResult {
+    fn lseek(&self, offset: isize, whence: Seek) -> SysRet {
         let len = self.inode.file().ok_or(SysError::EISDIR)?.bytes();
         let target = match whence {
             Seek::Set => 0isize,
@@ -164,7 +164,7 @@ impl File for Fat32Inode {
         self.ptr.store(target, Ordering::Release);
         Ok(target)
     }
-    fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> AsyncFile {
+    fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
             let inode = match &self.inode {
                 AnyInode::Dir(_) => return Err(SysError::EISDIR),
@@ -174,7 +174,7 @@ impl File for Fat32Inode {
             Ok(n)
         })
     }
-    fn write_at<'a>(&'a self, offset: usize, buf: &'a [u8]) -> AsyncFile {
+    fn write_at<'a>(&'a self, offset: usize, buf: &'a [u8]) -> ASysRet {
         Box::pin(async move {
             let inode = match &self.inode {
                 AnyInode::Dir(_) => return Err(SysError::EISDIR),
@@ -184,7 +184,7 @@ impl File for Fat32Inode {
             Ok(n)
         })
     }
-    fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
             let offset = self.ptr.load(Ordering::Acquire);
             let inode = match &self.inode {
@@ -196,7 +196,7 @@ impl File for Fat32Inode {
             Ok(n)
         })
     }
-    fn write<'a>(&'a self, buf: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, buf: &'a [u8]) -> ASysRet {
         Box::pin(async move {
             // println!("write: {}", buf.len());
             let offset = self.ptr.load(Ordering::Acquire);
@@ -209,7 +209,7 @@ impl File for Fat32Inode {
             Ok(n)
         })
     }
-    fn stat<'a>(&'a self, stat: &'a mut Stat) -> Async<'a, Result<(), SysError>> {
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {
             let bpb = manager().bpb();
             let short = self.inode.short_name();
@@ -241,7 +241,7 @@ impl File for Fat32Inode {
             Ok(())
         })
     }
-    fn utimensat(&self, times: [TimeSpec; 2]) -> Async<SysResult> {
+    fn utimensat(&self, times: [TimeSpec; 2]) -> ASysRet {
         Box::pin(async move {
             let [access, modify] = times.try_map(timer::time_sepc_to_utc)?;
             self.inode
@@ -253,11 +253,11 @@ impl File for Fat32Inode {
 }
 
 impl VfsInode for Fat32Inode {
-    fn read_all(&self) -> Async<Result<Vec<u8>, SysError>> {
+    fn read_all(&self) -> ASysR<Vec<u8>> {
         Box::pin(self.read_all())
     }
 
-    fn list(&self) -> Async<Result<Vec<(DentryType, String)>, SysError>> {
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(self.list())
     }
 

@@ -6,12 +6,12 @@ use ftl_util::{
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
-    syscall::{fs::PRINT_SYSCALL_FS, SysError, SysResult, Syscall},
+    syscall::{fs::PRINT_SYSCALL_FS, SysError, SysRet, Syscall},
     user::check::UserCheck,
 };
 
 impl Syscall<'_> {
-    pub async fn sys_fstat(&mut self) -> SysResult {
+    pub async fn sys_fstat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, statbuf): (isize, UserWritePtr<Stat>) = self.cx.into();
         if PRINT_SYSCALL_FS {
@@ -32,7 +32,7 @@ impl Syscall<'_> {
     /// times[0]: access time
     ///
     /// times[1]: modify time
-    pub async fn sys_utimensat(&mut self) -> SysResult {
+    pub async fn sys_utimensat(&mut self) -> SysRet {
         let (fd, path, times, flags): (isize, UserReadPtr<u8>, UserReadPtr<[TimeSpec; 2]>, u32) =
             self.cx.into();
         if PRINT_SYSCALL_FS {
@@ -62,7 +62,7 @@ impl Syscall<'_> {
         .utimensat(times)
         .await
     }
-    pub async fn sys_newfstatat(&mut self) -> SysResult {
+    pub async fn sys_newfstatat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, statbuf, flags): (isize, UserReadPtr<u8>, UserWritePtr<Stat>, u32) =
             self.cx.into();

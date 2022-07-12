@@ -1,6 +1,6 @@
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
-    syscall::{fs::PRINT_SYSCALL_FS, SysError, SysResult, Syscall},
+    syscall::{fs::PRINT_SYSCALL_FS, SysError, SysRet, Syscall},
     user::check::UserCheck,
 };
 
@@ -8,7 +8,7 @@ impl Syscall<'_> {
     ///
     ///
     ///
-    pub async fn sys_mount(&mut self) -> SysResult {
+    pub async fn sys_mount(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_mount");
@@ -31,7 +31,7 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
-    pub async fn sys_statfs(&mut self) -> SysResult {
+    pub async fn sys_statfs(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_FS {
             println!("sys_statfs");
@@ -79,7 +79,7 @@ impl Syscall<'_> {
         });
         Ok(0)
     }
-    pub async fn sys_umount2(&mut self) -> SysResult {
+    pub async fn sys_umount2(&mut self) -> SysRet {
         let (target, _flags): (UserReadPtr<u8>, u32) = self.cx.into();
         let _target = UserCheck::new(self.process).array_zero_end(target).await?;
         Ok(0)

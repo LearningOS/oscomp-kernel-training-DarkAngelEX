@@ -5,7 +5,10 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::{device::BlockDevice, error::SysError};
+use ftl_util::{
+    device::BlockDevice,
+    error::{SysError, SysR},
+};
 
 use crate::{
     block::buffer::Buffer,
@@ -96,9 +99,9 @@ impl CacheManagerInner {
         Self::raw_get_sid_of_cid(self.data_sector_start, self.sector_per_cluster_log2, cid)
     }
     /// 如果缓存块不存在将从磁盘加载数据
-    /// 
+    ///
     /// 如果替换了缓存块则返回它的CID
-    pub async fn get_block(&mut self, cid: CID) -> Result<(Arc<Cache>, Option<CID>), SysError> {
+    pub async fn get_block(&mut self, cid: CID) -> SysR<(Arc<Cache>, Option<CID>)> {
         stack_trace!();
         debug_assert!(cid.0 >= 2 && cid < self.max_cid);
         if let Some((c, _aid)) = self.search.get(&cid) {
@@ -119,7 +122,7 @@ impl CacheManagerInner {
     /// 分配一个已经分配了内存但没有加载数据的cache
     ///
     /// 如果替换了一个块将返回它的CID
-    pub fn get_new_uninit_block(&mut self) -> Result<(Cache, Option<CID>), SysError> {
+    pub fn get_new_uninit_block(&mut self) -> SysR<(Cache, Option<CID>)> {
         stack_trace!();
         if self.search.len() < self.max_cache_num {
             return Ok((Cache::new(Buffer::new(self.cluster_bytes)?), None));

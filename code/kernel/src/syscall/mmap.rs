@@ -4,7 +4,7 @@ use crate::memory::map_segment::handler::mmap::MmapHandler;
 use crate::memory::user_ptr::UserInOutPtr;
 use crate::memory::PTEFlags;
 use crate::process::fd::Fd;
-use crate::syscall::{SysResult, Syscall};
+use crate::syscall::{SysRet, Syscall};
 use crate::{local, tools};
 
 use crate::xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL};
@@ -17,7 +17,7 @@ impl Syscall<'_> {
     /// prot: 访问权限 R W X
     ///
     /// flags: SHARED | PRIVATE | FIXED | ANONYMOUS
-    pub fn sys_mmap(&mut self) -> SysResult {
+    pub fn sys_mmap(&mut self) -> SysRet {
         stack_trace!();
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =
             self.cx.into();
@@ -90,7 +90,7 @@ impl Syscall<'_> {
         }
         Ok(addr)
     }
-    pub fn sys_munmap(&mut self) -> SysResult {
+    pub fn sys_munmap(&mut self) -> SysRet {
         stack_trace!();
         let (addr, len): (UserInOutPtr<()>, usize) = self.cx.into();
         const PRINT_THIS: bool = false;
@@ -106,7 +106,7 @@ impl Syscall<'_> {
         manager.unmap(start..end);
         Ok(0)
     }
-    pub fn sys_mprotect(&mut self) -> SysResult {
+    pub fn sys_mprotect(&mut self) -> SysRet {
         stack_trace!();
         let (start, len, prot): (UserInOutPtr<()>, usize, u32) = self.cx.into();
         const PRINT_THIS: bool = false;

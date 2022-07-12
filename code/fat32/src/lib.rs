@@ -42,8 +42,9 @@ mod inode;
 mod tools;
 pub mod xtest;
 
-pub use block_dev::AsyncRet;
-pub use ftl_util::{console_init, debug_init, device::BlockDevice, utc_time::UtcTime};
+pub use ftl_util::{
+    async_tools::ASysR, console_init, debug_init, device::BlockDevice, utc_time::UtcTime,
+};
 pub use inode::{dir_inode::DirInode, file_inode::FileInode, AnyInode};
 pub use layout::name::Attr;
 pub use manager::Fat32Manager;

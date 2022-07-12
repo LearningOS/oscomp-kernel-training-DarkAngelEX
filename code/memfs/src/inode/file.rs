@@ -1,5 +1,5 @@
 use alloc::vec::Vec;
-use ftl_util::error::SysError;
+use ftl_util::error::{SysError, SysRet};
 
 pub struct FileInode {
     data: Vec<u8>,
@@ -12,7 +12,7 @@ impl FileInode {
     pub fn clear(&mut self) {
         self.data.clear()
     }
-    pub fn read_at(&mut self, buf: &mut [u8], offset: usize) -> Result<usize, SysError> {
+    pub fn read_at(&mut self, buf: &mut [u8], offset: usize) -> SysRet {
         if offset > self.data.len() {
             return Err(SysError::EINVAL);
         }
@@ -20,7 +20,7 @@ impl FileInode {
         buf[..n].copy_from_slice(&self.data[offset..offset + n]);
         Ok(n)
     }
-    pub fn write_at(&mut self, buf: &[u8], offset: usize) -> Result<usize, SysError> {
+    pub fn write_at(&mut self, buf: &[u8], offset: usize) -> SysRet {
         let end = offset + buf.len();
         if offset + buf.len() > self.data.len() {
             self.data.resize(end, 0);

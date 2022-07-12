@@ -6,7 +6,10 @@ use alloc::{
     sync::Arc,
     vec::Vec,
 };
-use ftl_util::{device::BlockDevice, error::SysError};
+use ftl_util::{
+    device::BlockDevice,
+    error::{SysError, SysR},
+};
 
 use crate::{
     block::buffer::{Buffer, SharedBuffer},
@@ -171,7 +174,7 @@ impl ListManager {
             FsinfoStatus::SyncDirty => FsinfoStatus::Dirty,
         }
     }
-    pub fn fsifo_store_buffer_device(&mut self) -> Result<SharedBuffer, SysError> {
+    pub fn fsifo_store_buffer_device(&mut self) -> SysR<SharedBuffer> {
         let buffer = self.fsinfo_cache.as_mut().unwrap().access_rw_u8()?;
         debug_assert!(buffer.len() >= 512);
         RawFsInfo::raw_store(self.cluster_free, self.cluster_search.0, buffer);
@@ -223,7 +226,7 @@ impl ListManager {
     /// 此函数不会更新aid
     ///
     /// 如果找不到则LRU替换一个旧的块
-    pub async fn get_unit(&mut self, uid: UnitID) -> Result<Arc<ListUnit>, SysError> {
+    pub async fn get_unit(&mut self, uid: UnitID) -> SysR<Arc<ListUnit>> {
         stack_trace!();
         debug_assert!(
             uid.0 < self.sector_per_fat as u32,
@@ -255,7 +258,7 @@ impl ListManager {
     /// 分配一个已经分配了内存但没有加载数据的unit
     ///
     /// 如果找不到则LRU替换一个旧的块
-    fn get_new_uninit_unit(&mut self) -> Result<ListUnit, SysError> {
+    fn get_new_uninit_unit(&mut self) -> SysR<ListUnit> {
         stack_trace!();
         if self.search.len() < self.max_unit_num {
             return ListUnit::new_uninit(self.sector_bytes);
@@ -303,7 +306,7 @@ impl ListManager {
             }
         }
     }
-    pub async fn alloc_cluster(&mut self, sem: SemaphoreGuard) -> Result<CID, SysError> {
+    pub async fn alloc_cluster(&mut self, sem: SemaphoreGuard) -> SysR<CID> {
         stack_trace!();
         if self.cluster_free == 0 {
             return Err(SysError::ENOSPC);
@@ -348,7 +351,7 @@ impl ListManager {
         &mut self,
         cid: CID,
         sems: &mut MultiplySemaphore,
-    ) -> Result<CID, SysError> {
+    ) -> SysR<CID> {
         debug_assert!(sems.val() >= 2);
         debug_assert!(cid.is_next());
         let (uid, uoff) = self.get_unit_of_cid(cid);
@@ -362,7 +365,7 @@ impl ListManager {
         Ok(cid)
     }
     /// 释放cid自身并置为 CID::free
-    pub async fn free_cluster(&mut self, cid: CID, sem: SemaphoreGuard) -> Result<(), SysError> {
+    pub async fn free_cluster(&mut self, cid: CID, sem: SemaphoreGuard) -> SysR<()> {
         let (uid, uoff) = self.get_unit_of_cid(cid);
         let unit = self.get_unit(uid).await?;
         unit.update_aid(self.aid_alloc.alloc());
@@ -381,7 +384,7 @@ impl ListManager {
         &mut self,
         cid: CID,
         sems: &mut MultiplySemaphore,
-    ) -> (usize, Result<Result<(), ()>, SysError>) {
+    ) -> (usize, SysR<Result<(), ()>>) {
         assert!(sems.val() >= 2);
         let sem = sems.try_take().unwrap();
         let (uid, uoff) = self.get_unit_of_cid(cid);

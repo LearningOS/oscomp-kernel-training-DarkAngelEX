@@ -11,7 +11,7 @@ use crate::{
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
-use super::{SysResult, Syscall};
+use super::{SysRet, Syscall};
 
 const PRINT_SYSCALL_FUTEX: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
@@ -32,7 +32,7 @@ impl Syscall<'_> {
     ///
     /// FUTEX_WAKE_OP 需要使用 CAS, 其他操作只需要读取值
     ///
-    pub async fn sys_futex(&mut self) -> SysResult {
+    pub async fn sys_futex(&mut self) -> SysRet {
         stack_trace!();
         let (ua, op, val, timeout, ua2, val3): (
             UserInOutPtr<u32>,
@@ -87,7 +87,7 @@ impl Syscall<'_> {
         val: u32,
         timeout: (UserReadPtr<TimeSpec>, bool),
         mask: u32,
-    ) -> SysResult {
+    ) -> SysRet {
         stack_trace!();
         if mask == 0 {
             return Err(SysError::EINVAL);
@@ -128,13 +128,7 @@ impl Syscall<'_> {
         }
     }
     /// 按mask唤醒 ua 的futex上至多val个线程, 返回被唤醒的线程的数量
-    async fn futex_wake(
-        &mut self,
-        op: u32,
-        ua: UserInOutPtr<u32>,
-        max: u32,
-        mask: u32,
-    ) -> SysResult {
+    async fn futex_wake(&mut self, op: u32, ua: UserInOutPtr<u32>, max: u32, mask: u32) -> SysRet {
         stack_trace!();
         let _ = UserCheck::new(self.process).readonly_value(ua).await?;
         let pid = if (op & FUTEX_PRIVATE_FLAG) != 0 {
@@ -165,7 +159,7 @@ impl Syscall<'_> {
         should: Option<u32>,
         max_wake: u32,
         max_requeue: u32,
-    ) -> SysResult {
+    ) -> SysRet {
         stack_trace!();
         let uc = UserCheck::new(self.process);
         let addr = ua.as_uptr().unwrap();
@@ -220,7 +214,7 @@ impl Syscall<'_> {
         max1: u32,
         max2: u32,
         mop: u32,
-    ) -> SysResult {
+    ) -> SysRet {
         stack_trace!();
         let uc = UserCheck::new(self.process);
         let addr = ua.as_uptr().unwrap();
@@ -292,7 +286,7 @@ impl Syscall<'_> {
         }
         Ok(n1 + n2)
     }
-    pub async fn sys_set_robust_list(&mut self) -> SysResult {
+    pub async fn sys_set_robust_list(&mut self) -> SysRet {
         stack_trace!();
         let (head, len): (UserInOutPtr<RobustListHead>, usize) = self.cx.into();
         if PRINT_SYSCALL_FUTEX {
@@ -309,7 +303,7 @@ impl Syscall<'_> {
         self.thread.inner().robust_list = head;
         Ok(0)
     }
-    pub async fn sys_get_robust_list(&mut self) -> SysResult {
+    pub async fn sys_get_robust_list(&mut self) -> SysRet {
         stack_trace!();
         let (tid, head_ptr, len_ptr): (
             Tid,

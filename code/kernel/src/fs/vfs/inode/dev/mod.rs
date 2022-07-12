@@ -1,6 +1,6 @@
 use alloc::sync::Arc;
 use ftl_util::{
-    error::SysError,
+    error::{SysError, SysR},
     fs::{Mode, OpenFlags},
 };
 
@@ -18,11 +18,7 @@ pub fn init() {
     zero::init();
 }
 
-pub async fn open_file(
-    path: &[&str],
-    flags: OpenFlags,
-    mode: Mode,
-) -> Result<Arc<dyn VfsInode>, SysError> {
+pub async fn open_file(path: &[&str], flags: OpenFlags, mode: Mode) -> SysR<Arc<dyn VfsInode>> {
     let inode: Arc<dyn VfsInode> = match path.split_first() {
         Some((&"tty", [])) => tty::inode(),
         Some((&"null", [])) => null::inode(),
@@ -36,7 +32,7 @@ pub async fn open_file(
     Ok(inode)
 }
 
-pub async fn unlink(path: &[&str], flags: OpenFlags) -> Result<(), SysError> {
+pub async fn unlink(path: &[&str], flags: OpenFlags) -> SysR<()> {
     stack_trace!();
     match path.split_first() {
         Some((&"shm", path)) => shm::unlink(path, flags).await,

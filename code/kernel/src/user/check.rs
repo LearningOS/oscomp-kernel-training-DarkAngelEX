@@ -1,6 +1,7 @@
 use core::{convert::TryFrom, sync::atomic::AtomicU32};
 
 use alloc::vec::Vec;
+use ftl_util::error::SysR;
 
 use crate::{
     config::PAGE_SIZE,
@@ -31,7 +32,7 @@ impl<'a> UserCheck<'a> {
             _auto_sum: AutoSum::new(),
         }
     }
-    pub async fn array_zero_end<T>(&self, ptr: UserReadPtr<T>) -> Result<UserData<T>, SysError>
+    pub async fn array_zero_end<T>(&self, ptr: UserReadPtr<T>) -> SysR<UserData<T>>
     where
         T: UserType,
     {
@@ -72,23 +73,20 @@ impl<'a> UserCheck<'a> {
         Ok(UserData::new(slice))
     }
     /// return a slice witch len == 1
-    pub async fn readonly_value<T: Copy, P: Read>(
-        &self,
-        ptr: UserPtr<T, P>,
-    ) -> Result<UserData<T>, SysError> {
+    pub async fn readonly_value<T: Copy, P: Read>(&self, ptr: UserPtr<T, P>) -> SysR<UserData<T>> {
         self.readonly_slice(ptr, 1).await
     }
     /// return a slice witch len == 1
     pub async fn writable_value<T: Copy, P: Write>(
         &self,
         ptr: UserPtr<T, P>,
-    ) -> Result<UserDataMut<T>, SysError> {
+    ) -> SysR<UserDataMut<T>> {
         self.writable_slice(ptr, 1).await
     }
     pub async fn array_2d_zero_end<T: UserType>(
         &self,
         ptr: UserReadPtr<UserReadPtr<T>>,
-    ) -> Result<Vec<UserData<T>>, SysError> {
+    ) -> SysR<Vec<UserData<T>>> {
         if ptr.is_null() {
             return Ok(Vec::new());
         }
@@ -104,7 +102,7 @@ impl<'a> UserCheck<'a> {
         &self,
         ptr: UserPtr<T, P>,
         len: usize,
-    ) -> Result<UserData<T>, SysError> {
+    ) -> SysR<UserData<T>> {
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(SysError::EFAULT);
         }
@@ -125,7 +123,7 @@ impl<'a> UserCheck<'a> {
         &self,
         ptr: UserPtr<T, P>,
         len: usize,
-    ) -> Result<UserDataMut<T>, SysError> {
+    ) -> SysR<UserDataMut<T>> {
         // println!("tran 0");
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             println!(
@@ -147,10 +145,7 @@ impl<'a> UserCheck<'a> {
         Ok(UserDataMut::new(slice))
     }
 
-    pub async fn atomic_u32<P: Write>(
-        &self,
-        ptr: UserPtr<u32, P>,
-    ) -> Result<UserDataMut<AtomicU32>, SysError> {
+    pub async fn atomic_u32<P: Write>(&self, ptr: UserPtr<u32, P>) -> SysR<UserDataMut<AtomicU32>> {
         if ptr.as_usize() % core::mem::align_of::<u32>() != 0 {
             println!(
                 "[kernel]user atomic_u32 check fail: no align. ptr: {:#x} align: {}",

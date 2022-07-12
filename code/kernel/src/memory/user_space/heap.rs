@@ -1,3 +1,5 @@
+use ftl_util::error::SysR;
+
 use crate::{
     memory::{
         address::{PageCount, UserAddr, UserAddr4K},
@@ -43,8 +45,8 @@ impl HeapManager {
     pub fn set_brk(
         &mut self,
         brk: UserAddr<u8>,
-        oper: impl FnOnce(UserArea, bool) -> Result<(), SysError>,
-    ) -> Result<(), SysError> {
+        oper: impl FnOnce(UserArea, bool) -> SysR<()>,
+    ) -> SysR<()> {
         let brk_end_next = brk.ceil();
         let cur_end = self.brk_end;
         if brk_end_next < self.brk_base {

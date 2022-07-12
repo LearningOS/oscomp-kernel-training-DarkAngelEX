@@ -1,7 +1,9 @@
+#[cfg(feature = "board_k210")]
 mod sdcard;
 mod virtio_blk;
-
+#[cfg(feature = "board_k210")]
 pub use sdcard::SDCardWrapper;
+
 pub use virtio_blk::VirtIOBlock;
 
 #[cfg(not(feature = "submit"))]

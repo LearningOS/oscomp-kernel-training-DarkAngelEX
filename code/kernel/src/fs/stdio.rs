@@ -4,7 +4,7 @@ use alloc::boxed::Box;
 
 use crate::{console, sync::SleepMutex};
 
-use ftl_util::{async_tools::AsyncFile, fs::File};
+use ftl_util::{async_tools::ASysRet, fs::File};
 
 pub struct Stdin;
 
@@ -20,7 +20,7 @@ impl File for Stdin {
     fn can_mmap(&self) -> bool {
         false
     }
-    fn read<'a>(&'a self, buf: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
             const PRINT_STDIN: bool = false;
             let len = buf.len();
@@ -50,7 +50,7 @@ impl File for Stdin {
             Ok(len)
         })
     }
-    fn write<'a>(&'a self, _buf: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, _buf: &'a [u8]) -> ASysRet {
         panic!("Cannot write to stdin!");
     }
 }
@@ -64,10 +64,10 @@ impl File for Stdout {
     fn writable(&self) -> bool {
         true
     }
-    fn read<'a>(&'a self, _buf: &'a mut [u8]) -> AsyncFile {
+    fn read<'a>(&'a self, _buf: &'a mut [u8]) -> ASysRet {
         panic!("Cannot read from stdout!");
     }
-    fn write<'a>(&'a self, buf: &'a [u8]) -> AsyncFile {
+    fn write<'a>(&'a self, buf: &'a [u8]) -> ASysRet {
         Box::pin(async move {
             use core::str::lossy;
             let lock = STDOUT_MUTEX.lock().await;
