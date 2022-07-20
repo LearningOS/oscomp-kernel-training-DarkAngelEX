@@ -1,10 +1,11 @@
 use core::time::Duration;
 
 use alloc::boxed::Box;
+use vfs::File;
 
 use crate::{console, sync::SleepMutex};
 
-use ftl_util::{async_tools::ASysRet, fs::File};
+use ftl_util::async_tools::ASysRet;
 
 pub struct Stdin;
 

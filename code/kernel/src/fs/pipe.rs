@@ -12,8 +12,9 @@ use alloc::{
 use ftl_util::{
     async_tools::ASysRet,
     error::{SysError, SysRet},
-    fs::{File, Seek},
+    fs::Seek,
 };
+use vfs::File;
 
 use crate::{
     config::PAGE_SIZE,

@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use ftl_util::{error::SysRet, utc_time::UtcTime};
+use ftl_util::{error::SysRet, time::UtcTime};
 
 use crate::{
     layout::name::{Attr, RawShortName},

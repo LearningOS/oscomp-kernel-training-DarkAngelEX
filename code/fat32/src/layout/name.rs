@@ -1,5 +1,5 @@
 use alloc::boxed::Box;
-use ftl_util::{device::BlockDevice, utc_time::UtcTime};
+use ftl_util::{device::BlockDevice, time::UtcTime};
 
 use crate::tools::{self, Align8, CID};
 

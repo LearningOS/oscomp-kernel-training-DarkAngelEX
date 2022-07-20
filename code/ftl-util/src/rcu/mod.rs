@@ -1,7 +1,9 @@
 use core::{
+    cell::SyncUnsafeCell,
     marker::PhantomData,
     mem::ManuallyDrop,
     ops::{Deref, DerefMut},
+    ptr::NonNull,
     sync::atomic,
 };
 
@@ -19,8 +21,8 @@ pub mod manager;
 ///
 /// 引用可以防止被普通析构
 pub struct RcuReadGuard<'a, T: RcuCollect> {
-    value: ManuallyDrop<T>,
     _mark: PhantomData<&'a T>,
+    value: ManuallyDrop<T>,
 }
 
 impl<'a, T: RcuCollect> !Send for RcuReadGuard<'a, T> {}
@@ -48,11 +50,19 @@ impl RcuDrop {
     }
 }
 
-/// Rcu类型宽度不能超过usize, align必须和size一致
+/// RCU类型需要保证load和store操作都能使用一条指令执行, 保证读写的原子性
+///
+/// 因此RCU类型的大小不能超过usize, align必须和大小一致. 例如Box<dyn T>就是无法RCU的类型
+///
+/// 对于这些较大的无法RCU的类型, 序列锁是更理想的选择, 且读端也没有原子开销。
+///
+/// 如果类型不需要析构, 释放时不会加入释放队列以降低开销.
 pub trait RcuCollect: Sized + 'static {
+    /// 防止手抽把不该RCU的类型给RCU了
     #[inline(always)]
     fn rcu_assert() {
         use core::mem::{align_of, size_of};
+        // 这几个判断将在编译时被计算
         assert_eq!(size_of::<Self>(), align_of::<Self>());
         assert!(size_of::<Self>() <= size_of::<usize>());
         assert!(4 <= size_of::<usize>());
@@ -68,12 +78,35 @@ pub trait RcuCollect: Sized + 'static {
             _mark: PhantomData,
         }
     }
-    /// 用户需要保证此函数按序进行
+    /// 用户需要保证此函数有锁
     #[inline]
     unsafe fn rcu_write(&self, src: Self) {
         Self::rcu_assert();
         atomic::fence(atomic::Ordering::Release);
         core::ptr::replace(self as *const _ as *mut Self, src).rcu_drop();
+    }
+    /// 使用原子替换方式修改, 此方式不需要额外的锁
+    #[inline]
+    fn rcu_write_atomic(&self, src: Self) {
+        Self::rcu_assert();
+        unsafe {
+            use atomic::Ordering::Release;
+            let new = rcu_into(src);
+            macro_rules! atomic_swap_impl {
+                ($at: ident, $ut: ty) => {{
+                    use core::sync::atomic::$at;
+                    core::mem::transmute::<_, &$at>(self).swap(new as $ut, Release) as usize
+                }};
+            }
+            let old = match core::mem::size_of::<Self>() {
+                1 => atomic_swap_impl!(AtomicU8, u8),
+                2 => atomic_swap_impl!(AtomicU16, u16),
+                4 => atomic_swap_impl!(AtomicU32, u32),
+                8 => atomic_swap_impl!(AtomicU64, u64),
+                _ => panic!(),
+            };
+            rcu_from::<Self>(old).rcu_drop();
+        }
     }
     #[must_use]
     #[inline(always)]
@@ -122,31 +155,62 @@ fn rcu_drop_fn<T: RcuCollect>() -> unsafe fn(usize) {
     |a| unsafe { drop(rcu_from::<T>(a)) }
 }
 
-impl<T: Sized + 'static> RcuCollect for Box<T> {}
-impl<T: Sized + 'static> RcuCollect for Arc<T> {}
-impl<T: Sized + 'static> RcuCollect for Weak<T> {}
+impl<T: 'static> RcuCollect for *const T {}
+impl<T: 'static> RcuCollect for *mut T {}
+impl<T: 'static> RcuCollect for NonNull<T> {}
+impl<T: 'static> RcuCollect for Box<T> {}
+impl<T: 'static> RcuCollect for Arc<T> {}
+impl<T: 'static> RcuCollect for Weak<T> {
+    #[inline(always)]
+    fn rcu_drop(self) {
+        // 当Weak没有指向具体对象时不占用RCU资源
+        if !self.ptr_eq(&Weak::new()) {
+            self::rcu_drop(self)
+        }
+    }
+}
+/// 当值为None时不占用RCU资源
+macro_rules! option_rcu_impl {
+    ($T: ident, $name: ty) => {
+        impl<$T: 'static> RcuCollect for $name {
+            #[inline(always)]
+            fn rcu_drop(self) {
+                if let Some(p) = self {
+                    self::rcu_drop(p);
+                }
+            }
+        }
+    };
+}
+option_rcu_impl!(T, Option<NonNull<T>>);
+option_rcu_impl!(T, Option<Box<T>>);
+option_rcu_impl!(T, Option<Arc<T>>);
+option_rcu_impl!(T, Option<Weak<T>>);
 
 /// rcu_write需要手动串行化
-pub struct RcuWraper<T: RcuCollect>(T);
+pub struct RcuWraper<T: RcuCollect>(SyncUnsafeCell<T>);
 
 impl<T: RcuCollect> RcuWraper<T> {
     #[inline(always)]
     pub const fn new(value: T) -> Self {
-        Self(value)
+        Self(SyncUnsafeCell::new(value))
     }
     #[inline(always)]
     pub fn get_mut(&mut self) -> &mut T {
-        &mut self.0
+        self.0.get_mut()
     }
     /// 不要同时持有rcu_read的多个guard, 读取到的数据可能是不相同的!
     #[inline(always)]
     pub fn rcu_read(&self) -> impl Deref<Target = T> + '_ {
-        self.0.rcu_read()
+        unsafe { &*self.0.get() }.rcu_read()
     }
     /// 需要手动加锁
     #[inline]
     pub unsafe fn rcu_write(&self, src: T) {
-        self.0.rcu_write(src)
+        (&*self.0.get()).rcu_write(src)
+    }
+    pub fn rcu_write_atomic(&self, src: T) {
+        unsafe { (&*self.0.get()).rcu_write_atomic(src) }
     }
 }
 
@@ -169,7 +233,7 @@ impl<T: RcuCollect, S: MutexSupport> LockedRcuWrapper<T, S> {
     pub fn rcu_write(&self, src: T) {
         unsafe { self.0.lock().rcu_write(src) }
     }
-    /// 此函数和rcu不可同时使用
+    /// 此函数和rcu_read不可同时使用
     #[inline]
     pub unsafe fn lock(&self) -> impl DerefMut<Target = T> + '_ {
         self.0.lock()
@@ -188,7 +252,10 @@ pub fn init(rcu_drop_fn: fn(RcuDrop)) {
 }
 
 #[inline]
-pub fn rcu_drop<T: RcuCollect>(x: T) {
+fn rcu_drop<T: RcuCollect>(x: T) {
+    if !core::mem::needs_drop::<T>() {
+        return;
+    }
     match unsafe { RCU_DROP_FN } {
         Some(rcu_drop) => unsafe { rcu_drop(x.rcu_transmute()) },
         None => RCU_DROP_PENDING.lock().push(unsafe { x.rcu_transmute() }),

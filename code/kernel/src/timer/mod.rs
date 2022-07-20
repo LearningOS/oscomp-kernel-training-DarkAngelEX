@@ -5,8 +5,7 @@ use core::{
 
 use ftl_util::{
     error::SysR,
-    time::{TimeSpec, TimeVal, TimeZone},
-    utc_time::UtcTime,
+    time::{TimeSpec, TimeVal, TimeZone, UtcTime},
 };
 
 use crate::{board::CLOCK_FREQ, hart::sbi, riscv::register::time, xdebug::PRINT_TICK};
@@ -40,19 +39,6 @@ impl Tms {
     pub fn reset(&mut self) {
         *self = Self::zeroed()
     }
-}
-
-pub fn time_sepc_to_utc(ts: TimeSpec) -> SysR<Option<UtcTime>> {
-    if ts.is_omit() {
-        return Ok(None);
-    }
-    let p = if ts.is_now() {
-        get_time_ticks()
-    } else {
-        ts.valid()?;
-        TimeTicks::from_time_spec(ts)
-    };
-    Ok(Some(p.utc()))
 }
 
 pub fn dur_to_tv_tz(dur: Duration) -> (TimeVal, TimeZone) {

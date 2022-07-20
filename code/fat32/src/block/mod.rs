@@ -6,7 +6,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc};
-use ftl_util::{device::BlockDevice, error::SysR};
+use ftl_util::{async_tools::Async, device::BlockDevice, error::SysR};
 
 use crate::{
     layout::bpb::RawBPB,
@@ -106,10 +106,7 @@ impl CacheManager {
     pub async fn sync_task(
         &mut self,
         concurrent: usize,
-        mut spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-            + Clone
-            + Send
-            + 'static,
+        mut spawn_fn: impl FnMut(Async<'static, ()>) + Clone + Send + 'static,
     ) {
         // 这一行保证了同步任务只会生成一次
         let init_inner = Arc::get_mut(&mut self.inner).unwrap().get_mut();

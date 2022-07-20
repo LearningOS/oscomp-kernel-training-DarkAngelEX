@@ -1,5 +1,5 @@
 [package]
-name = "memfs"
+name = "vfs"
 version = "0.1.0"
 authors = ["Zili Ye <dark75132angel@163.com>"]
 edition = "2021"

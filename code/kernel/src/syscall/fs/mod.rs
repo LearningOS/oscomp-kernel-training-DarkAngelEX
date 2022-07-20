@@ -1,9 +1,10 @@
 use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     error::SysR,
-    fs::{File, Mode, OpenFlags, Seek, VfsInode},
+    fs::{Mode, OpenFlags, Seek},
     time::TimeSpec,
 };
+use vfs::{File, VfsFile};
 
 use crate::{
     fs::{self, pipe, Iovec, Pollfd},
@@ -53,7 +54,7 @@ impl Syscall<'_> {
         path: UserReadPtr<u8>,
         flags: OpenFlags,
         mode: Mode,
-    ) -> SysR<Arc<dyn VfsInode>> {
+    ) -> SysR<Arc<VfsFile>> {
         let (base, path) = self.fd_path_impl(fd, path).await?;
         if PRINT_SYSCALL_FS {
             println!("fd_path_open path: {}", path);

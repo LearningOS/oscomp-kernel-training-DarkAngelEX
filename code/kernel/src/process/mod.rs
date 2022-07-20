@@ -6,8 +6,9 @@ use alloc::{
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use ftl_util::{
     error::SysR,
-    fs::{Mode, OpenFlags, VfsInode},
+    fs::{Mode, OpenFlags},
 };
+use vfs::{File, VfsFile};
 
 use crate::{
     fs,
@@ -85,7 +86,7 @@ impl Drop for Process {
 
 pub struct AliveProcess {
     pub user_space: UserSpace,
-    pub cwd: Arc<dyn VfsInode>,
+    pub cwd: Arc<VfsFile>,
     pub exec_path: String,
     pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.

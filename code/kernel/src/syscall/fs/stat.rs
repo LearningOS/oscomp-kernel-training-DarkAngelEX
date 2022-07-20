@@ -7,7 +7,7 @@ use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::{fs::PRINT_SYSCALL_FS, SysError, SysRet, Syscall},
-    user::check::UserCheck,
+    user::check::UserCheck, timer,
 };
 
 impl Syscall<'_> {
@@ -59,7 +59,7 @@ impl Syscall<'_> {
             self.fd_path_open(fd, path, OpenFlags::RDONLY, Mode(0o600))
                 .await?
         }
-        .utimensat(times)
+        .utimensat(times, timer::get_time)
         .await
     }
     pub async fn sys_newfstatat(&mut self) -> SysRet {

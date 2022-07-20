@@ -5,8 +5,8 @@ use super::{access::ListAccess, ListNode};
 /// 生成一个通过成员反向获取父类的类型
 #[macro_export]
 macro_rules! inlist_access {
-    ($name: ident, $T: ty, $field:ident) => {
-        struct $name {}
+    ($vis: vis $name: ident, $T: ty, $field:ident) => {
+        $vis struct $name {}
         impl $crate::list::access::ListAccess<$T, $crate::list::intrusive::InListNode<$T, Self>>
             for $name
         {
@@ -19,35 +19,17 @@ macro_rules! inlist_access {
 }
 
 /// 侵入式链表头节点
-pub struct InListNode<T, A: ListAccess<T, Self>> {
+///
+/// 如果A为ListAccess<T, Self>则可以访问对应位置
+pub struct InListNode<T, A = ()> {
     node: ListNode<PhantomData<(T, A)>>,
 }
 
-impl<T, A: ListAccess<T, Self>> InListNode<T, A> {
+impl<T, A> InListNode<T, A> {
     pub const fn new() -> Self {
         Self {
             node: ListNode::new(PhantomData),
         }
-    }
-    /// unsafe:
-    ///
-    /// &mut A(1, 2) -> (&mut A.1, &A.2)
-    ///
-    /// &A.2 -> &A(1, 2) -> &A.1
-    ///
-    /// now we hold &mut A.1 and &A.1 at the same time.
-    pub unsafe fn access(&self) -> &T {
-        A::get(self)
-    }
-    /// unsafe:
-    ///
-    /// &mut A(1, 2) -> (&mut A.1, &mut A.2)
-    ///
-    /// &mut A.2 -> &mut A(1, 2) -> &mut A.1
-    ///
-    /// now we hold two &mut A.1 at the same time.
-    pub unsafe fn access_mut(&mut self) -> &mut T {
-        A::get_mut(self)
     }
     pub fn init(&mut self) {
         self.node.init()
@@ -81,5 +63,96 @@ impl<T, A: ListAccess<T, Self>> InListNode<T, A> {
     }
     pub fn pop_next(&mut self) -> Option<NonNull<Self>> {
         unsafe { core::mem::transmute(self.node.pop_next()) }
+    }
+    pub fn push_next_rcu(&mut self, new: &mut Self) {
+        self.node.push_next_rcu(&mut new.node)
+    }
+    pub fn pop_self_rcu(&mut self) {
+        self.node.pop_self_rcu()
+    }
+    /// 整个链表上只有两个节点
+    pub fn is_last(&self) -> bool {
+        debug_assert!(!self.is_empty());
+        self.node.get_prev() == self.node.get_next()
+    }
+}
+
+impl<T, A: ListAccess<T, Self>> InListNode<T, A> {
+    /// unsafe:
+    ///
+    /// &mut A(1, 2) -> (&mut A.1, &A.2)
+    ///
+    /// &A.2 -> &A(1, 2) -> &A.1
+    ///
+    /// now we hold &mut A.1 and &A.1 at the same time.
+    pub unsafe fn access(&self) -> &T {
+        A::get(self)
+    }
+    /// unsafe:
+    ///
+    /// &mut A(1, 2) -> (&mut A.1, &mut A.2)
+    ///
+    /// &mut A.2 -> &mut A(1, 2) -> &mut A.1
+    ///
+    /// now we hold two &mut A.1 at the same time.
+    pub unsafe fn access_mut(&mut self) -> &mut T {
+        A::get_mut(self)
+    }
+}
+
+impl<T: 'static, A: ListAccess<T, Self>> InListNode<T, A> {
+    pub fn next_iter(&self) -> impl Iterator<Item = &'static T> {
+        struct Iter<T, A> {
+            cur: *const ListNode<PhantomData<(T, A)>>,
+            end: *const ListNode<PhantomData<(T, A)>>,
+            offset: usize,
+        }
+
+        impl<T: 'static, A> Iterator for Iter<T, A> {
+            type Item = &'static T;
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.cur == self.end {
+                    return None;
+                }
+                let ret = self.cur;
+                unsafe {
+                    self.cur = (*self.cur).next;
+                    Some(&*ret.cast::<u8>().sub(self.offset).cast())
+                }
+            }
+        }
+
+        Iter {
+            cur: (self.node.next) as *const _,
+            end: core::ptr::addr_of!(self.node),
+            offset: A::offset(),
+        }
+    }
+    pub fn next_iter_mut(&mut self) -> impl Iterator<Item = &'static mut T> {
+        struct Iter<T, A> {
+            cur: *mut ListNode<PhantomData<(T, A)>>,
+            end: *mut ListNode<PhantomData<(T, A)>>,
+            offset: usize,
+        }
+
+        impl<T: 'static, A> Iterator for Iter<T, A> {
+            type Item = &'static mut T;
+            fn next(&mut self) -> Option<Self::Item> {
+                if self.cur == self.end {
+                    return None;
+                }
+                let ret = self.cur;
+                unsafe {
+                    self.cur = (*self.cur).next;
+                    Some(&mut *ret.cast::<u8>().sub(self.offset).cast())
+                }
+            }
+        }
+
+        Iter {
+            cur: self.node.next,
+            end: core::ptr::addr_of_mut!(self.node),
+            offset: A::offset(),
+        }
     }
 }

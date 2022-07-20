@@ -1,7 +1,7 @@
 /// 通过类型B减去偏移量访问A
 ///
 /// A: 基类类型 B: 成员类型
-pub trait ListAccess<A, B> {
+pub trait ListAccess<A, B>: 'static {
     fn offset() -> usize;
     #[inline(always)]
     unsafe fn get(b: &B) -> &A {
@@ -13,14 +13,16 @@ pub trait ListAccess<A, B> {
     }
 }
 
-pub fn _access_example() {
+fn _access_example() {
     use super::intrusive::InListNode;
+
+    crate::inlist_access!(AccessA, A, node);
     struct A {
         _1: usize,
         node: InListNode<A, AccessA>,
         _2: usize,
     }
-    crate::inlist_access!(AccessA, A, node);
+    
     let mut a: A = unsafe { core::mem::zeroed() };
     let node = &mut a.node;
     let _1 = &mut a._1;

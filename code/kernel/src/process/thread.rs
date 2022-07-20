@@ -12,8 +12,9 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use ftl_util::{error::SysR, fs::VfsInode};
+use ftl_util::error::SysR;
 use riscv::register::sstatus;
+use vfs::{File, VfsFile};
 
 use crate::{
     futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},
@@ -164,7 +165,7 @@ pub struct ThreadInner {
 
 impl Thread {
     pub fn new_initproc(
-        cwd: Arc<dyn VfsInode>,
+        cwd: Arc<VfsFile>,
         elf_data: &[u8],
         args: Vec<String>,
         envp: Vec<String>,

@@ -1,8 +1,9 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 use ftl_util::{
     error::{SysR, SysRet},
-    fs::{File, OpenFlags},
+    fs::OpenFlags,
 };
+use vfs::File;
 
 use crate::{
     config::USER_FNO_DEFAULT,

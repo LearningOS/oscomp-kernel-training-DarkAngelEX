@@ -7,7 +7,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};
-use ftl_util::{device::BlockDevice, error::SysR};
+use ftl_util::{async_tools::Async, device::BlockDevice, error::SysR};
 
 use crate::{
     layout::bpb::RawBPB,
@@ -184,10 +184,7 @@ impl FatList {
     pub async fn sync_task(
         &mut self,
         concurrent: usize,
-        mut spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-            + Clone
-            + Send
-            + 'static,
+        mut spawn_fn: impl FnMut(Async<'static, ()>) + Clone + Send + 'static,
     ) {
         let init_manager = Arc::get_mut(&mut self.manager).unwrap().get_mut();
         let device = init_manager.device.clone();

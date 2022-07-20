@@ -58,6 +58,7 @@ extern crate alloc;
 extern crate async_task;
 #[macro_use]
 extern crate ftl_util;
+extern crate vfs;
 #[macro_use]
 extern crate bitflags;
 extern crate fat32;

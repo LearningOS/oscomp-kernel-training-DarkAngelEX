@@ -1,10 +1,11 @@
-use core::{future::Future, pin::Pin};
+pub mod file;
 
 use alloc::{boxed::Box, sync::Arc};
 use ftl_util::{
+    async_tools::Async,
     device::BlockDevice,
     error::{SysError, SysR},
-    utc_time::UtcTime,
+    time::UtcTime,
     xdebug,
 };
 
@@ -55,16 +56,13 @@ impl Fat32Manager {
         self.utc_time = Some(utc_time);
         self.init_root();
     }
-    pub fn bpb(&self) -> &RawBPB {
+    fn bpb(&self) -> &RawBPB {
         &self.bpb
     }
     pub async fn spawn_sync_task(
         &mut self,
         (concurrent_list, concurrent_cache): (usize, usize),
-        spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-            + Clone
-            + Send
-            + 'static,
+        spawn_fn: impl FnMut(Async<'static, ()>) + Clone + Send + 'static,
     ) {
         let x = spawn_fn.clone();
         self.list.sync_task(concurrent_list, x).await;

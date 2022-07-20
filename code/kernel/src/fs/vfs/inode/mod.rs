@@ -36,6 +36,7 @@ pub async fn create_any<'a>(
     path::walk_path(path, &mut stack);
     fat32_inode::create_any(&stack, flags).await
 }
+
 pub async fn open_file<'a>(
     base: Option<SysR<impl Iterator<Item = &'a str>>>,
     path: &'a str,
@@ -55,6 +56,7 @@ pub async fn open_file<'a>(
     };
     Ok(inode)
 }
+
 pub async fn open_file_abs<'a>(
     path: &'a str,
     flags: OpenFlags,

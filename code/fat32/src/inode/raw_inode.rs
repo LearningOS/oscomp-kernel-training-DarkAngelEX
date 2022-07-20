@@ -3,7 +3,7 @@ use core::ops::ControlFlow;
 use alloc::{sync::Arc, vec::Vec};
 use ftl_util::{
     error::{SysR, SysRet},
-    utc_time::UtcTime,
+    time::UtcTime,
 };
 
 use crate::{

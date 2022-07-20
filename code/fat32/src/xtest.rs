@@ -1,7 +1,7 @@
-use core::{future::Future, pin::Pin};
+use core::future::Future;
 
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::{device::BlockDevice, utc_time::UtcTime};
+use ftl_util::{async_tools::Async, device::BlockDevice, time::UtcTime};
 
 use crate::{
     fat_list::FatList,
@@ -13,7 +13,7 @@ use crate::{
 pub async fn test(
     device: impl BlockDevice,
     utc_time: impl Fn() -> UtcTime + Send + Sync + 'static,
-    spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
+    spawn_fn: impl FnMut(Async<'static, ()>) + Clone + Send + 'static,
 ) {
     stack_trace!();
     println!("test start!");
@@ -26,7 +26,7 @@ pub async fn test(
 fn system_test(
     device: Arc<dyn BlockDevice>,
     utc_time: Box<dyn Fn() -> UtcTime + Send + Sync + 'static>,
-    spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
+    spawn_fn: impl FnMut(Async<'static, ()>) + Clone + Send + 'static,
 ) -> impl Future<Output = ()> + Send + 'static {
     async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
         for (i, (dt, name)) in dir.list(&manager).await.unwrap().into_iter().enumerate() {

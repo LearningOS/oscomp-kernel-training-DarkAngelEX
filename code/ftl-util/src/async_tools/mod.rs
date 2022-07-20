@@ -1,3 +1,5 @@
+pub mod arena;
+
 use core::{
     future::Future,
     ops::{Deref, DerefMut},

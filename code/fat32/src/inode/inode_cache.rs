@@ -2,7 +2,7 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use ftl_util::utc_time::UtcTime;
+use ftl_util::time::UtcTime;
 
 use crate::{
     layout::name::{Attr, RawShortName},

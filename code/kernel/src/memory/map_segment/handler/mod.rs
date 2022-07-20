@@ -1,5 +1,6 @@
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::{async_tools::ASysR, error::SysR, fs::File};
+use ftl_util::{async_tools::ASysR, error::SysR};
+use vfs::File;
 
 use crate::{
     memory::{

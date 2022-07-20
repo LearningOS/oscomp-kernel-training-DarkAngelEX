@@ -9,6 +9,7 @@ edition = "2021"
 [dependencies]
 async-trait = "0.1.53"
 ftl-util = { path = "../ftl-util" }
+vfs = { path = "../vfs" }
 riscv = { path = "../dependencies/riscv", features = ["inline-asm"] }
 fat32 = { path = "../fat32" }
 virtio-drivers = { git = "https://github.com/rcore-os/virtio-drivers" }

@@ -1,9 +1,12 @@
 #![no_std]
 #![feature(allocator_api)]
-#![feature(negative_impls)]
 #![feature(const_trait_impl)]
-#![feature(ptr_const_cast)]
 #![feature(if_let_guard)]
+#![feature(int_roundings)]
+#![feature(negative_impls)]
+#![feature(ptr_const_cast)]
+#![feature(unboxed_closures)]
+#![feature(sync_unsafe_cell)]
 
 use crate::rcu::RcuDrop;
 use xdebug::stack::XInfo;
@@ -26,7 +29,6 @@ pub mod error;
 pub mod fs;
 pub mod rcu;
 pub mod sync;
-pub mod utc_time;
 pub mod time;
 
 extern crate alloc;
