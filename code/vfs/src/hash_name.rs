@@ -5,7 +5,7 @@ use ftl_util::sync::{seq_mutex::SeqMutex, Spin};
 
 use crate::dentry::Dentry;
 
-pub struct HashName(SeqMutex<NameInner, Spin>);
+pub(crate) struct HashName(SeqMutex<NameInner, Spin>);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct NameHash(pub u64);
@@ -85,16 +85,14 @@ impl HashName {
                 .read(|r| l.all_hash == r.all_hash && l.parent == r.parent && l.name == r.name)
         })
     }
-    pub fn name_same(&self, other: &Self) -> bool {
+    /// 序列锁, 只比较字符串
+    pub fn name_same(&self, name_hash: NameHash, name: &str) -> bool {
         unsafe {
-            if self.0.unsafe_get().name_hash != other.0.unsafe_get().name_hash {
+            if self.0.unsafe_get().name_hash != name_hash {
                 return false;
             }
         }
-        self.0.read(|l| {
-            other
-                .0
-                .read(|r| l.name_hash == r.name_hash && l.name == r.name)
-        })
+        self.0
+            .read(|l| l.name_hash == name_hash && &*l.name == name)
     }
 }

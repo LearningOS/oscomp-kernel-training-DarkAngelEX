@@ -1,38 +1,131 @@
+use core::ptr::NonNull;
+
+use alloc::sync::Arc;
 use ftl_util::error::{SysError, SysR};
 
-use crate::{dentry::Dentry, hash_name::HashName, VfsManager};
+use crate::{dentry::Dentry, hash_name::HashName, inode::VfsInode, mount::Mount, VfsManager};
 
 use super::BaseFn;
 
-impl VfsManager {
-    pub fn walk_path<'a>(&self, (base, path): (impl BaseFn, &str)) -> SysR<Dentry> {
-        let mut dentry = if !is_absolute_path(path) {
-            base()?
-        } else {
-            self.root.clone()
-        };
-        for s in path.split(['/', '\\']).map(|s| s.trim()) {
-            match s {
-                "" | "." => continue,
-                ".." => {
-                    if let Some(p) = dentry.parent() {
-                        dentry = p
-                    }
-                    continue;
+#[derive(Clone)]
+pub(crate) struct Path {
+    pub mount: Option<NonNull<Mount>>,
+    pub dentry: Arc<Dentry>,
+}
+
+unsafe impl Send for Path {}
+unsafe impl Sync for Path {}
+
+impl Path {
+    pub(crate) fn get_inode(&self) -> Option<Arc<VfsInode>> {
+        self.dentry.cache.inode.lock().clone()
+    }
+    fn is_vfs_root(&self) -> bool {
+        self.mount.is_none() && self.is_fs_root()
+    }
+    fn is_fs_root(&self) -> bool {
+        self.dentry.cache.parent().is_none()
+    }
+    fn run_mount_prev(&mut self) {
+        loop {
+            let mount = match self.mount {
+                None => return, // root dentry
+                Some(m) => m,
+            };
+            unsafe {
+                // 如果当前目录就是挂载点的根目录就回退一级
+                if !core::ptr::eq(self.dentry.as_ref(), mount.as_ref().root()) {
+                    return;
                 }
-                s if name_invalid(s) => return Err(SysError::ENOENT),
-                s => {
-                    let name_hash = HashName::hash_name(s);
-                    // if let Some(c) = dentry.try_child(s, name_hash)? {
-                    //     dentry = c;
-                    //     continue;
-                    // }
-                    todo!()
-                }
+                self.mount = mount.as_ref().parent;
+                self.dentry = mount.as_ref().locate_arc();
             }
         }
-        // Ok(v)
-        todo!()
+    }
+    fn run_mount_next(&mut self) {
+        loop {
+            let mount = match *self.dentry.cache.mount.rcu_read() {
+                None => return,
+                Some(mount) => mount,
+            };
+            unsafe {
+                self.mount = Some(mount);
+                self.dentry = mount.as_ref().root_arc();
+            }
+        }
+    }
+    async fn search_child(&mut self, s: &str) -> SysR<()> {
+        if name_invalid(s) {
+            return Err(SysError::ENOENT);
+        }
+        let name_hash = HashName::hash_name(s);
+        let dentry = &*self.dentry;
+        loop {
+            let inode_seq = dentry.inode_seq();
+            if let Some(next) = dentry.search_child_in_cache(s, name_hash) {
+                self.dentry = next;
+                return Ok(());
+            }
+            if let Some(dentry) = dentry
+                .search_child_deep(s, name_hash, inode_seq)
+                .await
+                .transpose()?
+            {
+                self.dentry = dentry;
+                return Ok(());
+            }
+        }
+    }
+}
+
+impl VfsManager {
+    /// 返回到达最后一个文件名的路径
+    pub(crate) async fn walk_path<'a>(
+        &self,
+        (base, path_str): (impl BaseFn, &'a str),
+    ) -> SysR<(Path, &'a str)> {
+        let mut path = if is_absolute_path(path_str) {
+            Path {
+                mount: None,
+                dentry: self.root.as_ref().unwrap().clone(),
+            }
+        } else {
+            base()?.path.clone()
+        };
+        let (path_str, name) = match path_str.rsplit_once(['/', '\\']) {
+            Some((path, name)) => (path, name),
+            None => ("", path_str),
+        };
+        for s in path_str.split(['/', '\\']).map(|s| s.trim()) {
+            path = self.walk_name(path, s).await?;
+        }
+        path.run_mount_next();
+        Ok((path, name))
+    }
+    pub(crate) async fn walk_name(&self, mut path: Path, name: &str) -> SysR<Path> {
+        // 当前目录为根目录
+        if path.is_vfs_root() {
+            if let Some(dentry) = self.special_dentry.get(name).cloned() {
+                path.dentry = dentry;
+                return Ok(path);
+            }
+        }
+        path.run_mount_next();
+        match name {
+            "" | "." => (),
+            ".." => {
+                path.run_mount_prev();
+                if let Some(dentry) = path.dentry.cache.parent() {
+                    path.dentry = dentry;
+                }
+            }
+            s => path.search_child(s).await?,
+        }
+        Ok(path)
+    }
+    pub(crate) async fn wake_all(&self, path: (impl BaseFn, &str)) -> SysR<Path> {
+        let (path, name) = self.walk_path(path).await?;
+        self.walk_name(path, name).await
     }
 }
 

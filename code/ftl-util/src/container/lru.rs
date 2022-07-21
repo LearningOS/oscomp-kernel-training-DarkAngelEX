@@ -27,19 +27,32 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
     pub fn init(&mut self) {
         self.0.get_mut().list.init();
     }
-    pub fn insert(
+    pub fn insert<R>(
         &self,
         node: &mut InListNode<T, A>,
+        locked_run: impl FnOnce() -> R,
         release: impl FnOnce(&mut InListNode<T, A>),
-    ) -> Option<NonNull<InListNode<T, A>>> {
+    ) -> (R, Option<NonNull<InListNode<T, A>>>) {
         debug_assert!(node.is_empty());
         let mut lk = self.0.lock();
         lk.list.push_prev(node);
+        let r = locked_run();
         if lk.cur < lk.max {
             lk.cur += 1;
-            return None;
+            return (r, None);
         }
         let mut x = lk.list.pop_next().unwrap();
+        unsafe {
+            Some(release(x.as_mut()));
+        }
+        (r, Some(x))
+    }
+    pub fn remove_last(
+        &self,
+        release: impl FnOnce(&mut InListNode<T, A>),
+    ) -> Option<NonNull<InListNode<T, A>>> {
+        let mut lk = self.0.lock();
+        let mut x = lk.list.pop_next()?;
         unsafe {
             Some(release(x.as_mut()));
         }
@@ -56,5 +69,9 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
         let mut lk = self.0.lock();
         node.pop_self();
         lk.list.push_prev(node);
+    }
+    pub fn lock_run<R>(&self, f: impl FnOnce() -> R) -> R {
+        let _lk = self.0.lock();
+        f()
     }
 }

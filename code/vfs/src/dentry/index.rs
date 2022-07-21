@@ -8,29 +8,28 @@ use ftl_util::{
 
 use crate::hash_name::{AllHash, HashName};
 
-use super::{DentryCache, DentryHashNode};
+use super::{DentryCache, DentryIndexNode};
 
 const DENTRY_HASH_TABLE: usize = 170;
 
+type HBNode = Box<InListNode<DentryCache, DentryIndexNode>>;
 /// dentry cache 哈希索引器
-pub struct DentryIndex {
-    table: [RwSpinMutex<BTreeMap<AllHash, Box<InListNode<DentryCache, DentryHashNode>>>, Spin>;
-        DENTRY_HASH_TABLE],
+pub(crate) struct DentryIndex {
+    table: [RwSpinMutex<BTreeMap<AllHash, HBNode>, Spin>; DENTRY_HASH_TABLE],
 }
 
 impl DentryIndex {
     pub fn new() -> Self {
-        const INIT: RwSpinMutex<
-            BTreeMap<AllHash, Box<InListNode<DentryCache, DentryHashNode>>>,
-            Spin,
-        > = RwSpinMutex::new(BTreeMap::new());
+        const INIT: RwSpinMutex<BTreeMap<AllHash, HBNode>, Spin> =
+            RwSpinMutex::new(BTreeMap::new());
         Self { table: [INIT; _] }
     }
+    pub fn init(&mut self) {}
     pub fn get(&self, d: &HashName) -> Option<&'static DentryCache> {
         stack_trace!();
         let hash = d.all_hash();
         let n = hash.0 as usize % DENTRY_HASH_TABLE;
-        let mut lk = self.table[n].unique_lock();
+        let lk = self.table[n].unique_lock();
         let v = lk.get(&hash)?;
         v.next_iter().find(|a| a.name.all_same(d))
     }
@@ -48,15 +47,16 @@ impl DentryIndex {
         if v.next_iter().any(|a| core::ptr::eq(a, new)) {
             panic!();
         }
-        v.push_prev(&mut new.hash_node)
+        v.push_prev(&mut new.index_node)
     }
+    /// 被移除的项必须存在 这将由所有权机制保证
     pub fn remove(&self, d: &mut DentryCache) {
         stack_trace!();
         let hash = d.hash();
         let n = hash.0 as usize % DENTRY_HASH_TABLE;
         let mut lk = self.table[n].unique_lock();
-        let last = d.hash_node.is_last();
-        d.hash_node.pop_self();
+        let last = d.index_node.is_last();
+        d.index_node.pop_self();
         if !last {
             return;
         }

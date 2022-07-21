@@ -7,13 +7,17 @@
 #![feature(const_btree_new)]
 #![feature(build_hasher_simple_hash_one)]
 #![feature(bool_to_option)]
+#![feature(sync_unsafe_cell)]
 #![feature(trait_alias)]
+#![feature(get_mut_unchecked)]
+#![feature(receiver_trait)]
+#![allow(dead_code)]
 
 extern crate alloc;
 #[macro_use]
 extern crate ftl_util;
-#[macro_use]
-extern crate bitflags;
+// #[macro_use]
+// extern crate bitflags;
 
 pub use {
     file::{File, VfsFile},
@@ -22,9 +26,11 @@ pub use {
 
 mod dentry;
 mod file;
+mod fssp;
 mod hash_name;
 mod inode;
 mod manager;
 mod mount;
-mod spfs;
+#[cfg(test)]
 mod test;
+pub mod tmpfs;

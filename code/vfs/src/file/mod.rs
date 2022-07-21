@@ -8,7 +8,7 @@ use ftl_util::{
     time::TimeSpec,
 };
 
-use crate::{dentry::Dentry, inode::VfsInode};
+use crate::{inode::VfsInode, manager::path::Path};
 
 pub trait File: Send + Sync + 'static {
     // 这个文件的工作路径
@@ -49,11 +49,16 @@ pub trait File: Send + Sync + 'static {
 }
 
 pub struct VfsFile {
-    dentry: Arc<Dentry>,
-    inode: Arc<VfsInode>,
+    pub(crate) path: Path,
+    pub(crate) inode: Arc<VfsInode>,
 }
 
-impl VfsFile {}
+impl VfsFile {
+    pub(crate) fn from_path(path: Path) -> SysR<Self> {
+        let inode = path.get_inode().ok_or(SysError::ENOENT)?;
+        Ok(Self { path, inode })
+    }
+}
 
 impl File for VfsFile {
     fn vfs_file(&self) -> SysR<&VfsFile> {
