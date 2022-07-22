@@ -25,6 +25,8 @@ impl<T> Drop for ArenaFuture<'_, T> {
 impl<'a, T> ArenaFuture<'a, T> {
     /// 生成一个可以运行在动态上下文的Future
     /// ```no_run
+    /// use ftl_util::async_tools::arena::ArenaFuture;
+    /// 
     /// pub fn arena_test(buf: &mut [usize]) -> ArenaFuture<usize> {
     ///     ArenaFuture::new(buf, async move { 1 })
     /// }
@@ -41,8 +43,10 @@ impl<'a, T> ArenaFuture<'a, T> {
     }
     /// 生成一个可以运行在动态上下文的Future并继续使用同一块缓存的剩余部分
     /// ```no_run
+    /// use ftl_util::async_tools::arena::ArenaFuture;
+    /// 
     /// pub fn arena_test(buf: &mut [usize]) -> ArenaFuture<usize> {
-    ///     ArenaFuture::new_fn(buf, |buf| async move {
+    ///     ArenaFuture::new_with_buf(buf, |buf| async move {
     ///         ArenaFuture::new(buf, async move { 1 }).await;
     ///         1
     ///     })
@@ -88,9 +92,7 @@ fn take_drop_fn<T, F: Future<Output = T>>(_: &F) -> fn(*mut ()) {
 }
 
 mod test {
-    //!
     //! 测试rust借用检查器是否有效
-    //!
     #![allow(dead_code)]
     use super::ArenaFuture;
 

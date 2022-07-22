@@ -3,7 +3,12 @@ use core::ptr::NonNull;
 use alloc::sync::Arc;
 use ftl_util::error::{SysError, SysR};
 
-use crate::{dentry::Dentry, hash_name::HashName, inode::VfsInode, mount::Mount, VfsManager};
+use crate::{
+    dentry::{Dentry, InodeS},
+    hash_name::HashName,
+    mount::Mount,
+    VfsManager,
+};
 
 use super::BaseFn;
 
@@ -17,7 +22,7 @@ unsafe impl Send for Path {}
 unsafe impl Sync for Path {}
 
 impl Path {
-    pub(crate) fn get_inode(&self) -> Option<Arc<VfsInode>> {
+    pub(crate) fn inode_s(&self) -> InodeS {
         self.dentry.cache.inode.lock().clone()
     }
     fn is_vfs_root(&self) -> bool {
@@ -59,27 +64,21 @@ impl Path {
             return Err(SysError::ENOENT);
         }
         let name_hash = HashName::hash_name(s);
-        let dentry = &*self.dentry;
-        loop {
-            let inode_seq = dentry.inode_seq();
-            if let Some(next) = dentry.search_child_in_cache(s, name_hash) {
-                self.dentry = next;
-                return Ok(());
-            }
-            if let Some(dentry) = dentry
-                .search_child_deep(s, name_hash, inode_seq)
-                .await
-                .transpose()?
-            {
-                self.dentry = dentry;
-                return Ok(());
-            }
+        let inode_seq = self.dentry.inode_seq();
+        if let Some(next) = self.dentry.search_child_in_cache(s, name_hash) {
+            self.dentry = next;
+            return Ok(());
         }
+        self.dentry = self
+            .dentry
+            .search_child_deep(s, name_hash, inode_seq)
+            .await?;
+        Ok(())
     }
 }
 
 impl VfsManager {
-    /// 返回到达最后一个文件名的路径
+    /// 返回到达最后一个文件名的路径和文件名
     pub(crate) async fn walk_path<'a>(
         &self,
         (base, path_str): (impl BaseFn, &'a str),
@@ -123,13 +122,13 @@ impl VfsManager {
         }
         Ok(path)
     }
-    pub(crate) async fn wake_all(&self, path: (impl BaseFn, &str)) -> SysR<Path> {
+    pub(crate) async fn walk_all(&self, path: (impl BaseFn, &str)) -> SysR<Path> {
         let (path, name) = self.walk_path(path).await?;
         self.walk_name(path, name).await
     }
 }
 
-fn name_invalid(s: &str) -> bool {
+pub fn name_invalid(s: &str) -> bool {
     s.bytes().any(|c| match c {
         b'\\' | b'/' | b':' | b'*' | b'?' | b'"' | b'<' | b'>' | b'|' => true,
         _ => false,

@@ -35,22 +35,6 @@ unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for SeqMutex<T, S> {}
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for SeqMutex<T, S> {}
 
 impl<T, S: MutexSupport> SeqMutex<T, S> {
-    /// Creates a new spinlock wrapping the supplied data.
-    ///
-    /// May be used statically:
-    ///
-    /// ```
-    /// #![feature(const_fn)]
-    /// use spin;
-    ///
-    /// static MUTEX: spin::Mutex<()> = spin::Mutex::new(());
-    ///
-    /// fn demo() {
-    ///     let lock = MUTEX.lock();
-    ///     // do something with lock
-    ///     drop(lock);
-    /// }
-    /// ```
     pub const fn new(user_data: T) -> Self {
         SeqMutex {
             seq: AtomicUsize::new(0),

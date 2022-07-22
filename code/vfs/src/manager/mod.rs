@@ -1,10 +1,10 @@
 use core::ptr::NonNull;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc};
-use ftl_util::error::SysR;
+use ftl_util::error::{SysError, SysR};
 
 use crate::{
-    dentry::{manager::DentryManager, Dentry},
+    dentry::{manager::DentryManager, Dentry, InodeS},
     fssp::{Fs, Fssp, FsspOwn},
     inode::FsInode,
     mount::{manager::MountManager, Mount},
@@ -61,7 +61,28 @@ impl VfsManager {
     }
     pub async fn create(&self, path: (impl BaseFn, &str), dir: bool) -> SysR<VfsFile> {
         let (path, name) = self.walk_path(path).await?;
-        todo!()
+        if !path.dentry.is_dir() || path::name_invalid(name) {
+            return Err(SysError::ENOTDIR);
+        }
+        if let Ok(p) = self.walk_name(path.clone(), name).await {
+            if dir || p.dentry.is_dir() {
+                return Err(SysError::EEXIST);
+            }
+            match p.inode_s() {
+                InodeS::Init => return Err(SysError::EBUSY),
+                InodeS::Some(inode) => {
+                    inode.reset_data().await?;
+                    return VfsFile::from_path(p);
+                }
+                InodeS::None => (),
+                InodeS::Closed => (), // dentry has unlink
+            }
+        }
+        let dentry = path.dentry.create(name, dir).await?;
+        VfsFile::from_path(Path {
+            mount: path.mount,
+            dentry,
+        })
     }
     /// 只能unlink文件, 不能删除目录
     pub async fn unlink(&self, path: (impl BaseFn, &str)) -> SysR<()> {
@@ -82,7 +103,10 @@ impl VfsManager {
         fstype: &str,
         flags: usize,
     ) -> SysR<()> {
-        let dir = self.wake_all(dir).await?;
+        let dir = self.walk_all(dir).await?;
+        if !dir.dentry.is_dir() {
+            return Err(SysError::ENOTDIR);
+        }
         let fs: Box<dyn Fs> = match fstype {
             "tmpfs" => TmpFs::new(),
             _ => panic!(),
@@ -90,9 +114,9 @@ impl VfsManager {
         let fssp = Fssp::new(Some(fs));
         let root_inode = fssp.root_inode();
         let fssp = fssp.into_raw();
-        let root = Dentry::new_root(&self.dentrys, fssp, Some(root_inode));
+        let root = Dentry::new_root(&self.dentrys, fssp, InodeS::Some(root_inode));
         self.mount_impl(dir, root, FsspOwn::new(fssp).unwrap());
-        todo!()
+        Ok(())
     }
     pub async fn umount(&self, dir: (impl BaseFn, &str), flags: usize) -> SysR<()> {
         todo!()

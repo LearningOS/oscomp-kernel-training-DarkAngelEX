@@ -55,7 +55,7 @@ pub struct VfsFile {
 
 impl VfsFile {
     pub(crate) fn from_path(path: Path) -> SysR<Self> {
-        let inode = path.get_inode().ok_or(SysError::ENOENT)?;
+        let inode = path.inode_s().into_inode()?;
         Ok(Self { path, inode })
     }
 }

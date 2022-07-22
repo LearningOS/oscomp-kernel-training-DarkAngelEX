@@ -51,6 +51,7 @@ impl Drop for Mount {
 }
 
 impl Mount {
+    /// 挂载点将会加入全局挂载器
     pub fn new(
         locate: Arc<Dentry>,
         root: Arc<Dentry>,

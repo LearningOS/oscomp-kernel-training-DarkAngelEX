@@ -18,10 +18,10 @@ use alloc::{
     sync::{Arc, Weak},
 };
 use ftl_util::{
-    error::SysR,
+    error::{SysError, SysR},
     list::InListNode,
     rcu::{RcuCollect, RcuWraper},
-    sync::{spin_mutex::SpinMutex, Spin},
+    sync::{sleep_mutex::SleepMutex, spin_mutex::SpinMutex, Spin},
 };
 
 use crate::{
@@ -58,20 +58,25 @@ impl Drop for Dentry {
 }
 
 impl Dentry {
-    pub fn new_vfs_root(dentrys: &DentryManager, fssp: NonNull<Fssp>) -> Arc<Self> {
-        Self::new_root(dentrys, fssp, None)
+    pub fn is_dir(&self) -> bool {
+        self.cache.is_dir
     }
-    pub fn new_root(
-        dentrys: &DentryManager,
-        fssp: NonNull<Fssp>,
-        root_inode: Option<Arc<VfsInode>>,
-    ) -> Arc<Self> {
+    pub fn new_vfs_root(dentrys: &DentryManager, fssp: NonNull<Fssp>) -> Arc<Self> {
+        Self::new_root(dentrys, fssp, InodeS::None)
+    }
+    pub fn new_root(dentrys: &DentryManager, fssp: NonNull<Fssp>, root_inode: InodeS) -> Arc<Self> {
         let (lru, index) = (dentrys.lru_ptr(), dentrys.index_ptr());
         let hn = HashName::new(core::ptr::null(), "");
-        DentryCache::new(hn, None, root_inode, lru, fssp, index, false)
+        DentryCache::new(hn, true, None, root_inode, lru, fssp, index, false)
     }
+    /// 通过序列号可以在不持有睡眠锁的情况下进行缓存搜索
+    ///
+    /// 如果持有睡眠锁后序列号没有改变则直接进入磁盘搜素过程, 不再重复搜素缓存
     pub fn inode_seq(&self) -> usize {
         self.cache.inode_seq.load(Ordering::Acquire)
+    }
+    fn set_seq(&self, new: usize) {
+        self.cache.inode_seq.store(new, Ordering::Relaxed);
     }
     /// 如果缓存存在将生成一个所有权Dentry
     ///
@@ -93,14 +98,97 @@ impl Dentry {
             cache.take_dentry()
         }
     }
-    /// 如果序列号不匹配则会返回None, 需要重试
+    /// 如果序列号匹配说明子目录缓存没有变化, 跳过缓存名字搜索
+    ///
+    /// 此函数会持有睡眠锁
     pub async fn search_child_deep(
-        &self,
+        self: &Arc<Self>,
         name: &str,
         name_hash: NameHash,
         inode_seq: usize,
-    ) -> Option<SysR<Arc<Dentry>>> {
-        todo!()
+    ) -> SysR<Arc<Dentry>> {
+        debug_assert!(self.is_dir());
+        let cache = self.cache.as_ref();
+        let _lk = cache.dir_lock.lock().await;
+        if inode_seq != self.inode_seq() {
+            if let Some(d) = self.search_child_in_cache(name, name_hash) {
+                return Ok(d);
+            }
+        }
+        if cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        let inode = cache.inode.lock().clone().into_inode()?;
+        let new = inode.search(name).await?;
+        let dentry = DentryCache::new(
+            HashName::new(self.as_ref(), name),
+            new.is_dir(),
+            Some(self.clone()),
+            InodeS::Some(new),
+            cache.lru,
+            cache.fssp,
+            cache.index,
+            true,
+        );
+        debug_assert!(inode_seq == self.inode_seq());
+        self.set_seq(inode_seq.wrapping_add(1));
+        Ok(dentry)
+    }
+    /// 这个函数会持有睡眠锁
+    pub async fn create(self: &Arc<Self>, name: &str, dir: bool) -> SysR<Arc<Dentry>> {
+        debug_assert!(self.is_dir());
+        let _lk = self.cache.dir_lock.lock().await;
+        if self.cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        let inode = self.cache.inode.lock().clone().into_inode()?;
+        let hash_name = HashName::new(self.as_ref(), name);
+        let nh = hash_name.name_hash();
+        if let Some(d) = self.search_child_in_cache(name, nh) {
+            return Ok(d);
+        }
+        // 文件名查重将由create内部进行
+        let vfsinode = inode.create(name, dir).await?;
+        let dentry = DentryCache::new(
+            hash_name,
+            dir,
+            Some(self.clone()),
+            InodeS::Some(vfsinode),
+            self.cache.lru,
+            self.cache.fssp,
+            self.cache.index,
+            true,
+        );
+        let seq = self.inode_seq();
+        self.set_seq(seq.wrapping_add(1));
+        Ok(dentry)
+    }
+}
+
+/// 将inode状态分段, dentry中inode为Init时阻止unlink
+///
+/// Init状态下一定被Dentry持有, 因此不会被释放
+#[derive(Clone)]
+pub(crate) enum InodeS {
+    /// 这个Inode正在初始化
+    Init,
+    ///
+    Some(Arc<VfsInode>),
+    /// 逻辑上不需要inode
+    None,
+    /// 已经被释放, 这个cache已经无效了
+    Closed,
+}
+
+impl InodeS {
+    pub fn into_inode(self) -> SysR<Arc<VfsInode>> {
+        let e = match self {
+            Self::Some(i) => return Ok(i),
+            InodeS::Init => SysError::EBUSY,
+            InodeS::None => SysError::ENOENT,
+            InodeS::Closed => SysError::ENOENT,
+        };
+        Err(e)
     }
 }
 
@@ -115,6 +203,7 @@ pub(crate) struct DentryCache {
     closed: AtomicBool,
     using: RcuWraper<Weak<Dentry>>,
     name: HashName,
+    is_dir: bool,
     /// 只有根目录为 None, 将通过RCU释放一个Weak指针防止内存回收
     ///
     /// 当cache存在时父目录一定不会被释放
@@ -132,9 +221,9 @@ pub(crate) struct DentryCache {
     fssp_node: InListNode<Self, DentryFsspNode>, // 当存在于LRU队列时才会加入节点
     /// 挂载点指针 如果为挂载点则为Some
     pub mount: RcuWraper<Option<NonNull<Mount>>>,
-    /// inode睡眠锁访问序列号, 只能被inode内部修改(通过引用)
-    inode_seq: AtomicUsize,
-    pub inode: SpinMutex<Option<Arc<VfsInode>>, Spin>,
+    dir_lock: SleepMutex<(), Spin>,     // 目录操作会用到这个锁
+    inode_seq: AtomicUsize,             // inode睡眠锁访问序列号, 和dir_lock构成广义序列锁
+    pub inode: SpinMutex<InodeS, Spin>, // 被关闭或 detached 为 None
     /// RCU子目录链表 通过RCU管理
     sub_head: SpinMutex<InListNode<Self, DentrySubNode>, Spin>,
     sub_node: InListNode<Self, DentrySubNode>, // 此节点连接到父目录的sub_head
@@ -147,8 +236,9 @@ impl DentryCache {
     /// 将自身加入索引器
     pub fn new(
         name: HashName,
+        is_dir: bool,
         parent: Option<Arc<Dentry>>,
-        inode: Option<Arc<VfsInode>>,
+        inode: InodeS,
         lru: NonNull<LRUQueue>,
         fssp: NonNull<Fssp>,
         index: NonNull<DentryIndex>,
@@ -158,6 +248,7 @@ impl DentryCache {
             closed: AtomicBool::new(false),
             using: RcuWraper::new(Weak::new()),
             name,
+            is_dir,
             parent,
             index,
             index_node: InListNode::new(),
@@ -170,6 +261,7 @@ impl DentryCache {
             mount: RcuWraper::new(None),
             inode_seq: AtomicUsize::new(0),
             inode: SpinMutex::new(inode),
+            dir_lock: SleepMutex::new(()),
             sub_head: SpinMutex::new(InListNode::new()),
             sub_node: InListNode::new(),
         });
@@ -184,9 +276,15 @@ impl DentryCache {
         let wd = Arc::downgrade(&d);
         unsafe {
             let this = &mut *Arc::get_mut_unchecked(&mut d).cache;
+            // 设置弱指针
             *this.using.get_mut() = wd;
+            // 加入索引器
             if this.in_index {
                 this.index.as_mut().insert(this);
+            }
+            // 加入父目录链表
+            if let Some(p) = this.parent.as_ref() {
+                p.cache.sub_head.lock().push_prev(&mut this.sub_node);
             }
         }
         d
@@ -221,7 +319,7 @@ impl DentryCache {
         if self.in_index {
             unsafe { self.index.as_mut().remove(self) };
         }
-        *self.inode.lock() = None;
+        *self.inode.lock() = InodeS::Closed;
     }
     pub fn hash(&self) -> AllHash {
         self.name.all_hash()

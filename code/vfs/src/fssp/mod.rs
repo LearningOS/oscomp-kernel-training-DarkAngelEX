@@ -61,6 +61,9 @@ impl Fssp {
     pub fn into_raw(self: Box<Self>) -> NonNull<Self> {
         NonNull::new(Box::into_raw(self)).unwrap()
     }
+    pub fn get_raw(&self) -> NonNull<Self> {
+        NonNull::new(self as *const _ as *mut Self).unwrap()
+    }
     /// 返回递增是否成功
     pub fn rc_increase(&self) -> bool {
         let mut cur = self.rc.load(Ordering::Relaxed);
@@ -106,6 +109,6 @@ impl Fssp {
         d.pop_self();
     }
     pub fn root_inode(&self) -> Arc<VfsInode> {
-        VfsInode::new(self.fs.as_ref().unwrap().root())
+        VfsInode::new(self.get_raw(), self.fs.as_ref().unwrap().root())
     }
 }

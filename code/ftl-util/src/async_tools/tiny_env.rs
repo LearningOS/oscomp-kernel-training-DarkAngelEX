@@ -1,3 +1,7 @@
+//! 一个非常简单的异步执行环境, 来自 https://www.lmlphp.com/user/7351/article/item/411909/
+//!
+//! 外界只需要唯一的一个接口 new_executor_and_spawner
+
 use core::{
     cell::SyncUnsafeCell,
     future::Future,
@@ -7,19 +11,18 @@ use core::{
     task::{Context, RawWaker, RawWakerVTable, Waker},
 };
 
-use alloc::{boxed::Box, collections::VecDeque, sync::Arc};
-use ftl_util::{
+use crate::{
     async_tools::Async,
     sync::{spin_mutex::SpinMutex, Spin},
 };
+use alloc::{boxed::Box, collections::VecDeque, sync::Arc};
 
-/// 一个Future，它可以调度自己(将自己放入任务通道中)，然后等待执行器去`poll`
-struct Task {
-    future: SyncUnsafeCell<Option<Async<'static, ()>>>,
-    /// 可以将该任务自身放回到任务通道中，等待执行器的poll
-    task_sender: SyncSender<Arc<Task>>,
+pub fn new_executor_and_spawner() -> (Executor, Spawner) {
+    // 当前的实现仅仅是为了简单，在实际的执行中，并不会这么使用
+    const MAX_QUEUED_TASKS: usize = 10_000;
+    let (task_sender, ready_queue) = sync_channel(MAX_QUEUED_TASKS);
+    (Executor { ready_queue }, Spawner { task_sender })
 }
-unsafe impl Sync for Task {}
 
 /// 任务执行器，负责从通道中接收任务然后执行
 pub struct Executor {
@@ -32,14 +35,6 @@ pub struct Spawner {
     task_sender: SyncSender<Arc<Task>>,
 }
 
-pub fn new_executor_and_spawner() -> (Executor, Spawner) {
-    // 任务通道允许的最大缓冲数(任务队列的最大长度)
-    // 当前的实现仅仅是为了简单，在实际的执行中，并不会这么使用
-    const MAX_QUEUED_TASKS: usize = 10_000;
-    let (task_sender, ready_queue) = sync_channel(MAX_QUEUED_TASKS);
-    (Executor { ready_queue }, Spawner { task_sender })
-}
-
 impl Spawner {
     pub fn spawn(&self, future: impl Future<Output = ()> + Send + 'static) {
         let future = Box::pin(future);
@@ -48,18 +43,6 @@ impl Spawner {
             task_sender: self.task_sender.clone(),
         });
         self.task_sender.send(task).expect("任务队列已满");
-    }
-}
-
-impl ArcWake for Task {
-    fn wake_by_ref(arc_self: &Arc<Self>) {
-        println!("task wake!");
-        // 通过发送任务到任务管道的方式来实现`wake`，这样`wake`后，任务就能被执行器`poll`
-        let cloned = arc_self.clone();
-        arc_self.task_sender.send(cloned).expect("任务队列已满");
-    }
-    fn wake(self: Arc<Self>) {
-        Self::wake_by_ref(&self)
     }
 }
 
@@ -76,6 +59,7 @@ impl Executor {
             }
         }
     }
+    /// 使用这个函数会输出任务的调度状态
     pub fn run_debug(&self) {
         println!("run begin");
         while let Ok(task) = self.ready_queue.recv() {
@@ -95,6 +79,22 @@ impl Executor {
             }
         }
         println!("run end");
+    }
+}
+/// 一个Future，它可以调度自己(将自己放入任务通道中)，然后等待执行器去`poll`
+struct Task {
+    future: SyncUnsafeCell<Option<Async<'static, ()>>>,
+    /// 可以将该任务自身放回到任务通道中，等待执行器的poll
+    task_sender: SyncSender<Arc<Task>>,
+}
+unsafe impl Sync for Task {}
+
+impl ArcWake for Task {
+    fn wake_by_ref(arc_self: &Arc<Self>) {
+        println!("task wake!");
+        // 通过发送任务到任务管道的方式来实现`wake`，这样`wake`后，任务就能被执行器`poll`
+        let cloned = arc_self.clone();
+        arc_self.task_sender.send(cloned).expect("任务队列已满");
     }
 }
 
@@ -178,14 +178,13 @@ fn waker_vtable<W: ArcWake>() -> &'static RawWakerVTable {
     )
 }
 
-fn waker<W>(wake: Arc<W>) -> Waker
-where
-    W: ArcWake + 'static,
-{
-    let ptr = Arc::into_raw(wake).cast::<()>();
-
-    unsafe { Waker::from_raw(RawWaker::new(ptr, waker_vtable::<W>())) }
-}
+// fn waker<W>(wake: Arc<W>) -> Waker
+// where
+//     W: ArcWake + 'static,
+// {
+//     let ptr = Arc::into_raw(wake).cast::<()>();
+//     unsafe { Waker::from_raw(RawWaker::new(ptr, waker_vtable::<W>())) }
+// }
 
 #[allow(clippy::redundant_clone)] // The clone here isn't actually redundant.
 unsafe fn increase_refcount<T: ArcWake>(data: *const ()) {
