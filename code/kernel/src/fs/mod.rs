@@ -8,7 +8,7 @@ use alloc::{
 };
 use fat32::{vfs_interface::Fat32Type, BlockDevice};
 use ftl_util::{
-    async_tools::{ASysR, Async},
+    async_tools::{ASysR, ASysRet, Async},
     error::{SysError, SysR, SysRet},
     fs::{path, stat::Stat, DentryType, Mode, OpenFlags},
     time::Instant,
@@ -70,17 +70,18 @@ impl VfsSpawner for SysSpawner {
 
 pub async fn init() {
     stack_trace!();
+    const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
     let _sie = AutoSie::new();
-    let max = 100;
+    let max = 10;
     let mut vfs = VfsManager::new(max);
     vfs.init_clock(Box::new(SysClock));
     vfs.init_spawner(Box::new(SysSpawner));
     vfs.import_fstype(Box::new(Fat32Type::new()));
+    // 挂载几个全局目录
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("shm".to_string());
     vfs.set_spec_dentry("etc".to_string());
     vfs.set_spec_dentry("tmp".to_string());
-    const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
     vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/shm"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
@@ -96,9 +97,17 @@ pub async fn init() {
         .unwrap();
     let device = Box::new(BlockDeviceWraper(drivers::device().clone()));
     vfs.place_inode((XF, "/dev/sda1"), device).await.unwrap();
+    // 挂载FAT32!!!
     vfs.mount((XF, "/dev/sda1"), (XF, "/"), "vfat", 0)
         .await
         .unwrap();
+
+    // 写入目录 /etc/ld-musl-riscv64-sf.path
+    let ld = vfs
+        .create((XF, "/etc/ld-musl-riscv64-sf.path"), false, (true, true))
+        .await
+        .unwrap();
+    ld.write_at(0, b"/\0").await.unwrap();
     unsafe {
         VFS_MANAGER = Some(vfs);
     }
@@ -188,22 +197,27 @@ impl FsInode for BlockDeviceWraper {
     fn is_dir(&self) -> bool {
         false
     }
-    fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
+    fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         todo!()
     }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         todo!()
     }
-    fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>> {
+    fn search<'a>(&'a self, _name: &'a str) -> ASysR<Box<dyn FsInode>> {
         todo!()
     }
-    fn create<'a>(&'a self, name: &'a str, dir: bool, rw: (bool, bool)) -> ASysR<Box<dyn FsInode>> {
+    fn create<'a>(
+        &'a self,
+        _name: &'a str,
+        _dir: bool,
+        _rw: (bool, bool),
+    ) -> ASysR<Box<dyn FsInode>> {
         todo!()
     }
-    fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()> {
+    fn unlink_child<'a>(&'a self, _name: &'a str, _release: bool) -> ASysR<()> {
         todo!()
     }
-    fn rmdir_child<'a>(&'a self, name: &'a str) -> ASysR<()> {
+    fn rmdir_child<'a>(&'a self, _name: &'a str) -> ASysR<()> {
         todo!()
     }
     fn bytes(&self) -> SysRet {
@@ -217,16 +231,16 @@ impl FsInode for BlockDeviceWraper {
     }
     fn read_at<'a>(
         &'a self,
-        buf: &'a mut [u8],
-        offset_with_ptr: (usize, Option<&'a AtomicUsize>),
-    ) -> ftl_util::async_tools::ASysRet {
+        _buf: &'a mut [u8],
+        _offset_with_ptr: (usize, Option<&'a AtomicUsize>),
+    ) -> ASysRet {
         todo!()
     }
     fn write_at<'a>(
         &'a self,
-        buf: &'a [u8],
-        offset_with_ptr: (usize, Option<&'a AtomicUsize>),
-    ) -> ftl_util::async_tools::ASysRet {
+        _buf: &'a [u8],
+        _offset_with_ptr: (usize, Option<&'a AtomicUsize>),
+    ) -> ASysRet {
         todo!()
     }
 }

@@ -53,6 +53,7 @@ impl DentryIndex {
         let hash = d.hash();
         let n = hash.0 as usize % DENTRY_HASH_TABLE;
         let mut lk = self.table[n].unique_lock();
+        debug_assert!(!d.index_node.is_empty());
         let last = d.index_node.is_last();
         d.index_node.pop_self();
         if !last {

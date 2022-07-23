@@ -12,10 +12,10 @@ use crate::{
 mod fs;
 pub mod futex;
 mod mmap;
+mod net;
 mod process;
 pub mod random;
 mod signal;
-mod net;
 mod thread;
 mod time;
 
@@ -96,6 +96,7 @@ const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAIT4: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_GETRANDOM: usize = 278;
+const SYSCALL_MEMBARRIER: usize = 283;
 
 pub struct Syscall<'a> {
     cx: &'a mut UKContext,
@@ -200,7 +201,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_WAIT4 => self.sys_wait4().await,
             SYSCALL_PRLIMIT64 => self.sys_prlimit64().await,
             SYSCALL_GETRANDOM => self.sys_getrandom().await,
-
+            SYSCALL_MEMBARRIER => self.sys_membarrier(),
             unknown => panic!("[kernel]unsupported syscall_id: {}", unknown),
         };
         let a0 = match result {

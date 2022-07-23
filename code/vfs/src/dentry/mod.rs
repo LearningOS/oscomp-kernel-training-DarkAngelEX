@@ -29,7 +29,7 @@ use crate::{
     hash_name::{AllHash, HashName, NameHash},
     inode::VfsInode,
     mount::Mount,
-    FsInode, PRINT_INTO_LRU, PRINT_OP,
+    FsInode, PRINT_OP, RRINT_ELIMINATE,
 };
 
 use self::{index::DentryIndex, lru_queue::LRUQueue, manager::DentryManager};
@@ -47,17 +47,22 @@ impl Drop for Dentry {
         stack_trace!();
         // 加入LRU队列
         if PRINT_OP {
-            println!("dentry drop: {}", self.cache.name());
+            println!("dentry drop: {} begin", self.cache.name());
         }
         let own = unsafe { ManuallyDrop::take(&mut self.cache) };
         unsafe {
             let ptr = &mut *Box::into_raw(own);
             let own = Box::from_raw(ptr);
+            debug_assert!(self.cache.lru_own.is_none());
+            debug_assert!(self.cache.lru_node.is_empty());
             ptr.fssp.as_mut().insert_dentry(&mut ptr.fssp_node, || ());
             ptr.lru
                 .as_mut()
                 .insert(&mut ptr.lru_node, || ptr.lru_own = Some(own));
             ptr.using.rcu_write(Weak::new());
+        }
+        if PRINT_OP {
+            println!("dentry drop: {} end", self.cache.name());
         }
     }
 }
@@ -371,6 +376,7 @@ impl DentryCache {
             // 加入索引器
             if this.in_index {
                 this.index.as_mut().insert(this);
+                debug_assert!(!this.index_node.is_empty());
             }
             // 加入父目录链表
             if let Some(p) = this.parent.as_ref() {
@@ -397,14 +403,17 @@ impl DentryCache {
     /// 释放约束: 如果不存在外部引用则下面的全都没有
     fn close_by_lru_0(&mut self) {
         stack_trace!();
-        if PRINT_INTO_LRU {
-            println!("close_by_lru: {}", self.name());
+        if RRINT_ELIMINATE {
+            println!("close by lru: {}", self.name());
         }
-        debug_assert!(!self.closed());
         debug_assert!(self.using.get_mut().strong_count() == 0);
         debug_assert!(self.mount.get_mut().is_none());
         debug_assert!(self.lru_own.is_some());
         debug_assert!(self.sub_head.get_mut().is_empty());
+        if self.in_index {
+            debug_assert!(!self.index_node.is_empty());
+        }
+        // debug_assert!(!self.closed()); // 被提前关闭了
         self.closed.store(true, Ordering::Release);
         // unwrap确认所有权存在
         self.lru_own.take().unwrap().rcu_drop(); // 在所有核经过await后释放
@@ -424,6 +433,7 @@ impl DentryCache {
         // 移除索引
         if self.in_index {
             unsafe { self.index.as_mut().remove(self) };
+            self.in_index = false;
         }
         *self.inode.lock() = InodeS::Closed;
     }
@@ -447,6 +457,7 @@ impl DentryCache {
             let this = self.this_mut();
             if this.in_index {
                 (*this.index.as_ptr()).remove(this);
+                this.in_index = false;
             }
             *self.inode.lock() = InodeS::Closed;
         }
@@ -468,6 +479,7 @@ impl DentryCache {
             let this = self.this_mut();
             if this.in_index {
                 (*this.index.as_ptr()).remove(this);
+                this.in_index = false;
             }
             *self.inode.lock() = InodeS::Closed;
         }
@@ -497,7 +509,7 @@ impl DentryCache {
                 Retry,
             }
             unsafe {
-                let a = (*self.lru.as_ptr()).lock_run(|| -> Ret {
+                let a = (*self.lru.as_ptr()).lock_run(|cur| -> Ret {
                     if self.closed() {
                         return Ret::End(None);
                     }
@@ -510,7 +522,9 @@ impl DentryCache {
                         None => return Ret::Retry,
                         Some(p) => p,
                     };
+                    debug_assert!(!this.lru_node.is_empty());
                     this.lru_node.pop_self();
+                    *cur -= 1;
                     Ret::End(Some(Arc::new(Dentry {
                         cache: ManuallyDrop::new(cache),
                     })))

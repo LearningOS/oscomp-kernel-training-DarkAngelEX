@@ -4,8 +4,12 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     error::{SysError, SysR, SysRet},
-    fs::{stat::Stat, DentryType},
-    sync::{rw_sleep_mutex::RwSleepMutex, Spin},
+    fs::{
+        stat::{Stat, S_IFREG},
+        DentryType,
+    },
+    sync::{rw_sleep_mutex::RwSleepMutex, spin_mutex::SpinMutex, Spin},
+    time::{Instant, TimeSpec},
 };
 
 use crate::FsInode;
@@ -14,6 +18,7 @@ pub struct TmpFsFile {
     readable: AtomicBool,
     writable: AtomicBool,
     subs: RwSleepMutex<Vec<u8>, Spin>,
+    timer: SpinMutex<(Instant, Instant), Spin>,
 }
 
 impl TmpFsFile {
@@ -22,6 +27,7 @@ impl TmpFsFile {
             readable: AtomicBool::new(r),
             writable: AtomicBool::new(w),
             subs: RwSleepMutex::new(Vec::new()),
+            timer: SpinMutex::new((Instant::BASE, Instant::BASE)),
         }
     }
     pub fn bytes(&self) -> SysRet {
@@ -80,8 +86,44 @@ impl FsInode for TmpFsFile {
     fn is_dir(&self) -> bool {
         false
     }
-    fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
-        todo!()
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
+        Box::pin(async move {
+            let (access_time, modify_time) = *self.timer.lock();
+            *stat = Stat::zeroed();
+            stat.st_dev = 0;
+            stat.st_ino = 0;
+            stat.st_mode = 0o777;
+            stat.st_mode |= S_IFREG;
+            stat.st_nlink = 1;
+            stat.st_uid = 0;
+            stat.st_gid = 0;
+            stat.st_rdev = 0;
+            stat.st_size = self.bytes().unwrap_or(0);
+            stat.st_blksize = 1;
+            stat.st_blocks = 0;
+            stat.st_atime = access_time.as_secs() as usize;
+            stat.st_atime_nsec = access_time.subsec_nanos() as usize;
+            stat.st_mtime = modify_time.as_secs() as usize;
+            stat.st_mtime_nsec = modify_time.subsec_nanos() as usize;
+            stat.st_ctime = modify_time.as_secs() as usize;
+            stat.st_ctime_nsec = modify_time.subsec_nanos() as usize;
+            Ok(())
+        })
+    }
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+        Box::pin(async move {
+            let [access, modify] = times
+                .try_map(|v| v.user_map(now))?
+                .map(|v| v.map(|v| v.as_instant()));
+            let mut lk = self.timer.lock();
+            if let Some(v) = access {
+                lk.0 = v;
+            }
+            if let Some(v) = modify {
+                lk.1 = v;
+            }
+            Ok(0)
+        })
     }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })

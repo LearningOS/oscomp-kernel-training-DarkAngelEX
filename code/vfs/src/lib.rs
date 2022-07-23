@@ -11,11 +11,13 @@
 #![feature(trait_alias)]
 #![feature(get_mut_unchecked)]
 #![feature(receiver_trait)]
+#![feature(array_try_map)]
 #![allow(dead_code)]
 
 const PRINT_OP: bool = false;
 const PRINT_WALK: bool = false;
 const PRINT_INTO_LRU: bool = false;
+const RRINT_ELIMINATE: bool = false;
 
 extern crate alloc;
 #[macro_use]

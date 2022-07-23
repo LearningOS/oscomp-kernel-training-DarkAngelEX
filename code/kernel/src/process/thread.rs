@@ -14,7 +14,7 @@ use alloc::{
 };
 use ftl_util::error::SysR;
 use riscv::register::sstatus;
-use vfs::{File, VfsFile};
+use vfs::VfsFile;
 
 use crate::{
     futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},

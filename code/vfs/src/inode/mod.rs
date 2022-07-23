@@ -10,6 +10,7 @@ use ftl_util::{
     error::{SysError, SysR, SysRet},
     fs::{stat::Stat, DentryType},
     list::InListNode,
+    time::{Instant, TimeSpec},
 };
 
 use crate::fssp::Fssp;
@@ -26,7 +27,9 @@ pub trait FsInode: Send + Sync + 'static {
     fn writable(&self) -> bool;
     fn is_dir(&self) -> bool;
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()>;
-
+    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
+        unimplemented!("utimensat {}", core::any::type_name::<Self>())
+    }
     // === 目录操作 ===
 
     fn list(&self) -> ASysR<Vec<(DentryType, String)>>;

@@ -14,6 +14,7 @@ use ftl_util::{
     device::BlockDevice,
     error::{SysError, SysR, SysRet},
     fs::{stat::Stat, DentryType},
+    time::{Instant, TimeSpec},
 };
 
 use crate::{
@@ -187,6 +188,12 @@ impl FsInode for TmpFsInode {
         match self.0.as_ref() {
             TmpFsImpl::Dir(d) => Box::pin(async move { d.stat(stat).await }),
             TmpFsImpl::File(f) => f.stat(stat),
+        }
+    }
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+        match self.0.as_ref() {
+            TmpFsImpl::Dir(_d) => todo!(),
+            TmpFsImpl::File(f) => f.utimensat(times, now),
         }
     }
 }

@@ -1,24 +1,20 @@
-use core::{f64::RADIX, intrinsics::size_of, iter::Cloned};
-
 use alloc::{
     boxed::Box,
     collections::{BTreeMap, VecDeque},
-    string::String,
     sync::Arc,
-    vec::{self, Vec},
 };
 use ftl_util::{
     async_tools::ASysRet,
     error::{SysError, SysRet},
-    fs::{File, OpenFlags},
-    sync::Spin,
+    fs::OpenFlags,
+    time::{Instant, TimeSpec},
 };
+use vfs::File;
 
 use crate::{
-    config::USER_STACK_SIZE,
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
-    sync::mutex::{SpinLock, SpinNoIrqLock},
+    sync::mutex::SpinNoIrqLock,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
@@ -95,10 +91,6 @@ impl File for SocketFile {
         })
     }
 
-    fn to_vfs_inode(&self) -> ftl_util::error::SysR<&dyn ftl_util::fs::VfsInode> {
-        Err(SysError::ENOTDIR)
-    }
-
     fn can_mmap(&self) -> bool {
         self.can_read_offset() && self.can_write_offset()
     }
@@ -131,8 +123,20 @@ impl File for SocketFile {
         Box::pin(async move { Err(SysError::EACCES) })
     }
 
-    fn utimensat(&self, _times: [ftl_util::time::TimeSpec; 2]) -> ASysRet {
+    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
+    }
+
+    fn vfs_file(&self) -> ftl_util::error::SysR<&vfs::VfsFile> {
+        Err(SysError::ENOENT)
+    }
+
+    fn block_device(&self) -> ftl_util::error::SysR<Arc<dyn fat32::BlockDevice>> {
+        Err(SysError::ENOTBLK)
+    }
+
+    fn into_vfs_file(self: Arc<Self>) -> ftl_util::error::SysR<Arc<vfs::VfsFile>> {
+        Err(SysError::ENOENT)
     }
 }
 

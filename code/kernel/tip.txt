@@ -8,7 +8,6 @@ settings.json:
 
 run_all_case
 
-
 //$home/.cargo/config
 [source.crates-io]
 registry = "https://github.com/rust-lang/crates.io-index"
@@ -33,3 +32,10 @@ x /1xg 0x10000077a0+0x68
 busybox sh ./run-static.sh
 busybox sh ./run-dynamic.sh
 busybox sh ./run-all.sh
+
+./runtest.exe -w entry-static.exe stat
+./runtest.exe -w entry-static.exe pthread_cancel_points
+
+./runtest.exe -w entry-dynamic.exe argv
+./runtest.exe -w entry-dynamic.exe dlopen
+./runtest.exe -w entry-dynamic.exe tls_get_new_dtv

@@ -82,6 +82,17 @@ impl<T, A> InListNode<T, A> {
         debug_assert!(!self.is_empty());
         self.node.get_prev() == self.node.get_next()
     }
+    /// 不包括头节点的节点数
+    pub fn len(&self) -> usize {
+        let mut n = 0;
+        let mut cur = self.node.get_next();
+        let end = &self.node as *const _ as *mut _;
+        while cur != end {
+            n += 1;
+            cur = unsafe { (*cur).next };
+        }
+        n
+    }
 }
 
 impl<T, A: ListAccess<T, Self>> InListNode<T, A> {

@@ -45,7 +45,8 @@ impl LRUQueue {
         then(NonNull::new(node).unwrap());
         Ok(())
     }
-    pub fn lock_run<R>(&self, f: impl FnOnce() -> R) -> R {
+    /// 需要手动改变cur值
+    pub fn lock_run<R>(&self, f: impl FnOnce(&mut usize) -> R) -> R {
         self.0.lock_run(f)
     }
 }

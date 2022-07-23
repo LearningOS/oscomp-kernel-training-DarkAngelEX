@@ -5,7 +5,11 @@ use vfs::File;
 
 use crate::{console, sync::SleepMutex};
 
-use ftl_util::async_tools::ASysRet;
+use ftl_util::{
+    async_tools::ASysRet,
+    error::{SysError, SysRet},
+    fs::Seek,
+};
 
 pub struct Stdin;
 
@@ -53,6 +57,9 @@ impl File for Stdin {
     }
     fn write<'a>(&'a self, _buf: &'a [u8]) -> ASysRet {
         panic!("Cannot write to stdin!");
+    }
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
+        Err(SysError::ESPIPE)
     }
 }
 

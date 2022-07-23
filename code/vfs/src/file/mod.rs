@@ -180,4 +180,7 @@ impl File for VfsFile {
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         self.fsinode().stat(stat)
     }
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+        self.fsinode().utimensat(times, now)
+    }
 }

@@ -1,4 +1,8 @@
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{
+    string::{String, ToString},
+    sync::Arc,
+    vec::Vec,
+};
 use ftl_util::{
     error::SysR,
     fs::{Mode, OpenFlags, Seek},
@@ -55,10 +59,15 @@ impl Syscall<'_> {
         flags: OpenFlags,
         mode: Mode,
     ) -> SysR<Arc<VfsFile>> {
-        let (base, path) = self.fd_path_impl(fd, path).await?;
-        if PRINT_SYSCALL_FS {
+        let (base, mut path) = self.fd_path_impl(fd, path).await?;
+        if PRINT_SYSCALL_FS || true {
             println!("fd_path_open path: {}", path);
         }
+        // path = match path.as_str() {
+        //     "./dlopen_dso.so" => "./libdlopen_dso.so".to_string(),
+        //     "./tls_get_new-dtv_dso.so" => "./libtls_get_new-dtv_dso.so".to_string(),
+        //     _ => path,
+        // };
         fs::open_file((base, path.as_str()), flags, mode).await
     }
     pub async fn fd_path_create_any(

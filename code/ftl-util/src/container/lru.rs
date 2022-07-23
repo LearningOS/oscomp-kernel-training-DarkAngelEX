@@ -35,6 +35,7 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
     ) -> (R, Option<NonNull<InListNode<T, A>>>) {
         debug_assert!(node.is_empty());
         let mut lk = self.0.lock();
+        debug_assert!(lk.list.len() == lk.cur);
         lk.list.push_prev(node);
         let r = locked_run();
         if lk.cur < lk.max {
@@ -53,6 +54,7 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
     ) -> Option<NonNull<InListNode<T, A>>> {
         let mut lk = self.0.lock();
         let mut x = lk.list.pop_next()?;
+        lk.cur -= 1;
         unsafe {
             Some(release(x.as_mut()));
         }
@@ -64,10 +66,12 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
         release: impl FnOnce(&mut InListNode<T, A>),
     ) -> Result<(), ()> {
         debug_assert!(!node.is_empty());
-        let _lk = self.0.lock();
+        let mut lk = self.0.lock();
+        debug_assert!(lk.list.len() == lk.cur);
         if node.is_empty() {
             return Err(());
         }
+        lk.cur -= 1;
         node.pop_self();
         release(node);
         Ok(())
@@ -79,8 +83,9 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
         node.pop_self();
         lk.list.push_prev(node);
     }
-    pub fn lock_run<R>(&self, f: impl FnOnce() -> R) -> R {
-        let _lk = self.0.lock();
-        f()
+    /// 需要手动改变cur值
+    pub fn lock_run<R>(&self, f: impl FnOnce(&mut usize) -> R) -> R {
+        let mut lk = self.0.lock();
+        f(&mut lk.cur)
     }
 }
