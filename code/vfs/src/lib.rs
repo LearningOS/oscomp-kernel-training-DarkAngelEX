@@ -24,7 +24,9 @@ extern crate ftl_util;
 
 pub use {
     file::{File, VfsFile},
-    manager::VfsManager,
+    fssp::{Fs, FsType},
+    inode::FsInode,
+    manager::{VfsClock, VfsManager, VfsSpawner},
 };
 
 mod dentry;

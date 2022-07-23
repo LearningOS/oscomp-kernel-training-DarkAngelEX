@@ -143,7 +143,7 @@ impl DirInode {
         }
         // 寻找短文件名
         let finder = Self::short_detect(inode, manager, name).await?;
-        let utc_time = manager.utc_time();
+        let now = manager.now();
         let parent_cid = inode.parent.inner.shared_lock().cid_start;
         let this_cid = inode.cache.inner.shared_lock().cid_start;
         debug_assert!(parent_cid.is_next());
@@ -155,13 +155,13 @@ impl DirInode {
             .caches
             .get_block_init(cid, |a| {
                 RawName::cluster_init(a);
-                a[0].short_init().init_dot_dir(2, parent_cid, &utc_time);
-                a[1].short_init().init_dot_dir(1, this_cid, &utc_time);
+                a[0].short_init().init_dot_dir(2, parent_cid, now);
+                a[1].short_init().init_dot_dir(1, this_cid, now);
             })
             .await?;
         let mut short = Align8(RawShortName::zeroed());
         finder.apply(&mut short);
-        short.init_except_name(cid, 0, Attr::new(true, read_only, hidden), &utc_time);
+        short.init_except_name(cid, 0, Attr::new(true, read_only, hidden), now);
         Self::create_entry_impl(inode, manager, name, short).await?;
         Ok(())
     }
@@ -182,10 +182,10 @@ impl DirInode {
         }
         // 寻找短文件名
         let finder = Self::short_detect(inode, manager, name).await?;
-        let utc_time = manager.utc_time();
+        let now = manager.now();
         let mut short = Align8(RawShortName::zeroed());
         finder.apply(&mut short);
-        short.init_except_name(CID::FREE, 0, Attr::new(false, read_only, hidden), &utc_time);
+        short.init_except_name(CID::FREE, 0, Attr::new(false, read_only, hidden), now);
         Self::create_entry_impl(inode, manager, name, short).await?;
         Ok(())
     }

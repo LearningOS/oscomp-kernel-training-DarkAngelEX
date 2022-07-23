@@ -1,5 +1,8 @@
 use alloc::boxed::Box;
-use ftl_util::{device::BlockDevice, time::UtcTime};
+use ftl_util::{
+    device::BlockDevice,
+    time::{Instant, UtcTime},
+};
 
 use crate::tools::{self, Align8, CID};
 
@@ -36,6 +39,9 @@ impl Attr {
     pub fn writable(self) -> bool {
         !self.readonly()
     }
+    pub fn rw(self) -> (bool, bool) {
+        (true, self.writable())
+    }
 }
 
 /// 文件名不足8则填充0x20 子目录扩展名填充0x20
@@ -70,31 +76,26 @@ impl RawShortName {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     /// generate ".." "."
-    pub(crate) fn init_dot_dir(&mut self, dot_n: usize, cid: CID, utc_time: &UtcTime) {
+    pub(crate) fn init_dot_dir(&mut self, dot_n: usize, cid: CID, now: Instant) {
         debug_assert!(self.is_free());
         self.name[..dot_n].fill(b'.');
         self.name[dot_n..].fill(0x20);
         self.ext.fill(0x20);
         self.attributes = Attr::DIRECTORY;
         self.reversed = 0;
-        self.init_time(utc_time);
+        self.init_time(now);
         self.set_cluster(cid);
         self.file_bytes = 0;
     }
-    pub(crate) fn init_except_name(
-        &mut self,
-        cid: CID,
-        file_bytes: u32,
-        attr: Attr,
-        utc_time: &UtcTime,
-    ) {
+    pub(crate) fn init_except_name(&mut self, cid: CID, file_bytes: u32, attr: Attr, now: Instant) {
         self.reversed = 0;
         self.set_cluster(cid);
         self.attributes = attr;
-        self.init_time(utc_time);
+        self.init_time(now);
         self.file_bytes = file_bytes;
     }
-    pub fn init_time(&mut self, utc_time: &UtcTime) {
+    pub fn init_time(&mut self, now: Instant) {
+        let utc_time = UtcTime::from_instant(now);
         self.set_access_time(&utc_time);
         self.set_access_time(&utc_time);
         self.set_modify_time(&utc_time);

@@ -3,7 +3,7 @@ use core::ops::ControlFlow;
 use alloc::{sync::Arc, vec::Vec};
 use ftl_util::{
     error::{SysR, SysRet},
-    time::UtcTime,
+    time::{Instant, UtcTime},
 };
 
 use crate::{
@@ -64,16 +64,19 @@ impl RawInode {
     pub fn update_file_bytes(&self, bytes: usize) {
         self.cache.inner.unique_lock().update_file_bytes(bytes);
     }
-    pub fn update_access_time(&self, utc_time: &UtcTime) {
-        self.cache.inner.unique_lock().update_access_time(utc_time);
+    pub fn update_access_time(&self, now: Instant) {
+        let utc = &UtcTime::from_instant(now);
+        self.cache.inner.unique_lock().update_access_time(utc);
     }
-    pub fn update_modify_time(&self, utc_time: &UtcTime) {
-        self.cache.inner.unique_lock().update_modify_time(utc_time);
+    pub fn update_modify_time(&self, now: Instant) {
+        let utc = &UtcTime::from_instant(now);
+        self.cache.inner.unique_lock().update_modify_time(utc);
     }
-    pub fn update_access_modify_time(&self, utc_time: &UtcTime) {
+    pub fn update_access_modify_time(&self, now: Instant) {
+        let utc = &UtcTime::from_instant(now);
         let lock = &mut *self.cache.inner.unique_lock();
-        lock.update_access_time(utc_time);
-        lock.update_modify_time(utc_time);
+        lock.update_access_time(utc);
+        lock.update_modify_time(utc);
     }
     /// 此函数将更新缓存
     ///

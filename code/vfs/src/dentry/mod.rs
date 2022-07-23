@@ -79,9 +79,6 @@ impl Dentry {
     pub fn inode_seq(&self) -> usize {
         self.cache.inode_seq.load(Ordering::Acquire)
     }
-    fn set_seq(&self, new: usize) {
-        self.cache.inode_seq.store(new, Ordering::Relaxed);
-    }
     /// 如果缓存存在将生成一个所有权Dentry
     ///
     /// 优先查找自身的子文件链表, 如果不存在则进入索引器查找

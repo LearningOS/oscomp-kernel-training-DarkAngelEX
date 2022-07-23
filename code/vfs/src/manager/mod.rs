@@ -5,13 +5,14 @@ use ftl_util::{
     async_tools::Async,
     error::{SysError, SysR},
     sync::{spin_mutex::SpinMutex, Spin},
+    time::Instant,
 };
 
 use crate::{
     dentry::{manager::DentryManager, Dentry, InodeS},
     fssp::{FsType, Fssp, FsspOwn},
     mount::{manager::MountManager, Mount},
-    tmpfs::TmpFsInfo,
+    tmpfs::TmpFsType,
     VfsFile, PRINT_OP,
 };
 
@@ -24,6 +25,19 @@ pub trait VfsSpawner: Send + Sync + 'static {
     fn box_clone(&self) -> Box<dyn VfsSpawner>;
     fn spawn(&self, future: Async<'static, ()>);
 }
+pub trait VfsClock: Send + Sync + 'static {
+    fn box_clone(&self) -> Box<dyn VfsClock>;
+    fn now(&self) -> Instant;
+}
+pub struct ZeroClock;
+impl VfsClock for ZeroClock {
+    fn box_clone(&self) -> Box<dyn VfsClock> {
+        Box::new(ZeroClock)
+    }
+    fn now(&self) -> Instant {
+        Instant::BASE
+    }
+}
 
 pub struct VfsManager {
     fstypes: SpinMutex<BTreeMap<String, Box<dyn FsType>>, Spin>,
@@ -33,6 +47,7 @@ pub struct VfsManager {
     dentrys: DentryManager,
     mounts: MountManager,
     spawner: Option<Box<dyn VfsSpawner>>,
+    clock: Option<Box<dyn VfsClock>>,
 }
 
 pub trait BaseFn = FnOnce() -> SysR<Arc<VfsFile>>;
@@ -48,16 +63,20 @@ impl VfsManager {
             dentrys: DentryManager::new(max),
             mounts: MountManager::new(),
             spawner: None,
+            clock: None,
         });
         m.root_fssp.rc_increase();
         m.dentrys.init();
         m.mounts.init();
         m.init_root();
-        m.import_fstype(TmpFsInfo::new()); // 导入 tmpfs
+        m.import_fstype(TmpFsType::new()); // 导入 tmpfs
         m
     }
     pub fn init_spawner(&mut self, spawner: Box<dyn VfsSpawner>) {
         self.spawner = Some(spawner);
+    }
+    pub fn init_clock(&mut self, clock: Box<dyn VfsClock>) {
+        self.clock = Some(clock);
     }
     fn mounts_ptr(&self) -> NonNull<MountManager> {
         NonNull::new(&self.mounts as *const _ as *mut _).unwrap()
@@ -158,10 +177,11 @@ impl VfsManager {
             .new_fs();
 
         let src = match fs.need_src() {
-            true => Some(VfsFile::from_path(self.walk_all(src).await?)?),
+            true => Some(VfsFile::from_path_arc(self.walk_all(src).await?)?),
             false => None,
         };
-        fs.init(src, flags).await?;
+        fs.init(src, flags, self.clock.as_ref().unwrap().box_clone())
+            .await?;
         if fs.need_spawner() {
             let spawner = self.spawner.as_ref().unwrap().box_clone();
             fs.set_spawner(spawner).await?;

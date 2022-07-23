@@ -108,9 +108,9 @@ impl TimeSpec {
     pub fn as_instant(self) -> Instant {
         Instant::BASE + self.as_duration()
     }
-    pub fn user_map(self, now: impl FnOnce() -> Duration) -> SysR<Option<Self>> {
+    pub fn user_map(self, now: impl FnOnce() -> Instant) -> SysR<Option<Self>> {
         if self.is_now() {
-            Ok(Some(Self::from_duration(now())))
+            Ok(Some(Self::from_duration(now() - Instant::BASE)))
         } else if self.is_omit() {
             Ok(None)
         } else {
@@ -181,12 +181,12 @@ impl UtcTime {
     pub fn nanosecond(&self) -> usize {
         self.nano
     }
-    pub fn from_instant(dur: Instant) -> Self {
-        let (y, mo, d, h, mi, s) = dur.year_mount_day_hour_min_second();
+    pub fn from_instant(now: Instant) -> Self {
+        let (y, mo, d, h, mi, s) = now.year_mount_day_hour_min_second();
         UtcTime {
             ymd: (y, mo, d),
             hms: (h, mi, s),
-            nano: dur.subsec_nanos() as usize,
+            nano: now.subsec_nanos() as usize,
         }
     }
 }

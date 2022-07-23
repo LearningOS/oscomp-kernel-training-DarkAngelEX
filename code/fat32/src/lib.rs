@@ -42,6 +42,7 @@ mod mutex;
 
 mod inode;
 mod tools;
+pub mod vfs_interface;
 pub mod xtest;
 
 pub use ftl_util::{

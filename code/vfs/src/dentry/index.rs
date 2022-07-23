@@ -1,5 +1,3 @@
-use core::ops::DerefMut;
-
 use alloc::{boxed::Box, collections::BTreeMap};
 use ftl_util::{
     list::InListNode,
@@ -64,10 +62,5 @@ impl DentryIndex {
         drop(lk);
         debug_assert!(head.is_empty());
         drop(head);
-    }
-    pub fn lock(&self, d: &HashName) -> impl DerefMut + '_ {
-        let hash = d.all_hash();
-        let n = hash.0 as usize % DENTRY_HASH_TABLE;
-        self.table[n].unique_lock()
     }
 }

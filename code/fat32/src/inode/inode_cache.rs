@@ -91,7 +91,7 @@ impl InodeCache {
     }
     pub fn new_root(manager: &Fat32Manager) -> Self {
         let mut short = Align8(RawShortName::zeroed());
-        short.init_dot_dir(1, CID(manager.bpb.root_cluster_id), &manager.utc_time());
+        short.init_dot_dir(1, CID(manager.bpb.root_cluster_id), manager.now());
         let entry = EntryPlace::ROOT;
         let alive = manager.inodes.alive_weak();
         let aid_alloc = manager.inodes.aid_alloc.clone();

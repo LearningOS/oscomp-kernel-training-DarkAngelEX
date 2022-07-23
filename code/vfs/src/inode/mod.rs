@@ -32,6 +32,7 @@ pub trait FsInode: Send + Sync + 'static {
 
     fn bytes(&self) -> SysRet;
     fn reset_data(&self) -> ASysR<()>;
+    fn delete(&mut self); // 用于文件延迟删除
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
@@ -56,6 +57,14 @@ pub(crate) struct VfsInode {
 
 unsafe impl Send for VfsInode {}
 unsafe impl Sync for VfsInode {}
+
+impl Drop for VfsInode {
+    fn drop(&mut self) {
+        if *self.drop_release.get_mut() {
+            self.fsinode.delete();
+        }
+    }
+}
 
 impl VfsInode {
     pub fn new(fssp: NonNull<Fssp>, inode: Box<dyn FsInode>) -> Arc<Self> {

@@ -8,7 +8,7 @@ use ftl_util::{
         stat::{Stat, S_IFDIR, S_IFREG},
         DentryType, Seek,
     },
-    time::{Instant, TimeSpec, UtcTime},
+    time::{Instant, TimeSpec},
 };
 use vfs::File;
 
@@ -32,7 +32,7 @@ impl Fat32Inode {
         let buffer_size = 4096;
         let mut buffer = unsafe { Box::try_new_uninit_slice(buffer_size)?.assume_init() };
         let mut v: Vec<u8> = Vec::new();
-        let file = self.inode.file().ok_or(SysError::EISDIR)?;
+        let file = self.inode.file()?;
         let mut offset = 0;
         loop {
             let len = file.read_at(&self.manager, offset, &mut *buffer).await?;
@@ -46,8 +46,7 @@ impl Fat32Inode {
         Ok(v)
     }
     pub async fn list(&self) -> SysR<Vec<(DentryType, String)>> {
-        let dir = self.inode.dir().ok_or(SysError::ENOTDIR)?;
-        dir.list(&self.manager).await
+        self.inode.dir()?.list(&self.manager).await
     }
 }
 
@@ -65,7 +64,7 @@ impl File for Fat32Inode {
         true
     }
     fn lseek(&self, offset: isize, whence: Seek) -> SysRet {
-        let len = self.inode.file().ok_or(SysError::EISDIR)?.bytes();
+        let len = self.inode.file()?.bytes();
         let target = match whence {
             Seek::Set => 0isize,
             Seek::Cur => self.ptr.load(Ordering::Acquire) as isize,
@@ -79,20 +78,14 @@ impl File for Fat32Inode {
     }
     fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
-            let inode = match &self.inode {
-                AnyInode::Dir(_) => return Err(SysError::EISDIR),
-                AnyInode::File(inode) => inode,
-            };
+            let inode = self.inode.file()?;
             let n = inode.read_at(&self.manager, offset, buf).await?;
             Ok(n)
         })
     }
     fn write_at<'a>(&'a self, offset: usize, buf: &'a [u8]) -> ASysRet {
         Box::pin(async move {
-            let inode = match &self.inode {
-                AnyInode::Dir(_) => return Err(SysError::EISDIR),
-                AnyInode::File(inode) => inode,
-            };
+            let inode = self.inode.file()?;
             let n = inode.write_at(&self.manager, offset, buf).await?;
             Ok(n)
         })
@@ -100,10 +93,7 @@ impl File for Fat32Inode {
     fn read<'a>(&'a self, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
             let offset = self.ptr.load(Ordering::Acquire);
-            let inode = match &self.inode {
-                AnyInode::Dir(_) => return Err(SysError::EISDIR),
-                AnyInode::File(inode) => inode,
-            };
+            let inode = self.inode.file()?;
             let n = inode.read_at(&self.manager, offset, buf).await?;
             self.ptr.store(offset + n, Ordering::Release);
             Ok(n)
@@ -113,10 +103,7 @@ impl File for Fat32Inode {
         Box::pin(async move {
             // println!("write: {}", buf.len());
             let offset = self.ptr.load(Ordering::Acquire);
-            let inode = match &self.inode {
-                AnyInode::Dir(_) => return Err(SysError::EISDIR),
-                AnyInode::File(inode) => inode,
-            };
+            let inode = self.inode.file()?;
             let n = inode.write_at(&self.manager, offset, buf).await?;
             self.ptr.store(offset + n, Ordering::Release);
             Ok(n)
@@ -157,11 +144,9 @@ impl File for Fat32Inode {
     fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
         Box::pin(async move {
             let [access, modify] = times
-                .try_map(|v| v.user_map(|| now() - Instant::BASE))?
-                .map(|v| v.map(|v| UtcTime::from_instant(v.as_instant())));
-            self.inode
-                .update_time(access.as_ref(), modify.as_ref())
-                .await;
+                .try_map(|v| v.user_map(now))?
+                .map(|v| v.map(|v| v.as_instant()));
+            self.inode.update_time(access, modify).await;
             Ok(0)
         })
     }

@@ -17,19 +17,19 @@ use ftl_util::{
 use crate::{
     fssp::{Fs, FsType},
     inode::FsInode,
-    manager::VfsSpawner,
+    manager::{VfsClock, VfsSpawner},
     VfsFile,
 };
 
-pub struct TmpFsInfo;
+pub struct TmpFsType;
 
-impl TmpFsInfo {
+impl TmpFsType {
     pub fn new() -> Box<dyn FsType> {
         Box::new(Self)
     }
 }
 
-impl FsType for TmpFsInfo {
+impl FsType for TmpFsType {
     fn name(&self) -> String {
         "tmpfs".to_string()
     }
@@ -47,7 +47,12 @@ impl Fs for TmpFs {
     fn need_spawner(&self) -> bool {
         false
     }
-    fn init(&mut self, _file: Option<VfsFile>, _flags: usize) -> ASysR<()> {
+    fn init(
+        &mut self,
+        _file: Option<Arc<VfsFile>>,
+        _flags: usize,
+        _clock: Box<dyn VfsClock>,
+    ) -> ASysR<()> {
         Box::pin(async { Ok(()) })
     }
     fn set_spawner(&mut self, _spawner: Box<dyn VfsSpawner>) -> ASysR<()> {
@@ -109,6 +114,7 @@ impl FsInode for TmpFsInode {
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move { self.file()?.reset_data().await })
     }
+    fn delete(&mut self) {}
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
