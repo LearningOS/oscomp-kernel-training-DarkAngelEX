@@ -15,6 +15,7 @@ mod mmap;
 mod process;
 pub mod random;
 mod signal;
+mod net;
 mod thread;
 mod time;
 
@@ -77,6 +78,15 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
+const SYSCALL_SOCKET: usize = 198;
+const SYSCALL_BIND: usize = 200;
+const SYSCALL_LISTEN: usize = 201;
+const SYSCALL_ACCEPT: usize = 202;
+const SYSCALL_CONNECT: usize = 203;
+const SYSCALL_GETSOCKNAME: usize = 204;
+const SYSCALL_SENDTO: usize = 206;
+const SYSCALL_RECVFROM: usize = 207;
+const SYSCALL_SETSOCKOPT: usize = 208;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
@@ -172,6 +182,15 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETEUID => self.sys_geteuid(),
             SYSCALL_GETEGID => self.sys_getegid(),
             SYSCALL_GETTID => self.sys_gettid(),
+            SYSCALL_SOCKET => self.sys_socket(),
+            SYSCALL_BIND => self.sys_bind(),
+            SYSCALL_LISTEN => self.sys_listen(),
+            SYSCALL_ACCEPT => self.sys_accept(),
+            SYSCALL_CONNECT => self.sys_connect(),
+            SYSCALL_GETSOCKNAME => self.sys_getsockname(),
+            SYSCALL_SENDTO => self.sys_sendto().await,
+            SYSCALL_RECVFROM => self.sys_recvfrom().await,
+            SYSCALL_SETSOCKOPT => self.sys_setsockopt(),
             SYSCALL_BRK => self.sys_brk(),
             SYSCALL_MUNMAP => self.sys_munmap(),
             SYSCALL_CLONE => self.sys_clone().await,
