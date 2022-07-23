@@ -6,7 +6,7 @@ use core::{
 use alloc::{boxed::Box, sync::Arc};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
-    error::{SysR, SysRet},
+    error::{SysError, SysR, SysRet},
     fs::stat::Stat,
     list::InListNode,
 };
@@ -25,6 +25,18 @@ pub trait FsInode: Send + Sync + 'static {
 
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>>;
     fn create<'a>(&'a self, name: &'a str, dir: bool, rw: (bool, bool)) -> ASysR<Box<dyn FsInode>>;
+    fn place_inode<'a>(
+        &'a self,
+        _name: &'a str,
+        _inode: Box<dyn FsInode>,
+    ) -> ASysR<Box<dyn FsInode>> {
+        Box::pin(async move {
+            if !self.is_dir() {
+                return Err(SysError::ENOTDIR);
+            }
+            panic!("place_inode unsupport: {}", core::any::type_name::<Self>())
+        })
+    }
     fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()>;
     fn rmdir_child<'a>(&'a self, name: &'a str) -> ASysR<()>;
 
@@ -32,7 +44,7 @@ pub trait FsInode: Send + Sync + 'static {
 
     fn bytes(&self) -> SysRet;
     fn reset_data(&self) -> ASysR<()>;
-    fn delete(&mut self); // 用于文件延迟删除
+    fn delete(&self); // 用于文件延迟删除
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
@@ -115,6 +127,10 @@ impl VfsInode {
     /// 只有目录可以运行
     pub async fn create(&self, name: &str, dir: bool, rw: (bool, bool)) -> SysR<Arc<VfsInode>> {
         let fsinode = self.fsinode.create(name, dir, rw).await?;
+        Ok(Self::new(self.fssp, fsinode))
+    }
+    pub async fn place_inode(&self, name: &str, inode: Box<dyn FsInode>) -> SysR<Arc<VfsInode>> {
+        let fsinode = self.fsinode.place_inode(name, inode).await?;
         Ok(Self::new(self.fssp, fsinode))
     }
     /// 只有目录项可以运行

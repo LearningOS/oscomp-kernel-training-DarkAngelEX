@@ -26,7 +26,12 @@ impl Path {
         self.dentry.cache.inode.lock().clone()
     }
     fn is_vfs_root(&self) -> bool {
-        self.mount.is_none() && self.is_fs_root()
+        if !self.is_fs_root() {
+            return false;
+        }
+        let mut path = self.clone();
+        path.run_mount_prev();
+        path.mount.is_none() && path.is_fs_root()
     }
     fn is_fs_root(&self) -> bool {
         self.dentry.cache.parent().is_none()
@@ -103,8 +108,9 @@ impl VfsManager {
     }
     pub(crate) async fn walk_name(&self, mut path: Path, name: &str) -> SysR<Path> {
         // 当前目录为根目录
+        println!("walk_name: {} -> {}", path.dentry.cache.name(), name);
         if path.is_vfs_root() {
-            if let Some(dentry) = self.special_dentry.get(name).cloned() {
+            if let Some(dentry) = self.special_dir.get(name).cloned() {
                 path.dentry = dentry;
                 return Ok(path);
             }

@@ -1,11 +1,15 @@
+use alloc::{boxed::Box, string::ToString};
 use ftl_util::{async_tools::tiny_env, error::SysError};
 
-use crate::{manager::BaseFn, File, VfsManager};
+use crate::{
+    manager::{BaseFn, ZeroClock},
+    File, VfsManager,
+};
 
 #[test]
 pub fn test_run() {
     let (executor, spawner) = tiny_env::new_executor_and_spawner();
-    spawner.spawn(test_rmdir());
+    spawner.spawn(test_special());
     executor.run_debug();
 }
 
@@ -15,7 +19,8 @@ fn xp(path: &str) -> (impl BaseFn, &str) {
 
 /// 测试文件系统的目录层级创建是否可用
 async fn test_create() {
-    let manager = VfsManager::new(10);
+    let mut manager = VfsManager::new(10);
+    manager.init_clock(Box::new(ZeroClock));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let d0 = manager.create(xp("/0"), false).await.unwrap();
     let d1 = manager.open(xp("/0")).await.unwrap();
@@ -35,7 +40,8 @@ async fn test_create() {
 
 /// 测试文件系统的回收系统是否正常运行
 async fn test_many() {
-    let manager = VfsManager::new(3);
+    let mut manager = VfsManager::new(3);
+    manager.init_clock(Box::new(ZeroClock));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let _d00 = manager.create(xp("/0"), false).await.unwrap();
     let _d01 = manager.create(xp("/1"), false).await.unwrap();
@@ -59,7 +65,8 @@ async fn test_many() {
 }
 
 async fn test_unlink() {
-    let manager = VfsManager::new(10);
+    let mut manager = VfsManager::new(10);
+    manager.init_clock(Box::new(ZeroClock));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let _0 = manager.create(xp("/0"), false).await.unwrap();
     manager.open(xp("/0")).await.unwrap();
@@ -68,7 +75,8 @@ async fn test_unlink() {
 }
 
 async fn test_rmdir() {
-    let manager = VfsManager::new(10);
+    let mut manager = VfsManager::new(10);
+    manager.init_clock(Box::new(ZeroClock));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let x = manager.create(xp("/1"), true).await.unwrap();
     manager.rmdir(xp("/1")).await.unwrap();
@@ -82,4 +90,12 @@ async fn test_rmdir() {
         .unwrap();
     manager.rmdir(xp("/1")).await.unwrap_err();
     manager.rmdir((|| Ok(d1), "")).await.unwrap_err();
+}
+
+async fn test_special() {
+    let mut manager = VfsManager::new(10);
+    manager.init_clock(Box::new(ZeroClock));
+    manager.set_spec_dentry("dev".to_string());
+    manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
+    manager.open(xp("/dev")).await.unwrap();
 }

@@ -9,11 +9,13 @@ use ftl_util::{
 };
 
 use crate::{
-    dentry::{manager::DentryManager, Dentry, InodeS},
+    dentry::{manager::DentryManager, Dentry, DentryCache, InodeS},
     fssp::{FsType, Fssp, FsspOwn},
+    hash_name::HashName,
+    inode::VfsInode,
     mount::{manager::MountManager, Mount},
-    tmpfs::TmpFsType,
-    VfsFile, PRINT_OP,
+    tmpfs::{TmpFs, TmpFsType},
+    FsInode, VfsFile, PRINT_OP,
 };
 
 use self::path::Path;
@@ -43,7 +45,7 @@ pub struct VfsManager {
     fstypes: SpinMutex<BTreeMap<String, Box<dyn FsType>>, Spin>,
     root: Option<Arc<Dentry>>,
     root_fssp: Box<Fssp>,
-    special_dentry: BTreeMap<String, Arc<Dentry>>,
+    special_dir: BTreeMap<String, Arc<Dentry>>, // 特殊文件会挂载到根目录
     dentrys: DentryManager,
     mounts: MountManager,
     spawner: Option<Box<dyn VfsSpawner>>,
@@ -59,7 +61,7 @@ impl VfsManager {
             fstypes: SpinMutex::new(BTreeMap::new()),
             root: None,
             root_fssp: Fssp::new(None),
-            special_dentry: BTreeMap::new(),
+            special_dir: BTreeMap::new(),
             dentrys: DentryManager::new(max),
             mounts: MountManager::new(),
             spawner: None,
@@ -72,24 +74,41 @@ impl VfsManager {
         m.import_fstype(TmpFsType::new()); // 导入 tmpfs
         m
     }
+
     pub fn init_spawner(&mut self, spawner: Box<dyn VfsSpawner>) {
         self.spawner = Some(spawner);
     }
     pub fn init_clock(&mut self, clock: Box<dyn VfsClock>) {
         self.clock = Some(clock);
     }
-    fn mounts_ptr(&self) -> NonNull<MountManager> {
-        NonNull::new(&self.mounts as *const _ as *mut _).unwrap()
-    }
     pub fn import_fstype(&self, fstype: Box<dyn FsType>) {
         let name = fstype.name();
         let _ = self.fstypes.lock().insert(name, fstype);
+    }
+    /// 这里创建的目录将全局可见
+    pub fn set_spec_dentry(&mut self, name: String) {
+        let parent = self.root.as_ref().unwrap().clone();
+        let fssp = NonNull::new(&mut *self.root_fssp).unwrap();
+        let dentry = DentryCache::new(
+            HashName::new(&*parent, &name),
+            true,
+            Some(parent),
+            InodeS::Some(VfsInode::new(fssp, TmpFs::new_dir())),
+            NonNull::new(&mut self.dentrys.lru).unwrap(),
+            fssp,
+            NonNull::new(&mut self.dentrys.index).unwrap(),
+            false,
+        );
+        self.special_dir.try_insert(name, dentry).ok().unwrap();
     }
     /// 初始化根目录
     fn init_root(&mut self) {
         stack_trace!();
         let root = Dentry::new_vfs_root(&self.dentrys, NonNull::new(&mut *self.root_fssp).unwrap());
         self.root = Some(root);
+    }
+    fn mounts_ptr(&self) -> NonNull<MountManager> {
+        NonNull::new(&self.mounts as *const _ as *mut _).unwrap()
     }
     pub async fn open(&self, path: (impl BaseFn, &str)) -> SysR<Arc<VfsFile>> {
         stack_trace!();
@@ -123,6 +142,32 @@ impl VfsManager {
             }
         }
         let dentry = path.dentry.create(name, dir, (true, true)).await?;
+        VfsFile::from_path_arc(Path {
+            mount: path.mount,
+            dentry,
+        })
+    }
+    pub async fn place_inode(
+        &self,
+        path: (impl BaseFn, &str),
+        inode: Box<dyn FsInode>,
+    ) -> SysR<Arc<VfsFile>> {
+        stack_trace!();
+        if PRINT_OP {
+            println!("set_inode: {}", path.1);
+        }
+        if inode.is_dir() {
+            println!("try set dir inode!");
+            return Err(SysError::EISDIR);
+        }
+        let (path, name) = self.walk_path(path).await?;
+        if !path.dentry.is_dir() || path::name_invalid(name) {
+            return Err(SysError::ENOTDIR);
+        }
+        if let Ok(_) = self.walk_name(path.clone(), name).await {
+            return Err(SysError::EEXIST);
+        }
+        let dentry = path.dentry.place_inode(name, inode).await?;
         VfsFile::from_path_arc(Path {
             mount: path.mount,
             dentry,

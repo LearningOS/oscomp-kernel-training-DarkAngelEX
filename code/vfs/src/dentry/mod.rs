@@ -29,7 +29,7 @@ use crate::{
     hash_name::{AllHash, HashName, NameHash},
     inode::VfsInode,
     mount::Mount,
-    PRINT_INTO_LRU, PRINT_OP,
+    FsInode, PRINT_INTO_LRU, PRINT_OP,
 };
 
 use self::{index::DentryIndex, lru_queue::LRUQueue, manager::DentryManager};
@@ -158,6 +158,38 @@ impl Dentry {
         let dentry = DentryCache::new(
             hash_name,
             dir,
+            Some(self.clone()),
+            InodeS::Some(vfsinode),
+            self.cache.lru,
+            self.cache.fssp,
+            self.cache.index,
+            true,
+        );
+        self.cache.seq_increase();
+        Ok(dentry)
+    }
+    pub async fn place_inode(
+        self: &Arc<Self>,
+        name: &str,
+        inode: Box<dyn FsInode>,
+    ) -> SysR<Arc<Dentry>> {
+        debug_assert!(self.is_dir());
+        debug_assert!(!inode.is_dir());
+        let _lk = self.cache.dir_lock.lock().await;
+        if self.cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        let dinode = self.cache.inode.lock().clone().into_inode()?;
+        let hash_name = HashName::new(self.as_ref(), name);
+        let nh = hash_name.name_hash();
+        if let Some(d) = self.search_child_in_cache(name, nh) {
+            return Ok(d);
+        }
+        // 文件名查重将由create内部进行
+        let vfsinode = dinode.place_inode(name, inode).await?;
+        let dentry = DentryCache::new(
+            hash_name,
+            false,
             Some(self.clone()),
             InodeS::Some(vfsinode),
             self.cache.lru,
