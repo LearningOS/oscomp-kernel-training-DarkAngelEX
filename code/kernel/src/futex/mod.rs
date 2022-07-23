@@ -1,10 +1,10 @@
-use core::{ops::Range, time::Duration};
+use core::ops::Range;
 
 use alloc::{
     collections::BTreeMap,
     sync::{Arc, Weak},
 };
-use ftl_util::rcu::RcuCollect;
+use ftl_util::{rcu::RcuCollect, time::Instant};
 
 use crate::{
     memory::{address::UserAddr, user_ptr::UserInOutPtr},
@@ -118,7 +118,7 @@ impl Futex {
     pub async fn wait(
         &self,
         mask: u32,
-        timeout: Duration,
+        timeout: Instant,
         pid: Option<Pid>,
         mut fail: impl FnMut() -> bool,
     ) -> WaitStatus {

@@ -2,12 +2,14 @@ use ftl_util::{
     fs::{stat::Stat, Mode, OpenFlags},
     time::TimeSpec,
 };
+use vfs::File;
 
 use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::{fs::PRINT_SYSCALL_FS, SysError, SysRet, Syscall},
-    user::check::UserCheck, timer,
+    timer,
+    user::check::UserCheck,
 };
 
 impl Syscall<'_> {
@@ -59,7 +61,7 @@ impl Syscall<'_> {
             self.fd_path_open(fd, path, OpenFlags::RDONLY, Mode(0o600))
                 .await?
         }
-        .utimensat(times, timer::get_time)
+        .utimensat(times, timer::now)
         .await
     }
     pub async fn sys_newfstatat(&mut self) -> SysRet {

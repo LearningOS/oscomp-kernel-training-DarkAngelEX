@@ -1,6 +1,4 @@
-use alloc::{sync::Arc, vec::Vec};
-use ftl_util::error::SysR;
-use vfs::File;
+use alloc::vec::Vec;
 
 pub fn walk_iter_path<'a>(src: impl Iterator<Item = &'a str>, dst: &mut Vec<&'a str>) {
     for s in src {
@@ -43,10 +41,4 @@ pub fn is_absolute_path(s: &str) -> bool {
         Some(b'/') | Some(b'\\') => true,
         _ => false,
     }
-}
-
-pub fn file_path_iter<'a>(
-    file: &'a Option<Arc<dyn File>>,
-) -> Option<SysR<impl Iterator<Item = &'a str>>> {
-    file.as_ref().map(|v| Ok(v.to_vfs_inode()?.path_iter()))
 }

@@ -12,6 +12,7 @@ pub struct Instant(Duration);
 impl Instant {
     /// 1980-1-1 00:00
     pub const BASE: Self = Instant(Duration::ZERO);
+    pub const MAX: Self = Instant(Duration::MAX);
     pub fn year_mount_day_hour_min_second(self) -> (usize, usize, usize, usize, usize, usize) {
         let seconds = self.0.as_secs();
         let mins = seconds / 60;
@@ -33,6 +34,12 @@ impl Instant {
     }
     pub fn subsec_nanos(self) -> u32 {
         self.0.subsec_nanos()
+    }
+    pub fn as_secs(self) -> u64 {
+        self.0.as_secs()
+    }
+    pub fn as_nanos(self) -> u128 {
+        self.0.as_nanos()
     }
 }
 
@@ -101,6 +108,9 @@ impl TimeSpec {
             tv_sec: dur.as_secs() as usize,
             tv_nsec: dur.subsec_nanos() as usize,
         }
+    }
+    pub fn from_instant(now: Instant) -> Self {
+        Self::from_duration(now - Instant::BASE)
     }
     pub fn as_duration(self) -> Duration {
         Duration::from_nanos(self.tv_nsec as u64) + Duration::from_secs(self.tv_sec as u64)

@@ -383,7 +383,7 @@ impl UserSpace {
             fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
                 let seed = match CLOSE_RANDOM {
                     true => 1,
-                    false => timer::get_time().as_nanos() as u64 ^ 0xcdba,
+                    false => timer::now().as_nanos() as u64 ^ 0xcdba,
                 };
                 let mut s = (0x1u64, seed);
                 for dst in dst {

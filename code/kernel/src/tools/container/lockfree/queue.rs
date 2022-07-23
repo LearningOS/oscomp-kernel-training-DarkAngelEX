@@ -442,7 +442,7 @@ pub mod test {
     ) {
         assert!(producer + consumer <= cpu::count());
         tools::wait_all_hart();
-        let begin = timer::get_time();
+        let begin = timer::now();
         let n = if hart < producer {
             let n = if hart != producer - 1 {
                 total / producer
@@ -480,7 +480,7 @@ pub mod test {
         } else {
             0
         };
-        let end = timer::get_time();
+        let end = timer::now();
         for i in 0..cpu::count() {
             tools::wait_all_hart();
             if i == hart {
@@ -533,11 +533,11 @@ pub mod test {
         }
         stack_trace!();
         tools::wait_all_hart();
-        let t0 = timer::get_time();
+        let t0 = timer::now();
         tools::wait_all_hart();
         test_push_pop_impl(hart, producer, consumer, total, push, pop, off + 4);
         tools::wait_all_hart();
-        let t1 = timer::get_time();
+        let t1 = timer::now();
         tools::wait_all_hart();
         if hart == 0 {
             let ms = (t1 - t0).as_millis();
@@ -574,7 +574,7 @@ pub mod test {
         }
         tools::wait_all_hart();
         unsafe { SET_TABLE[hart].clear() };
-        let t0 = timer::get_time();
+        let t0 = timer::now();
         tools::wait_all_hart();
         loop {
             let begin = COUNT_PUSH.fetch_add(batch, Ordering::Relaxed);
@@ -600,7 +600,7 @@ pub mod test {
             }
         }
         tools::wait_all_hart();
-        let t1 = timer::get_time();
+        let t1 = timer::now();
         tools::wait_all_hart();
         if hart == 0 {
             let ms = (t1 - t0).as_millis();
@@ -633,7 +633,7 @@ pub mod test {
         }
         tools::wait_all_hart();
         unsafe { SET_TABLE[hart].clear() };
-        let t0 = timer::get_time();
+        let t0 = timer::now();
         tools::wait_all_hart();
 
         match hart {
@@ -732,7 +732,7 @@ pub mod test {
             }
             assert!(pop().is_none());
         }
-        let t1 = timer::get_time();
+        let t1 = timer::now();
         tools::wait_all_hart();
         if hart == 0 {
             let ms = (t1 - t0).as_millis();

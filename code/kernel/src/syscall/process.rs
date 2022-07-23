@@ -138,15 +138,12 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
-            Some(Ok(&mut self.alive_then(|a| a.cwd.clone()).path_iter())),
-            path.as_str(),
+            (Ok(self.alive_then(|a| a.cwd.clone())), path.as_str()),
             OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await?;
-        let mut iter = inode.path_iter();
-        iter.next_back();
-        let dir = fs::open_file(Some(Ok(&mut iter)), "", OpenFlags::RDONLY, Mode(0o500)).await?;
+        let dir = inode.parent()?.unwrap();
         let elf_data = inode.read_all().await?;
         let (mut user_space, user_sp, mut entry_point, mut auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -401,12 +398,12 @@ impl Syscall<'_> {
             None => None,
             Some(rem) => Some(UserCheck::new(self.process).writable_value(rem).await?),
         };
-        let now = timer::get_time();
+        let now = timer::now();
         let dur = req.as_duration();
         let deadline = now + dur;
         let ret = timer::sleep::sleep(dur, &self.process.event_bus).await;
         if let Some(rem) = rem {
-            let time_end = timer::get_time();
+            let time_end = timer::now();
             let time_rem = if time_end < deadline {
                 deadline - time_end
             } else {

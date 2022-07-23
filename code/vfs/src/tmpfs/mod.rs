@@ -7,11 +7,12 @@ use alloc::{
     boxed::Box,
     string::{String, ToString},
     sync::Arc,
+    vec::Vec,
 };
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     error::{SysError, SysR, SysRet},
-    fs::stat::Stat,
+    fs::{stat::Stat, DentryType},
 };
 
 use crate::{
@@ -40,7 +41,9 @@ impl FsType for TmpFsType {
     }
 }
 
-pub(crate) struct TmpFs {}
+pub(crate) struct TmpFs {
+    root: TmpFsInode,
+}
 
 impl Fs for TmpFs {
     fn need_src(&self) -> bool {
@@ -61,13 +64,15 @@ impl Fs for TmpFs {
         panic!()
     }
     fn root(&self) -> Box<dyn FsInode> {
-        Box::new(TmpFsInode::new(true, (true, true)))
+        Box::new(self.root.clone())
     }
 }
 
 impl TmpFs {
     pub fn new() -> Box<Self> {
-        Box::new(Self {})
+        Box::new(Self {
+            root: TmpFsInode::new(true, (true, true)),
+        })
     }
     pub fn new_dir() -> Box<dyn FsInode> {
         Box::new(TmpFsInode::new(true, (true, true)))
@@ -128,6 +133,9 @@ impl FsInode for TmpFsInode {
             TmpFsImpl::Dir(_) => true,
             TmpFsImpl::File(_) => false,
         }
+    }
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
+        Box::pin(async move { self.dir()?.list().await })
     }
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { self.dir()?.search(name).await })

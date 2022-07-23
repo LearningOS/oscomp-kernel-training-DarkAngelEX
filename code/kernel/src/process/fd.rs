@@ -66,15 +66,15 @@ impl FdTable {
             search_start: Fd(0),
             limit: USER_FNO_DEFAULT,
         };
-        use crate::fs::dev::tty;
+        use crate::fs::stdio;
         // [0, 1, 2] => [stdin, stdout, stderr]
-        ret.insert(tty::inode(), false, OpenFlags::empty())
+        ret.insert(Arc::new(stdio::Stdin), false, OpenFlags::empty())
             .unwrap()
             .assert_eq(0);
-        ret.insert(tty::inode(), false, OpenFlags::empty())
+        ret.insert(Arc::new(stdio::Stdout), false, OpenFlags::empty())
             .unwrap()
             .assert_eq(1);
-        ret.insert(tty::inode(), false, OpenFlags::empty())
+        ret.insert(Arc::new(stdio::Stdout), false, OpenFlags::empty())
             .unwrap()
             .assert_eq(2);
         ret

@@ -1,11 +1,14 @@
-use core::{fmt::Debug, sync::atomic::Ordering};
+use core::{
+    fmt::Debug,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     device::BlockDevice,
     error::{SysError, SysR, SysRet},
-    fs::{stat::Stat, Seek},
+    fs::{stat::Stat, DentryType, Seek},
     time::{Instant, TimeSpec},
 };
 
@@ -19,8 +22,11 @@ pub trait File: Send + Sync + 'static {
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Err(SysError::ENOENT)
     }
-    fn into_block_device(self: Arc<Self>) -> SysR<Arc<dyn BlockDevice>> {
+    fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
         Err(SysError::ENOTBLK)
+    }
+    fn into_vfs_file(self: Arc<Self>) -> SysR<Arc<VfsFile>> {
+        Err(SysError::ENOENT)
     }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
@@ -58,6 +64,7 @@ pub trait File: Send + Sync + 'static {
 pub struct VfsFile {
     pub(crate) path: Path,
     pub(crate) inode: Arc<VfsInode>,
+    ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
 }
 
 impl Debug for VfsFile {
@@ -70,7 +77,11 @@ impl Debug for VfsFile {
 impl VfsFile {
     pub(crate) fn from_path(path: Path) -> SysR<Self> {
         let inode = path.inode_s().into_inode()?;
-        Ok(Self { path, inode })
+        Ok(Self {
+            path,
+            inode,
+            ptr: AtomicUsize::new(0),
+        })
     }
     pub(crate) fn from_path_arc(path: Path) -> SysR<Arc<Self>> {
         Ok(Arc::new(Self::from_path(path)?))
@@ -81,11 +92,44 @@ impl VfsFile {
     fn fsinode(&self) -> &dyn FsInode {
         self.inode.fsinode.as_ref()
     }
+    pub fn parent(&self) -> SysR<Option<Arc<Self>>> {
+        self.path
+            .parent()
+            .map(|p| VfsFile::from_path_arc(p))
+            .transpose()
+    }
+    pub async fn read_all(&self) -> SysR<Vec<u8>> {
+        let bytes = self.fsinode().bytes()?;
+        let mut v = Vec::new();
+        v.resize(bytes, 0);
+        let n = self.read_at(0, &mut v[..]).await?;
+        debug_assert_eq!(v.len(), n);
+        Ok(v)
+    }
+    pub async fn list(&self) -> SysR<Vec<(DentryType, String)>> {
+        self.fsinode().list().await
+    }
+    pub fn path_str(&self) -> Vec<Arc<str>> {
+        let mut v = Vec::new();
+        let mut cur = Some(self.path.clone());
+        while let Some(p) = cur {
+            v.push(p.dentry.cache.name());
+            cur = p.parent();
+        }
+        v.reverse();
+        v
+    }
 }
 
 impl File for VfsFile {
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Ok(self)
+    }
+    fn into_vfs_file(self: Arc<Self>) -> SysR<Arc<VfsFile>> {
+        Ok(self)
+    }
+    fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
+        self.fsinode().block_device()
     }
     fn readable(&self) -> bool {
         self.inode.readable()
@@ -102,7 +146,7 @@ impl File for VfsFile {
     // 以下为文件操作函数, 对目录操作将失败
     fn lseek(&self, offset: isize, whence: Seek) -> SysRet {
         let len = self.fsinode().bytes()?;
-        let ptr = self.inode.ptr();
+        let ptr = &self.ptr;
         let target = match whence {
             Seek::Set => 0isize,
             Seek::Cur => ptr.load(Ordering::Acquire) as isize,
@@ -118,12 +162,12 @@ impl File for VfsFile {
         Ok(target)
     }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet {
-        let ptr = self.inode.ptr();
+        let ptr = &self.ptr;
         let offset = ptr.load(Ordering::Acquire);
         self.fsinode().read_at(buffer, (offset, Some(ptr)))
     }
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet {
-        let ptr = self.inode.ptr();
+        let ptr = &self.ptr;
         let offset = ptr.load(Ordering::Acquire);
         self.fsinode().write_at(buffer, (offset, Some(ptr)))
     }

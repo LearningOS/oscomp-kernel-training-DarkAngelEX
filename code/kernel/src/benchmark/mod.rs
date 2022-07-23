@@ -4,6 +4,7 @@ use core::{
     time::Duration,
 };
 
+use ftl_util::time::Instant;
 use riscv::register::{stvec, utvec::TrapMode};
 
 use crate::{
@@ -41,23 +42,20 @@ pub fn run_all() {
 }
 
 pub struct BenchmarkTimer {
-    tick: Duration,
+    tick: Instant,
 }
 
 impl BenchmarkTimer {
     pub fn new() -> Self {
-        Self {
-            tick: timer::get_time(),
-        }
+        Self { tick: timer::now() }
     }
     // pub fn reset(&mut self) {
     //     self.tick = timer::get_time_ticks();
     // }
     #[inline(never)]
     pub fn check(&mut self, msg: &'static str, base_time: Duration, ratio: usize) -> Duration {
-        let dur = Duration::from_micros(
-            ((timer::get_time() - self.tick).as_micros() * ratio as u128) as u64,
-        );
+        let dur =
+            Duration::from_micros(((timer::now() - self.tick).as_micros() * ratio as u128) as u64);
         let base = dur.as_micros() * 100 / base_time.as_micros();
         println!("    {}", msg);
         print!(
@@ -81,7 +79,7 @@ impl BenchmarkTimer {
         }
         print!("\x1b[0m");
         println!();
-        self.tick = timer::get_time();
+        self.tick = timer::now();
         dur
     }
 }
@@ -93,16 +91,12 @@ fn frequent_test() {
     }
     println!("[FTL OS]frequent test begin");
     const BASE: usize = 200_000_000;
-    let start = timer::get_time();
+    let start = timer::now();
     unsafe { __time_frequent_test_impl(BASE) };
-    let dur = (timer::get_time() - start).as_micros() as usize;
+    let dur = (timer::now() - start).as_micros() as usize;
     println!("run {}M using time: {}ms", BASE / 1000_000, dur / 1000);
     print!("{}", to_yellow!());
-    println!(
-        "clock: {}KHz, core: {}MHz",
-        CLOCK_FREQ / 1000,
-        BASE / dur
-    );
+    println!("clock: {}KHz, core: {}MHz", CLOCK_FREQ / 1000, BASE / dur);
     print!("{}", reset_color!());
 }
 

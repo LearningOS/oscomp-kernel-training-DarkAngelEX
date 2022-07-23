@@ -7,11 +7,15 @@ use alloc::{
     boxed::Box,
     string::{String, ToString},
     sync::Arc,
+    vec::Vec,
 };
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     error::SysRet,
-    fs::stat::{Stat, S_IFDIR, S_IFREG},
+    fs::{
+        stat::{Stat, S_IFDIR, S_IFREG},
+        DentryType,
+    },
 };
 use vfs::{File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner};
 
@@ -64,7 +68,7 @@ impl Fs for Fat32 {
         clock: Box<dyn VfsClock>,
     ) -> ASysR<()> {
         Box::pin(async move {
-            let device = file.unwrap().into_block_device()?;
+            let device = file.unwrap().block_device()?;
             self.manager.init(device, clock).await;
             Ok(())
         })
@@ -157,6 +161,12 @@ impl FsInode for Fat32InodeV {
         })
     }
 
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
+        Box::pin(async move {
+            let dir = self.inode.dir()?;
+            dir.list(self.manager()).await
+        })
+    }
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move {
             let dir = self.inode.dir()?;
@@ -203,7 +213,7 @@ impl FsInode for Fat32InodeV {
             todo!()
         })
     }
-    fn delete(&mut self) {
+    fn delete(&self) {
         // 延迟释放尚未实现
         let _file = self.inode.file().unwrap();
         todo!()

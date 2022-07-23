@@ -7,10 +7,8 @@ use crate::{
     dentry::{Dentry, InodeS},
     hash_name::HashName,
     mount::Mount,
-    VfsManager,
+    VfsFile, VfsManager,
 };
-
-use super::BaseFn;
 
 #[derive(Clone)]
 pub(crate) struct Path {
@@ -80,13 +78,22 @@ impl Path {
             .await?;
         Ok(())
     }
+    pub fn parent(&self) -> Option<Path> {
+        let mut path = self.clone();
+        path.run_mount_prev();
+        let dentry = path.dentry.cache.parent()?;
+        Some(Path {
+            mount: path.mount,
+            dentry,
+        })
+    }
 }
 
 impl VfsManager {
     /// 返回到达最后一个文件名的路径和文件名
     pub(crate) async fn walk_path<'a>(
         &self,
-        (base, path_str): (impl BaseFn, &'a str),
+        (base, path_str): (SysR<Arc<VfsFile>>, &'a str),
     ) -> SysR<(Path, &'a str)> {
         let mut path = if is_absolute_path(path_str) {
             Path {
@@ -94,7 +101,7 @@ impl VfsManager {
                 dentry: self.root.as_ref().unwrap().clone(),
             }
         } else {
-            base()?.path.clone()
+            base?.path.clone()
         };
         let (path_str, name) = match path_str.rsplit_once(['/', '\\']) {
             Some((path, name)) => (path, name),
@@ -128,7 +135,7 @@ impl VfsManager {
         }
         Ok(path)
     }
-    pub(crate) async fn walk_all(&self, path: (impl BaseFn, &str)) -> SysR<Path> {
+    pub(crate) async fn walk_all(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Path> {
         let (path, name) = self.walk_path(path).await?;
         self.walk_name(path, name).await
     }

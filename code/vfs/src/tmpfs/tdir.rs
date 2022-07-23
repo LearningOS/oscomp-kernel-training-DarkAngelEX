@@ -4,10 +4,11 @@ use alloc::{
     boxed::Box,
     collections::BTreeMap,
     string::{String, ToString},
+    vec::Vec,
 };
 use ftl_util::{
     error::{SysError, SysR},
-    fs::stat::Stat,
+    fs::{stat::Stat, DentryType},
     sync::{rw_sleep_mutex::RwSleepMutex, Spin},
 };
 
@@ -74,6 +75,19 @@ impl TmpFsDir {
         }
         let _sub = lk.remove(name).unwrap();
         Ok(())
+    }
+    pub async fn list(&self) -> SysR<Vec<(DentryType, String)>> {
+        let lk = self.subs.shared_lock().await;
+        let mut v = Vec::new();
+        for (name, inode) in lk.iter() {
+            let dt = if inode.is_dir() {
+                DentryType::DIR
+            } else {
+                DentryType::REG
+            };
+            v.push((dt, name.clone()));
+        }
+        Ok(v)
     }
     pub fn readable(&self) -> bool {
         self.readable.load(Ordering::Relaxed)

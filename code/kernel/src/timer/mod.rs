@@ -3,10 +3,7 @@ use core::{
     time::Duration,
 };
 
-use ftl_util::{
-    error::SysR,
-    time::{TimeSpec, TimeVal, TimeZone, UtcTime},
-};
+use ftl_util::time::{Instant, TimeSpec, TimeVal, TimeZone, UtcTime};
 
 use crate::{board::CLOCK_FREQ, hart::sbi, riscv::register::time, xdebug::PRINT_TICK};
 
@@ -155,9 +152,9 @@ impl From<usize> for TimeTicks {
     }
 }
 
-pub fn get_time() -> Duration {
+pub fn now() -> Instant {
     let cur = get_time_ticks();
-    Duration::from_micros(cur.microsecond() as u64)
+    Instant::BASE + Duration::from_micros(cur.microsecond() as u64)
 }
 
 fn get_time_ticks() -> TimeTicks {

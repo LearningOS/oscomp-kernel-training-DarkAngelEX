@@ -46,7 +46,7 @@ impl HashName {
         NameHash(BuildHasherDefault::<MyHasher>::default().hash_one(name))
     }
     pub fn hash_all_by_nh(base: u64, nh: NameHash) -> AllHash {
-        AllHash(base.rotate_left(32) + nh.0)
+        AllHash(base.rotate_left(32).wrapping_add(nh.0))
     }
     pub fn new(parent: *const Dentry, name: &str) -> Self {
         let parent = parent as usize;

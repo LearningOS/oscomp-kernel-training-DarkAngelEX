@@ -52,8 +52,6 @@ pub struct VfsManager {
     clock: Option<Box<dyn VfsClock>>,
 }
 
-pub trait BaseFn = FnOnce() -> SysR<Arc<VfsFile>>;
-
 impl VfsManager {
     /// max: 最大缓存数量
     pub fn new(max: usize) -> Box<Self> {
@@ -110,7 +108,15 @@ impl VfsManager {
     fn mounts_ptr(&self) -> NonNull<MountManager> {
         NonNull::new(&self.mounts as *const _ as *mut _).unwrap()
     }
-    pub async fn open(&self, path: (impl BaseFn, &str)) -> SysR<Arc<VfsFile>> {
+    pub fn root(&self) -> Arc<VfsFile> {
+        let root = self.root.as_ref().unwrap().clone();
+        VfsFile::from_path_arc(Path {
+            mount: None,
+            dentry: root,
+        })
+        .unwrap()
+    }
+    pub async fn open(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
         stack_trace!();
         if PRINT_OP {
             println!("open: {}", path.1);
@@ -119,7 +125,12 @@ impl VfsManager {
         let path = self.walk_name(path, name).await?;
         VfsFile::from_path_arc(path)
     }
-    pub async fn create(&self, path: (impl BaseFn, &str), dir: bool) -> SysR<Arc<VfsFile>> {
+    pub async fn create(
+        &self,
+        path: (SysR<Arc<VfsFile>>, &str),
+        dir: bool,
+        rw: (bool, bool),
+    ) -> SysR<Arc<VfsFile>> {
         stack_trace!();
         if PRINT_OP {
             println!("create: {}", path.1);
@@ -141,7 +152,7 @@ impl VfsManager {
                 InodeS::None | InodeS::Closed => (), // dentry has unlink
             }
         }
-        let dentry = path.dentry.create(name, dir, (true, true)).await?;
+        let dentry = path.dentry.create(name, dir, rw).await?;
         VfsFile::from_path_arc(Path {
             mount: path.mount,
             dentry,
@@ -149,7 +160,7 @@ impl VfsManager {
     }
     pub async fn place_inode(
         &self,
-        path: (impl BaseFn, &str),
+        path: (SysR<Arc<VfsFile>>, &str),
         inode: Box<dyn FsInode>,
     ) -> SysR<Arc<VfsFile>> {
         stack_trace!();
@@ -174,7 +185,7 @@ impl VfsManager {
         })
     }
     /// 只能unlink文件, 不能删除目录
-    pub async fn unlink(&self, path: (impl BaseFn, &str)) -> SysR<()> {
+    pub async fn unlink(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<()> {
         stack_trace!();
         if PRINT_OP {
             println!("unlink: {}", path.1);
@@ -185,7 +196,7 @@ impl VfsManager {
         }
         path.dentry.unlink(name).await
     }
-    pub async fn rmdir(&self, path: (impl BaseFn, &str)) -> SysR<()> {
+    pub async fn rmdir(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<()> {
         stack_trace!();
         if PRINT_OP {
             println!("rmdir: {}", path.1);
@@ -196,7 +207,11 @@ impl VfsManager {
         }
         path.dentry.rmdir(name).await
     }
-    pub async fn rename(&self, old: (impl BaseFn, &str), new: (impl BaseFn, &str)) -> SysR<()> {
+    pub async fn rename(
+        &self,
+        old: (SysR<Arc<VfsFile>>, &str),
+        new: (SysR<Arc<VfsFile>>, &str),
+    ) -> SysR<()> {
         stack_trace!();
         if PRINT_OP {
             println!("rename: {} -> {}", old.1, new.1);
@@ -205,8 +220,8 @@ impl VfsManager {
     }
     pub async fn mount(
         &self,
-        src: (impl BaseFn, &str),
-        dir: (impl BaseFn, &str),
+        src: (SysR<Arc<VfsFile>>, &str),
+        dir: (SysR<Arc<VfsFile>>, &str),
         fstype: &str,
         flags: usize,
     ) -> SysR<()> {
@@ -238,7 +253,7 @@ impl VfsManager {
         self.mount_impl(dir, root, FsspOwn::new(fssp).unwrap());
         Ok(())
     }
-    pub async fn umount(&self, _dir: (impl BaseFn, &str), _flags: usize) -> SysR<()> {
+    pub async fn umount(&self, _dir: (SysR<Arc<VfsFile>>, &str), _flags: usize) -> SysR<()> {
         todo!()
     }
     fn mount_impl(

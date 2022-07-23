@@ -1,10 +1,10 @@
 use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     error::{SysError, SysR, SysRet},
-    fs::stat::Stat,
+    fs::{stat::Stat, DentryType},
     sync::{rw_sleep_mutex::RwSleepMutex, Spin},
 };
 
@@ -37,7 +37,13 @@ impl TmpFsFile {
         Ok(())
     }
     pub async fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> SysRet {
+        if offset > self.bytes()? {
+            return Err(SysError::EINVAL);
+        }
         let lk = self.subs.shared_lock().await;
+        if offset > self.bytes()? {
+            return Err(SysError::EINVAL);
+        }
         let end = lk.len().min(offset + buf.len());
         let n = end - offset;
         buf[..n].copy_from_slice(&lk[offset..end]);
@@ -77,6 +83,9 @@ impl FsInode for TmpFsFile {
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         todo!()
     }
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
+        Box::pin(async move { Err(SysError::ENOTDIR) })
+    }
     fn search<'a>(&'a self, _name: &'a str) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }
@@ -101,7 +110,7 @@ impl FsInode for TmpFsFile {
         Box::pin(async move { self.reset_data().await })
     }
     fn delete(&self) {
-        todo!()
+        // Arc自动释放
     }
     fn read_at<'a>(
         &'a self,

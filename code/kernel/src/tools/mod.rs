@@ -204,11 +204,11 @@ fn multi_thread_performance_test(hart: usize) {
         if hart == 0 {
             let mut cnt = 0x1000000;
             loop {
-                let begin = timer::get_time();
+                let begin = timer::now();
                 for _i in 0..cnt {
                     unsafe { asm!("nop") }
                 }
-                let end = timer::get_time();
+                let end = timer::now();
                 let total = (end - begin).as_millis();
                 println!("loop {:#x}({}) using {}ms", cnt, cnt, total);
                 if total > 1000 {

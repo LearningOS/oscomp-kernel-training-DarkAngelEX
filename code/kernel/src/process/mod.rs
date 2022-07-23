@@ -8,7 +8,7 @@ use ftl_util::{
     error::SysR,
     fs::{Mode, OpenFlags},
 };
-use vfs::{File, VfsFile};
+use vfs::VfsFile;
 
 use crate::{
     fs,
@@ -176,14 +176,9 @@ static RUN_ALL_CASE: &'static [u8] = &[];
 
 pub async fn init() {
     let initproc = "/initproc";
-    let cwd = fs::open_file(
-        Some(Ok([].into_iter())),
-        "/",
-        OpenFlags::RDONLY,
-        Mode(0o500),
-    )
-    .await
-    .unwrap();
+    let cwd = fs::open_file((Err(SysError::ENOENT), "/"), OpenFlags::RDONLY, Mode(0o500))
+        .await
+        .unwrap();
     if cfg!(feature = "submit") {
         let mut args = Vec::new();
         args.push(initproc.to_string());
@@ -193,8 +188,7 @@ pub async fn init() {
     } else {
         println!("load initporc: {}", initproc);
         let inode = fs::open_file(
-            Some(Ok([].into_iter())),
-            initproc,
+            (Err(SysError::ENOENT), initproc),
             OpenFlags::RDONLY,
             Mode(0o500),
         )

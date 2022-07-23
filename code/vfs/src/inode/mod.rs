@@ -3,17 +3,23 @@ use core::{
     sync::atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
+    device::BlockDevice,
     error::{SysError, SysR, SysRet},
-    fs::stat::Stat,
+    fs::{stat::Stat, DentryType},
     list::InListNode,
 };
 
 use crate::fssp::Fssp;
 
 pub trait FsInode: Send + Sync + 'static {
+    // 类型转换
+
+    fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
+        Err(SysError::ENOTBLK)
+    }
     // === 共享操作 ===
 
     fn readable(&self) -> bool;
@@ -23,6 +29,7 @@ pub trait FsInode: Send + Sync + 'static {
 
     // === 目录操作 ===
 
+    fn list(&self) -> ASysR<Vec<(DentryType, String)>>;
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>>;
     fn create<'a>(&'a self, name: &'a str, dir: bool, rw: (bool, bool)) -> ASysR<Box<dyn FsInode>>;
     fn place_inode<'a>(
@@ -44,7 +51,8 @@ pub trait FsInode: Send + Sync + 'static {
 
     fn bytes(&self) -> SysRet;
     fn reset_data(&self) -> ASysR<()>;
-    fn delete(&self); // 用于文件延迟删除
+    // 用于文件延迟删除
+    fn delete(&self);
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
@@ -63,7 +71,6 @@ pub(crate) struct VfsInode {
     drop_release: AtomicBool,
     fssp: NonNull<Fssp>,
     fssp_node: InListNode<Self, InodeFsspNode>,
-    pub ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
     pub fsinode: Box<dyn FsInode>,
 }
 
@@ -84,16 +91,12 @@ impl VfsInode {
             drop_release: AtomicBool::new(false),
             fssp,
             fssp_node: InListNode::new(),
-            ptr: AtomicUsize::new(0),
             fsinode: inode,
         });
         unsafe {
             Arc::get_mut_unchecked(&mut ptr).fssp_node.init();
         }
         ptr
-    }
-    pub fn ptr(&self) -> &AtomicUsize {
-        &self.ptr
     }
     pub fn readable(&self) -> bool {
         self.fsinode.readable()
@@ -119,7 +122,6 @@ impl VfsInode {
     /// 只有文件可以运行
     pub async fn reset_data(&self) -> SysR<()> {
         self.fsinode.reset_data().await?;
-        self.ptr.store(0, Ordering::Release);
         Ok(())
     }
     /// 此函数会在磁盘上判断是否重复
