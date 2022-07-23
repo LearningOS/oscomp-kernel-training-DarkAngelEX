@@ -13,7 +13,7 @@ const SYSCALL_KILL: usize = 129;
 const SYSCALL_GET_TIME: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_FORK: usize = 220;
-const SYSCALL_EXEC: usize = 221;
+const SYSCALL_EXECVE: usize = 221;
 const SYSCALL_WAITPID: usize = 260;
 const SYSCALL_THREAD_CREATE: usize = 1000;
 const SYSCALL_GETTID: usize = 1001;
@@ -33,7 +33,7 @@ fn syscall<const N: usize>(id: usize, args: [usize; N]) -> isize {
     let ret: isize;
     unsafe {
         // let x = core::mem::MaybeUninit::uninit().assume_init();
-        if args.len() > 7 {
+        if N > 7 {
             panic!("to many args! input: {:?}", args);
         }
         let mut a = [0; 7];
@@ -62,6 +62,19 @@ pub fn sys_open(path: &str, flags: u32) -> isize {
     syscall(
         SYSCALL_OPENAT,
         [fd as usize, path.as_ptr() as usize, flags as usize],
+    )
+}
+
+pub fn sys_openat(fd: isize, path: &str, flags: u32, mode: u32) -> isize {
+    let fd = -100isize as usize;
+    syscall(
+        SYSCALL_OPENAT,
+        [
+            fd as usize,
+            path.as_ptr() as usize,
+            flags as usize,
+            mode as usize,
+        ],
     )
 }
 
@@ -110,13 +123,28 @@ pub fn sys_getpid() -> isize {
 }
 
 pub fn sys_fork() -> isize {
-    syscall(SYSCALL_FORK, [])
+    syscall(SYSCALL_FORK, [0, 0, 0, 0, 0])
 }
 
 pub fn sys_exec(path: &str, args: &[*const u8]) -> isize {
     syscall(
-        SYSCALL_EXEC,
-        [path.as_ptr() as usize, args.as_ptr() as usize],
+        SYSCALL_EXECVE,
+        [
+            path.as_ptr() as usize,
+            args.as_ptr() as usize,
+            [b"PATH=/".as_ptr(), 0 as *const u8].as_ptr() as usize,
+        ],
+    )
+}
+
+pub fn sys_execve(path: &str, args: &[*const u8], envp: &[*const u8]) -> isize {
+    syscall(
+        SYSCALL_EXECVE,
+        [
+            path.as_ptr() as usize,
+            args.as_ptr() as usize,
+            envp.as_ptr() as usize,
+        ],
     )
 }
 

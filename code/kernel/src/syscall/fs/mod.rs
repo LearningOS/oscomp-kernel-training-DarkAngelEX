@@ -60,7 +60,7 @@ impl Syscall<'_> {
         mode: Mode,
     ) -> SysR<Arc<VfsFile>> {
         let (base, mut path) = self.fd_path_impl(fd, path).await?;
-        if PRINT_SYSCALL_FS || true {
+        if PRINT_SYSCALL_FS {
             println!("fd_path_open path: {}", path);
         }
         // path = match path.as_str() {

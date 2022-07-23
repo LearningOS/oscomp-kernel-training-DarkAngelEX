@@ -1,9 +1,11 @@
 #![no_std]
 #![no_main]
 
+extern crate alloc;
 extern crate user_lib;
 
-use user_lib::{exec, exit, fork, wait};
+use alloc::{string::ToString, vec::Vec};
+use user_lib::{exec, exit, fork, open, println, read, wait, write, OpenFlags};
 
 #[no_mangle]
 fn main() -> i32 {
@@ -22,50 +24,63 @@ fn main() -> i32 {
 }
 
 fn run_all_case() {
-    let all_case = &[
-        "brk\0",
-        "chdir\0",
-        "clone\0",
-        "close\0",
-        "dup2\0",
-        "dup\0",
-        "execve\0",
-        "exit\0",
-        "fork\0",
-        "fstat\0",
-        "getcwd\0",
-        "getdents\0",
-        "getpid\0",
-        "getppid\0",
-        "gettimeofday\0",
-        "mkdir_\0",
-        "mmap\0",
-        "mount\0",
-        "munmap\0",
-        "openat\0",
-        "open\0",
-        "pipe\0",
-        "read\0",
-        "sleep\0",
-        "times\0",
-        "umount\0",
-        "uname\0",
-        "unlink\0",
-        "wait\0",
-        "waitpid\0",
-        "write\0",
-        "yield\0",
-    ];
-    for name in all_case {
-        let pid = match fork() {
-            -1 => panic!("fork error"),
-            0 => {
-                exec(name, &[core::ptr::null::<u8>()]);
-                unreachable!();
+    run_sh("./run-static.sh\0");
+    run_sh("./run-dynamic.sh\0");
+}
+
+fn run_sh(path: &str) {
+    let v = open(path, OpenFlags::RDONLY);
+    assert!(v > 0);
+    let mut buf = Vec::new();
+    buf.resize(10000, 0);
+    let n = read(v as usize, &mut buf[..]) as usize;
+    assert!(n != 0 && n < buf.len());
+    for line in buf[..n].split(|&c| c == b'\n') {
+        let line = alloc::str::from_utf8(line).unwrap();
+        // println!("line: {}", line);
+        let mut it = line.as_bytes().split(|&c| c == b' ');
+        match (it.next(), it.next(), it.next(), it.next()) {
+            (Some(n), Some(a), Some(b), Some(c)) => {
+                let n = alloc::str::from_utf8(n).unwrap();
+                let a = alloc::str::from_utf8(a).unwrap();
+                let b = alloc::str::from_utf8(b).unwrap();
+                let c = alloc::str::from_utf8(c).unwrap();
+                run_item(n, a, b, c);
             }
-            pid => pid,
-        };
-        let mut exit_code: i32 = 0;
-        let pid = wait(&mut exit_code);
+            _ => return,
+        }
+    }
+}
+
+fn run_item(name: &str, a: &str, b: &str, c: &str) {
+    // println!("<{}> <{}> <{}> <{}>", name, a, b, c);
+    let n = fork();
+    assert!(n >= 0);
+    if n == 0 {
+        let mut name = name.to_string();
+        let mut a = a.to_string();
+        let mut b = b.to_string();
+        let mut c = c.to_string();
+        name.push_str("\0");
+        a.push_str("\0");
+        b.push_str("\0");
+        c.push_str("\0");
+        exec(
+            &name,
+            &[
+                name.as_ptr(),
+                a.as_ptr(),
+                b.as_ptr(),
+                c.as_ptr(),
+                core::ptr::null(),
+            ],
+        );
+        println!("exec fail!");
+        exit(-123456);
+    }
+    let mut code = 0;
+    wait(&mut code);
+    if code == -123456 {
+        return;
     }
 }
