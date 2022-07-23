@@ -79,11 +79,9 @@ pub async fn init() {
     vfs.import_fstype(Box::new(Fat32Type::new()));
     // 挂载几个全局目录
     vfs.set_spec_dentry("dev".to_string());
-    vfs.set_spec_dentry("shm".to_string());
     vfs.set_spec_dentry("etc".to_string());
     vfs.set_spec_dentry("tmp".to_string());
     vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/shm"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
     vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
@@ -99,6 +97,10 @@ pub async fn init() {
     vfs.place_inode((XF, "/dev/sda1"), device).await.unwrap();
     // 挂载FAT32!!!
     vfs.mount((XF, "/dev/sda1"), (XF, "/"), "vfat", 0)
+        .await
+        .unwrap();
+    // 加入dev/shm
+    vfs.create((XF, "/dev/shm"), true, (true, true))
         .await
         .unwrap();
 
