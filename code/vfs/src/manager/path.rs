@@ -7,7 +7,7 @@ use crate::{
     dentry::{Dentry, InodeS},
     hash_name::HashName,
     mount::Mount,
-    VfsFile, VfsManager,
+    VfsFile, VfsManager, PRINT_WALK,
 };
 
 #[derive(Clone)]
@@ -34,7 +34,7 @@ impl Path {
     fn is_fs_root(&self) -> bool {
         self.dentry.cache.parent().is_none()
     }
-    fn run_mount_prev(&mut self) {
+    pub fn run_mount_prev(&mut self) {
         loop {
             let mount = match self.mount {
                 None => return, // root dentry
@@ -50,7 +50,7 @@ impl Path {
             }
         }
     }
-    fn run_mount_next(&mut self) {
+    pub fn run_mount_next(&mut self) {
         loop {
             let mount = match *self.dentry.cache.mount.rcu_read() {
                 None => return,
@@ -115,7 +115,9 @@ impl VfsManager {
     }
     pub(crate) async fn walk_name(&self, mut path: Path, name: &str) -> SysR<Path> {
         // 当前目录为根目录
-        println!("walk_name: {} -> {}", path.dentry.cache.name(), name);
+        if PRINT_WALK {
+            println!("walk_name: {} -> {}", path.dentry.cache.name(), name);
+        }
         if path.is_vfs_root() {
             if let Some(dentry) = self.special_dir.get(name).cloned() {
                 path.dentry = dentry;

@@ -11,6 +11,7 @@ use alloc::{
 };
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
+    device::BlockDevice,
     error::{SysError, SysR, SysRet},
     fs::{stat::Stat, DentryType},
 };
@@ -116,6 +117,9 @@ impl TmpFsInode {
 }
 
 impl FsInode for TmpFsInode {
+    fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
+        self.file()?.block_device()
+    }
     fn readable(&self) -> bool {
         match self.0.as_ref() {
             TmpFsImpl::Dir(d) => d.readable(),

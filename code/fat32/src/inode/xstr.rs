@@ -217,7 +217,9 @@ impl ShortFinder {
         const A: u16 = 9715;
         let mut v = BASE;
         for x in src.bytes() {
-            v = v.wrapping_mul(M).wrapping_add(A) + x as u16;
+            v = v.wrapping_mul(M);
+            v = v.wrapping_add(A);
+            v = v.wrapping_add(x as u16)
         }
         v
     }

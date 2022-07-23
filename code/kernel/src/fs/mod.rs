@@ -70,6 +70,7 @@ impl VfsSpawner for SysSpawner {
 
 pub async fn init() {
     stack_trace!();
+    let _sie = AutoSie::new();
     let max = 100;
     let mut vfs = VfsManager::new(max);
     vfs.init_clock(Box::new(SysClock));
@@ -78,10 +79,12 @@ pub async fn init() {
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("shm".to_string());
     vfs.set_spec_dentry("etc".to_string());
+    vfs.set_spec_dentry("tmp".to_string());
     const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
     vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/shm"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
+    vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
     vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
         .await
         .unwrap();
@@ -137,6 +140,7 @@ pub async fn create_any(
     _mode: Mode,
 ) -> SysR<Arc<VfsFile>> {
     stack_trace!();
+    let _sie = AutoSie::new();
     let dir = flags.dir();
     let rw = flags.read_write()?;
     let vfs = vfs_manager();
@@ -152,6 +156,7 @@ pub async fn open_file_abs(path: &str, flags: OpenFlags, mode: Mode) -> SysR<Arc
 pub async fn unlink(path: (SysR<Arc<VfsFile>>, &str), flags: OpenFlags) -> SysR<()> {
     stack_trace!();
     debug_assert!(!flags.dir());
+    let _sie = AutoSie::new();
     let vfs = vfs_manager();
     vfs.unlink(path).await
 }
@@ -161,6 +166,7 @@ pub async fn list_apps() {
     stack_trace!();
     println!("/**** APPS ****");
     let vfs = vfs_manager();
+    let _sie = AutoSie::new();
     for (dt, name) in vfs.root().list().await.unwrap() {
         println!("{} {:?}", name, dt);
     }

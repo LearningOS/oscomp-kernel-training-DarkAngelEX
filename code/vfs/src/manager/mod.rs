@@ -110,11 +110,12 @@ impl VfsManager {
     }
     pub fn root(&self) -> Arc<VfsFile> {
         let root = self.root.as_ref().unwrap().clone();
-        VfsFile::from_path_arc(Path {
+        let mut path = Path {
             mount: None,
             dentry: root,
-        })
-        .unwrap()
+        };
+        path.run_mount_next();
+        VfsFile::from_path_arc(path).unwrap()
     }
     pub async fn open(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
         stack_trace!();

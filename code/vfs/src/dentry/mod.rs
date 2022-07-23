@@ -44,6 +44,7 @@ pub(crate) struct Dentry {
 
 impl Drop for Dentry {
     fn drop(&mut self) {
+        stack_trace!();
         // 加入LRU队列
         if PRINT_OP {
             println!("dentry drop: {}", self.cache.name());
@@ -83,6 +84,7 @@ impl Dentry {
     ///
     /// 优先查找自身的子文件链表, 如果不存在则进入索引器查找
     pub fn search_child_in_cache(&self, name: &str, name_hash: NameHash) -> Option<Arc<Dentry>> {
+        stack_trace!();
         unsafe {
             // 当前活跃目录的RCU查找
             for x in self.cache.sub_head.unsafe_get().next_iter() {
@@ -108,6 +110,7 @@ impl Dentry {
         name_hash: NameHash,
         inode_seq: usize,
     ) -> SysR<Arc<Dentry>> {
+        stack_trace!();
         debug_assert!(self.is_dir());
         let cache = self.cache.as_ref();
         let _lk = cache.dir_lock.lock().await;
@@ -142,6 +145,7 @@ impl Dentry {
         dir: bool,
         rw: (bool, bool),
     ) -> SysR<Arc<Dentry>> {
+        stack_trace!();
         debug_assert!(self.is_dir());
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
@@ -173,6 +177,7 @@ impl Dentry {
         name: &str,
         inode: Box<dyn FsInode>,
     ) -> SysR<Arc<Dentry>> {
+        stack_trace!();
         debug_assert!(self.is_dir());
         debug_assert!(!inode.is_dir());
         let _lk = self.cache.dir_lock.lock().await;
@@ -201,8 +206,8 @@ impl Dentry {
         Ok(dentry)
     }
     pub async fn unlink(&self, name: &str) -> SysR<()> {
+        stack_trace!();
         debug_assert!(self.is_dir());
-        println!("unlink 0");
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
             return Err(SysError::ENOENT);
@@ -225,6 +230,7 @@ impl Dentry {
         inode.unlink_child(name, release).await
     }
     pub async fn rmdir(&self, name: &str) -> SysR<()> {
+        stack_trace!();
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
             return Err(SysError::ENOENT);
