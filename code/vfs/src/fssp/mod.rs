@@ -15,6 +15,7 @@ use ftl_util::{
 use crate::{
     dentry::{DentryCache, DentryFsspNode},
     inode::{FsInode, InodeFsspNode, VfsInode},
+    manager::VfsSpawner,
     VfsFile,
 };
 
@@ -26,7 +27,9 @@ pub trait FsType: Send + Sync + 'static {
 
 pub trait Fs: Send + Sync + 'static {
     fn need_src(&self) -> bool;
+    fn need_spawner(&self) -> bool;
     fn init(&mut self, file: Option<VfsFile>, flags: usize) -> ASysR<()>;
+    fn set_spawner(&mut self, spawner: Box<dyn VfsSpawner>) -> ASysR<()>;
     fn root(&self) -> Box<dyn FsInode>;
 }
 

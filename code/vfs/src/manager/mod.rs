@@ -2,6 +2,7 @@ use core::ptr::NonNull;
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc};
 use ftl_util::{
+    async_tools::Async,
     error::{SysError, SysR},
     sync::{spin_mutex::SpinMutex, Spin},
 };
@@ -9,7 +10,6 @@ use ftl_util::{
 use crate::{
     dentry::{manager::DentryManager, Dentry, InodeS},
     fssp::{FsType, Fssp, FsspOwn},
-    inode::FsInode,
     mount::{manager::MountManager, Mount},
     tmpfs::TmpFsInfo,
     VfsFile, PRINT_OP,
@@ -19,8 +19,10 @@ use self::path::Path;
 
 pub mod path;
 
-pub trait FsManager {
-    fn root(&self) -> Arc<dyn FsInode>;
+/// 用来给文件系统生成同步线程
+pub trait VfsSpawner: Send + Sync + 'static {
+    fn box_clone(&self) -> Box<dyn VfsSpawner>;
+    fn spawn(&self, future: Async<'static, ()>);
 }
 
 pub struct VfsManager {
@@ -30,6 +32,7 @@ pub struct VfsManager {
     special_dentry: BTreeMap<String, Arc<Dentry>>,
     dentrys: DentryManager,
     mounts: MountManager,
+    spawner: Option<Box<dyn VfsSpawner>>,
 }
 
 pub trait BaseFn = FnOnce() -> SysR<Arc<VfsFile>>;
@@ -44,6 +47,7 @@ impl VfsManager {
             special_dentry: BTreeMap::new(),
             dentrys: DentryManager::new(max),
             mounts: MountManager::new(),
+            spawner: None,
         });
         m.root_fssp.rc_increase();
         m.dentrys.init();
@@ -51,6 +55,9 @@ impl VfsManager {
         m.init_root();
         m.import_fstype(TmpFsInfo::new()); // 导入 tmpfs
         m
+    }
+    pub fn init_spawner(&mut self, spawner: Box<dyn VfsSpawner>) {
+        self.spawner = Some(spawner);
     }
     fn mounts_ptr(&self) -> NonNull<MountManager> {
         NonNull::new(&self.mounts as *const _ as *mut _).unwrap()
@@ -149,13 +156,16 @@ impl VfsManager {
             .get(fstype)
             .ok_or(SysError::EINVAL)?
             .new_fs();
-        let src = if fs.need_src() {
-            let src = self.walk_all(src).await?;
-            Some(VfsFile::from_path(src)?)
-        } else {
-            None
+
+        let src = match fs.need_src() {
+            true => Some(VfsFile::from_path(self.walk_all(src).await?)?),
+            false => None,
         };
         fs.init(src, flags).await?;
+        if fs.need_spawner() {
+            let spawner = self.spawner.as_ref().unwrap().box_clone();
+            fs.set_spawner(spawner).await?;
+        }
         let fssp = Fssp::new(Some(fs));
         let root_inode = fssp.root_inode();
         let fssp = fssp.into_raw();

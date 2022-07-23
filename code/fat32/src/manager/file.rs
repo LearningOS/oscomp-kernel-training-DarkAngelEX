@@ -1,7 +1,4 @@
-use core::{
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-    time::Duration,
-};
+use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use ftl_util::{
@@ -11,7 +8,7 @@ use ftl_util::{
         stat::{Stat, S_IFDIR, S_IFREG},
         DentryType, Seek,
     },
-    time::{TimeSpec, UtcTime},
+    time::{Instant, TimeSpec, UtcTime},
 };
 use vfs::File;
 
@@ -157,11 +154,11 @@ impl File for Fat32Inode {
             Ok(())
         })
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Duration) -> ASysRet {
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
         Box::pin(async move {
             let [access, modify] = times
-                .try_map(|v| v.user_map(now))?
-                .map(|v| v.map(|v| UtcTime::from_duration(v.as_duration())));
+                .try_map(|v| v.user_map(|| now() - Instant::BASE))?
+                .map(|v| v.map(|v| UtcTime::from_instant(v.as_instant())));
             self.inode
                 .update_time(access.as_ref(), modify.as_ref())
                 .await;

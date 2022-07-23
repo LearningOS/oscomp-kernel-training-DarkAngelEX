@@ -17,6 +17,7 @@ use ftl_util::{
 use crate::{
     fssp::{Fs, FsType},
     inode::FsInode,
+    manager::VfsSpawner,
     VfsFile,
 };
 
@@ -43,8 +44,14 @@ impl Fs for TmpFs {
     fn need_src(&self) -> bool {
         false
     }
+    fn need_spawner(&self) -> bool {
+        false
+    }
     fn init(&mut self, _file: Option<VfsFile>, _flags: usize) -> ASysR<()> {
         Box::pin(async { Ok(()) })
+    }
+    fn set_spawner(&mut self, _spawner: Box<dyn VfsSpawner>) -> ASysR<()> {
+        panic!()
     }
     fn root(&self) -> Box<dyn FsInode> {
         Box::new(TmpFsInode::new(true, (true, true)))

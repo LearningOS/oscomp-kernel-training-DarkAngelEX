@@ -1,11 +1,12 @@
-use core::{fmt::Debug, sync::atomic::Ordering, time::Duration};
+use core::{fmt::Debug, sync::atomic::Ordering};
 
 use alloc::{boxed::Box, sync::Arc};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
+    device::BlockDevice,
     error::{SysError, SysR, SysRet},
     fs::{stat::Stat, Seek},
-    time::TimeSpec,
+    time::{Instant, TimeSpec},
 };
 
 use crate::{
@@ -17,6 +18,9 @@ pub trait File: Send + Sync + 'static {
     // 这个文件的工作路径
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Err(SysError::ENOENT)
+    }
+    fn into_block_device(self: Arc<Self>) -> SysR<Arc<dyn BlockDevice>> {
+        Err(SysError::ENOTBLK)
     }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
@@ -46,7 +50,7 @@ pub trait File: Send + Sync + 'static {
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move { unimplemented!("stat {}", core::any::type_name::<Self>()) })
     }
-    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Duration) -> ASysRet {
+    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
 }

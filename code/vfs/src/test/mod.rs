@@ -75,4 +75,11 @@ async fn test_rmdir() {
     let _ = manager.create(xp("/2"), true).await.unwrap();
     manager.rmdir(xp("/2")).await.unwrap();
     manager.create((|| Ok(x), "3"), false).await.unwrap_err();
+    let d1 = manager.create(xp("/1"), true).await.unwrap();
+    let _d11 = manager
+        .create((|| Ok(d1.clone()), "1"), false)
+        .await
+        .unwrap();
+    manager.rmdir(xp("/1")).await.unwrap_err();
+    manager.rmdir((|| Ok(d1), "")).await.unwrap_err();
 }

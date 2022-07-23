@@ -105,7 +105,10 @@ impl TimeSpec {
     pub fn as_duration(self) -> Duration {
         Duration::from_nanos(self.tv_nsec as u64) + Duration::from_secs(self.tv_sec as u64)
     }
-    pub fn user_map(self, now: fn() -> Duration) -> SysR<Option<Self>> {
+    pub fn as_instant(self) -> Instant {
+        Instant::BASE + self.as_duration()
+    }
+    pub fn user_map(self, now: impl FnOnce() -> Duration) -> SysR<Option<Self>> {
         if self.is_now() {
             Ok(Some(Self::from_duration(now())))
         } else if self.is_omit() {
