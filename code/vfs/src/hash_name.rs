@@ -5,6 +5,7 @@ use ftl_util::sync::{seq_mutex::SeqMutex, Spin};
 
 use crate::dentry::Dentry;
 
+/// 如果要修改名字, 必须使用RCU释放方法保证无锁读取的正确性
 pub(crate) struct HashName(SeqMutex<NameInner, Spin>);
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

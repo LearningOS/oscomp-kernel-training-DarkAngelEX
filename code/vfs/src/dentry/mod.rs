@@ -29,6 +29,7 @@ use crate::{
     hash_name::{AllHash, HashName, NameHash},
     inode::VfsInode,
     mount::Mount,
+    PRINT_INTO_LRU, PRINT_OP,
 };
 
 use self::{index::DentryIndex, lru_queue::LRUQueue, manager::DentryManager};
@@ -44,6 +45,9 @@ pub(crate) struct Dentry {
 impl Drop for Dentry {
     fn drop(&mut self) {
         // 加入LRU队列
+        if PRINT_OP {
+            println!("dentry drop: {}", self.cache.name());
+        }
         let own = unsafe { ManuallyDrop::take(&mut self.cache) };
         unsafe {
             let ptr = &mut *Box::into_raw(own);
@@ -86,7 +90,7 @@ impl Dentry {
             // 当前活跃目录的RCU查找
             for x in self.cache.sub_head.unsafe_get().next_iter() {
                 atomic::fence(Ordering::Acquire);
-                if x.name.name_same(name_hash, name) {
+                if !x.name.name_same(name_hash, name) || x.closed() {
                     continue;
                 }
                 if let Some(d) = x.take_dentry() {
@@ -131,11 +135,16 @@ impl Dentry {
             true,
         );
         debug_assert!(inode_seq == self.inode_seq());
-        self.set_seq(inode_seq.wrapping_add(1));
+        self.cache.seq_increase();
         Ok(dentry)
     }
     /// 这个函数会持有睡眠锁
-    pub async fn create(self: &Arc<Self>, name: &str, dir: bool) -> SysR<Arc<Dentry>> {
+    pub async fn create(
+        self: &Arc<Self>,
+        name: &str,
+        dir: bool,
+        rw: (bool, bool),
+    ) -> SysR<Arc<Dentry>> {
         debug_assert!(self.is_dir());
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
@@ -148,7 +157,7 @@ impl Dentry {
             return Ok(d);
         }
         // 文件名查重将由create内部进行
-        let vfsinode = inode.create(name, dir).await?;
+        let vfsinode = inode.create(name, dir, rw).await?;
         let dentry = DentryCache::new(
             hash_name,
             dir,
@@ -159,9 +168,51 @@ impl Dentry {
             self.cache.index,
             true,
         );
-        let seq = self.inode_seq();
-        self.set_seq(seq.wrapping_add(1));
+        self.cache.seq_increase();
         Ok(dentry)
+    }
+    pub async fn unlink(&self, name: &str) -> SysR<()> {
+        debug_assert!(self.is_dir());
+        println!("unlink 0");
+        let _lk = self.cache.dir_lock.lock().await;
+        if self.cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        let inode = self.cache.inode.lock().clone().into_inode()?;
+        let hash_name = HashName::new(self, name);
+        let nh = hash_name.name_hash();
+        let mut release = true;
+        if let Some(d) = self.search_child_in_cache(name, nh) {
+            if d.is_dir() {
+                return Err(SysError::EISDIR);
+            }
+            if !d.cache.closed() {
+                let inode = d.cache.inode.lock().clone().into_inode()?;
+                d.cache.close_and_detach_inode()?;
+                inode.drop_release();
+                release = false;
+            }
+        }
+        inode.unlink_child(name, release).await
+    }
+    pub async fn rmdir(&self, name: &str) -> SysR<()> {
+        let _lk = self.cache.dir_lock.lock().await;
+        if self.cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        let inode = self.cache.inode.lock().clone().into_inode()?;
+        let hash_name = HashName::new(self, name);
+        let nh = hash_name.name_hash();
+        if let Some(d) = self.search_child_in_cache(name, nh) {
+            // 删除子目录缓存, 如果子目录被占用直接失败
+            if !d.is_dir() {
+                return Err(SysError::ENOTDIR);
+            }
+            if !d.cache.closed() {
+                d.cache.release_by_dentry()?;
+            }
+        }
+        inode.rmdir_child(name).await
     }
 }
 
@@ -201,8 +252,12 @@ inlist_access!(DentrySubNode, DentryCache, sub_node);
 /// 持有父目录所有权, 只能回收叶节点
 pub(crate) struct DentryCache {
     closed: AtomicBool,
+    /// 指向持有cache的dentry, 修改它不需要锁, 因为只有三种互斥的修改情况:
+    /// 1. dentry生成
+    /// 2. dentry析构
+    /// 3. dentry主动释放dentrycache (持有父目录的锁)
     using: RcuWraper<Weak<Dentry>>,
-    name: HashName,
+    pub name: HashName,
     is_dir: bool,
     /// 只有根目录为 None, 将通过RCU释放一个Weak指针防止内存回收
     ///
@@ -292,34 +347,96 @@ impl DentryCache {
     pub fn closed(&self) -> bool {
         self.closed.load(Ordering::Acquire)
     }
+    pub fn name(&self) -> Arc<str> {
+        self.name.name()
+    }
+    /// 这个序列号将在子目录缓存增加东西后调用, 减少不需要
+    ///
+    /// 这个函数没有锁!! 逻辑上需要持有自旋锁才能修改
+    pub fn seq_increase(&self) {
+        let a = self.inode_seq.load(Ordering::Acquire);
+        self.inode_seq.store(a.wrapping_add(1), Ordering::Release);
+    }
     /// 这个函数调用时会持有LRU队列锁
     ///
     /// 释放约束: 如果不存在外部引用则下面的全都没有
     fn close_by_lru_0(&mut self) {
+        stack_trace!();
+        if PRINT_INTO_LRU {
+            println!("close_by_lru: {}", self.name());
+        }
         debug_assert!(!self.closed());
         debug_assert!(self.using.get_mut().strong_count() == 0);
         debug_assert!(self.mount.get_mut().is_none());
         debug_assert!(self.lru_own.is_some());
         debug_assert!(self.sub_head.get_mut().is_empty());
-        debug_assert!(self.sub_node.is_empty());
         self.closed.store(true, Ordering::Release);
         // unwrap确认所有权存在
         self.lru_own.take().unwrap().rcu_drop(); // 在所有核经过await后释放
     }
     /// 此函数在释放LRU队列锁后运行
     fn close_by_lru_1(&mut self) {
+        stack_trace!();
         unsafe {
             self.fssp.as_mut().remove_dentry(&mut self.fssp_node);
         }
         // 利用RCU释放weak防止内存被释放
         if let Some(parnet) = self.parent.take() {
             Arc::downgrade(&parnet).rcu_drop();
+            let _lk = parnet.cache.sub_head.lock();
+            self.sub_node.pop_self_rcu();
         }
         // 移除索引
         if self.in_index {
             unsafe { self.index.as_mut().remove(self) };
         }
         *self.inode.lock() = InodeS::Closed;
+    }
+    /// 在拥有dentry的情况下让cache无效并释放
+    fn release_by_dentry(&self) -> SysR<()> {
+        // 这条路径释放的cache不可能在LRU队列中
+        debug_assert!(!self.closed());
+        debug_assert!(self.lru_node.is_empty());
+        debug_assert!(self.lru_own.is_none());
+        if self.is_dir {
+            if self.mount.rcu_read().is_some() // 禁止释放挂载点
+            || self.parent.is_none() // 禁止释放根目录
+            || !self.sub_head.lock().is_empty()
+            {
+                return Err(SysError::EBUSY);
+            }
+        }
+        self.closed.store(true, Ordering::Release);
+        unsafe {
+            self.using.rcu_write(Weak::new());
+            let this = self.this_mut();
+            if this.in_index {
+                (*this.index.as_ptr()).remove(this);
+            }
+            *self.inode.lock() = InodeS::Closed;
+        }
+        Ok(())
+    }
+    /// 此函数将使此缓存无效, 且inode将增加析构时释放标记
+    ///
+    /// 并发安全保证: 必须持有父目录睡眠锁调用此函数, 这个路径的dentry不会处于LRU队列
+    fn close_and_detach_inode(&self) -> SysR<()> {
+        debug_assert!(!self.is_dir);
+        debug_assert!(!self.closed());
+        // 这条路径释放的cache不可能在LRU队列中
+        debug_assert!(self.lru_node.is_empty());
+        debug_assert!(self.lru_own.is_none());
+
+        self.closed.store(true, Ordering::Release);
+        unsafe {
+            self.using.rcu_write(Weak::new());
+            let this = self.this_mut();
+            if this.in_index {
+                (*this.index.as_ptr()).remove(this);
+            }
+            *self.inode.lock() = InodeS::Closed;
+        }
+        Ok(())
     }
     pub fn hash(&self) -> AllHash {
         self.name.all_hash()
@@ -332,6 +449,7 @@ impl DentryCache {
     }
     /// 返回None说明这个缓存块已经无效了
     pub fn take_dentry(&self) -> Option<Arc<Dentry>> {
+        stack_trace!();
         let r = loop {
             if self.closed() {
                 return None;

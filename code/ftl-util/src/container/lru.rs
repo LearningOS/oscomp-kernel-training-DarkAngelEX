@@ -58,10 +58,19 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
         }
         Some(x)
     }
-    pub fn remove(&self, node: &mut InListNode<T, A>) {
+    pub fn try_remove(
+        &self,
+        node: &mut InListNode<T, A>,
+        release: impl FnOnce(&mut InListNode<T, A>),
+    ) -> Result<(), ()> {
         debug_assert!(!node.is_empty());
         let _lk = self.0.lock();
+        if node.is_empty() {
+            return Err(());
+        }
         node.pop_self();
+        release(node);
+        Ok(())
     }
     /// 将node重新插入队尾
     pub fn update(&self, node: &mut InListNode<T, A>) {

@@ -21,6 +21,7 @@ macro_rules! inlist_access {
 /// 侵入式链表头节点
 ///
 /// 如果A为ListAccess<T, Self>则可以访问对应位置
+#[repr(transparent)]
 pub struct InListNode<T, A = ()> {
     node: ListNode<PhantomData<(T, A)>>,
 }
@@ -42,6 +43,12 @@ impl<T, A> InListNode<T, A> {
     }
     pub fn is_empty(&self) -> bool {
         self.node.is_empty()
+    }
+    pub fn get_prev(&self) -> *mut Self {
+        self.node.get_prev() as *mut _
+    }
+    pub fn get_next(&self) -> *mut Self {
+        self.node.get_next() as *mut _
     }
     pub fn push_prev(&mut self, new: &mut Self) {
         self.node.push_prev(&mut new.node)

@@ -28,6 +28,7 @@ impl LRUQueue {
             },
         )
     }
+    /// 超过数量限制将移除最后一个
     pub fn insert<T>(&self, node: &mut LRUNode, locked_run: impl FnOnce() -> T) -> T {
         let (release, then) = Self::release_fn();
         let (r, v) = self.0.insert(node, locked_run, release);
@@ -37,6 +38,12 @@ impl LRUQueue {
     pub fn remove_last(&self) {
         let (release, then) = Self::release_fn();
         self.0.remove_last(release).map(then);
+    }
+    pub fn try_remove(&self, node: &mut LRUNode) -> Result<(), ()> {
+        let (release, then) = Self::release_fn();
+        self.0.try_remove(node, release)?;
+        then(NonNull::new(node).unwrap());
+        Ok(())
     }
     pub fn lock_run<R>(&self, f: impl FnOnce() -> R) -> R {
         self.0.lock_run(f)

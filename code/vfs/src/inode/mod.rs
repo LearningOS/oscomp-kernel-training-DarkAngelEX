@@ -1,21 +1,56 @@
-use core::ptr::NonNull;
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::{async_tools::ASysR, error::SysR, list::InListNode};
+use ftl_util::{
+    async_tools::{ASysR, ASysRet},
+    error::{SysR, SysRet},
+    fs::stat::Stat,
+    list::InListNode,
+};
 
 use crate::fssp::Fssp;
 
 pub trait FsInode: Send + Sync + 'static {
+    // === 共享操作 ===
+
+    fn readable(&self) -> bool;
+    fn writable(&self) -> bool;
     fn is_dir(&self) -> bool;
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()>;
+
+    // === 目录操作 ===
+
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>>;
-    fn create<'a>(&'a self, name: &'a str, dir: bool) -> ASysR<Box<dyn FsInode>>;
+    fn create<'a>(&'a self, name: &'a str, dir: bool, rw: (bool, bool)) -> ASysR<Box<dyn FsInode>>;
+    fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()>;
+    fn rmdir_child<'a>(&'a self, name: &'a str) -> ASysR<()>;
+
+    // === 文件操作 ===
+
+    fn bytes(&self) -> SysRet;
+    fn reset_data(&self) -> ASysR<()>;
+    fn read_at<'a>(
+        &'a self,
+        buf: &'a mut [u8],
+        offset_with_ptr: (usize, Option<&'a AtomicUsize>),
+    ) -> ASysRet;
+    fn write_at<'a>(
+        &'a self,
+        buf: &'a [u8],
+        offset_with_ptr: (usize, Option<&'a AtomicUsize>),
+    ) -> ASysRet;
 }
 
 inlist_access!(pub(crate) InodeFsspNode, VfsInode, fssp_node);
 
 pub(crate) struct VfsInode {
+    drop_release: AtomicBool,
     fssp: NonNull<Fssp>,
     fssp_node: InListNode<Self, InodeFsspNode>,
+    pub ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
     pub fsinode: Box<dyn FsInode>,
 }
 
@@ -25,14 +60,25 @@ unsafe impl Sync for VfsInode {}
 impl VfsInode {
     pub fn new(fssp: NonNull<Fssp>, inode: Box<dyn FsInode>) -> Arc<Self> {
         let mut ptr = Arc::new(Self {
+            drop_release: AtomicBool::new(false),
             fssp,
             fssp_node: InListNode::new(),
+            ptr: AtomicUsize::new(0),
             fsinode: inode,
         });
         unsafe {
             Arc::get_mut_unchecked(&mut ptr).fssp_node.init();
         }
         ptr
+    }
+    pub fn ptr(&self) -> &AtomicUsize {
+        &self.ptr
+    }
+    pub fn readable(&self) -> bool {
+        self.fsinode.readable()
+    }
+    pub fn writable(&self) -> bool {
+        self.fsinode.writable()
     }
     pub fn is_dir(&self) -> bool {
         self.fsinode.is_dir()
@@ -51,19 +97,35 @@ impl VfsInode {
     }
     /// 只有文件可以运行
     pub async fn reset_data(&self) -> SysR<()> {
-        todo!()
+        self.fsinode.reset_data().await?;
+        self.ptr.store(0, Ordering::Release);
+        Ok(())
     }
     /// 此函数会在磁盘上判断是否重复
     ///
     /// 只有目录可以运行
-    pub async fn create(&self, name: &str, dir: bool) -> SysR<Arc<VfsInode>> {
-        let fsinode = self.fsinode.create(name, dir).await?;
+    pub async fn create(&self, name: &str, dir: bool, rw: (bool, bool)) -> SysR<Arc<VfsInode>> {
+        let fsinode = self.fsinode.create(name, dir, rw).await?;
         Ok(Self::new(self.fssp, fsinode))
     }
-    ///
-    ///
+    /// 只有目录项可以运行
     pub async fn search(&self, name: &str) -> SysR<Arc<VfsInode>> {
         let fsinode = self.fsinode.search(name).await?;
         Ok(Self::new(self.fssp, fsinode))
+    }
+    /// 给inode增加析构时释放标志
+    pub fn drop_release(&self) {
+        debug_assert!(!self.is_dir());
+        self.drop_release.store(true, Ordering::Release);
+    }
+    /// 这条路径的子节点不在缓存, 不能unlink目录!
+    pub async fn unlink_child(&self, name: &str, release: bool) -> SysR<()> {
+        debug_assert!(self.is_dir());
+        self.fsinode.unlink_child(name, release).await
+    }
+    /// 这条路径的子节点不在缓存, 不能rmdir文件
+    pub async fn rmdir_child(&self, name: &str) -> SysR<()> {
+        debug_assert!(self.is_dir());
+        self.fsinode.rmdir_child(name).await
     }
 }

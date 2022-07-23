@@ -5,8 +5,9 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{boxed::Box, string::String, sync::Arc};
 use ftl_util::{
+    async_tools::ASysR,
     list::InListNode,
     sync::{spin_mutex::SpinMutex, Spin},
 };
@@ -14,9 +15,18 @@ use ftl_util::{
 use crate::{
     dentry::{DentryCache, DentryFsspNode},
     inode::{FsInode, InodeFsspNode, VfsInode},
+    VfsFile,
 };
 
+/// 用来注册一个文件系统
+pub trait FsType: Send + Sync + 'static {
+    fn name(&self) -> String;
+    fn new_fs(&self) -> Box<dyn Fs>;
+}
+
 pub trait Fs: Send + Sync + 'static {
+    fn need_src(&self) -> bool;
+    fn init(&mut self, file: Option<VfsFile>, flags: usize) -> ASysR<()>;
     fn root(&self) -> Box<dyn FsInode>;
 }
 

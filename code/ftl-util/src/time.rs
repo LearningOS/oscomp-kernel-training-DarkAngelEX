@@ -1,6 +1,70 @@
-use core::time::Duration;
+use core::{
+    ops::{Add, AddAssign, Sub, SubAssign},
+    time::Duration,
+};
 
 use crate::error::{SysError, SysR};
+
+/// 起始时间为 1980-1-1 00:00
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Instant(Duration);
+
+impl Instant {
+    /// 1980-1-1 00:00
+    pub const BASE: Self = Instant(Duration::ZERO);
+    pub fn year_mount_day_hour_min_second(self) -> (usize, usize, usize, usize, usize, usize) {
+        let seconds = self.0.as_secs();
+        let mins = seconds / 60;
+        let hours = mins / 60;
+        let days = hours / 24;
+        let mounts = days / 30;
+        let years = mounts / 12;
+        (
+            (years) as usize,
+            (mounts - years * 12) as usize,
+            (days - mounts / 30) as usize,
+            (hours - days * 24) as usize,
+            (mins - hours * 60) as usize,
+            (seconds - mins * 60) as usize,
+        )
+    }
+    pub fn days(self) -> usize {
+        self.year_mount_day_hour_min_second().2
+    }
+    pub fn subsec_nanos(self) -> u32 {
+        self.0.subsec_nanos()
+    }
+}
+
+impl Add<Duration> for Instant {
+    type Output = Self;
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+impl Sub<Duration> for Instant {
+    type Output = Self;
+    fn sub(self, rhs: Duration) -> Self::Output {
+        Self(self.0 - rhs)
+    }
+}
+impl Sub for Instant {
+    type Output = Duration;
+    fn sub(self, rhs: Self) -> Self::Output {
+        debug_assert!(self >= rhs);
+        self.0 - rhs.0
+    }
+}
+impl AddAssign<Duration> for Instant {
+    fn add_assign(&mut self, rhs: Duration) {
+        self.0 += rhs;
+    }
+}
+impl SubAssign<Duration> for Instant {
+    fn sub_assign(&mut self, rhs: Duration) {
+        self.0 -= rhs;
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -114,7 +178,12 @@ impl UtcTime {
     pub fn nanosecond(&self) -> usize {
         self.nano
     }
-    pub fn from_duration(dur: Duration) -> Self {
-        todo!()
+    pub fn from_instant(dur: Instant) -> Self {
+        let (y, mo, d, h, mi, s) = dur.year_mount_day_hour_min_second();
+        UtcTime {
+            ymd: (y, mo, d),
+            hms: (h, mi, s),
+            nano: dur.subsec_nanos() as usize,
+        }
     }
 }

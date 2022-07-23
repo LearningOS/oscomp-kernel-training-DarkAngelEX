@@ -60,7 +60,7 @@ impl Path {
         }
     }
     async fn search_child(&mut self, s: &str) -> SysR<()> {
-        if name_invalid(s) {
+        if name_invalid(s) || self.dentry.cache.closed() {
             return Err(SysError::ENOENT);
         }
         let name_hash = HashName::hash_name(s);

@@ -13,6 +13,9 @@
 #![feature(receiver_trait)]
 #![allow(dead_code)]
 
+const PRINT_OP: bool = true;
+const PRINT_INTO_LRU: bool = true;
+
 extern crate alloc;
 #[macro_use]
 extern crate ftl_util;
