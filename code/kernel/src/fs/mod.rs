@@ -16,6 +16,7 @@ use ftl_util::{
 use vfs::{File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
 
 use crate::{
+    config::FS_CACHE_MAX_SIZE,
     drivers, executor,
     fs::dev::{null::NullInode, tty::TtyInode, zero::ZeroInode},
     memory::user_ptr::UserInOutPtr,
@@ -72,8 +73,7 @@ pub async fn init() {
     stack_trace!();
     const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
     let _sie = AutoSie::new();
-    let max = 10;
-    let mut vfs = VfsManager::new(max);
+    let mut vfs = VfsManager::new(FS_CACHE_MAX_SIZE);
     vfs.init_clock(Box::new(SysClock));
     vfs.init_spawner(Box::new(SysSpawner));
     vfs.import_fstype(Box::new(Fat32Type::new()));
