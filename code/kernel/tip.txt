@@ -44,3 +44,6 @@ b *0x2000000000+0x69854
 
 dlopen -> load_library
 b *0x2000000000+0x68fdc
+
+dlopen
+b *0x2000000000+0x68e48

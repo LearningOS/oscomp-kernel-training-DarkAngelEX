@@ -29,11 +29,12 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 
 
 [features]
-default = ["stack_trace"] # 程序panic后显示逻辑调用栈, 异步调试必备
+default = ["stack_trace"]
+# default = ["stack_trace", "submit"]
 board_qemu = []
 board_hifive = []
 submit = []
-stack_trace = ["ftl-util/stack_trace", "fat32/stack_trace"]
+stack_trace = ["ftl-util/stack_trace", "fat32/stack_trace"] # 程序panic后显示逻辑调用栈, 异步调试必备
 
 # https://zhuanlan.zhihu.com/p/476524365
 [profile.dev]

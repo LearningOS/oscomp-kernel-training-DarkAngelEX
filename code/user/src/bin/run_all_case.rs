@@ -60,10 +60,10 @@ fn run_item(name: &str, a: &str, b: &str, c: &str) {
     if PRINT_LINE {
         println!("<{}> <{}> <{}> <{}>", name, a, b, c);
     }
-    if c == "tls_get_new_dtv" {
-        println!("skip tls_get_new_dtv !!");
-        return;
-    }
+    // if c == "tls_get_new_dtv" {
+    //     println!("skip tls_get_new_dtv !!");
+    //     return;
+    // }
     let n = fork();
     assert!(n >= 0);
     if n == 0 {
