@@ -7,6 +7,8 @@ extern crate user_lib;
 use alloc::{string::ToString, vec::Vec};
 use user_lib::{exec, exit, fork, open, println, read, wait, write, OpenFlags};
 
+const PRINT_LINE: bool = false;
+
 #[no_mangle]
 fn main() -> i32 {
     match fork() {
@@ -37,7 +39,9 @@ fn run_sh(path: &str) {
     assert!(n != 0 && n < buf.len());
     for line in buf[..n].split(|&c| c == b'\n') {
         let line = alloc::str::from_utf8(line).unwrap();
-        println!("line: {}", line);
+        if PRINT_LINE {
+            println!("line: {}", line);
+        }
         let mut it = line.as_bytes().split(|&c| c == b' ');
         match (it.next(), it.next(), it.next(), it.next()) {
             (Some(n), Some(a), Some(b), Some(c)) => {
@@ -53,7 +57,9 @@ fn run_sh(path: &str) {
 }
 
 fn run_item(name: &str, a: &str, b: &str, c: &str) {
-    println!("<{}> <{}> <{}> <{}>", name, a, b, c);
+    if PRINT_LINE {
+        println!("<{}> <{}> <{}> <{}>", name, a, b, c);
+    }
     let n = fork();
     assert!(n >= 0);
     if n == 0 {
