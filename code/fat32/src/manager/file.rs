@@ -21,6 +21,7 @@ pub struct Fat32Inode {
     inode: AnyInode,
     path: Vec<String>,
     manager: Arc<Fat32Manager>,
+    ino: usize,
 }
 
 impl Fat32Inode {

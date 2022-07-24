@@ -1,4 +1,4 @@
-use core::sync::atomic::AtomicUsize;
+use core::sync::atomic::{AtomicUsize, Ordering};
 
 use alloc::{
     boxed::Box,
@@ -13,7 +13,7 @@ use ftl_util::{
     fs::{path, stat::Stat, DentryType, Mode, OpenFlags},
     time::Instant,
 };
-use vfs::{File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
+use vfs::{DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
 
 use crate::{
     config::FS_CACHE_MAX_SIZE,
@@ -68,6 +68,16 @@ impl VfsSpawner for SysSpawner {
         executor::kernel_spawn(future);
     }
 }
+struct OsDevAllocator;
+impl DevAlloc for OsDevAllocator {
+    fn box_clone(&self) -> Box<dyn DevAlloc> {
+        Box::new(Self)
+    }
+    fn alloc(&self) -> usize {
+        static DEV_ALLOCATOR: AtomicUsize = AtomicUsize::new(0);
+        DEV_ALLOCATOR.fetch_add(1, Ordering::Relaxed)
+    }
+}
 
 pub async fn init() {
     stack_trace!();
@@ -76,6 +86,7 @@ pub async fn init() {
     let mut vfs = VfsManager::new(FS_CACHE_MAX_SIZE);
     vfs.init_clock(Box::new(SysClock));
     vfs.init_spawner(Box::new(SysSpawner));
+    vfs.init_devalloc(Box::new(OsDevAllocator));
     vfs.import_fstype(Box::new(Fat32Type::new()));
     // 挂载几个全局目录
     vfs.set_spec_dentry("dev".to_string());

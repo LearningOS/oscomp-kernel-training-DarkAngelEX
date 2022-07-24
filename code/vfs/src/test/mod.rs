@@ -4,7 +4,10 @@ use ftl_util::{
     error::{SysError, SysR},
 };
 
-use crate::{manager::ZeroClock, File, VfsFile, VfsManager};
+use crate::{
+    manager::{ArcDevAlloc, ZeroClock},
+    File, VfsFile, VfsManager,
+};
 
 #[test]
 pub fn test_run() {
@@ -22,6 +25,7 @@ async fn test_create() {
     let rw = (true, true);
     let mut manager = VfsManager::new(10);
     manager.init_clock(Box::new(ZeroClock));
+    manager.init_devalloc(Box::new(ArcDevAlloc::new()));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let d0 = manager.create(xp("/0"), false, rw).await.unwrap();
     let d1 = manager.open(xp("/0")).await.unwrap();
@@ -44,6 +48,7 @@ async fn test_many() {
     let rw = (true, true);
     let mut manager = VfsManager::new(3);
     manager.init_clock(Box::new(ZeroClock));
+    manager.init_devalloc(Box::new(ArcDevAlloc::new()));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let _d00 = manager.create(xp("/0"), false, rw).await.unwrap();
     let _d01 = manager.create(xp("/1"), false, rw).await.unwrap();
@@ -70,6 +75,7 @@ async fn test_unlink() {
     let rw = (true, true);
     let mut manager = VfsManager::new(10);
     manager.init_clock(Box::new(ZeroClock));
+    manager.init_devalloc(Box::new(ArcDevAlloc::new()));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let _0 = manager.create(xp("/0"), false, rw).await.unwrap();
     manager.open(xp("/0")).await.unwrap();
@@ -81,6 +87,7 @@ async fn test_rmdir() {
     let rw = (true, true);
     let mut manager = VfsManager::new(10);
     manager.init_clock(Box::new(ZeroClock));
+    manager.init_devalloc(Box::new(ArcDevAlloc::new()));
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     let x = manager.create(xp("/1"), true, rw).await.unwrap();
     manager.rmdir(xp("/1")).await.unwrap();
@@ -99,6 +106,7 @@ async fn test_rmdir() {
 async fn test_special() {
     let mut manager = VfsManager::new(10);
     manager.init_clock(Box::new(ZeroClock));
+    manager.init_devalloc(Box::new(ArcDevAlloc::new()));
     manager.set_spec_dentry("dev".to_string());
     manager.mount(xp(""), xp("/"), "tmpfs", 0).await.unwrap();
     manager.open(xp("/dev")).await.unwrap();

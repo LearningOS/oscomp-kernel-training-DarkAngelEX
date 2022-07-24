@@ -1,4 +1,7 @@
-use core::sync::atomic::{AtomicBool, Ordering};
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicBool, Ordering},
+};
 
 use alloc::{
     boxed::Box,
@@ -14,21 +17,30 @@ use ftl_util::{
 
 use crate::FsInode;
 
-use super::TmpFsInode;
+use super::{TmpFs, TmpFsInode};
 
 pub struct TmpFsDir {
     readable: AtomicBool,
     writable: AtomicBool,
     subs: RwSleepMutex<BTreeMap<String, TmpFsInode>, Spin>,
+    ino: usize,
+    fs: NonNull<TmpFs>,
 }
+unsafe impl Send for TmpFsDir {}
+unsafe impl Sync for TmpFsDir {}
 
 impl TmpFsDir {
-    pub fn new((r, w): (bool, bool)) -> Self {
+    pub(super) fn new((r, w): (bool, bool), ino: usize, fs: NonNull<TmpFs>) -> Self {
         Self {
             readable: AtomicBool::new(r),
             writable: AtomicBool::new(w),
             subs: RwSleepMutex::new(BTreeMap::new()),
+            ino,
+            fs,
         }
+    }
+    pub(super) unsafe fn set_fs(&self, fs: NonNull<TmpFs>) {
+        *(&self.fs as *const _ as *mut _) = fs;
     }
     pub async fn search(&self, name: &str) -> SysR<Box<dyn FsInode>> {
         let lk = self.subs.shared_lock().await;
@@ -40,7 +52,8 @@ impl TmpFsDir {
         if lk.get(name).is_some() {
             return Err(SysError::EEXIST);
         }
-        let new = TmpFsInode::new(dir, rw);
+        let ino = unsafe { (*self.fs.as_ptr()).inoalloc.fetch_add(1, Ordering::Relaxed) };
+        let new = TmpFsInode::new(dir, rw, ino, self.fs);
         lk.try_insert(name.to_string(), new.clone()).ok().unwrap();
         Ok(Box::new(new))
     }

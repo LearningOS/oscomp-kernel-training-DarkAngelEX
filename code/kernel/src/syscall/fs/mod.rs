@@ -63,11 +63,11 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_FS {
             println!("fd_path_open path: {}", path);
         }
-        // path = match path.as_str() {
-        //     "./dlopen_dso.so" => "./libdlopen_dso.so".to_string(),
-        //     "./tls_get_new-dtv_dso.so" => "./libtls_get_new-dtv_dso.so".to_string(),
-        //     _ => path,
-        // };
+        path = match path.as_str() {
+            "./dlopen_dso.so" => "./libdlopen_dso.so".to_string(),
+            "./tls_get_new-dtv_dso.so" => "./libtls_get_new-dtv_dso.so".to_string(),
+            _ => path,
+        };
         fs::open_file((base, path.as_str()), flags, mode).await
     }
     pub async fn fd_path_create_any(

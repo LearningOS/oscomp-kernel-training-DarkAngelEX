@@ -1,7 +1,10 @@
 mod tdir;
 mod tfile;
 
-use core::sync::atomic::AtomicUsize;
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use alloc::{
     boxed::Box,
@@ -38,13 +41,15 @@ impl FsType for TmpFsType {
     fn name(&self) -> String {
         "tmpfs".to_string()
     }
-    fn new_fs(&self) -> Box<dyn Fs> {
-        TmpFs::new()
+    fn new_fs(&self, dev: usize) -> Box<dyn Fs> {
+        TmpFs::new(dev)
     }
 }
 
 pub(crate) struct TmpFs {
+    dev: usize,
     root: TmpFsInode,
+    inoalloc: AtomicUsize,
 }
 
 impl Fs for TmpFs {
@@ -71,13 +76,29 @@ impl Fs for TmpFs {
 }
 
 impl TmpFs {
-    pub fn new() -> Box<Self> {
-        Box::new(Self {
-            root: TmpFsInode::new(true, (true, true)),
-        })
+    pub fn new(dev: usize) -> Box<Self> {
+        let root = TmpFsInode::new(true, (true, true), 0, NonNull::dangling());
+        let fs = Box::new(Self {
+            dev,
+            root,
+            inoalloc: AtomicUsize::new(1),
+        });
+        unsafe { fs.root.dir().unwrap().set_fs(fs.ptr()) };
+        fs
     }
-    pub fn new_dir() -> Box<dyn FsInode> {
-        Box::new(TmpFsInode::new(true, (true, true)))
+    pub fn alloc_ino(&self) -> usize {
+        self.inoalloc.fetch_add(1, Ordering::Relaxed)
+    }
+    pub fn new_dir(&self) -> Box<dyn FsInode> {
+        Box::new(TmpFsInode::new(
+            true,
+            (true, true),
+            self.alloc_ino(),
+            self.ptr(),
+        ))
+    }
+    pub fn ptr(&self) -> NonNull<Self> {
+        NonNull::new(self as *const _ as *mut _).unwrap()
     }
 }
 
@@ -90,11 +111,11 @@ enum TmpFsImpl {
 }
 
 impl TmpFsInode {
-    fn new(dir: bool, rw: (bool, bool)) -> Self {
+    fn new(dir: bool, rw: (bool, bool), ino: usize, fs: NonNull<TmpFs>) -> Self {
         if dir {
-            Self::from_impl(TmpFsImpl::Dir(TmpFsDir::new(rw)))
+            Self::from_impl(TmpFsImpl::Dir(TmpFsDir::new(rw, ino, fs)))
         } else {
-            Self::from_impl(TmpFsImpl::File(Box::new(TmpFsFile::new(rw))))
+            Self::from_impl(TmpFsImpl::File(Box::new(TmpFsFile::new(rw, ino, fs))))
         }
     }
     fn new_inode(inode: Box<dyn FsInode>) -> Self {

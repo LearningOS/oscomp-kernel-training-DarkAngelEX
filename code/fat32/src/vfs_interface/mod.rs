@@ -27,13 +27,14 @@ impl FsType for Fat32Type {
     fn name(&self) -> String {
         "vfat".to_string()
     }
-    fn new_fs(&self) -> Box<dyn Fs> {
+    fn new_fs(&self, dev: usize) -> Box<dyn Fs> {
         let list_max_dirty = 100;
         let list_max_cache = 100;
         let block_max_dirty = 100;
         let block_max_cache = 100;
         let inode_target_free = 100;
         let manager = Fat32Manager::new(
+            dev,
             list_max_dirty,
             list_max_cache,
             block_max_dirty,
@@ -92,6 +93,7 @@ struct Fat32InodeV {
     writable: AtomicBool,
     inode: AnyInode,
     manager: NonNull<Fat32Manager>,
+    ino: usize,
 }
 
 unsafe impl Send for Fat32InodeV {}
@@ -99,11 +101,23 @@ unsafe impl Sync for Fat32InodeV {}
 
 impl Fat32InodeV {
     pub fn new(inode: AnyInode, (r, w): (bool, bool), manager: NonNull<Fat32Manager>) -> Self {
+        let iid = unsafe {
+            match &inode {
+                AnyInode::Dir(d) => d.inode.unsafe_get(),
+                AnyInode::File(f) => f.inode.unsafe_get(),
+            }
+            .cache
+            .inner
+            .unsafe_get()
+            .entry
+            .iid(manager.as_ref())
+        };
         Fat32InodeV {
             readable: AtomicBool::new(r),
             writable: AtomicBool::new(w),
             inode,
             manager,
+            ino: iid.get() as usize,
         }
     }
     pub fn new_dyn(
@@ -130,6 +144,7 @@ impl FsInode for Fat32InodeV {
     }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {
+            let dev = self.manager().dev;
             let bpb = self.manager().bpb();
             let short = self.inode.short_name();
             let size = short.file_bytes();
@@ -137,8 +152,8 @@ impl FsInode for Fat32InodeV {
             let blk_n = self.inode.blk_num(self.manager()).await? as u64;
             let access_time = short.access_time();
             let modify_time = short.modify_time();
-            stat.st_dev = 0;
-            stat.st_ino = 0;
+            stat.st_dev = dev as u64;
+            stat.st_ino = self.ino as u64;
             stat.st_mode = 0o777;
             match &self.inode {
                 AnyInode::Dir(_) => stat.st_mode |= S_IFDIR,

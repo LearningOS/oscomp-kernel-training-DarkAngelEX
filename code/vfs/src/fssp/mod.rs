@@ -22,7 +22,7 @@ use crate::{
 /// 用来注册一个文件系统
 pub trait FsType: Send + Sync + 'static {
     fn name(&self) -> String;
-    fn new_fs(&self) -> Box<dyn Fs>;
+    fn new_fs(&self, dev: usize) -> Box<dyn Fs>;
 }
 
 pub trait Fs: Send + Sync + 'static {

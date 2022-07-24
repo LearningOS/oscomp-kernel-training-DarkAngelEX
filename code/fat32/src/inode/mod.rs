@@ -115,4 +115,7 @@ impl IID {
     pub fn off(self, cluster_bytes_log2: u32) -> usize {
         (self.0 as usize) & ((1 << (cluster_bytes_log2 - 5)) - 1)
     }
+    pub fn get(self) -> u64 {
+        self.0
+    }
 }

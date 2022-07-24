@@ -1,4 +1,7 @@
-use core::ptr::NonNull;
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicUsize, Ordering},
+};
 
 use alloc::{boxed::Box, collections::BTreeMap, string::String, sync::Arc};
 use ftl_util::{
@@ -31,6 +34,11 @@ pub trait VfsClock: Send + Sync + 'static {
     fn box_clone(&self) -> Box<dyn VfsClock>;
     fn now(&self) -> Instant;
 }
+pub trait DevAlloc: Send + Sync + 'static {
+    fn box_clone(&self) -> Box<dyn DevAlloc>;
+    fn alloc(&self) -> usize;
+}
+
 pub struct ZeroClock;
 impl VfsClock for ZeroClock {
     fn box_clone(&self) -> Box<dyn VfsClock> {
@@ -38,6 +46,20 @@ impl VfsClock for ZeroClock {
     }
     fn now(&self) -> Instant {
         Instant::BASE
+    }
+}
+pub struct ArcDevAlloc(Arc<AtomicUsize>);
+impl ArcDevAlloc {
+    pub fn new() -> Self {
+        Self(Arc::new(AtomicUsize::new(0)))
+    }
+}
+impl DevAlloc for ArcDevAlloc {
+    fn box_clone(&self) -> Box<dyn DevAlloc> {
+        Box::new(Self(self.0.clone()))
+    }
+    fn alloc(&self) -> usize {
+        self.0.fetch_add(1, Ordering::Relaxed)
     }
 }
 
@@ -50,6 +72,7 @@ pub struct VfsManager {
     mounts: MountManager,
     spawner: Option<Box<dyn VfsSpawner>>,
     clock: Option<Box<dyn VfsClock>>,
+    devalloc: Option<Box<dyn DevAlloc>>,
 }
 
 impl VfsManager {
@@ -64,6 +87,7 @@ impl VfsManager {
             mounts: MountManager::new(),
             spawner: None,
             clock: None,
+            devalloc: None,
         });
         m.root_fssp.rc_increase();
         m.dentrys.init();
@@ -79,6 +103,9 @@ impl VfsManager {
     pub fn init_clock(&mut self, clock: Box<dyn VfsClock>) {
         self.clock = Some(clock);
     }
+    pub fn init_devalloc(&mut self, alloc: Box<dyn DevAlloc>) {
+        self.devalloc = Some(alloc);
+    }
     pub fn import_fstype(&self, fstype: Box<dyn FsType>) {
         let name = fstype.name();
         let _ = self.fstypes.lock().insert(name, fstype);
@@ -86,12 +113,14 @@ impl VfsManager {
     /// 这里创建的目录将全局可见
     pub fn set_spec_dentry(&mut self, name: String) {
         let parent = self.root.as_ref().unwrap().clone();
-        let fssp = NonNull::new(&mut *self.root_fssp).unwrap();
+        let tmpfs = TmpFs::new(self.alloc_dev());
+        let inode = tmpfs.new_dir();
+        let fssp = Fssp::new(Some(tmpfs)).into_raw();
         let dentry = DentryCache::new(
             HashName::new(&*parent, &name),
             true,
             Some(parent),
-            InodeS::Some(VfsInode::new(fssp, TmpFs::new_dir())),
+            InodeS::Some(VfsInode::new(fssp, inode)),
             NonNull::new(&mut self.dentrys.lru).unwrap(),
             fssp,
             NonNull::new(&mut self.dentrys.index).unwrap(),
@@ -104,6 +133,9 @@ impl VfsManager {
         stack_trace!();
         let root = Dentry::new_vfs_root(&self.dentrys, NonNull::new(&mut *self.root_fssp).unwrap());
         self.root = Some(root);
+    }
+    fn alloc_dev(&self) -> usize {
+        self.devalloc.as_ref().unwrap().alloc()
     }
     fn mounts_ptr(&self) -> NonNull<MountManager> {
         NonNull::new(&self.mounts as *const _ as *mut _).unwrap()
@@ -235,7 +267,7 @@ impl VfsManager {
             .lock()
             .get(fstype)
             .ok_or(SysError::EINVAL)?
-            .new_fs();
+            .new_fs(self.alloc_dev());
 
         let src = match fs.need_src() {
             true => Some(VfsFile::from_path_arc(self.walk_all(src).await?)?),

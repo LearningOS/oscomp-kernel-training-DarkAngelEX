@@ -1,4 +1,7 @@
-use core::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use core::{
+    ptr::NonNull,
+    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
+};
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 use ftl_util::{
@@ -14,20 +17,29 @@ use ftl_util::{
 
 use crate::FsInode;
 
+use super::TmpFs;
+
 pub struct TmpFsFile {
     readable: AtomicBool,
     writable: AtomicBool,
     subs: RwSleepMutex<Vec<u8>, Spin>,
     timer: SpinMutex<(Instant, Instant), Spin>,
+    ino: usize,
+    fs: NonNull<TmpFs>,
 }
 
+unsafe impl Send for TmpFsFile {}
+unsafe impl Sync for TmpFsFile {}
+
 impl TmpFsFile {
-    pub fn new((r, w): (bool, bool)) -> Self {
+    pub(super) fn new((r, w): (bool, bool), ino: usize, fs: NonNull<TmpFs>) -> Self {
         Self {
             readable: AtomicBool::new(r),
             writable: AtomicBool::new(w),
             subs: RwSleepMutex::new(Vec::new()),
             timer: SpinMutex::new((Instant::BASE, Instant::BASE)),
+            ino,
+            fs,
         }
     }
     pub fn bytes(&self) -> SysRet {
@@ -90,8 +102,8 @@ impl FsInode for TmpFsFile {
         Box::pin(async move {
             let (access_time, modify_time) = *self.timer.lock();
             *stat = Stat::zeroed();
-            stat.st_dev = 0;
-            stat.st_ino = 0;
+            stat.st_dev = unsafe { (*self.fs.as_ptr()).dev as u64 };
+            stat.st_ino = self.ino as u64;
             stat.st_mode = 0o777;
             stat.st_mode |= S_IFREG;
             stat.st_nlink = 1;

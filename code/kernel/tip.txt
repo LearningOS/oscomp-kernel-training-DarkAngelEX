@@ -39,3 +39,8 @@ busybox sh ./run-all.sh
 ./runtest.exe -w entry-dynamic.exe argv
 ./runtest.exe -w entry-dynamic.exe dlopen
 ./runtest.exe -w entry-dynamic.exe tls_get_new_dtv
+
+b *0x2000000000+0x69854
+
+dlopen -> load_library
+b *0x2000000000+0x68fdc

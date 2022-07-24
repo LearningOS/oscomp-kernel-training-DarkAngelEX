@@ -35,7 +35,7 @@ fn system_test(
         }
     }
     async move {
-        let mut manager = Fat32Manager::new(100, 100, 100, 100, 100);
+        let mut manager = Fat32Manager::new(0, 100, 100, 100, 100, 100);
         manager.init(device, clock).await;
         let root = manager.search_dir(&[]).await.unwrap();
         println!("/// show file ///");

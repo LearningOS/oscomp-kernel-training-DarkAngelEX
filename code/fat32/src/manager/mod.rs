@@ -18,6 +18,7 @@ use crate::{
 };
 
 pub struct Fat32Manager {
+    pub dev: usize,
     pub(crate) bpb: RawBPB,
     pub(crate) list: FatList,
     pub(crate) caches: CacheManager,
@@ -28,6 +29,7 @@ pub struct Fat32Manager {
 
 impl Fat32Manager {
     pub fn new(
+        dev: usize,
         list_max_dirty: usize,    // FAT链表 脏扇区限制
         list_max_cache: usize,    // FAT链表 缓存扇区限制
         block_max_dirty: usize,   // 数据簇 脏簇限制
@@ -35,6 +37,7 @@ impl Fat32Manager {
         inode_target_free: usize, // 最大缓存的未使用inode数量
     ) -> Self {
         Self {
+            dev,
             bpb: RawBPB::zeroed(),
             list: FatList::empty(list_max_dirty, list_max_cache),
             caches: CacheManager::new(block_max_dirty, block_max_cache),
