@@ -13,6 +13,8 @@ use super::{block::BPB_CID, crc, BlockDevice};
 use alloc::boxed::Box;
 use ftl_util::async_tools::ASysR;
 
+const HIGH_FREQ: usize = 4_000_000;
+
 pub struct SDCard<T: SPIActions> {
     spi: T,
     spi_cs: u32,
@@ -180,7 +182,7 @@ impl<T: SPIActions> SDCard<T> {
     }
 
     fn HIGH_SPEED_ENABLE(&mut self) {
-        self.spi.set_clk_rate(8_000_000);
+        self.spi.set_clk_rate(HIGH_FREQ);
     }
 
     fn CS_HIGH(&mut self) {
