@@ -12,7 +12,7 @@ pub const BPB_CID: usize = 0;
 
 use alloc::{boxed::Box, sync::Arc};
 
-use crate::config::KERNEL_OFFSET_FROM_DIRECT_MAP;
+use crate::memory::address::PhyAddr;
 
 use super::BlockDevice;
 
@@ -77,11 +77,11 @@ pub async fn block_device_test() {
 
 struct MemDriver;
 
-const BASE_ADDR: usize = 0x9000_0000 + KERNEL_OFFSET_FROM_DIRECT_MAP;
+const BASE_ADDR: PhyAddr<u8> = PhyAddr::from_usize(0x9000_0000);
 
 impl MemDriver {
     fn block_range(block_id: usize, len: usize) -> &'static mut [u8] {
-        let start = BASE_ADDR + block_id * 512;
+        let start = BASE_ADDR.into_ref().into_usize() + block_id * 512;
         unsafe { core::slice::from_raw_parts_mut(start as *mut u8, len) }
     }
 }
