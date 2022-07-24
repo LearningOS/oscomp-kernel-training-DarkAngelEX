@@ -93,7 +93,7 @@ impl HartLocal {
             self.pending.lock().push(Box::new(f))
         }
     }
-    fn handle(&mut self) {
+    pub fn handle(&mut self) {
         debug_assert!(self.queue.is_empty());
         // use swap instead of take bucause it can keep reverse space.
         if unsafe { self.pending.unsafe_get().is_empty() } {

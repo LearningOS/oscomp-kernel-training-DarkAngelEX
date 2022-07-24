@@ -12,7 +12,7 @@ pub const BPB_CID: usize = 0;
 
 use alloc::{boxed::Box, sync::Arc};
 
-use crate::memory::address::PhyAddr;
+use crate::{memory::address::PhyAddr, sync::SleepMutex};
 
 use super::BlockDevice;
 
@@ -31,7 +31,7 @@ pub fn init() {
         () => {
             // Arc::new(super::spi_sd::SDCardWrapper::new()) // hifive
             // super::blockdev::init_sdcard() // k210
-            Arc::new(MemDriver) // 0x9000_0000
+            Arc::new(MemDriver::new()) // 0x9000_0000
         }
     };
     unsafe { BLOCK_DEVICE = Some(device) }
@@ -75,11 +75,14 @@ pub async fn block_device_test() {
     println!("block device test passed!");
 }
 
-struct MemDriver;
+struct MemDriver(SleepMutex<()>);
 
 const BASE_ADDR: PhyAddr<u8> = PhyAddr::from_usize(0x9000_0000);
 
 impl MemDriver {
+    pub fn new() -> Self {
+        Self(SleepMutex::new(()))
+    }
     fn block_range(block_id: usize, len: usize) -> &'static mut [u8] {
         let start = BASE_ADDR.into_ref().into_usize() + block_id * 512;
         unsafe { core::slice::from_raw_parts_mut(start as *mut u8, len) }
@@ -95,12 +98,14 @@ impl BlockDevice for MemDriver {
     }
     fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> ASysR<'a, ()> {
         Box::pin(async move {
+            let _lk = self.0.lock().await;
             buf.copy_from_slice(Self::block_range(block_id, buf.len()));
             Ok(())
         })
     }
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> ASysR<'a, ()> {
         Box::pin(async move {
+            let _lk = self.0.lock().await;
             Self::block_range(block_id, buf.len()).copy_from_slice(buf);
             Ok(())
         })

@@ -53,6 +53,7 @@ async fn userloop(thread: Arc<Thread>) {
         let stval = stval::read();
 
         drop(auto_sie);
+        local::handle_current_local();
 
         let mut do_exit = false;
         let mut user_fatal_error = || {
@@ -157,6 +158,7 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
+        local.handle();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
         if !USING_ASID {
