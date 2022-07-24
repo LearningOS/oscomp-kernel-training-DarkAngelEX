@@ -37,7 +37,7 @@ fn run_sh(path: &str) {
     assert!(n != 0 && n < buf.len());
     for line in buf[..n].split(|&c| c == b'\n') {
         let line = alloc::str::from_utf8(line).unwrap();
-        // println!("line: {}", line);
+        println!("line: {}", line);
         let mut it = line.as_bytes().split(|&c| c == b' ');
         match (it.next(), it.next(), it.next(), it.next()) {
             (Some(n), Some(a), Some(b), Some(c)) => {
@@ -53,7 +53,7 @@ fn run_sh(path: &str) {
 }
 
 fn run_item(name: &str, a: &str, b: &str, c: &str) {
-    // println!("<{}> <{}> <{}> <{}>", name, a, b, c);
+    println!("<{}> <{}> <{}> <{}>", name, a, b, c);
     let n = fork();
     assert!(n >= 0);
     if n == 0 {

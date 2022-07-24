@@ -18,7 +18,7 @@ use crate::{
     syscall::SysError,
     tools::{allocator::from_usize_allocator::FromUsize, path},
     user::check::UserCheck,
-    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
+    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_WRITE},
 };
 pub mod mount;
 pub mod stat;
@@ -221,7 +221,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS {
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_WRITE {
             println!("sys_write");
         }
         let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
