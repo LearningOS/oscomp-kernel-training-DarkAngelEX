@@ -1,6 +1,5 @@
-#[cfg(feature = "board_k210")]
-mod sdcard;
-mod virtio_blk;
+use ftl_util::async_tools::ASysR;
+
 #[cfg(feature = "board_k210")]
 pub use sdcard::SDCardWrapper;
 
@@ -11,21 +10,28 @@ pub const BPB_CID: usize = 10274;
 #[cfg(feature = "submit")]
 pub const BPB_CID: usize = 0;
 
-use alloc::sync::Arc;
+use alloc::{boxed::Box, sync::Arc};
+
+use crate::config::KERNEL_OFFSET_FROM_DIRECT_MAP;
 
 use super::BlockDevice;
+
+#[cfg(feature = "board_k210")]
+mod sdcard;
+mod virtio_blk;
 
 static mut BLOCK_DEVICE: Option<Arc<dyn BlockDevice>> = None;
 
 pub fn init() {
     stack_trace!();
-    let device = match () {
+    let device: Arc<dyn BlockDevice> = match () {
         #[cfg(not(feature = "board_hifive"))]
         () => Arc::new(crate::board::BlockDeviceImpl::new()),
         #[cfg(feature = "board_hifive")]
         () => {
-            Arc::new(super::spi_sd::SDCardWrapper::new())
-            // super::blockdev::init_sdcard()
+            // Arc::new(super::spi_sd::SDCardWrapper::new()) // hifive
+            // super::blockdev::init_sdcard() // k210
+            Arc::new(MemDriver) // 0x9000_0000
         }
     };
     unsafe { BLOCK_DEVICE = Some(device) }
@@ -67,4 +73,36 @@ pub async fn block_device_test() {
         assert_eq!(buf0, buf1);
     }
     println!("block device test passed!");
+}
+
+struct MemDriver;
+
+const BASE_ADDR: usize = 0x9000_0000 + KERNEL_OFFSET_FROM_DIRECT_MAP;
+
+impl MemDriver {
+    fn block_range(block_id: usize, len: usize) -> &'static mut [u8] {
+        let start = BASE_ADDR + block_id * 512;
+        unsafe { core::slice::from_raw_parts_mut(start as *mut u8, len) }
+    }
+}
+
+impl BlockDevice for MemDriver {
+    fn sector_bpb(&self) -> usize {
+        0
+    }
+    fn sector_bytes(&self) -> usize {
+        512
+    }
+    fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> ASysR<'a, ()> {
+        Box::pin(async move {
+            buf.copy_from_slice(Self::block_range(block_id, buf.len()));
+            Ok(())
+        })
+    }
+    fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> ASysR<'a, ()> {
+        Box::pin(async move {
+            Self::block_range(block_id, buf.len()).copy_from_slice(buf);
+            Ok(())
+        })
+    }
 }

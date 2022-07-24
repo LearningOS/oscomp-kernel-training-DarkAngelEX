@@ -25,8 +25,8 @@ static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 /// any hart can only access each unit so didn't need mutex.
 ///
 /// access other local must through function below.
-/// 
-/// use align(64) to avoid false share 
+///
+/// use align(64) to avoid false share
 #[repr(align(64))]
 pub struct HartLocal {
     enable: bool,
@@ -96,6 +96,9 @@ impl HartLocal {
     fn handle(&mut self) {
         debug_assert!(self.queue.is_empty());
         // use swap instead of take bucause it can keep reverse space.
+        if unsafe { self.pending.unsafe_get().is_empty() } {
+            return;
+        }
         core::mem::swap(&mut self.queue, &mut *self.pending.lock());
         while let Some(f) = self.queue.pop() {
             f()
