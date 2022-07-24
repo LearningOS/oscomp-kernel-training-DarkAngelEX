@@ -667,7 +667,7 @@ impl<T: SPIActions> SDCard<T> {
                     Ok(()) => break,
                     Err(()) => (),
                 }
-                if cnt == 20 {
+                if cnt == 40 {
                     unsafe {
                         panic!(
                             "read_one_block crc fail cnt: {} error:{}/{} rate: {}",
