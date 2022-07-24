@@ -18,7 +18,7 @@ use crate::{
     syscall::SysError,
     tools::{allocator::from_usize_allocator::FromUsize, path},
     user::check::UserCheck,
-    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_WRITE},
+    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
 };
 pub mod mount;
 pub mod stat;
@@ -194,7 +194,7 @@ impl Syscall<'_> {
     pub fn sys_lseek(&mut self) -> SysRet {
         let (fd, offset, whence): (Fd, isize, u32) = self.cx.into();
         if PRINT_SYSCALL_FS {
-            println!("sys_read");
+            println!("sys_lseek");
         }
         let file = self
             .alive_then(|p| p.fd_table.get(fd).cloned())
@@ -204,7 +204,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_read(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS {
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
             println!("sys_read");
         }
         let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
@@ -221,7 +221,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS && PRINT_SYSCALL_WRITE {
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
             println!("sys_write");
         }
         let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();

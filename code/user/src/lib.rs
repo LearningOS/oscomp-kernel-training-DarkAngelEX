@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(linkage)]
+#![feature(custom_test_frameworks)]
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
 
@@ -132,14 +133,23 @@ pub fn waitpid_nb(pid: usize, exit_code: &mut i32) -> isize {
     sys_waitpid(pid as isize, exit_code as *mut _)
 }
 
-bitflags! {
-    pub struct SignalFlags: i32 {
-        const SIGINT    = 1 << 2;
-        const SIGILL    = 1 << 4;
-        const SIGABRT   = 1 << 6;
-        const SIGFPE    = 1 << 8;
-        const SIGSEGV   = 1 << 11;
-    }
+// bitflags! {
+//     pub struct SignalFlags: i32 {
+//         const SIGINT    = 1 << 2;
+//         const SIGILL    = 1 << 4;
+//         const SIGABRT   = 1 << 6;
+//         const SIGFPE    = 1 << 8;
+//         const SIGSEGV   = 1 << 11;
+//     }
+// }
+
+#[repr(i32)]
+pub enum SignalFlags {
+    SIGINT = 2,
+    SIGILL = 4,
+    SIGABRT = 6,
+    SIGFPE = 8,
+    SIGSEGV = 11,
 }
 
 pub fn kill(pid: usize, signal: i32) -> isize {

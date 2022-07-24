@@ -29,7 +29,7 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 
 
 [features]
-default = ["stack_trace", "submit"] # 程序panic后显示逻辑调用栈, 异步调试必备
+default = ["stack_trace"] # 程序panic后显示逻辑调用栈, 异步调试必备
 board_qemu = []
 board_hifive = []
 submit = []

@@ -180,6 +180,7 @@ pub async fn init() {
         .await
         .unwrap();
     if cfg!(feature = "submit") {
+        println!("running submit program!");
         let mut args = Vec::new();
         args.push(initproc.to_string());
         let envp = Vec::new();
@@ -201,5 +202,5 @@ pub async fn init() {
         let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
         userloop::spawn(thread);
     }
-    println!("spawn initporc");
+    println!("spawn initporc completed");
 }
