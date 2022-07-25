@@ -23,6 +23,8 @@ global_asm!(include_str!("./boot/entry64.asm"));
 static INIT_START: AtomicBool = AtomicBool::new(false);
 static INIT_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
 static AP_CAN_INIT: AtomicBool = AtomicBool::new(false);
+static AP_INIT_WAIT: AtomicUsize = AtomicUsize::new(0);
+static AP_CAN_RUN: AtomicBool = AtomicBool::new(false);
 #[link_section = "data"]
 static FIRST_HART: AtomicBool = AtomicBool::new(false);
 #[link_section = "data"]
@@ -60,10 +62,10 @@ pub fn ftl_logo() -> &'static str {
 
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
-    unsafe { 
-        cpu::set_cpu_id(hartid); 
+    unsafe {
+        cpu::set_cpu_id(hartid);
         cpu::set_gp(); // 愚蠢的rust链接期不支持linker relax, 未使用
-     };
+    };
     if FIRST_HART
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
@@ -138,6 +140,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         println!("[FTL OS]hello! from hart {}", hartid);
         sfence::fence_i();
         println!("init complete! weakup the other cores.");
+        AP_INIT_WAIT.store(cpu::count() - 1, Ordering::Release);
         AP_CAN_INIT.store(true, Ordering::Release);
         {
             let _sie = AutoSie::new();
@@ -147,6 +150,10 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
             trap::enable_timer_interrupt();
             timer::set_next_trigger();
         }
+        while AP_INIT_WAIT.load(Ordering::Acquire) != 0 {
+            core::hint::spin_loop();
+        }
+        AP_CAN_RUN.store(true, Ordering::Release);
     });
     crate::kmain(hartid);
 }
@@ -165,6 +172,10 @@ fn others_main(hartid: usize) -> ! {
         timer::set_next_trigger();
     }
     println!("[FTL OS]hart {} init complete", hartid);
+    AP_INIT_WAIT.fetch_sub(1, Ordering::Release);
+    while !AP_CAN_RUN.load(Ordering::Acquire) {
+        core::hint::spin_loop();
+    }
     crate::kmain(hartid);
 }
 
