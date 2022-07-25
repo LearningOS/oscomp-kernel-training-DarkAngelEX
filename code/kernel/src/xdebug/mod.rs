@@ -10,7 +10,7 @@ pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL: bool = false;
 pub const PRINT_SYSCALL_ALL: bool = false;
 pub const PRINT_SYSCALL_RW: bool = false; // 输出 read 和 write 系统调用
-// fork return and exec return
+                                          // fork return and exec return
 pub const PRINT_SPECIAL_RETURN: bool = false;
 // check drop when becomes zombie
 pub const PRINT_DROP_TCB: bool = false;
@@ -21,10 +21,11 @@ pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;
 pub const CLOSE_LOCAL_HEAP: bool = false;
 
-pub const FRAME_DEALLOC_OVERWRITE: bool = true;
+pub const FRAME_DEALLOC_OVERWRITE: bool = true || FRAME_MODIFY_CHECK;
 pub const HEAP_DEALLOC_OVERWRITE: bool = true;
 
-pub const FRAME_RELEASE_CHECK: bool = false;
+pub const FRAME_RELEASE_CHECK: bool = true; // 检测frame是否被二次释放
+pub const FRAME_MODIFY_CHECK: bool = true; // 检测frame释放后是否被修改
 pub const HEAP_RELEASE_CHECK: bool = false;
 pub const HEAP_PROTECT: bool = false;
 

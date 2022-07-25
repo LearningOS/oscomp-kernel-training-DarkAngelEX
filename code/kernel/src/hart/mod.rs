@@ -183,7 +183,12 @@ fn clear_bss() {
         fn sbss();
         fn ebss();
     }
-    (sbss as usize..ebss as usize).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
+    unsafe {
+        let sbss = sbss as *mut usize;
+        let ebss = ebss as *mut usize;
+        core::slice::from_mut_ptr_range(sbss..ebss).fill(0);
+    }
+    // (sbss as usize..ebss as usize).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
 }
 
 fn show_seg() {

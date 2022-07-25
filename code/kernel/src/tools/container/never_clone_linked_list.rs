@@ -11,8 +11,8 @@ pub struct NeverCloneLinkedList<T> {
 }
 
 struct Node<T> {
-    data: T,
     next: Option<Box<Self>>,
+    data: T,
 }
 
 impl<T> NeverCloneLinkedList<T> {

@@ -1,15 +1,15 @@
 //! frame allocator which can be used in stack.
 
-pub mod global;
-pub mod iter;
-pub mod detector;
-
 use crate::{
     memory::address::PhyAddrRef4K,
     tools::{allocator::TrackerAllocator, error::FrameOOM},
 };
 
 use self::global::FrameTracker;
+
+pub mod global;
+pub mod iter;
+mod list;
 
 pub trait FrameAllocator = TrackerAllocator<PhyAddrRef4K, FrameTracker>;
 

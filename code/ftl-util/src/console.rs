@@ -16,7 +16,7 @@ pub fn print(args: fmt::Arguments) {
         #[cfg(feature = "libc_output")]
         None => libc_output(args),
         #[cfg(not(debug_assertions))]
-        None => core::hint::unreachable_unchecked(),
+        None => unsafe { core::hint::unreachable_unchecked() },
         #[cfg(debug_assertions)]
         None => unimplemented!(),
     }

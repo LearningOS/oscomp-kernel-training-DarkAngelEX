@@ -5,13 +5,12 @@ use crate::{
     config::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
     },
-    memory::address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
-    sync::mutex::SpinNoIrqLock,
-    tools::{
-        allocator::Own,
-        container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
-        error::FrameOOM,
+    memory::{
+        address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
+        allocator::frame::list::FrameList,
     },
+    sync::mutex::SpinNoIrqLock,
+    tools::{allocator::Own, error::FrameOOM},
     xdebug::{
         trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
         CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
@@ -19,7 +18,7 @@ use crate::{
 };
 use core::fmt::Debug;
 
-use super::detector::FrameDetector;
+pub const FRAME_OVERWRITE_MAGIC: usize = 0xf0f0f0f0_f0f0f0f0;
 
 #[derive(Debug)]
 pub struct FrameTracker {
@@ -72,8 +71,7 @@ struct StackGlobalFrameAllocator {
     begin: PhyAddrRef4K, // used in recycle check.
     current: PhyAddrRef4K,
     end: PhyAddrRef4K,
-    recycled: NeverCloneLinkedList<PhyAddrRef4K>,
-    detector: FrameDetector,
+    recycled: FrameList,
 }
 
 impl StackGlobalFrameAllocator {
@@ -82,8 +80,7 @@ impl StackGlobalFrameAllocator {
             begin: unsafe { PhyAddrRef4K::from_usize(0) },
             current: unsafe { PhyAddrRef4K::from_usize(0) },
             end: unsafe { PhyAddrRef4K::from_usize(0) },
-            recycled: NeverCloneLinkedList::new(),
-            detector: FrameDetector::new(),
+            recycled: FrameList::new(),
         }
     }
     pub fn init(&mut self, begin: PhyAddrRef4K, end: PhyAddrRef4K) {
@@ -110,7 +107,6 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
             }
         }
         let pa = if let Some(pa) = self.recycled.pop() {
-            self.detector.alloc_run(pa);
             pa
         } else if self.current == self.end {
             return Err(FrameOOM);
@@ -124,15 +120,14 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     }
 
     fn dealloc(&mut self, addr: PhyAddrRef4K) {
+        debug_assert!(addr.into_usize() % PAGE_SIZE == 0);
         if OPEN_MEMORY_TRACE && addr == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
             trace::call_when_dealloc();
         }
+        FrameList::release_check(addr);
         if FRAME_DEALLOC_OVERWRITE {
-            let arr =
-                unsafe { core::slice::from_raw_parts_mut(addr.into_usize() as *mut u8, PAGE_SIZE) };
-            arr.fill(0xf0);
+            addr.as_usize_array_mut().fill(FRAME_OVERWRITE_MAGIC);
         }
-        self.detector.dealloc_run(addr);
         if CLOSE_FRAME_DEALLOC {
             return;
         }
@@ -169,7 +164,6 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         }
         while let Some(pa) = self.recycled.pop() {
             if let Some(target) = range.next() {
-                self.detector.alloc_run(pa);
                 *target = pa;
             } else {
                 return Ok(());
@@ -184,10 +178,7 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     }
 
     fn dealloc_iter<'a>(&mut self, range: impl Iterator<Item = &'a PhyAddrRef4K>) {
-        range.for_each(|&pa| {
-            self.detector.dealloc_run(pa);
-            self.recycled.push(pa)
-        });
+        range.for_each(|&pa| self.recycled.push(pa));
     }
 }
 

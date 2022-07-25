@@ -2,7 +2,8 @@ use core::{alloc::Layout, ptr::NonNull};
 
 use crate::{config::PAGE_SIZE, tools::container::intrusive_linked_list::IntrusiveLinkedList};
 
-// 这个堆不需要加锁，但需要增加访问标志，即使用时进入中断则需要从全局分配器访问.
+// 不需要加锁，但需要增加访问标志, 如果分配内存时发生中断, 
+// 中断处理程序尝试分配内存, 此时需要改为从全局内存分配器分配内存
 //
 // 缓存 2KB 及以下的空间, 2KB = 2^11
 pub struct LocalHeap {

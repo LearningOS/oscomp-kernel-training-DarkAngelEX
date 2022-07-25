@@ -15,11 +15,13 @@ pub trait FrameDataIter {
 pub struct SliceFrameDataIter<'a> {
     data: &'a [u8],
 }
+
 impl<'a> SliceFrameDataIter<'a> {
     pub fn new(data: &'a [u8]) -> Self {
         Self { data }
     }
 }
+
 impl<'a> FrameDataIter for SliceFrameDataIter<'a> {
     fn len(&self) -> usize {
         self.data.len()
@@ -39,6 +41,7 @@ impl<'a> FrameDataIter for SliceFrameDataIter<'a> {
         }
     }
 }
+
 impl<'a> SliceFrameDataIter<'a> {
     fn next(&mut self) -> Option<&[u8]> {
         if self.data.is_empty() {

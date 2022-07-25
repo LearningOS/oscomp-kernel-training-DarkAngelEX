@@ -150,8 +150,12 @@ drun: build
 		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 		-s -S
 
+#	-ex 'file ../disk/entry-dynamic.exe'
 dgdb:
-	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../disk/entry-dynamic.exe dir ../disk/' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+	@riscv64-unknown-elf-gdb \
+		-ex 'file $(KERNEL_ELF)' \
+		-ex 'set arch riscv:rv64' \
+		-ex 'target remote localhost:1234' \
 
 #qemu-riscv64
 

@@ -31,6 +31,7 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 [features]
 default = ["stack_trace"]
 # default = ["stack_trace", "submit"]
+# default = ["submit"]
 board_qemu = []
 board_hifive = []
 submit = []

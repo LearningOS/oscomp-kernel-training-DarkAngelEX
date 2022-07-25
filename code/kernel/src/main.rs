@@ -76,9 +76,9 @@ mod config;
 #[macro_use]
 mod console;
 #[macro_use]
-mod xdebug;
-#[macro_use]
 mod tools;
+#[macro_use]
+mod xdebug;
 mod benchmark;
 mod drivers;
 mod executor;

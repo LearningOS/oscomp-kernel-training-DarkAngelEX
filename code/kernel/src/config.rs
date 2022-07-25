@@ -12,7 +12,7 @@ pub const FS_CACHE_MAX_SIZE: usize = 100;
 ///
 /// 0x8_0000 = 512KB
 /// 0x10_0000 = 1MB
-pub const KERNEL_HEAP_SIZE: usize = 0x200_0000; // 2MB
+pub const KERNEL_HEAP_SIZE: usize = 0x1_0000; // 64KB
 
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12
