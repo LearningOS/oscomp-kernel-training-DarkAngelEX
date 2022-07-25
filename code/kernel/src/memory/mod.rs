@@ -6,6 +6,7 @@ pub mod map_segment;
 mod page_table;
 pub mod user_ptr;
 mod user_space;
+pub mod rcu;
 
 pub use page_table::{set_satp_by_global, PTEFlags, PageTable, PageTableClosed};
 pub use user_space::{AccessType, UserSpace};
