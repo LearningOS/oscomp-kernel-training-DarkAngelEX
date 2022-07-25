@@ -118,6 +118,7 @@ pub fn kmain(_hart_id: usize) -> ! {
     loop {
         executor::run_until_idle();
         // println!("sie {}", sstatus::read().sie());
+        local::hart_local().local_rcu.critical_end();
         unsafe {
             assert!(sstatus::read().sie());
             riscv::asm::wfi();

@@ -4,30 +4,40 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
+use crate::local;
+
 static CPU_COUNT: AtomicUsize = AtomicUsize::new(0);
 static CPU_MIN: AtomicUsize = AtomicUsize::new(usize::MAX);
 static CPU_MAX: AtomicUsize = AtomicUsize::new(0);
 
-pub unsafe fn set_cpu_id(cpu_id: usize) {
-    asm!("mv tp, {}", in(reg) cpu_id);
+pub unsafe fn set_hart_local(hartid: usize) {
+    let hart_local = local::bind_tp(hartid);
+    asm!("mv tp, {}", in(reg) hart_local);
+}
+
+#[inline(always)]
+pub fn get_tp() -> usize {
+    unsafe {
+        let ret;
+        asm!("mv {}, tp", out(reg) ret);
+        ret
+    }
 }
 
 pub unsafe fn set_gp() {
-    asm!("
+    asm!(
+        "
     .option push
     .option norelax
     la gp, __global_pointer$
     .option pop
-    ");
+    "
+    );
 }
 
 #[inline(always)]
 pub fn hart_id() -> usize {
-    let cpu_id;
-    unsafe {
-        asm!("mv {}, tp", lateout(reg) cpu_id);
-    }
-    cpu_id
+    local::hart_local().cpuid()
 }
 
 pub unsafe fn init(hart_id: usize) {

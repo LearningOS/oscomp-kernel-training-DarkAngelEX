@@ -60,11 +60,22 @@ pub fn ftl_logo() -> &'static str {
     )
 }
 
+macro_rules! smp_v {
+    ($a: ident => $v: literal) => {
+        while $a.load(Ordering::Acquire) != $v {
+            core::hint::spin_loop();
+        }
+    };
+    ($v: literal => $a: ident) => {
+        $a.store($v, Ordering::Release);
+    };
+}
+
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     unsafe {
-        cpu::set_cpu_id(hartid);
-        cpu::set_gp(); // 愚蠢的rust链接期不支持linker relax, 未使用
+        cpu::set_gp(); // 愚蠢的rust链接器不支持linker relax, 未使用
+        cpu::set_hart_local(hartid);
     };
     if FIRST_HART
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
@@ -139,7 +150,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         sfence::fence_i();
         println!("init complete! weakup the other cores.");
         AP_INIT_WAIT.store(cpu::count() - 1, Ordering::Release);
-        AP_CAN_INIT.store(true, Ordering::Release);
+        smp_v!(true => AP_CAN_INIT);
         {
             let _sie = AutoSie::new();
             tools::multi_thread_test(hartid);
@@ -148,10 +159,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
             trap::enable_timer_interrupt();
             timer::set_next_trigger();
         }
-        while AP_INIT_WAIT.load(Ordering::Acquire) != 0 {
-            core::hint::spin_loop();
-        }
-        AP_CAN_RUN.store(true, Ordering::Release);
+        smp_v!(AP_INIT_WAIT => 0);
+        smp_v!(true => AP_CAN_RUN);
     });
     crate::kmain(hartid);
 }
@@ -173,7 +182,7 @@ fn others_main(hartid: usize) -> ! {
     }
     println!("[FTL OS]hart {} init complete", hartid);
     AP_INIT_WAIT.fetch_sub(1, Ordering::Release);
-    while !AP_CAN_RUN.load(Ordering::Acquire) {}
+    smp_v!(AP_CAN_RUN => true);
     crate::kmain(hartid);
 }
 

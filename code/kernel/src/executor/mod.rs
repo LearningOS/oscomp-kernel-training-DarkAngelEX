@@ -78,9 +78,11 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
         unsafe {
             let this = self.get_unchecked_mut();
             let local = local::hart_local();
+            local.local_rcu.critical_start();
             local.switch_kernel_task(&mut this.always_local);
             let r = Pin::new_unchecked(&mut this.task).poll(cx);
             local.switch_kernel_task(&mut this.always_local);
+            local.local_rcu.critical_end_tick();
             r
         }
     }

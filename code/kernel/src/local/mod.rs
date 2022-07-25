@@ -1,3 +1,5 @@
+use core::sync::atomic::{AtomicUsize, Ordering};
+
 use alloc::{boxed::Box, vec::Vec};
 use riscv::register::sstatus;
 
@@ -9,8 +11,9 @@ use crate::{
         address::UserAddr4K,
         allocator::LocalHeap,
         asid::{Asid, AsidVersion},
+        rcu::LocalRcuManager,
     },
-    sync::mutex::SpinNoIrqLock as Mutex,
+    sync::mutex::SpinNoIrqLock,
 };
 
 use self::{always_local::AlwaysLocal, task_local::TaskLocal};
@@ -22,6 +25,9 @@ pub mod task_local;
 const HART_LOCAL_EACH: HartLocal = HartLocal::new();
 static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 
+#[repr(align(64))]
+struct Align64;
+
 /// any hart can only access each unit so didn't need mutex.
 ///
 /// access other local must through function below.
@@ -30,16 +36,22 @@ static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 #[repr(align(64))]
 pub struct HartLocal {
     enable: bool,
+    cpuid: AtomicUsize,
     always_local: AlwaysLocal,
     local_now: LocalNow,
-    queue: Vec<Box<dyn FnOnce()>>,
-    pending: Mutex<Vec<Box<dyn FnOnce()>>>,
     kstack_bottom: usize,
     asid_version: AsidVersion,
     pub interrupt: bool,
     pub in_exception: bool, // forbid exception nest
+    queue: Vec<Box<dyn FnOnce()>>,
     pub local_heap: LocalHeap,
+    pub local_rcu: LocalRcuManager,
+    _align64: Align64, // 让mailbox不会和其他部分共享cacheline
+    mailbox: SpinNoIrqLock<Vec<Box<dyn FnOnce()>>>,
 }
+
+unsafe impl Send for HartLocal {}
+unsafe impl Sync for HartLocal {}
 
 pub enum LocalNow {
     Idle,
@@ -77,29 +89,39 @@ impl HartLocal {
     const fn new() -> Self {
         Self {
             enable: false,
+            cpuid: AtomicUsize::new(usize::MAX),
             always_local: AlwaysLocal::new(),
             local_now: LocalNow::Idle,
             queue: Vec::new(),
-            pending: Mutex::new(Vec::new()),
+            mailbox: SpinNoIrqLock::new(Vec::new()),
             kstack_bottom: 0,
             asid_version: AsidVersion::first_asid_version(),
             interrupt: false,
             in_exception: false,
+            _align64: Align64,
             local_heap: LocalHeap::new(),
+            local_rcu: LocalRcuManager::new(),
         }
+    }
+    pub unsafe fn set_hartid(&self, cpuid: usize) {
+        debug_assert!(self.cpuid.load(Ordering::Relaxed) == usize::MAX);
+        self.cpuid.store(cpuid, Ordering::Release);
+    }
+    pub fn cpuid(&self) -> usize {
+        self.cpuid.load(Ordering::Relaxed)
     }
     fn register(&self, f: impl FnOnce() + 'static) {
         if self.enable {
-            self.pending.lock().push(Box::new(f))
+            self.mailbox.lock().push(Box::new(f))
         }
     }
     pub fn handle(&mut self) {
         debug_assert!(self.queue.is_empty());
         // use swap instead of take bucause it can keep reverse space.
-        if unsafe { self.pending.unsafe_get().is_empty() } {
+        if unsafe { self.mailbox.unsafe_get().is_empty() } {
             return;
         }
-        core::mem::swap(&mut self.queue, &mut *self.pending.lock());
+        core::mem::swap(&mut self.queue, &mut *self.mailbox.lock());
         while let Some(f) = self.queue.pop() {
             f()
         }
@@ -164,12 +186,18 @@ impl HartLocal {
     }
 }
 pub fn init() {
-    hart_local().enable = true;
+    let local = hart_local();
+    local.enable = true;
+    local.local_rcu.init_id(local.cpuid());
+}
+pub unsafe fn bind_tp(hartid: usize) -> usize {
+    let hart_local = get_local_by_id(hartid);
+    hart_local.set_hartid(hartid);
+    hart_local as *const _ as usize
 }
 #[inline(always)]
 pub fn hart_local() -> &'static mut HartLocal {
-    let i = cpu::hart_id();
-    unsafe { &mut HART_LOCAL[i] }
+    unsafe { &mut *(cpu::get_tp() as *mut HartLocal) }
 }
 #[inline(always)]
 pub fn always_local() -> &'static mut AlwaysLocal {

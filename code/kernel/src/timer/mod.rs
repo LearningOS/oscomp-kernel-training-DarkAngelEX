@@ -5,7 +5,7 @@ use core::{
 
 use ftl_util::time::{Instant, TimeSpec, TimeVal, TimeZone, UtcTime};
 
-use crate::{board::CLOCK_FREQ, hart::sbi, riscv::register::time, xdebug::PRINT_TICK};
+use crate::{board::CLOCK_FREQ, hart::sbi, local, riscv::register::time, xdebug::PRINT_TICK};
 
 pub mod sleep;
 
@@ -174,6 +174,8 @@ pub fn tick() {
     if PRINT_TICK {
         print!("!");
     }
+    let local = local::hart_local();
+    local.local_rcu.tick();
     sleep::check_timer();
     set_next_trigger();
 }

@@ -47,7 +47,12 @@ async fn userloop(thread: Arc<Thread>) {
             Err(Dead) => break,
             Ok(()) => (),
         }
-        context.run_user();
+        {
+            let local = local::hart_local();
+            local.local_rcu.critical_end_tick();
+            context.run_user();
+            local.local_rcu.critical_start();
+        }
 
         let scause = scause::read().cause();
         let stval = stval::read();
@@ -121,7 +126,7 @@ async fn userloop(thread: Arc<Thread>) {
     if thread.process.pid() == Pid(0) {
         panic!("initproc exit");
     }
-    exit::exit_impl(&thread).await;
+    exit::exit_impl(&thread).await; 
 }
 
 pub fn spawn(thread: Arc<Thread>) {
@@ -159,6 +164,7 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
         local.handle();
+        local.local_rcu.critical_start();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
         if !USING_ASID {
@@ -169,6 +175,7 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
             sfence::sfence_vma_all_no_global();
         }
         local.leave_task_switch(&mut this.local_switch);
+        local.local_rcu.critical_end_tick();
         ret
     }
 }
