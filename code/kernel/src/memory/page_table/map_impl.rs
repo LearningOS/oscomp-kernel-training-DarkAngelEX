@@ -471,7 +471,7 @@ impl PageTable {
         assert!(map_area.perm().contains(PTEFlags::U));
         let ubegin = map_area.begin();
         let uend = map_area.end();
-        let page_count = PageCount::from_usize(0);
+        let page_count = PageCount(0);
         if ubegin == uend {
             return page_count;
         }

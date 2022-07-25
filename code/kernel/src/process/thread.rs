@@ -170,7 +170,7 @@ impl Thread {
         args: Vec<String>,
         envp: Vec<String>,
     ) -> Arc<Self> {
-        let reverse_stack = PageCount::from_usize(2);
+        let reverse_stack = PageCount(2);
         let (user_space, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };

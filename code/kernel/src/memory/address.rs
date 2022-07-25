@@ -519,6 +519,7 @@ impl VirAddr4K {
     }
     #[inline(always)]
     pub const unsafe fn from_usize(n: usize) -> Self {
+        debug_assert!(n % PAGE_SIZE == 0);
         Self(n)
     }
 }
@@ -597,6 +598,7 @@ impl PhyAddrRef4K {
     }
     #[inline(always)]
     pub const unsafe fn from_usize(n: usize) -> Self {
+        debug_assert!(n % PAGE_SIZE == 0);
         Self(n)
     }
 }
@@ -604,6 +606,7 @@ impl PhyAddrRef4K {
 impl UserAddr4K {
     #[inline(always)]
     pub const unsafe fn from_usize(n: usize) -> Self {
+        debug_assert!(n % PAGE_SIZE == 0);
         Self(n)
     }
     #[inline(always)]
@@ -689,10 +692,6 @@ impl UserAddr4K {
 
 impl PageCount {
     #[inline(always)]
-    pub const fn from_usize(v: usize) -> Self {
-        Self(v)
-    }
-    #[inline(always)]
     pub const fn byte_space(self) -> usize {
         self.0 * PAGE_SIZE
     }
@@ -710,7 +709,7 @@ impl Add for PageCount {
     type Output = PageCount;
     #[inline(always)]
     fn add(self, rhs: Self) -> Self::Output {
-        Self::Output::from_usize(self.0 + rhs.0)
+        PageCount(self.0 + rhs.0)
     }
 }
 impl AddAssign for PageCount {
@@ -723,7 +722,7 @@ impl Sub for PageCount {
     type Output = PageCount;
     #[inline(always)]
     fn sub(self, rhs: Self) -> Self::Output {
-        Self::Output::from_usize(self.0 - rhs.0)
+        PageCount(self.0 - rhs.0)
     }
 }
 impl SubAssign for PageCount {

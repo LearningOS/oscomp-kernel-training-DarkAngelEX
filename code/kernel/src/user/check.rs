@@ -113,7 +113,7 @@ impl<'a> UserCheck<'a> {
             let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
             // if error occur will change status by exception
             check_impl.read_check_async::<u8>(cur_ptr).await?;
-            cur.add_page_assign(PageCount::from_usize(1));
+            cur.add_page_assign(PageCount(1));
         }
         let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
         Ok(UserData::new(unsafe { &*slice }))

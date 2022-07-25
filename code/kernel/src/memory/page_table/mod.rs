@@ -18,6 +18,7 @@ use crate::{
     },
     hart::{csr, sfence},
     local,
+    memory::address::PhyAddrRef,
     tools::{error::FrameOOM, DynDropRun},
 };
 
@@ -488,8 +489,8 @@ fn direct_map_test() {
         println!("direct_map_test");
         let a = INIT_MEMORY_END - 8;
         let ptr = a as *mut usize;
-        let xptr = PhyAddrRef4K::from_usize(ptr as usize - KERNEL_OFFSET_FROM_DIRECT_MAP);
-        *xptr.as_mut() = 1234usize;
+        let xptr = PhyAddrRef::from(ptr as usize - KERNEL_OFFSET_FROM_DIRECT_MAP);
+        *xptr.get_mut() = 1234usize;
         assert_eq!(*ptr, 1234);
     };
 }

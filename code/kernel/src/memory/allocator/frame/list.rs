@@ -31,6 +31,7 @@ struct Node {
 
 impl Node {
     pub fn as_ptr(&self) -> NonNull<Self> {
+        assert!(core::mem::size_of_val(self) == PAGE_SIZE);
         NonNull::new(self as *const _ as *mut _).unwrap()
     }
     pub fn into_frame(frame: NonNull<Self>) -> PhyAddrRef4K {
@@ -67,7 +68,6 @@ impl FrameList {
     }
     pub fn push(&mut self, frame: PhyAddrRef4K) {
         debug_assert!(frame.into_usize() % PAGE_SIZE == 0);
-        // self.check_modify_all();
         let node: &mut Node = frame.as_mut();
         node.next = self.head;
         self.head = Some(node.as_ptr());
@@ -81,10 +81,10 @@ impl FrameList {
         }
     }
     pub fn pop(&mut self) -> Option<PhyAddrRef4K> {
-        // self.check_modify_all();
         let mut node = self.head?;
         unsafe {
             if FRAME_MODIFY_CHECK {
+                // 检测 next 指针是否被修改
                 assert_eq!(node.as_mut().next, node.as_mut().next_copy);
             }
             self.head = node.as_mut().next;
@@ -103,15 +103,6 @@ impl FrameList {
                 node.as_mut().modify_check();
             }
             Some(Node::into_frame(node))
-        }
-    }
-    pub fn check_modify_all(&self) {
-        let mut cur = self.head;
-        while let Some(next) = cur {
-            unsafe {
-                (*next.as_ptr()).modify_check();
-                cur = (*next.as_ptr()).next;
-            }
         }
     }
 }
