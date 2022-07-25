@@ -99,8 +99,6 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     unsafe { cpu::init(hartid) };
     local::set_stack();
     if hartid != INIT_HART.load(Ordering::Acquire) {
-        while !AP_CAN_INIT.load(Ordering::Acquire) {}
-        println!("[FTL OS]hart {} started", hartid);
         others_main(hartid); // -> !!!!!!!!!!!!!!! main !!!!!!!!!!!!!!!
     }
     // init all module there
@@ -159,6 +157,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 }
 
 fn others_main(hartid: usize) -> ! {
+    while !AP_CAN_INIT.load(Ordering::Acquire) {}
+    println!("[FTL OS]hart {} started", hartid);
     println!("[FTL OS]hart {} init by global satp", hartid);
     memory::set_satp_by_global();
     sfence::sfence_vma_all_global();
@@ -173,9 +173,7 @@ fn others_main(hartid: usize) -> ! {
     }
     println!("[FTL OS]hart {} init complete", hartid);
     AP_INIT_WAIT.fetch_sub(1, Ordering::Release);
-    while !AP_CAN_RUN.load(Ordering::Acquire) {
-        core::hint::spin_loop();
-    }
+    while !AP_CAN_RUN.load(Ordering::Acquire) {}
     crate::kmain(hartid);
 }
 
