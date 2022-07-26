@@ -74,8 +74,8 @@ impl<S: MutexSupport> RcuManager<S> {
         let mut need_release; // 真的需要释放东西(队列不为空)
         let mut prev = self.flags.load(Ordering::Relaxed);
         if prev & mask_all == 0 {
-            if !add.is_empty() {
-                self.cp.lock().rcu_pending.append(add);
+            if add.len() != 0 {
+                fast_append(&mut self.cp.lock().rcu_pending, add);
             }
             return;
         }
@@ -98,17 +98,23 @@ impl<S: MutexSupport> RcuManager<S> {
                 Err(v) => prev = v,
             }
         }
-        if !release || !need_release {
-            if !add.is_empty() {
-                self.cp.lock().rcu_pending.append(add);
+        if !release {
+            if add.len() != 0 {
+                fast_append(&mut self.cp.lock().rcu_pending, add);
+            }
+            return;
+        }
+        if !need_release {
+            if add.len() != 0 { // 绕过锁
+                fast_append(&mut self.cp.lock().rcu_current, add);
             }
             return;
         }
         // add 和 pending 转移到 current, current 转移到 add
         let mut cp = self.cp.lock();
         let (c, p) = cp.cp_mut();
-        core::mem::swap(add, c);
-        c.append(p);
+        vec_swap(add, c);
+        fast_append(c, p);
         drop(cp);
         self.flags.fetch_and(!mask_current, Ordering::Relaxed);
         for rd in add.drain(..) {
@@ -128,4 +134,18 @@ impl<S: MutexSupport> RcuManager<S> {
     pub fn rcu_drop_group(&self, v: &mut Vec<RcuDrop>) {
         self.cp.lock().rcu_pending.append(v);
     }
+}
+
+/// vec为3个usize, swap_nonoverlapping 比 swap 更快
+fn vec_swap<T>(a: &mut Vec<T>, b: &mut Vec<T>) {
+    unsafe {
+        core::ptr::swap_nonoverlapping(a, b, 1);
+    }
+}
+
+fn fast_append<T>(dst: &mut Vec<T>, src: &mut Vec<T>) {
+    if dst.len() < src.len() {
+        vec_swap(dst, src);
+    }
+    dst.append(src);
 }

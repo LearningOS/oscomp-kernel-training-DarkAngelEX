@@ -79,10 +79,9 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
     }
     #[inline(always)]
     pub fn lock(&self) -> impl DerefMut<Target = T> + '_ {
-        let mut support_guard;
+        let support_guard = S::before_lock();
         loop {
             self.wait_unlock();
-            support_guard = S::before_lock();
             if self
                 .lock
                 .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
@@ -90,7 +89,6 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
             {
                 break;
             }
-            S::after_unlock(&mut support_guard);
         }
         MutexGuard {
             mutex: self,

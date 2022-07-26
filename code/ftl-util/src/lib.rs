@@ -1,6 +1,7 @@
 #![no_std]
 #![feature(allocator_api)]
 #![feature(const_trait_impl)]
+#![feature(atomic_mut_ptr)]
 #![feature(if_let_guard)]
 #![feature(int_roundings)]
 #![feature(negative_impls)]
@@ -27,11 +28,14 @@ pub mod container;
 pub mod device;
 pub mod error;
 pub mod fs;
+pub mod local;
 pub mod rcu;
 pub mod sync;
 pub mod time;
 
 extern crate alloc;
+
+pub const MAX_CPU: usize = 32;
 
 pub fn debug_init(push_fn: fn(XInfo, &'static str, u32), pop_fn: fn(), current_sie: fn() -> bool) {
     xdebug::stack::init(push_fn, pop_fn);

@@ -3,6 +3,7 @@
 #![feature(asm_const)]
 #![feature(array_chunks)]
 #![feature(array_try_map)]
+#![feature(atomic_mut_ptr)]
 #![feature(alloc_error_handler)]
 #![feature(allocator_api)]
 #![feature(associated_type_bounds)]

@@ -1,6 +1,7 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
+use core::sync::atomic::Ordering;
 
 use alloc::{boxed::Box, vec::Vec};
+use ftl_util::local::FTLCPULocal;
 use riscv::register::sstatus;
 
 use crate::{
@@ -33,17 +34,18 @@ struct Align64;
 /// access other local must through function below.
 ///
 /// use align(64) to avoid false share
+#[repr(C)]
 #[repr(align(64))]
 pub struct HartLocal {
+    ftl_cpulocal: FTLCPULocal,
     enable: bool,
-    cpuid: AtomicUsize,
     always_local: AlwaysLocal,
     local_now: LocalNow,
     kstack_bottom: usize,
-    asid_version: AsidVersion,
     pub interrupt: bool,
-    pub in_exception: bool, // forbid exception nest
+    asid_version: AsidVersion,
     queue: Vec<Box<dyn FnOnce()>>,
+    pub in_exception: bool, // forbid exception nest
     pub local_heap: LocalHeap,
     pub local_rcu: LocalRcuManager,
     _align64: Align64, // 让mailbox不会和其他部分共享cacheline
@@ -88,8 +90,8 @@ impl LocalNow {
 impl HartLocal {
     const fn new() -> Self {
         Self {
+            ftl_cpulocal: FTLCPULocal::new(usize::MAX),
             enable: false,
-            cpuid: AtomicUsize::new(usize::MAX),
             always_local: AlwaysLocal::new(),
             local_now: LocalNow::Idle,
             queue: Vec::new(),
@@ -104,11 +106,10 @@ impl HartLocal {
         }
     }
     pub unsafe fn set_hartid(&self, cpuid: usize) {
-        debug_assert!(self.cpuid.load(Ordering::Relaxed) == usize::MAX);
-        self.cpuid.store(cpuid, Ordering::Release);
+        self.ftl_cpulocal.cpuid.store(cpuid, Ordering::Release);
     }
     pub fn cpuid(&self) -> usize {
-        self.cpuid.load(Ordering::Relaxed)
+        unsafe { *self.ftl_cpulocal.cpuid.as_mut_ptr() }
     }
     fn register(&self, f: impl FnOnce() + 'static) {
         if self.enable {

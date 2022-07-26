@@ -1,9 +1,10 @@
-pub mod spin_mutex;
-pub mod rw_spin_mutex;
-pub mod sleep_mutex;
+pub mod qspinlock;
 pub mod rw_sleep_mutex;
+pub mod rw_spin_mutex;
 pub mod semaphore;
 pub mod seq_mutex;
+pub mod sleep_mutex;
+pub mod spin_mutex;
 
 /// Low-level support for mutex
 pub trait MutexSupport {

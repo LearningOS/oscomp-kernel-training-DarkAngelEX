@@ -67,8 +67,54 @@ impl LocalRcuManager {
 pub fn init() {
     println!("[FTL OS]rcu init");
     ftl_util::rcu::init(rcu_handle);
+    rcu_test();
 }
 
 fn rcu_handle(v: RcuDrop) {
     local::hart_local().local_rcu.push(v);
+}
+
+fn rcu_test() {
+    use alloc::boxed::Box;
+    use core::sync::atomic::*;
+    struct RcuSet(*const AtomicUsize, usize);
+    impl Drop for RcuSet {
+        fn drop(&mut self) {
+            unsafe { (*self.0).store(self.1, Ordering::Relaxed) };
+        }
+    }
+    println!("[FTL OS]rcu_test begin");
+    let tm = RcuManager::<SpinNoIrq>::new();
+    let v = AtomicUsize::new(0);
+    let check = |a| {
+        let v = v.load(Ordering::Relaxed);
+        (v == a).then_some(()).ok_or((v, a))
+    };
+    let push = |a| tm.rcu_drop(Box::new(RcuSet(&v, a)));
+    let fence = |id| {
+        tm.critical_end(id, &mut Vec::new());
+        tm.critical_start(id);
+    };
+    fence(0);
+    push(1);
+    check(0).unwrap();
+    fence(0); // release () 1 -> current
+    fence(0); // release (1)
+    check(1).unwrap();
+    fence(1); // release ()
+    push(2);
+    fence(0); // release () 2 -> current
+    fence(0); // wait 1
+    check(1).unwrap();
+    fence(1); // release (2)
+    check(2).unwrap();
+    push(3);
+    fence(1); // wait 0
+    check(2).unwrap();
+    fence(0); // release () 3 -> current
+    check(2).unwrap();
+    fence(1); // release (3)
+    check(3).unwrap();
+
+    println!("[FTL OS]rcu_test pass");
 }
