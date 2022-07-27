@@ -64,7 +64,7 @@ impl<S: MutexSupport> RcuManager<S> {
     }
     /// 一个核结束了临界区, 并将这期间的释放队列提交到这里
     ///
-    /// add: 当前核心的释放队列
+    /// add: 当前核心的释放队列, 按情况提交到 pending 或 current
     pub fn critical_end(&self, id: usize, add: &mut Vec<RcuDrop>) {
         debug_assert!(id < 32);
         let mask_pending = 1 << id;
@@ -105,11 +105,14 @@ impl<S: MutexSupport> RcuManager<S> {
             return;
         }
         if !need_release {
-            if add.len() != 0 { // 绕过锁
+            // 绕过锁
+            if add.len() != 0 {
                 fast_append(&mut self.cp.lock().rcu_current, add);
             }
             return;
         }
+        // 现在 RCU 释放队列已经被锁定, 保证其他核不会介入释放过程
+
         // add 和 pending 转移到 current, current 转移到 add
         let mut cp = self.cp.lock();
         let (c, p) = cp.cp_mut();
@@ -144,7 +147,7 @@ fn vec_swap<T>(a: &mut Vec<T>, b: &mut Vec<T>) {
 }
 
 fn fast_append<T>(dst: &mut Vec<T>, src: &mut Vec<T>) {
-    if dst.len() < src.len() {
+    if dst.len() + 20 < src.len() {
         vec_swap(dst, src);
     }
     dst.append(src);
