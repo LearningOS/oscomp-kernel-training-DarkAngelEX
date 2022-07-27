@@ -8,6 +8,8 @@
 #![feature(ptr_const_cast)]
 #![feature(unboxed_closures)]
 #![feature(sync_unsafe_cell)]
+#![feature(core_intrinsics)]
+#![feature(untagged_unions)]
 
 use crate::rcu::RcuDrop;
 use xdebug::stack::XInfo;

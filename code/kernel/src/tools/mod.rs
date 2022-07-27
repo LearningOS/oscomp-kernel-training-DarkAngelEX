@@ -7,6 +7,7 @@ use core::{
 };
 
 use alloc::string::String;
+use ftl_util::sync::{qspinlock::QSpinLock, spin_mutex::SpinMutex, Spin};
 use riscv::register::sstatus;
 
 use crate::{hart::cpu, timer};
@@ -177,6 +178,7 @@ pub fn n_space(n: usize) -> String {
 const COLOR_TEST: bool = false;
 const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
 const MULTI_THREAD_STRESS_TEST: bool = false;
+const MULTI_THREAD_SPINLOCK_TEST: bool = true;
 
 static HART_ALLOC: AtomicUsize = AtomicUsize::new(0);
 
@@ -191,6 +193,7 @@ pub fn multi_thread_test(hart: usize) {
     wait_all_hart();
     multi_thread_performance_test(hart);
     multi_thread_stress_test(hart);
+    multi_thread_spin_lock_test(hart);
 }
 
 fn multi_thread_performance_test(hart: usize) {
@@ -245,4 +248,90 @@ pub fn xor_shift_128_plus((s0, s1): (u64, u64)) -> (u64, u64) {
     s2 ^= s2 << 23;
     s2 ^= s1 ^ (s2 >> 18) ^ (s1 >> 5);
     (s1, s2)
+}
+
+struct SpinLockTest {
+    locked: bool,
+    count: usize,
+}
+impl SpinLockTest {
+    const fn new() -> Self {
+        Self {
+            locked: false,
+            count: 0,
+        }
+    }
+    fn init(&mut self) {
+        self.locked = false;
+        self.count = 0;
+    }
+    fn peried_start(&mut self) -> usize {
+        unsafe {
+            assert!(!core::ptr::read_volatile(&self.locked));
+            core::ptr::write_volatile(&mut self.locked, true);
+            core::ptr::read_volatile(&self.count)
+        }
+    }
+    #[inline(never)]
+    fn peried_op(&mut self) {
+        for i in 0..1 {
+            core::hint::black_box(i);
+        }
+    }
+    fn peried_end(&mut self, value: usize) {
+        unsafe {
+            assert!(core::ptr::read_volatile(&self.locked));
+            core::ptr::write_volatile(&mut self.locked, false);
+            assert_eq!(core::ptr::read_volatile(&self.count), value);
+            core::ptr::write_volatile(&mut self.count, value + 1);
+        }
+    }
+}
+
+static OLD_SPINLOCK: SpinMutex<SpinLockTest, Spin> = SpinMutex::new(SpinLockTest::new());
+static NEW_SPINLOCK: QSpinLock<SpinLockTest, Spin> = QSpinLock::new(SpinLockTest::new());
+
+fn multi_thread_spin_lock_test(hart: usize) {
+    if !MULTI_THREAD_SPINLOCK_TEST {
+        return;
+    }
+    wait_all_hart();
+    println!("hart {} ready", hart);
+    wait_all_hart();
+    run_lock(hart, || OLD_SPINLOCK.lock(), "OLD_SPINLOCK");
+    run_lock(hart, || NEW_SPINLOCK.lock(), "NEW_SPINLOCK");
+    run_lock(hart, || OLD_SPINLOCK.lock(), "OLD_SPINLOCK");
+    run_lock(hart, || NEW_SPINLOCK.lock(), "NEW_SPINLOCK");
+    run_lock(hart, || OLD_SPINLOCK.lock(), "OLD_SPINLOCK");
+    run_lock(hart, || NEW_SPINLOCK.lock(), "NEW_SPINLOCK");
+    wait_all_hart();
+    panic!("test complete");
+}
+
+fn run_lock(
+    hart: usize,
+    f: impl Fn<(), Output = impl DerefMut<Target = SpinLockTest>>,
+    msg: &'static str,
+) {
+    let n = 100000;
+    wait_all_hart();
+    let start = timer::now();
+    for _ in 0..n {
+        let mut lk = f();
+        let v = lk.peried_start();
+        lk.peried_op();
+        lk.peried_end(v);
+    }
+    wait_all_hart();
+    let end = timer::now();
+    let target = n * cpu::count();
+    if hart == 0 {
+        println!(
+            "{} target: {} get: {} time: {}ms",
+            msg,
+            target,
+            f().count,
+            (end - start).as_millis()
+        );
+    }
 }

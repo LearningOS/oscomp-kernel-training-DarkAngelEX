@@ -5,6 +5,7 @@ pub mod semaphore;
 pub mod seq_mutex;
 pub mod sleep_mutex;
 pub mod spin_mutex;
+pub mod ticklock;
 
 /// Low-level support for mutex
 pub trait MutexSupport {

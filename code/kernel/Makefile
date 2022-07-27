@@ -1,7 +1,7 @@
 # Building
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
-MODE := debug
+MODE := release
 ADD_ARGS :=
 ARGS :=
 ARGS += $(ADD_ARGS)
@@ -16,7 +16,7 @@ FS_IMG_SRC := ../fat32-fuse/fat32.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
-SMP := 1
+SMP := 5
 MEMORY_SIZE := 128M
 
 # BOARD

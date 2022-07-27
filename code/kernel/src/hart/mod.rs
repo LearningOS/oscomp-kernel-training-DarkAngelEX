@@ -87,9 +87,9 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         println!("[FTL OS]version 0.1.0");
         println!("{}", ftl_logo());
         INIT_HART.store(hartid, Ordering::Release);
-        #[cfg(feature = "board_hifive")]
+        // #[cfg(feature = "board_hifive")]
         {
-            for i in (1..=4).filter(|&i| i != hartid) {
+            for i in (0..=4).filter(|&i| i != hartid) {
                 let status = sbi::sbi_hart_get_status(i);
                 println!("hart {} status {}", i, status);
                 sbi::sbi_hart_start(i, 0x80200000, 0);
