@@ -1,6 +1,9 @@
 mod page_fault;
 
-use riscv::register::{scause, sepc, sstatus, stval};
+use riscv::register::{
+    scause::{self, Exception, Trap},
+    sepc, sstatus, stval,
+};
 
 use crate::{
     hart::{self, cpu},
@@ -9,7 +12,7 @@ use crate::{
 };
 
 #[no_mangle]
-pub fn kernel_default_exception() {
+pub fn kernel_default_exception(a0: usize) {
     stack_trace!();
     trace::stack_detection();
     // 中断已经被关闭
@@ -22,34 +25,37 @@ pub fn kernel_default_exception() {
     let stval = stval::read();
 
     let exception = match scause::read().cause() {
-        scause::Trap::Exception(e) => e,
-        scause::Trap::Interrupt(i) => panic!("should kernel_exception but {:?}", i),
+        Trap::Exception(e) => e,
+        Trap::Interrupt(i) => panic!("should kernel_exception but {:?}", i),
     };
     match exception {
-        scause::Exception::InstructionMisaligned => todo!(),
-        scause::Exception::InstructionFault => todo!(),
-        scause::Exception::IllegalInstruction => {
+        Exception::InstructionMisaligned => todo!(),
+        Exception::InstructionFault => {
+            println!("InstructionFault ra: {} sepc: {}", KTrapCX::new_ref(a0).ra(), sepc);
+            fatal_exception_error();
+        }
+        Exception::IllegalInstruction => {
             println!("illiegal IR of sepc: {:#x}", sepc);
             todo!();
         }
-        scause::Exception::Breakpoint => {
+        Exception::Breakpoint => {
             println!("breakpoint of sepc: {:#x}", sepc);
             sepc = tools::next_sepc(sepc);
         }
-        scause::Exception::LoadFault => fatal_exception_error(),
-        scause::Exception::StoreMisaligned => fatal_exception_error(),
-        scause::Exception::StoreFault => fatal_exception_error(),
-        scause::Exception::UserEnvCall => todo!(),
-        scause::Exception::VirtualSupervisorEnvCall => todo!(),
-        scause::Exception::InstructionPageFault => fatal_exception_error(),
-        e @ (scause::Exception::LoadPageFault | scause::Exception::StorePageFault) => {
+        Exception::LoadFault => fatal_exception_error(),
+        Exception::StoreMisaligned => fatal_exception_error(),
+        Exception::StoreFault => fatal_exception_error(),
+        Exception::UserEnvCall => todo!(),
+        Exception::VirtualSupervisorEnvCall => todo!(),
+        Exception::InstructionPageFault => fatal_exception_error(),
+        e @ (Exception::LoadPageFault | Exception::StorePageFault) => {
             sepc = page_fault::page_fault_handle(e, stval, sepc);
         }
-        scause::Exception::InstructionGuestPageFault => todo!(),
-        scause::Exception::LoadGuestPageFault => todo!(),
-        scause::Exception::VirtualInstruction => todo!(),
-        scause::Exception::StoreGuestPageFault => todo!(),
-        scause::Exception::Unknown => fatal_exception_error(),
+        Exception::InstructionGuestPageFault => todo!(),
+        Exception::LoadGuestPageFault => todo!(),
+        Exception::VirtualInstruction => todo!(),
+        Exception::StoreGuestPageFault => todo!(),
+        Exception::Unknown => fatal_exception_error(),
     }
 
     *in_exception = false;
@@ -58,7 +64,7 @@ pub fn kernel_default_exception() {
 
 fn fatal_exception_error() -> ! {
     let sepc = sepc::read();
-    panic!(
+    println!(
         "kernel fatal_exception_error! {:?} bad addr = {:#x}, sepc = {:#x}, hart = {} sp = {:#x}",
         scause::read().cause(),
         stval::read(),
@@ -66,4 +72,35 @@ fn fatal_exception_error() -> ! {
         cpu::hart_id(),
         hart::current_sp(),
     );
+    panic!()
+}
+
+#[repr(C)]
+struct KTrapCX {
+    _unused: usize,
+    ra: usize,
+    t0: usize,
+    t1: usize,
+    t2: usize,
+    t3: usize,
+    t4: usize,
+    t5: usize,
+    t6: usize,
+    a0: usize,
+    a1: usize,
+    a2: usize,
+    a3: usize,
+    a4: usize,
+    a5: usize,
+    a6: usize,
+    a7: usize,
+}
+
+impl KTrapCX {
+    pub fn new_ref(a0: usize) -> &'static Self {
+        unsafe { core::mem::transmute(a0) }
+    }
+    pub fn ra(&self) -> usize {
+        self.ra
+    }
 }

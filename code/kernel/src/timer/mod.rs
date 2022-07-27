@@ -59,6 +59,9 @@ impl TimeTicks {
     pub fn into_usize(self) -> usize {
         self.0 as usize
     }
+    pub fn from_duration(dur: Duration) -> Self {
+        Self::from_second(dur.as_secs() as u128) + Self::from_nanosecond(dur.subsec_nanos() as u128)
+    }
     pub fn from_time_spec(ts: TimeSpec) -> Self {
         Self::from_second(ts.tv_sec as u128) + Self::from_nanosecond(ts.tv_nsec as u128)
     }
@@ -168,6 +171,10 @@ fn set_time_ticks(ticks: TimeTicks) {
 
 pub fn set_next_trigger() {
     set_time_ticks(get_time_ticks() + TimeTicks(CLOCK_FREQ / TIME_INTERRUPT_PER_SEC as u128));
+}
+
+pub fn set_next_trigger_ex(dur: Duration) {
+    set_time_ticks(get_time_ticks() + TimeTicks::from_duration(dur));
 }
 
 pub fn tick() {

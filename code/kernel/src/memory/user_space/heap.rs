@@ -41,17 +41,18 @@ impl HeapManager {
     pub fn brk(&self) -> UserAddr<u8> {
         self.brk
     }
-    /// bool: is increase
+    /// bool: unmap
     pub fn set_brk(
         &mut self,
         brk: UserAddr<u8>,
         oper: impl FnOnce(UserArea, bool) -> SysR<()>,
-    ) -> SysR<()> {
+    ) -> SysR<bool> {
         let brk_end_next = brk.ceil();
         let cur_end = self.brk_end;
         if brk_end_next < self.brk_base {
             return Err(SysError::EINVAL);
         }
+        let mut unmap = false;
         if brk_end_next == cur_end {
         } else if brk_end_next < cur_end {
             // unmap
@@ -59,12 +60,13 @@ impl HeapManager {
                 UserArea::new_urw(brk_end_next.max(self.brk_base)..cur_end),
                 false,
             )?;
+            unmap = true;
         } else {
             // map
             oper(UserArea::new_urw(cur_end..brk_end_next), true)?;
         }
         self.brk = brk;
         self.brk_end = brk_end_next;
-        Ok(())
+        Ok(unmap)
     }
 }

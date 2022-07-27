@@ -235,16 +235,19 @@ impl UserSpace {
     pub fn get_brk(&self) -> UserAddr<u8> {
         self.heap.brk()
     }
-    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> SysR<()> {
+    ///
+    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> SysR<Option<Asid>> {
         let ms = &mut self.map_segment;
-        self.heap.set_brk(new_brk, move |r, f| {
+        let unmap = self.heap.set_brk(new_brk, move |r, f| {
             if f {
-                ms.force_push(r.range, DelayHandler::box_new(r.perm))
+                ms.force_push(r.range, DelayHandler::box_new(r.perm))?;
+                Ok(())
             } else {
-                Ok(ms.unmap(r.range))
+                ms.unmap(r.range);
+                Ok(())
             }
         })?;
-        Ok(())
+        Ok(unmap.then_some(self.asid()))
     }
     pub fn heap_init(&mut self, base: UserAddr4K, init_size: PageCount) {
         let map_area = self.heap.init(base, init_size);

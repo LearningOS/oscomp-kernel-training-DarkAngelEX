@@ -67,15 +67,19 @@ impl SleepQueue {
         }
         self.queue.push(Reverse(TimerCondVar::new(now, waker)))
     }
-    pub fn check_timer(&mut self, current: Instant) {
+    /// 返回唤醒的数量
+    pub fn check_timer(&mut self, current: Instant) -> usize {
         stack_trace!();
+        let mut n = 0;
         while let Some(Reverse(v)) = self.queue.peek() {
             if v.timeout <= current {
                 self.queue.pop().unwrap().0.waker.wake();
+                n += 1;
             } else {
                 break;
             }
         }
+        n
     }
 }
 
@@ -92,10 +96,10 @@ pub fn timer_push_task(ticks: Instant, waker: Waker) {
     SLEEP_QUEUE.lock().as_mut().unwrap().push(ticks, waker);
 }
 
-pub fn check_timer() {
+pub fn check_timer() -> usize {
     stack_trace!();
     let current = super::now();
-    SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current);
+    SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current)
 }
 
 pub async fn just_wait(dur: Duration) {

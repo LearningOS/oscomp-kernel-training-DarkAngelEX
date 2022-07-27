@@ -1,6 +1,8 @@
 use alloc::sync::Weak;
 
-use crate::{memory, process::Pid, signal::Sig, sync::even_bus::Event, xdebug::PRINT_SYSCALL_ALL};
+use crate::{
+    local, memory, process::Pid, signal::Sig, sync::even_bus::Event, xdebug::PRINT_SYSCALL_ALL,
+};
 
 use super::{children::ChildrenSet, search, thread::Thread, Process};
 
@@ -21,6 +23,7 @@ pub async fn exit_impl(thread: &Thread) {
     debug_assert!(pid != Pid(0), "{}", to_red!("initproc exit"));
     thread.cleartid().await;
     let (parent, mut children);
+    let asid;
     {
         let mut lock = process.alive.lock();
         let alive = match lock.as_mut() {
@@ -31,11 +34,13 @@ pub async fn exit_impl(thread: &Thread) {
         if !alive.threads.is_empty() {
             return;
         }
+        asid = alive.asid();
         process.event_bus.close();
         memory::set_satp_by_global();
         (parent, children) = alive.take_parent_children();
-        *lock = None;
+        *lock = None; // 这里会释放进程页表
     }
+    local::all_hart_sfence_vma_asid(asid);
     become_zomble(parent, pid, thread.exit_send_signal());
     throw_children(&mut children);
 }

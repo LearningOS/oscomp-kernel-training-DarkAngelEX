@@ -101,6 +101,7 @@ impl Syscall<'_> {
             }
         }
         userloop::spawn(new);
+        local::try_wake_idle_hart();
         if PRINT_SYSCALL_PROCESS || PRINT_THIS {
             println!("\t-> {:?}", tid);
         }
@@ -424,7 +425,9 @@ impl Syscall<'_> {
             self.alive_then(|a| a.user_space.get_brk())
         } else {
             let brk = UserAddr::try_from(brk as *const u8)?;
-            self.alive_then(|a| a.user_space.reset_brk(brk))?;
+            if let Some(asid) = self.alive_then(|a| a.user_space.reset_brk(brk))? {
+                local::all_hart_sfence_vma_asid(asid);
+            }
             brk
         };
         // println!("    -> {:#x}", brk);

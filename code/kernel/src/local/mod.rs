@@ -6,7 +6,7 @@ use riscv::register::sstatus;
 
 use crate::{
     config::PAGE_SIZE,
-    hart::{self, cpu, floating, sfence},
+    hart::{self, cpu, floating, sbi, sfence},
     memory::{
         self,
         address::UserAddr4K,
@@ -50,6 +50,7 @@ pub struct HartLocal {
     pub local_rcu: LocalRcuManager,
     _align64: Align64, // 让mailbox不会和其他部分共享cacheline
     mailbox: SpinNoIrqLock<Vec<Box<dyn FnOnce()>>>,
+    pub idle: bool,
 }
 
 unsafe impl Send for HartLocal {}
@@ -103,6 +104,7 @@ impl HartLocal {
             _align64: Align64,
             local_heap: LocalHeap::new(),
             local_rcu: LocalRcuManager::new(),
+            idle: false,
         }
     }
     pub unsafe fn set_hartid(&self, cpuid: usize) {
@@ -185,6 +187,12 @@ impl HartLocal {
             unsafe { sstatus::set_sie() };
         }
     }
+    pub fn enter_idle(&mut self) {
+        self.idle = true;
+    }
+    pub fn leave_idle(&mut self) {
+        self.idle = false;
+    }
 }
 pub fn init() {
     let local = hart_local();
@@ -212,6 +220,10 @@ pub fn task_local() -> &'static mut TaskLocal {
 #[inline(always)]
 pub unsafe fn get_local_by_id(id: usize) -> &'static HartLocal {
     &HART_LOCAL[id]
+}
+
+pub unsafe fn cpu_local_in_use() -> &'static [HartLocal] {
+    &HART_LOCAL[cpu::hart_range()]
 }
 
 pub fn set_stack() {
@@ -269,4 +281,22 @@ pub fn all_hart_sfence_vma_all_no_global() {
 
 pub fn all_hart_sfence_vma_va_global(va: UserAddr4K) {
     all_hart_fn(|| move || sfence::sfence_vma_va_global(va.into_usize()));
+}
+
+pub fn try_wake_idle_hart() {
+    let this_cpu = hart_local().cpuid();
+    unsafe {
+        for cur in cpu_local_in_use().iter() {
+            let cur_id = cur.cpuid();
+            if cur_id == this_cpu {
+                continue;
+            }
+            if cur.idle {
+                // println!("send ipi: {} -> {}", this_cpu, cur_id);
+                let r = sbi::send_ipi(1 << cur_id);
+                assert_eq!(r, 0);
+                break;
+            }
+        }
+    }
 }

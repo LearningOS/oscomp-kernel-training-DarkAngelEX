@@ -1,8 +1,4 @@
-use alloc::{
-    string::{String, ToString},
-    sync::Arc,
-    vec::Vec,
-};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     error::SysR,
     fs::{Mode, OpenFlags, Seek},

@@ -41,6 +41,8 @@ busybox sh ./run-all.sh
 ./runtest.exe -w entry-dynamic.exe dlopen
 ./runtest.exe -w entry-dynamic.exe tls_get_new_dtv
 
+run_all_case
+
 b *0x2000000000+0x69854
 
 dlopen -> load_library

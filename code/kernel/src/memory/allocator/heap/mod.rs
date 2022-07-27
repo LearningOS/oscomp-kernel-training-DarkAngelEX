@@ -18,7 +18,7 @@ pub mod detector;
 mod gc_heap;
 pub mod local_heap;
 
-pub const HEAD_OVERWRITE_MAGIC: u8 = 0xf2;
+pub const HEAP_OVERWRITE_MAGIC: u8 = 0xf2;
 
 struct GlobalHeap {
     heap: SpinNoIrqLock<DelayGCHeap>,
@@ -52,7 +52,7 @@ unsafe impl GlobalAlloc for GlobalHeap {
         let (ptr, layout) = detector::dealloc_run(ptr, layout);
         if HEAP_DEALLOC_OVERWRITE {
             let arr = core::slice::from_raw_parts_mut(ptr, layout.size());
-            arr.fill(HEAD_OVERWRITE_MAGIC);
+            arr.fill(HEAP_OVERWRITE_MAGIC);
         }
         if CLOSE_HEAP_DEALLOC {
             return;

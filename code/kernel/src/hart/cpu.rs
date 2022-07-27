@@ -1,6 +1,6 @@
 use core::{
     arch::asm,
-    ops::RangeInclusive,
+    ops::Range,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
@@ -51,6 +51,6 @@ pub fn count() -> usize {
     CPU_COUNT.load(Ordering::Relaxed)
 }
 #[inline(always)]
-pub fn hart_range() -> RangeInclusive<usize> {
-    CPU_MIN.load(Ordering::Relaxed)..=CPU_MAX.load(Ordering::Relaxed)
+pub fn hart_range() -> Range<usize> {
+    CPU_MIN.load(Ordering::Relaxed)..CPU_MAX.load(Ordering::Relaxed) + 1
 }

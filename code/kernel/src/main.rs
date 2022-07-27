@@ -101,16 +101,15 @@ mod user;
 
 use riscv::register::sstatus;
 
-///
 /// This function will be called by rust_main() in hart/mod.rs
 ///
 /// It will run on each core.
-///
 pub fn kmain(_hart_id: usize) -> ! {
     stack_trace!(to_yellow!("running in global space"));
-    let local = local::always_local();
-    assert!(local.sie_cur() == 0);
-    assert!(local.sum_cur() == 0);
+    let hart_local = local::hart_local();
+    let alwys_local = local::always_local();
+    assert!(alwys_local.sie_cur() == 0);
+    assert!(alwys_local.sum_cur() == 0);
 
     unsafe {
         sstatus::set_sie();
@@ -119,11 +118,16 @@ pub fn kmain(_hart_id: usize) -> ! {
     loop {
         executor::run_until_idle();
         // println!("sie {}", sstatus::read().sie());
-        local::hart_local().local_rcu.critical_end();
+        hart_local.local_rcu.critical_end();
+        // stack_trace!("hart idle");
+        // println!("hart {} idle", hart_local.cpuid());
         unsafe {
             assert!(sstatus::read().sie());
+            hart_local.enter_idle();
             riscv::asm::wfi();
+            hart_local.leave_idle();
         }
+        // println!("hart {} running", hart_local.cpuid());
     }
 }
 

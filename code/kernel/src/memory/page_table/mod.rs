@@ -54,11 +54,9 @@ impl PageTableEntry {
             bits: (usize::from(pa_4k) >> 2) & ((1 << 54usize) - 1) | perm.bits as usize,
         }
     }
-    pub fn empty() -> Self {
-        PageTableEntry { bits: 0 }
-    }
+    pub const EMPTY: Self = Self { bits: 0 };
     pub fn reset(&mut self) {
-        *self = Self::empty();
+        *self = Self::EMPTY;
     }
     /// this function will clear reserved bit in [63:54]
     pub fn phy_addr(&self) -> PhyAddr4K {
@@ -145,7 +143,7 @@ impl PageTableEntry {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         debug_assert!(!perm.intersects(PTEFlags::U | PTEFlags::R | PTEFlags::W));
         let pa = allocator.alloc()?.consume();
-        pa.as_pte_array_mut().fill(PageTableEntry::empty());
+        pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
         *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
         Ok(())
     }
@@ -157,7 +155,7 @@ impl PageTableEntry {
     ) -> Result<(), FrameOOM> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
-        pa.as_pte_array_mut().fill(PageTableEntry::empty());
+        pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
         *self = Self::new(
             PhyAddr4K::from(pa),
             perm | PTEFlags::D | PTEFlags::A | PTEFlags::V,
@@ -175,7 +173,7 @@ impl PageTableEntry {
     pub unsafe fn dealloc_by(&mut self, allocator: &mut impl FrameAllocator) {
         assert!(self.is_valid());
         allocator.dealloc(self.phy_addr().into());
-        *self = Self::empty();
+        *self = Self::EMPTY;
     }
 }
 
@@ -211,7 +209,7 @@ impl PageTable {
         let phy_ptr = frame::global::alloc()?.consume();
         let arr = phy_ptr.as_pte_array_mut();
         arr.iter_mut()
-            .for_each(|pte| *pte = PageTableEntry::empty());
+            .for_each(|pte| *pte = PageTableEntry::EMPTY);
         let asid = asid_tracker.asid().into_usize();
         let phy_ptr: PhyAddr4K = phy_ptr.into();
         Ok(PageTable {
@@ -337,7 +335,7 @@ impl PageTable {
         let pte = self.find_pte(va).expect("unmap invalid virtual address!");
         assert!(pte.is_valid(), "pte {:?} is invalid before unmapping", pte);
         assert!(pte.phy_addr().into_ref() == par);
-        *pte = PageTableEntry::empty();
+        *pte = PageTableEntry::EMPTY;
     }
     pub fn translate(&self, va: VirAddr4K) -> Option<PageTableEntry> {
         self.find_pte(va).map(|pte| *pte)

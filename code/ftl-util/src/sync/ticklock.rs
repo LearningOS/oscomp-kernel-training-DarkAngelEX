@@ -159,7 +159,7 @@ impl<T: ?Sized, S: MutexSupport> TickLock<T, S> {
         }
         let tick = tc.tick;
         let mut new = tc;
-        new.tick = tick + 1;
+        new.tick = tick.wrapping_add(1);
         let mut support_guard = S::before_lock();
         if self.atc.cas(tc, new, Ordering::Acquire).is_ok() {
             Some(TickGuard {

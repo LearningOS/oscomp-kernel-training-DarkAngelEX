@@ -2,7 +2,6 @@ use riscv::register::{scause, sstatus};
 
 use crate::{local, timer};
 
-
 #[no_mangle]
 pub fn kernel_default_interrupt() {
     stack_trace!();
@@ -12,12 +11,10 @@ pub fn kernel_default_interrupt() {
             panic!("should kernel_interrupt but {:?}", e);
         }
     };
-    if cfg!(debug_assertions) {
-        let it = &mut local::hart_local().interrupt;
-        assert!(!*it);
-        *it = true;
-        assert!(!sstatus::read().sie());
-    }
+    debug_assert!(!local::hart_local().interrupt);
+    debug_assert!(!sstatus::read().sie());
+    local::hart_local().interrupt = true;
+
     match interrupt {
         scause::Interrupt::UserSoft => todo!(),
         scause::Interrupt::VirtualSupervisorSoft => todo!(),
@@ -30,7 +27,5 @@ pub fn kernel_default_interrupt() {
         scause::Interrupt::SupervisorExternal => todo!(),
         scause::Interrupt::Unknown => todo!(),
     }
-    if cfg!(debug_assertions) {
-        local::hart_local().interrupt = false;
-    }
+    local::hart_local().interrupt = false;
 }

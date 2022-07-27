@@ -70,7 +70,7 @@ impl PageTable {
         let pte = next_pte(pte.phy_addr(), x[2]);
         assert!(pte.is_leaf());
         pte_fn(*pte);
-        *pte = PageTableEntry::empty();
+        *pte = PageTableEntry::EMPTY;
     }
     /// 页必须已经被映射
     pub fn force_convert_user<T>(
@@ -705,7 +705,7 @@ impl PageTable {
                 if full {
                     // 1GB page table
                     debug_assert!(pte.is_leaf());
-                    *pte = PageTableEntry::empty();
+                    *pte = PageTableEntry::EMPTY;
                 } else {
                     debug_assert!(pte.is_directory());
                     let ptes = PageTable::ptes_from_pte(pte);
@@ -721,7 +721,7 @@ impl PageTable {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if full {
                     debug_assert!(pte.is_leaf());
-                    *pte = PageTableEntry::empty();
+                    *pte = PageTableEntry::EMPTY;
                 } else {
                     debug_assert!(pte.is_directory());
                     let ptes = PageTable::ptes_from_pte(pte);
@@ -733,7 +733,7 @@ impl PageTable {
         fn unmap_direct_range_2(ptes: &mut [PageTableEntry; 512], l: &[usize; 1], r: &[usize; 1]) {
             for pte in &mut ptes[l[0]..=r[0]] {
                 debug_assert!(pte.is_leaf());
-                *pte = PageTableEntry::empty();
+                *pte = PageTableEntry::EMPTY;
             }
         }
     }

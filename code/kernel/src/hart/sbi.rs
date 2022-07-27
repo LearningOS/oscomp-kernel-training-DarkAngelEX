@@ -47,8 +47,8 @@ pub fn clear_ipi() {
     sbi_call((0, SBI_CLEAR_IPI), []);
 }
 
-pub fn send_ipi(hart_mask: usize) {
-    sbi_call((0, SBI_SEND_IPI), [&hart_mask as *const _ as usize]);
+pub fn send_ipi(hart_mask: usize) -> isize {
+    sbi_call((0, SBI_SEND_IPI), [&hart_mask as *const _ as usize]) as isize
 }
 
 pub fn remote_fence_i(hart_mask: usize) {

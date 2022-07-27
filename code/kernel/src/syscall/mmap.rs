@@ -104,6 +104,9 @@ impl Syscall<'_> {
         let mut alive = self.alive_lock();
         let manager = &mut alive.user_space.map_segment;
         manager.unmap(start..end);
+        let asid = alive.asid();
+        drop(alive);
+        local::all_hart_sfence_vma_asid(asid);
         Ok(0)
     }
     pub fn sys_mprotect(&mut self) -> SysRet {

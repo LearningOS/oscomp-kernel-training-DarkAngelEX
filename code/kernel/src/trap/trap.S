@@ -227,6 +227,7 @@ __kernel_default_trap_entry:
     sd  a5, 14*8(sp)
     sd  a6, 15*8(sp)
     sd  a7, 16*8(sp)
+    mv  a0, sp
     call kernel_default_trap
     ld  ra,  1*8(sp)
     ld  t0,  2*8(sp)

@@ -89,10 +89,13 @@ impl StackGlobalFrameAllocator {
         self.begin = begin;
         self.current = begin;
         self.end = end;
+        let m = (usize::from(end) - usize::from(begin)) / 1024 / 1024;
         println!(
-            "StackFrameAllocator init range: [{:#x} - {:#x}]",
+            "StackFrameAllocator init range:
+            [{:#x} - {:#x}] size = {} MB",
             usize::from(begin),
-            usize::from(end)
+            usize::from(end),
+            m
         );
     }
 }
