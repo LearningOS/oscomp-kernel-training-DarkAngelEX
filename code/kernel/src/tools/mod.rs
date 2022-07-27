@@ -178,7 +178,7 @@ pub fn n_space(n: usize) -> String {
 const COLOR_TEST: bool = false;
 const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
 const MULTI_THREAD_STRESS_TEST: bool = false;
-const MULTI_THREAD_SPINLOCK_TEST: bool = true;
+const MULTI_THREAD_SPINLOCK_TEST: bool = false;
 
 static HART_ALLOC: AtomicUsize = AtomicUsize::new(0);
 
