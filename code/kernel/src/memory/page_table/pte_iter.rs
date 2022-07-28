@@ -1,7 +1,7 @@
 use crate::{
     memory::{
         address::{PageCount, PhyAddr4K, UserAddr4K},
-        allocator::frame::{self, FrameAllocator},
+        allocator::frame::FrameAllocator,
         page_table::PTEFlags,
     },
     tools::{error::FrameOOM, range::URange},
@@ -85,15 +85,15 @@ impl<'a> Iterator for VaildPteIter<'a> {
     }
 }
 
-struct EachPteIter<'a, A: FrameAllocator> {
+struct EachPteIter<'a> {
     cur: UserAddr4K,
     end: UserAddr4K,
     pt: &'a mut PageTable,
-    allocator: A,
+    allocator: &'a mut dyn FrameAllocator,
 }
 
-impl<'a, A: FrameAllocator> EachPteIter<'a, A> {
-    pub fn new(pt: &'a mut PageTable, r: URange, allocator: A) -> Self {
+impl<'a> EachPteIter<'a> {
+    pub fn new(pt: &'a mut PageTable, r: URange, allocator: &'a mut dyn FrameAllocator) -> Self {
         Self {
             cur: r.start,
             end: r.end,
@@ -102,7 +102,7 @@ impl<'a, A: FrameAllocator> EachPteIter<'a, A> {
         }
     }
 }
-impl<'a, A: FrameAllocator> Iterator for EachPteIter<'a, A> {
+impl<'a> Iterator for EachPteIter<'a> {
     type Item = Result<(UserAddr4K, &'a mut PageTableEntry), FrameOOM>;
     /// 返回范围内的每一个页 使用默认帧分配器分配内层
     fn next(&mut self) -> Option<Self::Item> {
@@ -115,13 +115,13 @@ impl<'a, A: FrameAllocator> Iterator for EachPteIter<'a, A> {
         let x = &cur.indexes();
         let pte = next_pte(self.pt.root_pa(), x[0]);
         if !pte.is_valid() {
-            if let Err(e) = pte.alloc_by_non_leaf(PTEFlags::V, &mut self.allocator) {
+            if let Err(e) = pte.alloc_by_non_leaf(PTEFlags::V, self.allocator) {
                 return Some(Err(e));
             }
         }
         let pte = next_pte(pte.phy_addr(), x[1]);
         if !pte.is_valid() {
-            if let Err(e) = pte.alloc_by_non_leaf(PTEFlags::V, &mut self.allocator) {
+            if let Err(e) = pte.alloc_by_non_leaf(PTEFlags::V, self.allocator) {
                 return Some(Err(e));
             }
         }
@@ -140,10 +140,11 @@ impl PageTable {
         VaildPteIter::new(self, r)
     }
     /// 返回范围内的每一个 pte 使用默认帧分配器
-    pub fn each_pte_iter(
-        &mut self,
+    pub fn each_pte_iter<'a>(
+        &'a mut self,
         r: URange,
+        allocator: &'a mut dyn FrameAllocator,
     ) -> impl Iterator<Item = Result<(UserAddr4K, &mut PageTableEntry), FrameOOM>> {
-        EachPteIter::new(self, r, frame::defualt_allocator())
+        EachPteIter::new(self, r, allocator)
     }
 }

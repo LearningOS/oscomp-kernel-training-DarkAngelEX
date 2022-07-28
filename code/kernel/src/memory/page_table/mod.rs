@@ -4,7 +4,6 @@ use core::{
 };
 
 use alloc::vec::Vec;
-use bitflags::bitflags;
 
 use super::{
     address::{PhyAddr4K, PhyAddrRef4K, StepByOne, UserAddr4K, VirAddr, VirAddr4K},
@@ -40,6 +39,13 @@ bitflags! {
         const D = 1 << 7; // dirty, set to 1 after write
     }
 }
+
+impl PTEFlags {
+    pub fn executable(&self) -> bool {
+        self.contains(Self::X)
+    }
+}
+
 const PTE_SHARED: usize = 1 << 8;
 
 #[derive(Copy, Clone)]
@@ -138,7 +144,7 @@ impl PageTableEntry {
     pub fn alloc_by_non_leaf(
         &mut self,
         perm: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         debug_assert!(!perm.intersects(PTEFlags::U | PTEFlags::R | PTEFlags::W));
@@ -151,7 +157,7 @@ impl PageTableEntry {
     pub fn alloc_by(
         &mut self,
         perm: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
         assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
@@ -170,7 +176,7 @@ impl PageTableEntry {
         );
     }
     /// this function will clear V flag.
-    pub unsafe fn dealloc_by(&mut self, allocator: &mut impl FrameAllocator) {
+    pub unsafe fn dealloc_by(&mut self, allocator: &mut dyn FrameAllocator) {
         assert!(self.is_valid());
         allocator.dealloc(self.phy_addr().into());
         *self = Self::EMPTY;
@@ -195,7 +201,7 @@ impl Drop for PageTable {
         assert!(self.satp() != 0);
         let cur_satp = unsafe { csr::get_satp() };
         assert_ne!(self.satp(), cur_satp);
-        let allocator = &mut frame::defualt_allocator();
+        let allocator = &mut frame::default_allocator();
         self.free_user_directory_all(allocator);
         unsafe { allocator.dealloc(self.root_pa().into_ref()) };
         *self.satp.get_mut() = 0; // just for panic.
@@ -208,8 +214,7 @@ impl PageTable {
     pub fn new_empty(asid_tracker: AsidInfoTracker) -> Result<Self, FrameOOM> {
         let phy_ptr = frame::global::alloc()?.consume();
         let arr = phy_ptr.as_pte_array_mut();
-        arr.iter_mut()
-            .for_each(|pte| *pte = PageTableEntry::EMPTY);
+        arr.iter_mut().for_each(|pte| *pte = PageTableEntry::EMPTY);
         let asid = asid_tracker.asid().into_usize();
         let phy_ptr: PhyAddr4K = phy_ptr.into();
         Ok(PageTable {
@@ -278,7 +283,7 @@ impl PageTable {
     fn find_pte_create(
         &mut self,
         va: VirAddr4K,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<&mut PageTableEntry, FrameOOM> {
         let idxs = va.indexes();
         let mut par: PhyAddrRef4K = self.root_pa().into();
@@ -323,7 +328,7 @@ impl PageTable {
         va: VirAddr4K,
         par: PhyAddrRef4K,
         flags: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
         let pte = self.find_pte_create(va, allocator)?;
         debug_assert!(!pte.is_valid(), "va {:?} is mapped before mapping", va);
@@ -391,7 +396,7 @@ fn new_kernel_page_table() -> Result<PageTable, FrameOOM> {
         b: usize,
         e: usize,
         flags: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) {
         pt.map_direct_range(
             get_va(b),
@@ -407,7 +412,7 @@ fn new_kernel_page_table() -> Result<PageTable, FrameOOM> {
         b: usize,
         e: usize,
         flags: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) {
         pt.map_direct_range(
             get_va(b),
@@ -423,15 +428,15 @@ fn new_kernel_page_table() -> Result<PageTable, FrameOOM> {
         b: unsafe extern "C" fn(),
         e: unsafe extern "C" fn(),
         flags: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) {
         xmap_impl_kernel(pt, b as usize, e as usize, flags, allocator);
     }
-    let execable = PTEFlags::G | PTEFlags::R | PTEFlags::X;
+    let executable = PTEFlags::G | PTEFlags::R | PTEFlags::X;
     let readonly = PTEFlags::G | PTEFlags::R;
     let writable = PTEFlags::G | PTEFlags::R | PTEFlags::W;
-    let allocator = &mut frame::defualt_allocator();
-    xmap_kernel(&mut page_table, stext, etext, execable, allocator);
+    let allocator = &mut frame::default_allocator();
+    xmap_kernel(&mut page_table, stext, etext, executable, allocator);
     xmap_kernel(&mut page_table, srodata, erodata, readonly, allocator);
     // xmap_kernel(&mut page_table, sdata, edata, writable);
     // xmap_kernel(&mut page_table, sstack, estack, writable);
@@ -512,7 +517,6 @@ pub fn init_kernel_page_table() {
     }
 }
 
-/// don't call sfence::fence_i();
 pub fn set_satp_by_global() {
     unsafe {
         csr::set_satp(

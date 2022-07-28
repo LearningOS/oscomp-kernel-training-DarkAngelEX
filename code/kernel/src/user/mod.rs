@@ -12,7 +12,7 @@ use crate::{
     memory::{
         self,
         address::{OutOfUserRange, UserAddr},
-        allocator::frame::global::FrameTracker,
+        allocator::frame::{self, global::FrameTracker},
         user_ptr::{Policy, UserPtr},
         PTEFlags, UserSpace,
     },
@@ -340,24 +340,37 @@ pub async fn test() {
     let rw_data = &mut array as *mut _ as usize;
     let ro_data = "123456".as_ptr() as *const u8 as usize;
     let mut un_data = 1234567 as *const u8 as usize;
-    check.read_check_async::<u8>(rw_data.into()).await.unwrap();
-    check.read_check_async::<u8>(ro_data.into()).await.unwrap();
+    let allocator = &mut frame::default_allocator();
     check
-        .read_check_async::<u8>(un_data.into())
+        .read_check_async::<u8>(rw_data.into(), allocator)
+        .await
+        .unwrap();
+    check
+        .read_check_async::<u8>(ro_data.into(), allocator)
+        .await
+        .unwrap();
+    check
+        .read_check_async::<u8>(un_data.into(), allocator)
         .await
         .unwrap_err();
-    check.write_check_async::<u8>(rw_data.into()).await.unwrap();
     check
-        .write_check_async::<u8>(ro_data.into())
+        .write_check_async::<u8>(rw_data.into(), allocator)
+        .await
+        .unwrap();
+    check
+        .write_check_async::<u8>(ro_data.into(), allocator)
         .await
         .unwrap_err();
     check
-        .write_check_async::<u8>(un_data.into())
+        .write_check_async::<u8>(un_data.into(), allocator)
         .await
         .unwrap_err();
-    check.atomic_u32_check_async(rw_data.into()).await.unwrap();
     check
-        .atomic_u32_check_async(ro_data.into())
+        .atomic_u32_check_async(rw_data.into(), allocator)
+        .await
+        .unwrap();
+    check
+        .atomic_u32_check_async(ro_data.into(), allocator)
         .await
         .unwrap_err();
     use crate::memory::{address::UserAddr4K, map_segment::handler::map_all};
@@ -365,15 +378,15 @@ pub async fn test() {
     let h = map_all::MapAllHandler::box_new(PTEFlags::U);
     let start = UserAddr4K::from_usize_check(0x1000);
     let range = start..start.add_one_page();
-    space.map_segment.force_push(range, h).unwrap();
+    space.map_segment.force_push(range, h, allocator).unwrap();
     unsafe { space.raw_using() };
     un_data = 0x1000 as *const u8 as usize;
     check
-        .read_check_async::<u8>(un_data.into())
+        .read_check_async::<u8>(un_data.into(), allocator)
         .await
         .unwrap_err();
     check
-        .write_check_async::<u8>(un_data.into())
+        .write_check_async::<u8>(un_data.into(), allocator)
         .await
         .unwrap_err();
     memory::set_satp_by_global();

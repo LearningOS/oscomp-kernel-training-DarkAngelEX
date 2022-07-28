@@ -1,5 +1,6 @@
 use crate::config::{PAGE_SIZE, USER_MMAP_RANGE, USER_MMAP_SEARCH_RANGE};
 use crate::memory::address::{PageCount, UserAddr};
+use crate::memory::allocator::frame;
 use crate::memory::map_segment::handler::mmap::MmapHandler;
 use crate::memory::user_ptr::UserInOutPtr;
 use crate::memory::PTEFlags;
@@ -80,10 +81,13 @@ impl Syscall<'_> {
         let perm = prot.into_perm();
 
         let handler = MmapHandler::box_new(file, addr, offset, perm, shared);
-        manager.replace(range, handler)?;
+        manager.replace(range, handler, &mut frame::default_allocator())?;
         let asid = alive.asid();
         drop(alive);
         local::all_hart_sfence_vma_asid(asid);
+        if perm.executable() {
+            local::all_hart_fence_i();
+        }
         let addr = addr.into_usize();
         if PRINT_THIS {
             println!("    -> {:#x}", addr);
@@ -103,7 +107,7 @@ impl Syscall<'_> {
         let end = UserAddr::try_from((addr.into_usize() + len) as *const u8)?.ceil();
         let mut alive = self.alive_lock();
         let manager = &mut alive.user_space.map_segment;
-        manager.unmap(start..end);
+        manager.unmap(start..end, &mut frame::default_allocator());
         let asid = alive.asid();
         drop(alive);
         local::all_hart_sfence_vma_asid(asid);
@@ -129,6 +133,9 @@ impl Syscall<'_> {
         let asid = alive.asid();
         drop(alive);
         local::all_hart_sfence_vma_asid(asid);
+        if perm.executable() {
+            local::all_hart_fence_i();
+        }
         Ok(0)
     }
 }

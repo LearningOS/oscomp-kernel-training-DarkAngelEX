@@ -11,6 +11,7 @@ use crate::{
     fs, local,
     memory::{
         address::{PageCount, UserAddr},
+        allocator::frame,
         asid::USING_ASID,
         auxv::{AuxHeader, AT_BASE},
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
@@ -425,7 +426,9 @@ impl Syscall<'_> {
             self.alive_then(|a| a.user_space.get_brk())
         } else {
             let brk = UserAddr::try_from(brk as *const u8)?;
-            if let Some(asid) = self.alive_then(|a| a.user_space.reset_brk(brk))? {
+            if let Some(asid) =
+                self.alive_then(|a| a.user_space.reset_brk(brk, &mut frame::default_allocator()))?
+            {
                 local::all_hart_sfence_vma_asid(asid);
             }
             brk

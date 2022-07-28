@@ -41,6 +41,7 @@ impl SCManager {
     }
     /// 初始化引用计数为 2
     pub fn insert_clone(&mut self, ua: UserAddr4K) -> SharedCounter {
+        stack_trace!();
         let p = self
             .0
             .try_insert(ua, Arc::new(AtomicUsize::new(2)))
@@ -53,6 +54,7 @@ impl SCManager {
         self.0.try_insert(ua, x.consume()).ok().unwrap();
     }
     pub fn clone_ua(&mut self, ua: UserAddr4K) -> SharedCounter {
+        stack_trace!();
         let x = self.0.get(&ua).unwrap().clone();
         let pre = x.fetch_add(1, Ordering::Relaxed);
         debug_assert_ne!(pre, 0);

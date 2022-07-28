@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use riscv::register::scause::Exception;
 
 use crate::{
-    memory::{address::UserAddr, AccessType},
+    memory::{address::UserAddr, allocator::frame, AccessType},
     process::thread::Thread,
     tools::xasync::TryRunFail,
     xdebug::PRINT_PAGE_FAULT,
@@ -54,9 +54,10 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
             let perm = AccessType::from_exception(e).unwrap();
             let addr = addr.floor();
+            let allocator = &mut frame::default_allocator();
             match thread
                 .process
-                .alive_then(|a| a.user_space.page_fault(addr, perm))
+                .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))
                 .map_err(|_| ())?
             {
                 Ok(x) => Ok(Ok(x)),

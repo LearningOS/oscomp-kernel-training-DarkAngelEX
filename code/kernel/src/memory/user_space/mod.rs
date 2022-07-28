@@ -38,7 +38,7 @@ use self::{heap::HeapManager, stack::StackSpaceManager};
 
 use super::{
     address::{OutOfUserRange, PageCount, UserAddr, UserAddr4K},
-    allocator::frame::iter::FrameDataIter,
+    allocator::frame::{iter::FrameDataIter, FrameAllocator},
     asid::{self, Asid},
     auxv::AuxHeader,
     map_segment::{handler::AsyncHandler, MapSegment},
@@ -150,8 +150,8 @@ unsafe impl Sync for UserSpace {}
 impl Drop for UserSpace {
     fn drop(&mut self) {
         stack_trace!();
-        self.map_segment.clear();
-        let allocator = &mut frame::defualt_allocator();
+        let allocator = &mut frame::default_allocator();
+        self.map_segment.clear(allocator);
         self.page_table_mut().free_user_directory_all(allocator);
     }
 }
@@ -198,61 +198,92 @@ impl UserSpace {
     pub fn in_using(&self) -> bool {
         self.page_table().in_using()
     }
-    fn force_map_delay(&mut self, map_area: UserArea) -> SysR<()> {
+    fn force_map_delay(
+        &mut self,
+        map_area: UserArea,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         stack_trace!();
-        self.map_segment
-            .force_push(map_area.range, MapAllHandler::box_new(map_area.perm))
+        self.map_segment.force_push(
+            map_area.range,
+            MapAllHandler::box_new(map_area.perm),
+            allocator,
+        )
     }
-    fn force_map_delay_write(&mut self, map_area: UserArea, data: impl FrameDataIter) -> SysR<()> {
+    fn force_map_delay_write(
+        &mut self,
+        map_area: UserArea,
+        data: &mut dyn FrameDataIter,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         stack_trace!();
         let r = map_area.range;
         self.map_segment
-            .force_push(r.clone(), MapAllHandler::box_new(map_area.perm))?;
+            .force_push(r.clone(), MapAllHandler::box_new(map_area.perm), allocator)?;
         stack_trace!();
-        self.map_segment.force_write_range(r, data)
+        self.map_segment.force_write_range(r, data, allocator)
     }
     pub fn page_fault(
         &mut self,
         addr: UserAddr4K,
         access: AccessType,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
-        self.map_segment.page_fault(addr, access)
+        self.map_segment.page_fault(addr, access, allocator)
     }
     async fn a_page_fault(&mut self) {
         todo!()
     }
     /// (stack, user_sp)
-    pub fn stack_init(&mut self, stack_reverse: PageCount) -> SysR<UserAddr4K> {
+    pub fn stack_init(
+        &mut self,
+        stack_reverse: PageCount,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<UserAddr4K> {
         stack_trace!();
         // 绕过 stack 借用检查
         let h = DelayHandler::box_new(PTEFlags::R | PTEFlags::W | PTEFlags::U);
-        self.map_segment.force_push(self.stacks.max_area(), h)?;
         self.map_segment
-            .force_map(self.stacks.init_area(stack_reverse))?;
+            .force_push(self.stacks.max_area(), h, allocator)?;
+        self.map_segment
+            .force_map(self.stacks.init_area(stack_reverse), allocator)?;
         Ok(self.stacks.init_sp())
     }
     pub fn get_brk(&self) -> UserAddr<u8> {
         self.heap.brk()
     }
     ///
-    pub fn reset_brk(&mut self, new_brk: UserAddr<u8>) -> SysR<Option<Asid>> {
+    pub fn reset_brk(
+        &mut self,
+        new_brk: UserAddr<u8>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<Option<Asid>> {
         let ms = &mut self.map_segment;
         let unmap = self.heap.set_brk(new_brk, move |r, f| {
             if f {
-                ms.force_push(r.range, DelayHandler::box_new(r.perm))?;
+                ms.force_push(r.range, DelayHandler::box_new(r.perm), allocator)?;
                 Ok(())
             } else {
-                ms.unmap(r.range);
+                ms.unmap(r.range, allocator);
                 Ok(())
             }
         })?;
         Ok(unmap.then_some(self.asid()))
     }
-    pub fn heap_init(&mut self, base: UserAddr4K, init_size: PageCount) {
+    pub fn heap_init(
+        &mut self,
+        base: UserAddr4K,
+        init_size: PageCount,
+        allocator: &mut dyn FrameAllocator,
+    ) {
         let map_area = self.heap.init(base, init_size);
         self.map_segment
-            .force_push(map_area.range, DelayHandler::box_new(map_area.perm))
+            .force_push(
+                map_area.range,
+                DelayHandler::box_new(map_area.perm),
+                allocator,
+            )
             .unwrap();
     }
     pub fn heap_resize(&mut self, _page_count: PageCount) {
@@ -277,6 +308,9 @@ impl UserSpace {
     ) -> SysR<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>)> {
         const PRINT_THIS: bool = false;
         stack_trace!();
+
+        let allocator = &mut frame::default_allocator();
+
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
             SysError::EFAULT
@@ -331,8 +365,8 @@ impl UserSpace {
                 let data = &elf.input[ph.offset() as usize - start_va.page_offset()
                     ..(ph.offset() + ph.file_size()) as usize];
                 stack_trace!();
-                let slice_iter = SliceFrameDataIter::new(data);
-                space.force_map_delay_write(map_area, slice_iter)?;
+                let slice_iter = &mut SliceFrameDataIter::new(data);
+                space.force_map_delay_write(map_area, slice_iter, allocator)?;
             }
         }
         stack_trace!();
@@ -376,7 +410,8 @@ impl UserSpace {
         }
         space.force_map_delay_write(
             UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
-            KRXFrameIter,
+            &mut KRXFrameIter,
+            allocator,
         )?;
         struct KRWRandomIter;
         impl FrameDataIter for KRWRandomIter {
@@ -401,14 +436,15 @@ impl UserSpace {
                 USER_KRW_RANDOM_RANGE,
                 PTEFlags::R | PTEFlags::W | PTEFlags::U,
             ),
-            KRWRandomIter,
+            &mut KRWRandomIter,
+            allocator,
         )?;
 
         // map user stack:
-        let user_sp = space.stack_init(stack_reverse)?;
+        let user_sp = space.stack_init(stack_reverse, allocator)?;
         stack_trace!();
         // set heap
-        space.heap_init(max_end_4k, PageCount(1));
+        space.heap_init(max_end_4k, PageCount(1), allocator);
 
         Ok((space, user_sp, entry_point.into(), auxv))
     }
@@ -420,6 +456,7 @@ impl UserSpace {
             Some(s) => s,
             None => return Ok(None),
         };
+        let allocator = &mut frame::default_allocator();
 
         let s = s.raw_data(&elf).to_vec();
         let mut s = String::from_utf8(s).unwrap();
@@ -483,8 +520,8 @@ impl UserSpace {
                 let data = &elf.input[ph.offset() as usize - start_va.page_offset()
                     ..(ph.offset() + ph.file_size()) as usize];
                 stack_trace!();
-                let slice_iter = SliceFrameDataIter::new(data);
-                self.force_map_delay_write(map_area, slice_iter)?;
+                let slice_iter = &mut SliceFrameDataIter::new(data);
+                self.force_map_delay_write(map_area, slice_iter, allocator)?;
             }
         }
         let entry_point = elf.header.pt2.entry_point() as usize + dyn_offset.into_usize();

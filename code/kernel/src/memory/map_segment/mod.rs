@@ -7,7 +7,7 @@ use crate::{
     syscall::SysError,
     tools::{
         self,
-        allocator::{from_usize_allocator::LeakFromUsizeAllocator, TrackerAllocator},
+        allocator::from_usize_allocator::LeakFromUsizeAllocator,
         container::sync_unsafe_cell::SyncUnsafeCell,
         range::URange,
         xasync::{HandlerID, TryR, TryRunFail},
@@ -23,7 +23,7 @@ use self::{
 
 use super::{
     address::{PageCount, UserAddr, UserAddr4K},
-    allocator::frame::iter::FrameDataIter,
+    allocator::frame::{iter::FrameDataIter, FrameAllocator},
     asid::Asid,
     AccessType, PTEFlags, PageTable,
 };
@@ -76,16 +76,23 @@ impl MapSegment {
     /// 范围必须不存在映射 否则 panic
     ///
     /// 返回初始化结果 失败则撤销映射
-    pub fn force_push(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> SysR<()> {
+    pub fn force_push(
+        &mut self,
+        r: URange,
+        h: Box<dyn UserAreaHandler>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         debug_assert!(r.start < r.end);
         let pt = pt!(self);
         let h = self.handlers.try_push(r.clone(), h).ok().unwrap();
         let id = self.id_allocator.alloc();
-        h.init(id, pt, r.clone()).inspect_err(|_e| self.unmap(r))
+        h.init(id, pt, r.clone(), allocator)
+            .inspect_err(|_e| self.unmap(r, allocator))
     }
     fn release_impl<'a>(
         pt: &'a mut PageTable,
         sc_manager: &'a mut SCManager,
+        allocator: &'a mut dyn FrameAllocator,
     ) -> impl FnMut(Box<dyn UserAreaHandler>, URange) + 'a {
         move |mut h: Box<dyn UserAreaHandler>, r: URange| {
             let pt = pt as *mut PageTable;
@@ -99,40 +106,45 @@ impl MapSegment {
                 debug_assert!(pte.is_leaf());
                 pte.reset();
             };
-            let unique_release = |addr| h.unmap_ua(pt!(), addr);
+            let unique_release = |addr| h.unmap_ua(pt!(), addr, allocator);
             // 释放共享页
             sc_manager.remove_release(r.clone(), shared_release, unique_release);
             // 共享页管理器只包括共享页，因此还要释放本进程分配的页面
-            h.unmap(pt!(), r);
+            h.unmap(pt!(), r, allocator);
         }
     }
     /// 释放存在映射的空间
-    pub fn unmap(&mut self, r: URange) {
+    pub fn unmap(&mut self, r: URange, allocator: &mut dyn FrameAllocator) {
         debug_assert!(r.start < r.end);
         let sc_manager = &mut self.sc_manager; // stupid borrow checker
-        let release = Self::release_impl(pt!(self), sc_manager);
+        let release = Self::release_impl(pt!(self), sc_manager, allocator);
         self.handlers.remove(r.clone(), release);
         self.futexs.remove(r);
     }
-    pub fn clear(&mut self) {
+    pub fn clear(&mut self, allocator: &mut dyn FrameAllocator) {
         let sc_manager = &mut self.sc_manager;
-        let release = Self::release_impl(pt!(self), sc_manager);
+        let release = Self::release_impl(pt!(self), sc_manager, allocator);
         self.handlers.clear(release);
         self.futexs.clear();
         assert!(sc_manager.is_empty());
     }
-    pub fn replace(&mut self, r: URange, h: Box<dyn UserAreaHandler>) -> SysR<()> {
+    pub fn replace(
+        &mut self,
+        r: URange,
+        h: Box<dyn UserAreaHandler>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         debug_assert!(r.start < r.end);
-        self.unmap(r.clone());
-        self.force_push(r, h)
+        self.unmap(r.clone(), allocator);
+        self.force_push(r, h, allocator)
     }
     /// 如果进入 async 状态将 panic
-    pub fn force_map(&mut self, r: URange) -> SysR<()> {
+    pub fn force_map(&mut self, r: URange, allocator: &mut dyn FrameAllocator) -> SysR<()> {
         stack_trace!();
         debug_assert!(r.start < r.end);
         let pt = pt!(self);
         let h = self.handlers.range_contain_mut(r.clone()).unwrap();
-        h.map(pt, r).map_err(|e| match e {
+        h.map(pt, r, allocator).map_err(|e| match e {
             TryRunFail::Async(_a) => panic!(),
             TryRunFail::Error(e) => e,
         })
@@ -140,10 +152,15 @@ impl MapSegment {
     /// 此函数可以向只读映射写入数据 但不能修改只读共享页
     ///
     /// TODO: 使用 copy_map获取只读共享页所有权
-    pub fn force_write_range(&mut self, r: URange, mut data: impl FrameDataIter) -> SysR<()> {
+    pub fn force_write_range(
+        &mut self,
+        r: URange,
+        data: &mut dyn FrameDataIter,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         stack_trace!();
         debug_assert!(r.start < r.end);
-        self.force_map(r.clone())?;
+        self.force_map(r.clone(), allocator)?;
         let pt = pt!(self);
         for addr in tools::range::ur_iter(r) {
             pt.force_convert_user(addr, |pte| {
@@ -157,6 +174,7 @@ impl MapSegment {
         &mut self,
         addr: UserAddr4K,
         access: AccessType,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         debug_assert!(access.user);
         let h = self
@@ -166,7 +184,7 @@ impl MapSegment {
 
         let pt = pt!(self);
         let pte = match pt.try_get_pte_user(addr) {
-            None => return h.page_fault(pt, addr, access),
+            None => return h.page_fault(pt, addr, access, allocator),
             Some(a) => a,
         };
         if access.exec {
@@ -190,7 +208,6 @@ impl MapSegment {
         if PRINT_PAGE_FAULT {
             println!("copy to new page");
         }
-        let allocator = &mut frame::defualt_allocator();
         let x = allocator.alloc()?;
         x.ptr()
             .as_usize_array_mut()
@@ -262,12 +279,13 @@ impl MapSegment {
         stack_trace!();
         let src = pt!(self);
         let mut dst = PageTable::from_global(asid::alloc_asid())?;
-        let allocator = &mut frame::defualt_allocator();
+        let allocator = &mut frame::default_allocator();
         let mut new_sm = SCManager::new();
         // flush 析构时将刷表
         let flush = src.flush_asid_fn();
         let mut err_1 = Ok(());
         for (r, h) in self.handlers.iter_mut() {
+            stack_trace!();
             match h.may_shared() {
                 Some(shared_writable) => {
                     let mut err_2 = Ok(());
@@ -280,6 +298,7 @@ impl MapSegment {
                                 break;
                             }
                         };
+                        stack_trace!();
                         debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
                         let sc = if !src.shared() {
                             src.become_shared(shared_writable);
@@ -296,6 +315,7 @@ impl MapSegment {
                         Ok(()) => continue,
                         Err(x) => x,
                     };
+                    stack_trace!();
                     // error happen
                     for (addr, dst) in dst.valid_pte_iter(r) {
                         if addr == e_addr {
@@ -311,7 +331,7 @@ impl MapSegment {
                     }
                     break;
                 }
-                None => match h.copy_map(src, &mut dst, r.clone()) {
+                None => match h.copy_map(src, &mut dst, r.clone(), allocator) {
                     Ok(()) => (),
                     Err(e) => {
                         err_1 = Err((r, e));
@@ -320,6 +340,7 @@ impl MapSegment {
                 },
             }
         }
+        stack_trace!();
         if err_1.is_ok() {
             let new_ms = MapSegment {
                 page_table: Arc::new(SyncUnsafeCell::new(dst)),
@@ -328,8 +349,10 @@ impl MapSegment {
                 futexs: self.futexs.fork(),
                 id_allocator: self.id_allocator.clone(),
             };
+            stack_trace!();
             return Ok(new_ms);
         }
+        stack_trace!();
         // 错误回退
         let (rr, e) = err_1.unwrap_err();
         new_sm.check_remove_all();
@@ -350,11 +373,11 @@ impl MapSegment {
                     }
                 }
                 None => {
-                    h.unmap(&mut dst, r);
+                    h.unmap(&mut dst, r, allocator);
                 }
             }
         }
-        drop(flush);
+        flush.run();
         Err(e)
     }
 }

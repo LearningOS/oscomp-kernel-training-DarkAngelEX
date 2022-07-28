@@ -38,14 +38,13 @@ impl LocalRcuManager {
         if self.critical {
             return;
         }
-        debug_assert!(self.pending.is_empty());
         self.critical = true;
         self.tick = false;
         GLOBAL_RCU_MANAGER.critical_start(self.id)
     }
     pub fn critical_end(&mut self) {
         stack_trace!();
-        if !self.critical {
+        if !self.critical && self.pending.is_empty() {
             return;
         }
         self.critical = false;
@@ -62,16 +61,22 @@ impl LocalRcuManager {
         debug_assert!(self.critical);
         self.pending.push(v);
     }
+    pub fn special_push(&mut self, v: RcuDrop) {
+        self.pending.push(v);
+    }
 }
 
 pub fn init() {
     println!("[FTL OS]rcu init");
-    ftl_util::rcu::init(rcu_handle);
+    ftl_util::rcu::init(rcu_release);
     rcu_test();
 }
 
-fn rcu_handle(v: RcuDrop) {
+pub fn rcu_release(v: RcuDrop) {
     local::hart_local().local_rcu.push(v);
+}
+pub fn rcu_special_release(v: RcuDrop) {
+    local::hart_local().local_rcu.special_push(v)
 }
 
 fn rcu_test() {

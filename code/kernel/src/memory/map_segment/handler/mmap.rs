@@ -5,6 +5,7 @@ use vfs::File;
 use crate::{
     memory::{
         address::UserAddr4K,
+        allocator::frame::FrameAllocator,
         asid::Asid,
         map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler},
         page_table::PTEFlags,
@@ -73,7 +74,13 @@ impl UserAreaHandler for MmapHandler {
     fn base_mut(&mut self) -> &mut HandlerBase {
         &mut self.base
     }
-    fn init(&mut self, id: HandlerID, _pt: &mut PageTable, _all: URange) -> SysR<()> {
+    fn init(
+        &mut self,
+        id: HandlerID,
+        _pt: &mut PageTable,
+        _all: URange,
+        _allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         self.spec.id = Some(id);
         Ok(())
     }
@@ -95,13 +102,18 @@ impl UserAreaHandler for MmapHandler {
     fn modify_perm(&mut self, perm: PTEFlags) {
         self.spec.perm = perm;
     }
-    fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
+    fn map_spec(
+        &self,
+        pt: &mut PageTable,
+        range: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
         if range.start >= range.end {
             return Ok(());
         }
         let file = match self.spec.file.as_ref() {
-            None => return self.default_map_spec(pt, range),
+            None => return self.default_map_spec(pt, range, allocator),
             Some(file) => file.clone(),
         };
         return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
@@ -112,20 +124,27 @@ impl UserAreaHandler for MmapHandler {
             file,
         ))));
     }
-    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
-        self.default_copy_map_spec(src, dst, r)
+    fn copy_map_spec(
+        &self,
+        src: &mut PageTable,
+        dst: &mut PageTable,
+        r: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
+        self.default_copy_map_spec(src, dst, r, allocator)
     }
     fn page_fault_spec(
         &self,
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         access
             .check(self.perm())
             .map_err(|_| TryRunFail::Error(SysError::EFAULT))?;
         let file = match self.spec.file.as_ref() {
-            None => return self.default_page_fault_spec(pt, addr, access),
+            None => return self.default_page_fault_spec(pt, addr, access, allocator),
             Some(file) => file.clone(),
         };
         return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
@@ -136,11 +155,16 @@ impl UserAreaHandler for MmapHandler {
             file,
         ))));
     }
-    fn unmap_spec(&self, pt: &mut PageTable, range: URange) {
-        self.default_unmap_spec(pt, range)
+    fn unmap_spec(&self, pt: &mut PageTable, range: URange, allocator: &mut dyn FrameAllocator) {
+        self.default_unmap_spec(pt, range, allocator)
     }
-    fn unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K) {
-        self.default_unmap_ua_spec(pt, addr)
+    fn unmap_ua_spec(
+        &self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        allocator: &mut dyn FrameAllocator,
+    ) {
+        self.default_unmap_ua_spec(pt, addr, allocator)
     }
     fn box_clone(&self) -> Box<dyn UserAreaHandler> {
         Box::new(self.clone())

@@ -52,12 +52,12 @@ impl PageTable {
     pub fn force_map_user(
         &mut self,
         addr: UserAddr4K,
-        pte_fn: impl FnOnce() -> SysR<PageTableEntry>,
-        allocator: &mut impl FrameAllocator,
+        pte_fn: impl FnOnce(&mut dyn FrameAllocator) -> SysR<PageTableEntry>,
+        allocator: &mut dyn FrameAllocator,
     ) -> SysR<()> {
         let pte = self.get_pte_user(addr, allocator)?;
         assert!(!pte.is_valid(), "remap of {:?}", addr);
-        *pte = pte_fn()?;
+        *pte = pte_fn(allocator)?;
         Ok(())
     }
     pub fn force_unmap_user(&mut self, addr: UserAddr4K, pte_fn: impl FnOnce(PageTableEntry)) {
@@ -139,7 +139,7 @@ impl PageTable {
     pub fn get_pte_user(
         &mut self,
         addr: UserAddr4K,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<&mut PageTableEntry, FrameOOM> {
         fn next_pte(a: PhyAddr4K, i: usize) -> &'static mut PageTableEntry {
             &mut a.into_ref().as_pte_array_mut()[i]
@@ -163,8 +163,8 @@ impl PageTable {
     pub fn map_user_range(
         &mut self,
         map_area: &UserArea,
-        data_iter: &mut impl FrameDataIter,
-        allocator: &mut impl FrameAllocator,
+        data_iter: &mut dyn FrameDataIter,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
         memory_trace!("PageTable::map_user_range");
         assert!(map_area.perm().contains(PTEFlags::U));
@@ -201,8 +201,8 @@ impl PageTable {
             l: &[usize; 3],
             r: &[usize; 3],
             flags: PTEFlags,
-            data_iter: &mut impl FrameDataIter,
-            allocator: &mut impl FrameAllocator,
+            data_iter: &mut dyn FrameDataIter,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> Result<UserAddr4K, UserAddr4K> {
             let xbegin = &[0, 0];
@@ -225,8 +225,8 @@ impl PageTable {
             l: &[usize; 2],
             r: &[usize; 2],
             flags: PTEFlags,
-            data_iter: &mut impl FrameDataIter,
-            allocator: &mut impl FrameAllocator,
+            data_iter: &mut dyn FrameDataIter,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> Result<UserAddr4K, UserAddr4K> {
             let xbegin = &[0];
@@ -249,8 +249,8 @@ impl PageTable {
             l: &[usize; 1],
             r: &[usize; 1],
             flags: PTEFlags,
-            data_iter: &mut impl FrameDataIter,
-            allocator: &mut impl FrameAllocator,
+            data_iter: &mut dyn FrameDataIter,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> Result<UserAddr4K, UserAddr4K> {
             for pte in &mut ptes[l[0]..=r[0]] {
@@ -271,7 +271,7 @@ impl PageTable {
         }
     }
 
-    pub fn unmap_user_range(&mut self, map_area: &UserArea, allocator: &mut impl FrameAllocator) {
+    pub fn unmap_user_range(&mut self, map_area: &UserArea, allocator: &mut dyn FrameAllocator) {
         assert!(map_area.perm().contains(PTEFlags::U));
         let ubegin = map_area.begin();
         let uend = map_area.end();
@@ -290,7 +290,7 @@ impl PageTable {
             ptes: &mut [PageTableEntry; 512],
             l: &[usize; 3],
             r: &[usize; 3],
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
             let xbegin = &[0, 0];
@@ -311,7 +311,7 @@ impl PageTable {
             ptes: &mut [PageTableEntry; 512],
             l: &[usize; 2],
             r: &[usize; 2],
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
             let xbegin = &[0];
@@ -332,7 +332,7 @@ impl PageTable {
             ptes: &mut [PageTableEntry; 512],
             l: &[usize; 1],
             r: &[usize; 1],
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
             for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
@@ -349,7 +349,7 @@ impl PageTable {
         dst: &mut Self,
         src: &mut Self,
         map_area: &UserArea,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
         memory_trace!("copy_user_range_lazy");
         map_area.user_assert();
@@ -377,7 +377,7 @@ impl PageTable {
             l: &[usize; 3],
             r: &[usize; 3],
             mut ua: UserAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
             memory_trace!("copy_user_range_lazy_0");
             let xbegin = &[0, 0];
@@ -409,7 +409,7 @@ impl PageTable {
             l: &[usize; 2],
             r: &[usize; 2],
             mut ua: UserAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
             memory_trace!("copy_user_range_lazy_1");
             // println!("lazy_1 ua: {:#x}", ua.into_usize());
@@ -440,7 +440,7 @@ impl PageTable {
             l: &[usize; 1],
             r: &[usize; 1],
             mut ua: UserAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> Result<UserAddr4K, UserAddr4K> {
             memory_trace!("copy_user_range_lazy_2");
             let dst_it = dst_ptes[l[0]..=r[0]].iter_mut();
@@ -465,7 +465,7 @@ impl PageTable {
     pub fn unmap_user_range_lazy(
         &mut self,
         map_area: UserArea,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> PageCount {
         stack_trace!();
         assert!(map_area.perm().contains(PTEFlags::U));
@@ -488,7 +488,7 @@ impl PageTable {
             l: &[usize; 3],
             r: &[usize; 3],
             mut page_count: PageCount,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> (PageCount, UserAddr4K) {
             let xbegin = &[0, 0];
@@ -515,7 +515,7 @@ impl PageTable {
             l: &[usize; 2],
             r: &[usize; 2],
             mut page_count: PageCount,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> (PageCount, UserAddr4K) {
             let xbegin = &[0];
@@ -542,7 +542,7 @@ impl PageTable {
             l: &[usize; 1],
             r: &[usize; 1],
             mut page_count: PageCount,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
             mut ua: UserAddr4K,
         ) -> (PageCount, UserAddr4K) {
             for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
@@ -562,7 +562,7 @@ impl PageTable {
         pbegin: PhyAddrRef4K,
         size: usize,
         flags: PTEFlags,
-        allocator: &mut impl FrameAllocator,
+        allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
         if size == 0 {
             return Ok(());
@@ -596,7 +596,7 @@ impl PageTable {
             flags: PTEFlags,
             mut va: VirAddr4K,
             mut pa: PhyAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> Result<VirAddr4K, FrameOOM> {
             // println!("level 0: {:?} {:?}-{:?}", va, l, r);
             let xbegin = &[0, 0];
@@ -633,7 +633,7 @@ impl PageTable {
             flags: PTEFlags,
             mut va: VirAddr4K,
             mut pa: PhyAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> Result<(VirAddr4K, PhyAddr4K), FrameOOM> {
             // println!("level 1: {:?} {:?}-{:?}", va, l, r);
             let xbegin = &[0];
@@ -667,7 +667,7 @@ impl PageTable {
             flags: PTEFlags,
             mut va: VirAddr4K,
             mut pa: PhyAddr4K,
-            _allocator: &mut impl FrameAllocator,
+            _allocator: &mut dyn FrameAllocator,
         ) -> (VirAddr4K, PhyAddr4K) {
             // println!("level 2: {:?} {:?}-{:?}", va, l, r);
             for pte in &mut ptes[l[0]..=r[0]] {
@@ -754,7 +754,7 @@ impl PageTable {
             l: &[usize; 3],
             r: &[usize; 3],
             mut ua: UserAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> UserAddr4K {
             let xbegin = &[0, 0];
             let xend = &[511, 511];
@@ -780,7 +780,7 @@ impl PageTable {
             l: &[usize; 2],
             r: &[usize; 2],
             mut ua: UserAddr4K,
-            allocator: &mut impl FrameAllocator,
+            allocator: &mut dyn FrameAllocator,
         ) -> UserAddr4K {
             let xbegin = &[0];
             let xend = &[511];
@@ -806,7 +806,7 @@ impl PageTable {
             l: &[usize; 1],
             r: &[usize; 1],
             mut ua: UserAddr4K,
-            _allocator: &mut impl FrameAllocator,
+            _allocator: &mut dyn FrameAllocator,
         ) -> UserAddr4K {
             for pte in &mut ptes[l[0]..=r[0]] {
                 assert!(

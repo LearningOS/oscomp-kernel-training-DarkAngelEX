@@ -229,7 +229,7 @@ pub fn asid_test() {
     let pa2 = pax2.data();
     let flags = PTEFlags::R | PTEFlags::W;
 
-    let allocator = &mut frame::defualt_allocator();
+    let allocator = &mut frame::default_allocator();
 
     space_1.map_par(va4k, pa1, flags, allocator).unwrap();
     space_2.map_par(va4k, pa2, flags, allocator).unwrap();
