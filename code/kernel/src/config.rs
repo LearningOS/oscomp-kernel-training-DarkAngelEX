@@ -4,7 +4,7 @@ use core::ops::Range;
 use crate::{memory::address::UserAddr, process::resource::RLimit, tools::range::URange};
 
 /// how many time interrupt per second
-pub const TIME_INTERRUPT_PER_SEC: usize = 1000;
+pub const TIME_INTERRUPT_PER_SEC: usize = 10;
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1

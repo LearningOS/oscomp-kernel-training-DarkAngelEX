@@ -14,7 +14,7 @@ fn main() -> i32 {
         }
         1.. => {
             let mut exit_code: i32 = 0;
-            let pid = wait(&mut exit_code);
+            wait(&mut exit_code);
         }
         _ => panic!("initproc fork error"),
     }
@@ -57,7 +57,7 @@ fn run_all_case() {
         "yield\0",
     ];
     for name in all_case {
-        let pid = match fork() {
+        let _pid = match fork() {
             -1 => panic!("fork error"),
             0 => {
                 exec(name, &[core::ptr::null::<u8>()]);
@@ -66,6 +66,6 @@ fn run_all_case() {
             pid => pid,
         };
         let mut exit_code: i32 = 0;
-        let pid = wait(&mut exit_code);
+        wait(&mut exit_code);
     }
 }

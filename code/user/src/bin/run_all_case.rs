@@ -1,11 +1,12 @@
 #![no_std]
 #![no_main]
+#![allow(dead_code)]
 
 extern crate alloc;
 extern crate user_lib;
 
 use alloc::{string::ToString, vec::Vec};
-use user_lib::{exec, exit, fork, open, println, read, wait, write, OpenFlags};
+use user_lib::*;
 
 const PRINT_LINE: bool = false;
 
@@ -13,14 +14,14 @@ const PRINT_LINE: bool = false;
 fn main() -> i32 {
     match fork() {
         0 => {
-            // run_all_case();
+            run_all_case();
             // run_all_case_forever();
-            run_signle_forever("pthread_cancel_points");
+            // run_signle_forever("pthread_cancel_points");
             exit(0);
         }
         1.. => {
             let mut exit_code: i32 = 0;
-            let pid = wait(&mut exit_code);
+            wait(&mut exit_code);
         }
         _ => panic!("initproc fork error"),
     }

@@ -66,7 +66,6 @@ pub fn sys_open(path: &str, flags: u32) -> isize {
 }
 
 pub fn sys_openat(fd: isize, path: &str, flags: u32, mode: u32) -> isize {
-    let fd = -100isize as usize;
     syscall(
         SYSCALL_OPENAT,
         [

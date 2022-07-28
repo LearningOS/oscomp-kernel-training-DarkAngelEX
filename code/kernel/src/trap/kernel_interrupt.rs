@@ -5,6 +5,7 @@ use crate::{local, timer};
 #[no_mangle]
 pub fn kernel_default_interrupt() {
     stack_trace!();
+
     debug_assert!(!local::hart_local().interrupt);
     local::hart_local().interrupt = true;
     debug_assert!(!sstatus::read().sie());
