@@ -47,7 +47,7 @@ impl HartMailBox {
                 assert!(!USING_ASID);
                 sfence::sfence_vma_all_no_global();
                 self.spec_sfence.clear();
-            } else if self.event.contains(MailEvent::SFENCE_SET) {
+            } else if self.event.contains(MailEvent::SFENCE_SPEC) {
                 self.spec_sfence.drain(..).into_iter().for_each(|f| f());
             }
             self.spec_sfence.clear();
@@ -61,7 +61,7 @@ impl HartMailBox {
     pub fn spec_sfence(&mut self, f: impl FnOnce() + 'static) {
         if self
             .event
-            .contains(MailEvent::SFENCE_VMA_ALL_GLOBAL | MailEvent::SFENCE_VMA_ALL_NO_GLOBAL)
+            .intersects(MailEvent::SFENCE_VMA_ALL_GLOBAL | MailEvent::SFENCE_VMA_ALL_NO_GLOBAL)
         {
             return;
         }

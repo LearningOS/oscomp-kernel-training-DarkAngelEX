@@ -19,6 +19,7 @@ use vfs::VfsFile;
 use crate::{
     futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     hart::floating,
+    local,
     memory::{
         self,
         address::{PageCount, UserAddr},
@@ -33,7 +34,7 @@ use crate::{
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     trap::context::UKContext,
     user::check::UserCheck,
-    xdebug::PRINT_SYSCALL_ALL, local,
+    xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::{

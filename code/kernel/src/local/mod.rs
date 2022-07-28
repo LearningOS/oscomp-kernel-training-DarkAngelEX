@@ -259,11 +259,13 @@ pub fn asid_version_update(latest_version: AsidVersion) {
 pub fn all_hart_fn(mut f: impl FnMut(&mut HartMailBox)) {
     let hart_local = hart_local();
     let cur = hart_local.cpuid();
-    for i in cpu::hart_range() {
-        if i == cur {
-            continue;
+    unsafe {
+        for local in cpu_local_in_use() {
+            if local.cpuid() == cur {
+                continue;
+            }
+            local.register(|m| f(m));
         }
-        unsafe { get_local_by_id(i).register(|m| f(m)) };
     }
     f(&mut hart_local.local_mail);
     hart_local.local_mail.handle();
