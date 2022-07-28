@@ -53,18 +53,20 @@ impl HeapManager {
             return Err(SysError::EINVAL);
         }
         let mut unmap = false;
-        if brk_end_next == cur_end {
-        } else if brk_end_next < cur_end {
-            // unmap
-            oper(
-                UserArea::new_urw(brk_end_next.max(self.brk_base)..cur_end),
-                false,
-            )?;
-            unmap = true;
-        } else {
-            // map
-            oper(UserArea::new_urw(cur_end..brk_end_next), true)?;
+
+        use core::cmp::Ordering;
+        match brk_end_next.cmp(&cur_end) {
+            Ordering::Equal => (),
+            Ordering::Less => {
+                let range = brk_end_next.max(self.brk_base)..cur_end;
+                oper(UserArea::new_urw(range), false)?;
+                unmap = true;
+            }
+            Ordering::Greater => {
+                oper(UserArea::new_urw(cur_end..brk_end_next), true)?;
+            }
         }
+
         self.brk = brk;
         self.brk_end = brk_end_next;
         Ok(unmap)

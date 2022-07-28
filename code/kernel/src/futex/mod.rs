@@ -198,9 +198,9 @@ impl FutexSet {
             return;
         }
         let r: Range<UserAddr<u32>> = start.into()..end.into();
-        let cnt = self.0.range(r.clone()).map(|(&k, _)| k).count();
+        let cnt = self.0.range(r.clone()).count();
         if cnt == 0 {
-            return;
+            // do nothing
         } else if cnt == self.0.len() {
             self.0.clear();
         } else if cnt * 4 > self.0.len() {

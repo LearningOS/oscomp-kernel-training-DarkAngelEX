@@ -121,7 +121,7 @@ impl FdTable {
         if search_from_start {
             self.search_start = Fd(min);
         }
-        return Ok(Fd(min));
+        Ok(Fd(min))
     }
     /// 自动选择
     pub fn insert(&mut self, file: Arc<dyn File>, close_on_exec: bool, op: OpenFlags) -> SysR<Fd> {
@@ -176,10 +176,10 @@ impl FdTable {
                 let fd = self.insert_min(min, file, close_on_exec, op)?;
                 Ok(fd.0)
             }
-            F_GETFD => return Ok(if node.close_on_exec { FD_CLOEXEC } else { 0 }),
+            F_GETFD => Ok(if node.close_on_exec { FD_CLOEXEC } else { 0 }),
             F_SETFD => {
                 node.close_on_exec = arg & FD_CLOEXEC != 0;
-                return Ok(0);
+                Ok(0)
             }
             F_GETFL => Ok(node.op.bits() as usize),
             F_SETFL => {

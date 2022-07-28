@@ -116,13 +116,13 @@ impl UserAreaHandler for MmapHandler {
             None => return self.default_map_spec(pt, range, allocator),
             Some(file) => file.clone(),
         };
-        return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
+        Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
             self.id(),
             self.perm(),
             self.spec.addr,
             self.spec.offset,
             file,
-        ))));
+        ))))
     }
     fn copy_map_spec(
         &self,
@@ -147,13 +147,13 @@ impl UserAreaHandler for MmapHandler {
             None => return self.default_page_fault_spec(pt, addr, access, allocator),
             Some(file) => file.clone(),
         };
-        return Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
+        Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
             self.id(),
             self.perm(),
             self.spec.addr,
             self.spec.offset,
             file,
-        ))));
+        ))))
     }
     fn unmap_spec(&self, pt: &mut PageTable, range: URange, allocator: &mut dyn FrameAllocator) {
         self.default_unmap_spec(pt, range, allocator)

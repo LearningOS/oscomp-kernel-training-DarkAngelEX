@@ -177,7 +177,7 @@ impl Thread {
             UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };
         let (user_sp, argc, argv, xenvp) =
-            user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
+            user_space.push_args(user_sp, &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
         drop(args);
         let (tid, pid) = super::tid::alloc_tid_pid();
@@ -225,9 +225,7 @@ impl Thread {
             entry_point,
             sstatus,
             floating::default_fcsr(),
-            argc,
-            argv,
-            xenvp,
+            (argc, argv, xenvp),
         );
         let thread = Arc::new(thread);
         process
@@ -361,7 +359,7 @@ impl Thread {
             .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))
             .unwrap();
         if let Some(fx) = fx.as_ref() {
-            self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
+            self.inner().futex_index.insert(ua, Arc::downgrade(fx));
         }
         fx
     }

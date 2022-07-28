@@ -19,7 +19,7 @@ use crate::{
 use core::fmt::Debug;
 
 /// 每个帧被释放后将被填充 0xf0f0f0f0_f0f0f0f0, 除了开头的元信息
-pub const FRAME_OVERWRITE_MAGIC: usize = 0xf0f0f0f0_f0f0f0f0;
+pub const FRAME_OVERWRITE_MAGIC: usize = 0xf0f0_f0f0_f0f0_f0f0;
 
 #[derive(Debug)]
 pub struct FrameTracker {

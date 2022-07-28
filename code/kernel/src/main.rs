@@ -51,6 +51,8 @@
 #![feature(unboxed_closures)]
 #![test_runner(crate::test_runner)]
 #![reexport_test_harness_main = "test_main"]
+#![allow(clippy::nonminimal_bool)]
+#![allow(clippy::assertions_on_constants)]
 #![allow(dead_code)]
 
 // #![allow(dead_code)]

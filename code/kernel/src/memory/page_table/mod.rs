@@ -266,7 +266,7 @@ impl PageTable {
     }
     /// 返回值析构时将刷表
     pub fn flush_asid_fn(&self) -> DynDropRun<Asid> {
-        DynDropRun::new(self.asid(), |asid| local::all_hart_sfence_vma_asid(asid))
+        DynDropRun::new(self.asid(), local::all_hart_sfence_vma_asid)
     }
     /// 返回值析构时将刷表
     pub fn flush_va_asid_fn(&self, va: UserAddr4K) -> DynDropRun<(UserAddr4K, Asid)> {

@@ -29,12 +29,12 @@ impl DerefMut for SPIDevice {
 }
 
 impl SPIDevice {
-    fn base_addr(&self) -> PhyAddr<RegisterBlock> {
+    fn base_addr(self) -> PhyAddr<RegisterBlock> {
         let a = match self {
             SPIDevice::QSPI0 => 0x10040000usize,
             SPIDevice::QSPI1 => 0x10041000usize,
             SPIDevice::QSPI2 => 0x10050000usize,
-            SPIDevice::Other(val) => val.clone(),
+            SPIDevice::Other(val) => val,
         };
         PhyAddr::from_usize(a)
     }
@@ -130,7 +130,7 @@ impl SPIImpl {
     }
     fn rx_deque(&mut self) -> u8 {
         match self.spi.rxdata.flag_read() {
-            (false, result) => return result,
+            (false, result) => result,
             (true, _) => panic!(),
         }
     }

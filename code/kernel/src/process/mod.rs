@@ -170,9 +170,9 @@ impl AliveProcess {
 }
 
 #[cfg(feature = "submit")]
-static RUN_ALL_CASE: &'static [u8] = include_bytes!("../../run_all_case");
+static RUN_ALL_CASE: &[u8] = include_bytes!("../../run_all_case");
 #[cfg(not(feature = "submit"))]
-static RUN_ALL_CASE: &'static [u8] = &[];
+static RUN_ALL_CASE: &[u8] = &[];
 
 pub async fn init() {
     let initproc = "/initproc";
@@ -181,8 +181,7 @@ pub async fn init() {
         .unwrap();
     if cfg!(feature = "submit") {
         println!("running submit program!");
-        let mut args = Vec::new();
-        args.push(initproc.to_string());
+        let args = alloc::vec![initproc.to_string()];
         let envp = Vec::new();
         let thread = Thread::new_initproc(cwd, RUN_ALL_CASE, args, envp);
         userloop::spawn(thread);
@@ -196,8 +195,7 @@ pub async fn init() {
         .await
         .unwrap();
         let elf_data = inode.read_all().await.unwrap();
-        let mut args = Vec::new();
-        args.push(initproc.to_string());
+        let args = alloc::vec![initproc.to_string()];
         let envp = Vec::new();
         let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
         userloop::spawn(thread);

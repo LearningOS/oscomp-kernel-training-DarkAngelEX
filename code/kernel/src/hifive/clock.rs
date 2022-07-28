@@ -26,11 +26,11 @@ pub const fn hfclk_pll_freq(pllr: usize, pllf: usize, pllq: usize) -> usize {
     debug_assert!(pllq < 1 << 3); // 8
     debug_assert!(pllq <= 6);
     let post_div = HF_CLK / (pllr + 1);
-    debug_assert!(post_div >= 7000_000);
+    debug_assert!(post_div >= 7_000_000);
     let pll_veo = post_div * 2 * (pllf + 1);
-    debug_assert!(2400_000_000 <= pll_veo && pll_veo <= 4800_000_000);
+    debug_assert!(2_400_000_000 <= pll_veo && pll_veo <= 4_800_000_000);
     debug_assert!(pllq <= 6);
     let output = pll_veo >> pllq;
-    debug_assert!(20_000_000 <= output && output <= 2400_000_000);
+    debug_assert!(20_000_000 <= output && output <= 2_400_000_000);
     output
 }

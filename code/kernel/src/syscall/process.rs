@@ -60,12 +60,12 @@ impl Syscall<'_> {
         let set_child_tid = flag
             .contains(CloneFlag::CLONE_CHILD_SETTID)
             .then_some(ctid)
-            .unwrap_or(UserInOutPtr::null());
+            .unwrap_or_else(UserInOutPtr::null);
 
         let clear_child_tid = flag
             .contains(CloneFlag::CLONE_CHILD_CLEARTID)
             .then_some(ctid)
-            .unwrap_or(UserInOutPtr::null());
+            .unwrap_or_else(UserInOutPtr::null);
 
         let tls = flag.contains(CloneFlag::CLONE_SETTLS).then_some(tls);
 
@@ -174,7 +174,7 @@ impl Syscall<'_> {
         }
         unsafe { user_space.using() };
         let (user_sp, argc, argv, envp) =
-            user_space.push_args(user_sp.into(), &args, &alive.envp, &auxv, args_size);
+            user_space.push_args(user_sp, &args, &alive.envp, &auxv, args_size);
         drop(auxv);
         drop(args);
         // reset stack_id
@@ -187,7 +187,7 @@ impl Syscall<'_> {
         let cx = self.thread.get_context();
         let sstatus = cx.user_sstatus;
         let fcsr = cx.user_fx.fcsr;
-        cx.exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
+        cx.exec_init(user_sp, entry_point, sstatus, fcsr, (argc, argv, envp));
         local::all_hart_fence_i();
         check.assume_success();
         // rtld_fini: 动态链接器析构函数
@@ -319,7 +319,7 @@ impl Syscall<'_> {
                 .pgid
                 .load(Ordering::Relaxed),
         };
-        return Ok(pid);
+        Ok(pid)
     }
     pub fn sys_getpid(&mut self) -> SysRet {
         stack_trace!();
@@ -500,14 +500,11 @@ impl Syscall<'_> {
         if (PRINT_SYSCALL_PROCESS || false) && let Some(new) = new {
             println!("new: {:?}", new);
         }
-        let old;
-        match pid {
-            Pid(0) => {
-                old = resource::prlimit_impl(self.process, resource, new)?;
-            }
+        let old = match pid {
+            Pid(0) => resource::prlimit_impl(self.process, resource, new)?,
             _ => {
                 let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
-                old = resource::prlimit_impl(&process, resource, new)?;
+                resource::prlimit_impl(&process, resource, new)?
             }
         };
         if !old_limit.is_null() {

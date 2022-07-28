@@ -61,13 +61,21 @@ pub fn ftl_logo() -> &'static str {
 }
 
 macro_rules! smp_v {
+    ($a: ident -= $v: literal) => {
+        $a.fetch_sub($v, Ordering::Release);
+    };
     ($a: ident => $v: literal) => {
         while $a.load(Ordering::Acquire) != $v {
             core::hint::spin_loop();
         }
     };
-    ($v: literal => $a: ident) => {
+    ($v: expr => $a: ident) => {
         $a.store($v, Ordering::Release);
+    };
+    ($a: ident => $v: expr) => {
+        while $a.load(Ordering::Acquire) != $v {
+            core::hint::spin_loop();
+        }
     };
 }
 
@@ -88,16 +96,19 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         println!("{}", ftl_logo());
         INIT_HART.store(hartid, Ordering::Release);
         // #[cfg(feature = "board_hifive")]
-        {
-            for i in (0..=4).filter(|&i| i != hartid) {
-                let status = sbi::sbi_hart_get_status(i);
-                println!("hart {} status {}", i, status);
-                sbi::sbi_hart_start(i, 0x80200000, 0);
-            }
+
+        for i in (0..=4).filter(|&i| i != hartid) {
+            // #[cfg(feature = "board_hifive")]
+            // if i == 0 {
+            //     continue;
+            // }
+            let status = sbi::sbi_hart_get_status(i);
+            println!("hart {} status {}", i, status);
+            sbi::sbi_hart_start(i, 0x80200000, 0);
         }
-        INIT_START.store(true, Ordering::Release);
+        smp_v!(true => INIT_START);
     } else {
-        while !INIT_START.load(Ordering::Acquire) {}
+        smp_v!(INIT_START => true);
     }
     local::init();
     println!(
@@ -149,7 +160,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         println!("[FTL OS]hello! from hart {}", hartid);
         sfence::fence_i();
         println!("init complete! weakup the other cores.");
-        AP_INIT_WAIT.store(cpu::count() - 1, Ordering::Release);
+        smp_v!(cpu::count() - 1 => AP_INIT_WAIT);
         smp_v!(true => AP_CAN_INIT);
         {
             let _sie = AutoSie::new();
@@ -166,7 +177,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 }
 
 fn others_main(hartid: usize) -> ! {
-    while !AP_CAN_INIT.load(Ordering::Acquire) {}
+    smp_v!(AP_CAN_INIT => true);
     println!("[FTL OS]hart {} started", hartid);
     println!("[FTL OS]hart {} init by global satp", hartid);
     memory::set_satp_by_global();
@@ -181,7 +192,7 @@ fn others_main(hartid: usize) -> ! {
         timer::set_next_trigger();
     }
     println!("[FTL OS]hart {} init complete", hartid);
-    AP_INIT_WAIT.fetch_sub(1, Ordering::Release);
+    smp_v!(AP_INIT_WAIT -= 1);
     smp_v!(AP_CAN_RUN => true);
     crate::kmain(hartid);
 }
@@ -238,6 +249,7 @@ fn show_seg() {
     println!("kernel static size: {}MB {}KB {}Bytes", m, k, b);
 }
 
+#[inline(always)]
 pub fn current_sp() -> usize {
     let ret: usize;
     unsafe {

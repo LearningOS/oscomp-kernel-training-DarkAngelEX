@@ -88,7 +88,7 @@ impl Syscall<'_> {
         }
         let buf = &mut *buf.access_mut();
         let mut buf = &mut buf[..cwd_len];
-        if path.len() == 0 {
+        if path.is_empty() {
             buf[0] = b'/';
             buf = &mut buf[1..];
         }
@@ -100,7 +100,7 @@ impl Syscall<'_> {
         }
         debug_assert_eq!(buf.len(), 1);
         buf[0] = b'\0';
-        return Ok(buf_in.as_usize());
+        Ok(buf_in.as_usize())
     }
     pub fn sys_dup(&mut self) -> SysRet {
         stack_trace!();
@@ -167,7 +167,7 @@ impl Syscall<'_> {
                 }
                 let dirent = &mut *dirent_ptr;
                 dirent.d_ino = 0;
-                if d_off_ptr != core::ptr::null_mut() {
+                if !d_off_ptr.is_null() {
                     *d_off_ptr = (&dirent.d_off as *const _ as usize - d_off_ptr as usize) as u64;
                 }
                 d_off_ptr = &mut dirent.d_off;

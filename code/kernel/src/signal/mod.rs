@@ -94,7 +94,7 @@ bitflags! {
 
 bitflags! {
     pub struct StdSignalSet: u32 {
-        const SIGHUP    = 1 << ( 1 - 1);   // 用户终端连接结束
+        const SIGHUP    = 1 << (     0);   // 用户终端连接结束
         const SIGINT    = 1 << ( 2 - 1);   // 程序终止 可能是Ctrl+C
         const SIGQUIT   = 1 << ( 3 - 1);   // 类似SIGINT Ctrl+\
         const SIGILL    = 1 << ( 4 - 1);   // 执行了非法指令 页错误 栈溢出
@@ -188,15 +188,12 @@ impl SignalSet {
     pub const NEVER_CAPTURE: Self = Self::never_capture();
     pub const fn never_capture() -> Self {
         let mut set = Self::EMPTY;
-        set.0[0] = 1 << SIGKILL - 1 | 1 << SIGSTOP - 1;
+        set.0[0] = 1 << (SIGKILL - 1) | 1 << (SIGSTOP - 1);
         set
     }
     #[inline(always)]
     pub const fn is_never_capture_sig(sig: Sig) -> bool {
-        match (sig.0 + 1) as usize {
-            SIGKILL | SIGSTOP => true,
-            _ => false,
-        }
+        matches!((sig.0 + 1) as usize, SIGKILL | SIGSTOP)
     }
     pub fn std_signal(&self) -> StdSignalSet {
         StdSignalSet::from_bits_truncate(self.0[0] as u32)
@@ -290,7 +287,7 @@ impl SignalSet {
                 acc = f(p, acc);
             }
         }
-        return acc;
+        acc
     }
 }
 
@@ -472,17 +469,16 @@ pub async fn sigreturn(thread: &mut ThreadInner, process: &Process) -> SysRet {
     let scx = UserCheck::new(process)
         .readonly_value(thread.scx_ptr)
         .await?;
-    match scx.access()[0].store(&mut thread.uk_context) {
-        (scx_ptr, mask) => {
-            thread.scx_ptr = scx_ptr;
-            thread.signal_manager.set_mask(mask);
-            if PRINT_SYSCALL_ALL {
-                println!(
-                    "sigreturn restore mask: {:#x} sepc: {:#x}",
-                    mask.0[0], thread.uk_context.user_sepc
-                );
-            }
-        }
+    let access = scx.access();
+    let (scx_ptr, mask) = access[0].store(&mut thread.uk_context);
+    thread.scx_ptr = scx_ptr;
+    thread.signal_manager.set_mask(mask);
+    if PRINT_SYSCALL_ALL {
+        println!(
+            "sigreturn restore mask: {:#x} sepc: {:#x}",
+            mask.0[0], thread.uk_context.user_sepc
+        );
     }
+
     Ok(thread.uk_context.a0())
 }

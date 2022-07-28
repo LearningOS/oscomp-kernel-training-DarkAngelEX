@@ -256,7 +256,7 @@ impl MapSegment {
         self.handlers.split_at_maybe(r.end);
         // 保证遍历到的都不会跨越边界
         let pt = pt!(self);
-        for (xr, h) in self.handlers.range_mut(r.clone()) {
+        for (xr, h) in self.handlers.range_mut(r) {
             h.modify_perm(perm);
             if h.shared_always() {
                 for (_addr, pte) in pt.valid_pte_iter(xr) {

@@ -6,7 +6,7 @@ use crate::{
     xdebug::{FRAME_DEALLOC_OVERWRITE, FRAME_MODIFY_CHECK, FRAME_RELEASE_CHECK},
 };
 
-const FRAME_RELEASE_MAGIC: usize = 0x12323895_28920389;
+const FRAME_RELEASE_MAGIC: usize = 0x1232_3895_2892_0389;
 
 const USIZE_PER_FRAME: usize = PAGE_SIZE / core::mem::size_of::<usize>();
 

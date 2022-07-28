@@ -50,7 +50,9 @@ pub struct DynDropRun<T>(Option<(T, fn(T))>);
 impl<T> Drop for DynDropRun<T> {
     #[inline(always)]
     fn drop(&mut self) {
-        self.0.take().map(|(v, f)| f(v));
+        if let Some((v, f)) = self.0.take() {
+            f(v)
+        }
     }
 }
 impl<T> DynDropRun<T> {
@@ -222,6 +224,7 @@ fn multi_thread_performance_test(hart: usize) {
         }
         wait_all_hart();
     } else {
+        #[allow(clippy::collapsible_else_if)]
         if hart == 0 {
             println!("skip multi_thread_performance_test");
         }

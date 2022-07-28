@@ -93,10 +93,10 @@ impl TimeTicks {
         Self::mul_div_128_tick::<CLOCK_FREQ, 1000>(v)
     }
     pub fn from_microsecond(v: u128) -> Self {
-        Self::mul_div_128_tick::<CLOCK_FREQ, 1000_000>(v)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1_000_000>(v)
     }
     pub fn from_nanosecond(v: u128) -> Self {
-        Self::mul_div_128_tick::<CLOCK_FREQ, 1000_000_000>(v)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1_000_000_000>(v)
     }
     pub fn second(self) -> u128 {
         Self::mul_div_128::<1, CLOCK_FREQ>(self.0)
@@ -105,14 +105,14 @@ impl TimeTicks {
         Self::mul_div_128::<1000, CLOCK_FREQ>(self.0)
     }
     pub fn microsecond(self) -> u128 {
-        Self::mul_div_128::<1000_000, CLOCK_FREQ>(self.0)
+        Self::mul_div_128::<1_000_000, CLOCK_FREQ>(self.0)
     }
     pub fn nanosecond(self) -> u128 {
-        Self::mul_div_128::<1000_000_000, CLOCK_FREQ>(self.0)
+        Self::mul_div_128::<1_000_000_000, CLOCK_FREQ>(self.0)
     }
     pub fn utc(self) -> UtcTime {
         let second = self.second();
-        let nano = (self.nanosecond() - second * 1000_000_000) as usize;
+        let nano = (self.nanosecond() - second * 1_000_000_000) as usize;
         let second = second as usize;
         let min = second / 60;
         let hour = min / 60;

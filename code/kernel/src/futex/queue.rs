@@ -133,10 +133,7 @@ impl FutexQueue {
         if fail() {
             return (WakeStatus::Fail, None);
         }
-        let need_pop = move |node: &Node| match (pid, node.pid) {
-            (Some(x), Some(y)) if x != y => false,
-            _ => true,
-        };
+        let need_pop = move |node: &Node| !matches!((pid, node.pid), (Some(x), Some(y)) if x != y);
         let mut n = 0;
         let mut tq = TempQueue::new();
         let total = self

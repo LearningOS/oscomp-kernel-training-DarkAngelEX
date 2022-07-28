@@ -94,7 +94,7 @@ fn frequent_test() {
     let start = timer::now();
     unsafe { __time_frequent_test_impl(BASE) };
     let dur = (timer::now() - start).as_micros() as usize;
-    println!("run {}M using time: {}ms", BASE / 1000_000, dur / 1000);
+    println!("run {}M using time: {}ms", BASE / 1_000_000, dur / 1000);
     print!("{}", to_yellow!());
     println!("clock: {}KHz, core: {}MHz", CLOCK_FREQ / 1000, BASE / dur);
     print!("{}", reset_color!());

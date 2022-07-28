@@ -62,14 +62,18 @@ fn become_zomble(parent: Option<Weak<Process>>, pid: Pid, sig: Option<Sig>) {
     {
         Some((p, alive)) => {
             alive.children.become_zombie(pid);
-            sig.map(|s| p.signal_manager.receive(s));
+            if let Some(s) = sig {
+                p.signal_manager.receive(s)
+            }
             let _ = p.event_bus.set(evnet);
         }
         _ => {
             let p = search::get_initproc();
             let mut alive = p.alive.lock();
             alive.as_mut().unwrap().children.become_zombie(pid);
-            sig.map(|s| p.signal_manager.receive(s));
+            if let Some(s) = sig {
+                p.signal_manager.receive(s)
+            }
             let _ = p.event_bus.set(evnet);
         }
     };

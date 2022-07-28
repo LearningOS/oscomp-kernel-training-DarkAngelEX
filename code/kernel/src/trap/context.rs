@@ -134,6 +134,12 @@ cx_into_impl!(&mut UKContext, A, B, C, D, E);
 cx_into_impl!(&mut UKContext, A, B, C, D, E, F);
 cx_into_impl!(&mut UKContext, A, B, C, D, E, F, G);
 
+impl Default for UKContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl UKContext {
     pub fn new() -> Self {
         unsafe { core::mem::zeroed() }
@@ -212,9 +218,7 @@ impl UKContext {
         sepc: UserAddr<u8>,
         sstatus: Sstatus,
         fcsr: FCSR,
-        argc: usize,
-        argv: usize,
-        envp: usize,
+        (argc, argv, envp): (usize, usize, usize),
     ) {
         self.user_rx.fill(0);
         self.user_fx.reset(fcsr);
@@ -227,7 +231,9 @@ impl UKContext {
     pub fn fork(&self, tls: Option<usize>) -> Self {
         let mut new = Self::new();
         new.user_rx = self.user_rx;
-        tls.map(|tp| new.set_user_tp(tp));
+        if let Some(tp) = tls {
+            new.set_user_tp(tp)
+        }
         new.user_sepc = self.user_sepc;
         new.user_sstatus = self.user_sstatus;
         if FLOAT_ENABLE {

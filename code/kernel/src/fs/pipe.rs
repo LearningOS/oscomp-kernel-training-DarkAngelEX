@@ -127,10 +127,9 @@ pub struct PipeReader {
 
 impl Drop for PipeReader {
     fn drop(&mut self) {
-        self.writer
-            .upgrade()
-            .and_then(|w| w.waker.lock().take())
-            .map(|w| w.wake());
+        if let Some(w) = self.writer.upgrade().and_then(|w| w.waker.lock().take()) {
+            w.wake()
+        }
     }
 }
 impl File for PipeReader {
@@ -145,7 +144,7 @@ impl File for PipeReader {
     }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
-            if buffer.len() == 0 {
+            if buffer.is_empty() {
                 return Ok(0);
             }
             let pipe = self.pipe.lock().await;
@@ -173,10 +172,9 @@ pub struct PipeWriter {
 
 impl Drop for PipeWriter {
     fn drop(&mut self) {
-        self.reader
-            .upgrade()
-            .and_then(|w| w.waker.lock().take())
-            .map(|w| w.wake());
+        if let Some(w) = self.reader.upgrade().and_then(|w| w.waker.lock().take()) {
+            w.wake()
+        }
     }
 }
 
@@ -195,7 +193,7 @@ impl File for PipeWriter {
     }
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet {
         Box::pin(async move {
-            if buffer.len() == 0 {
+            if buffer.is_empty() {
                 return Ok(0);
             }
             let pipe = self.pipe.lock().await;

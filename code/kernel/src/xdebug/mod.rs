@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+pub const OPEN_DEBUG: bool = true;
+
 pub const PRINT_MAP_ALL: bool = false;
 
 // pub const CLOSE_ALL_DEBUG: bool = true;
@@ -19,23 +21,23 @@ pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;
 pub const CLOSE_LOCAL_HEAP: bool = false;
 
-pub const FRAME_DEALLOC_OVERWRITE: bool = true || FRAME_MODIFY_CHECK;
-pub const HEAP_DEALLOC_OVERWRITE: bool = true;
-pub const HEAP_ALLOC_OVERWRITE: bool = true;
+pub const FRAME_DEALLOC_OVERWRITE: bool = (true || FRAME_MODIFY_CHECK) && OPEN_DEBUG;
+pub const HEAP_DEALLOC_OVERWRITE: bool = true && OPEN_DEBUG;
+pub const HEAP_ALLOC_OVERWRITE: bool = true && OPEN_DEBUG;
 
-pub const FRAME_RELEASE_CHECK: bool = true; // 检测frame是否被二次释放
-pub const FRAME_MODIFY_CHECK: bool = true; // 检测frame释放后是否被修改
-pub const HEAP_RELEASE_CHECK: bool = false;
-pub const HEAP_PROTECT: bool = false;
+pub const FRAME_RELEASE_CHECK: bool = true && OPEN_DEBUG; // 检测frame是否被二次释放
+pub const FRAME_MODIFY_CHECK: bool = true && OPEN_DEBUG; // 检测frame释放后是否被修改
+pub const HEAP_RELEASE_CHECK: bool = false && OPEN_DEBUG;
+pub const HEAP_PROTECT: bool = false && OPEN_DEBUG;
 
-pub const CLOSE_TIME_INTERRUPT: bool = false;
+pub const CLOSE_TIME_INTERRUPT: bool = false && OPEN_DEBUG;
 
-pub const NO_SYSCALL_PANIC: bool = false;
+pub const NO_SYSCALL_PANIC: bool = false && OPEN_DEBUG;
 
 pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样, 不使用基于时钟的随机
 
 pub const LIMIT_SIGNAL_COUNT: Option<usize> = None; // 信号处理超过预定数量时panic
-pub const CRITICAL_END_FORCE: bool = false || CLOSE_TIME_INTERRUPT;
+pub const CRITICAL_END_FORCE: bool = (false || CLOSE_TIME_INTERRUPT) && OPEN_DEBUG;
 
 #[macro_use]
 pub mod trace;

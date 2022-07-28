@@ -40,7 +40,9 @@ impl Drop for AsidInfoTracker {
 }
 
 impl AtomicAsidInfo {
-    const ZERO: Self = AtomicAsidInfo(AtomicUsize::new(0));
+    pub const fn zero() -> Self {
+        AtomicAsidInfo(AtomicUsize::new(0))
+    }
     pub fn new(ai: AsidInfo) -> Self {
         Self(AtomicUsize::new(ai.into_usize()))
     }
@@ -53,9 +55,11 @@ impl AtomicAsidInfo {
 }
 
 impl AsidInfoTracker {
-    const ZERO: Self = AsidInfoTracker {
-        asid_info: AtomicAsidInfo::ZERO,
-    };
+    const fn zero() -> Self {
+        Self {
+            asid_info: AtomicAsidInfo::zero(),
+        }
+    }
     fn alloc() -> Self {
         alloc_asid()
     }
@@ -182,7 +186,7 @@ pub fn alloc_asid() -> AsidInfoTracker {
     if USING_ASID {
         ASID_MANAGER.lock().alloc()
     } else {
-        AsidInfoTracker::ZERO
+        AsidInfoTracker::zero()
     }
 }
 

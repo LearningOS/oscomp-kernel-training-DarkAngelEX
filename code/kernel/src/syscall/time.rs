@@ -43,8 +43,12 @@ impl Syscall<'_> {
             None
         };
         let (tv, tz) = timer::dur_to_tv_tz(timer::now() - Instant::BASE);
-        u_tv.map(|p| p.store(tv));
-        u_tz.map(|p| p.store(tz));
+        if let Some(p) = u_tv {
+            p.store(tv)
+        }
+        if let Some(p) = u_tz {
+            p.store(tz)
+        }
         Ok(0)
     }
 }

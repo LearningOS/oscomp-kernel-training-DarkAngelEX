@@ -57,6 +57,7 @@ impl Node {
     }
 }
 
+type RTQTable = [(Option<NonNull<Node>>, Option<NonNull<Node>>); RT_N];
 /// 实时信号管理器
 ///
 /// 提供O(1)的插入与有掩码的按序取出操作
@@ -65,7 +66,7 @@ pub struct RTQueue {
     tail: Option<NonNull<Node>>,
     access: u64,
     exist: SignalSet,
-    table: [(Option<NonNull<Node>>, Option<NonNull<Node>>); RT_N], // head, tail
+    table: RTQTable, // head, tail
 }
 
 unsafe impl Send for RTQueue {}
@@ -189,7 +190,7 @@ impl RTQueue {
         for _ in 0..DIRECT_FETCH {
             unsafe {
                 let sig = (*cur.as_ptr()).sig();
-                if mask.get_bit(sig) == false {
+                if !mask.get_bit(sig) {
                     self.remove_node(sig, cur);
                     Node::free(cur);
                     return Some(sig);

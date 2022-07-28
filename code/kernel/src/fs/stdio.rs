@@ -29,7 +29,7 @@ impl File for Stdin {
         Box::pin(async move {
             const PRINT_STDIN: bool = false;
             let len = buf.len();
-            for i in 0..len {
+            for item in buf {
                 let mut c: usize;
                 if PRINT_STDIN {
                     print!("?");
@@ -50,7 +50,7 @@ impl File for Stdin {
                 if PRINT_STDIN {
                     print!("!");
                 }
-                buf[i] = c as u8;
+                *item = c as u8;
             }
             Ok(len)
         })

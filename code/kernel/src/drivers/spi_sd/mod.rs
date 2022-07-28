@@ -381,7 +381,7 @@ impl<T: SPIActions> SDCard<T> {
             timeout -= 1;
         }
         /* After time out */
-        return 0xFF;
+        0xFF
     }
 
     /*
@@ -408,7 +408,7 @@ impl<T: SPIActions> SDCard<T> {
             self.read_data(response);
         }
         /* Return response */
-        return 0;
+        0
     }
 
     /*
@@ -439,7 +439,7 @@ impl<T: SPIActions> SDCard<T> {
         self.end_cmd();
         self.end_cmd();
         /* see also: https://cdn-shop.adafruit.com/datasheets/TS16GUSDHC6.pdf */
-        return Ok(SDCardCSD {
+        Ok(SDCardCSD {
             /* Byte 0 */
             CSDStruct: (csd_tab[0] & 0xC0) >> 6,
             SysSpecVersion: (csd_tab[0] & 0x3C) >> 2,
@@ -492,7 +492,7 @@ impl<T: SPIActions> SDCard<T> {
             CSD_CRC: (csd_tab[15] & 0xFE) >> 1,
             Reserved4: 1,
             /* Return the reponse */
-        });
+        })
     }
 
     ///
@@ -523,7 +523,7 @@ impl<T: SPIActions> SDCard<T> {
         /* Get CRC bytes (not really needed by us, but required by SD) */
         self.read_data(&mut cid_tab);
         self.end_cmd();
-        return Ok(SDCardCID {
+        Ok(SDCardCID {
             /* Byte 0 */
             ManufacturerID: cid_tab[0],
             /* Byte 1, 2 */
@@ -548,7 +548,7 @@ impl<T: SPIActions> SDCard<T> {
             /* Byte 15 */
             CID_CRC: (cid_tab[15] & 0xFE) >> 1,
             Reserved2: 1,
-        });
+        })
     }
 
     ///
@@ -594,7 +594,7 @@ impl<T: SPIActions> SDCard<T> {
             }
             println!("retry_cmd: {} -> {}", i, resp);
         }
-        return Err(());
+        Err(())
     }
 
     fn read_one_block(&mut self, cur_sector: u32, chunk: &mut [u8; 512]) -> Result<(), ()> {
@@ -663,9 +663,8 @@ impl<T: SPIActions> SDCard<T> {
         for chunk in data_buf.array_chunks_mut::<SEC_LEN>() {
             let mut cnt = 0;
             loop {
-                match self.read_one_block(cur_sector, chunk) {
-                    Ok(()) => break,
-                    Err(()) => (),
+                if self.read_one_block(cur_sector, chunk).is_ok() {
+                    break;
                 }
                 if cnt == 40 {
                     unsafe {
@@ -782,7 +781,7 @@ impl BlockDevice for SDCardWrapper {
     fn read_block<'a>(&'a self, block_id: usize, buf: &'a mut [u8]) -> ASysR<()> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
-            if let Err(_) = lock.read_sector(buf, (block_id + BPB_CID) as u32) {
+            if let Err(()) = lock.read_sector(buf, (block_id + BPB_CID) as u32) {
                 panic!("read_block invalid {}", block_id);
             }
             Ok(())
@@ -791,7 +790,7 @@ impl BlockDevice for SDCardWrapper {
     fn write_block<'a>(&'a self, block_id: usize, buf: &'a [u8]) -> ASysR<()> {
         Box::pin(async move {
             let lock = &mut *self.0.lock().await;
-            if let Err(_) = lock.write_sector(buf, (block_id + BPB_CID) as u32) {
+            if let Err(()) = lock.write_sector(buf, (block_id + BPB_CID) as u32) {
                 panic!("write_block invalid {}", block_id);
             }
             Ok(())

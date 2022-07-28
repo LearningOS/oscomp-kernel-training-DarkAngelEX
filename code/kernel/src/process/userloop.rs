@@ -43,9 +43,8 @@ async fn userloop(thread: Arc<Thread>) {
         if !thread.process.is_alive() {
             break;
         }
-        match thread.handle_signal().await {
-            Err(Dead) => break,
-            Ok(()) => (),
+        if let Err(Dead) = thread.handle_signal().await {
+            break;
         }
 
         {
@@ -136,8 +135,8 @@ async fn userloop(thread: Arc<Thread>) {
 }
 
 pub fn spawn(thread: Arc<Thread>) {
-    let future = userloop(thread.clone());
-    let (runnable, task) = executor::spawn(OutermostFuture::new(thread, future));
+    let future = OutermostFuture::new(thread.clone(), userloop(thread));
+    let (runnable, task) = executor::spawn(future);
     runnable.schedule();
     task.detach();
 }

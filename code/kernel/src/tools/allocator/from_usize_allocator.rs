@@ -30,7 +30,7 @@ macro_rules! from_usize_impl {
                 Self(num)
             }
         }
-        impl crate::tools::allocator::from_usize_allocator::FromUsize for $ty_name {
+        impl $crate::tools::allocator::from_usize_allocator::FromUsize for $ty_name {
             fn from_usize(num: usize) -> Self {
                 Self(num)
             }

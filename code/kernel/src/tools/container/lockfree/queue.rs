@@ -615,6 +615,7 @@ pub mod test {
             }
         }
     }
+    #[allow(clippy::too_many_arguments)]
     fn oper_test(
         hart: usize,
         total: usize,
