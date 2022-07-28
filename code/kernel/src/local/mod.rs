@@ -276,14 +276,23 @@ pub fn all_hart_fence_i() {
 }
 
 pub fn all_hart_sfence_vma_asid(asid: Asid) {
-    all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_asid(asid.into_usize())))
+    debug_assert!(USING_ASID || asid == Asid::ZERO);
+    if USING_ASID {
+        all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_asid(asid.into_usize())))
+    } else {
+        all_hart_sfence_vma_all_no_global();
+    }
 }
 
 pub fn all_hart_sfence_vma_va_asid(va: UserAddr4K, asid: Asid) {
-    assert!(USING_ASID || asid == Asid::ZERO);
-    all_hart_fn(move |m| {
-        m.spec_sfence(move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()))
-    });
+    debug_assert!(USING_ASID || asid == Asid::ZERO);
+    if USING_ASID {
+        all_hart_fn(move |m| {
+            m.spec_sfence(move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()))
+        });
+    } else {
+        all_hart_sfence_vma_va_global(va);
+    }
 }
 
 pub fn all_hart_sfence_vma_all_no_global() {

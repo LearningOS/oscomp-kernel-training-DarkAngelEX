@@ -28,7 +28,7 @@ pub fn page_fault_handle(e: Exception, stval: usize, mut sepc: usize) -> usize {
         assert!(local.user_access_status.is_forbid());
     }
     if error {
-        fatal_exception_error()
+        fatal_exception_error(0)
     }
     sepc
 }

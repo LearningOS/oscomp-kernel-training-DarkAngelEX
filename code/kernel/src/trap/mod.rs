@@ -56,11 +56,11 @@ pub fn kernel_default_trap(a0: usize) {
 #[inline(always)]
 pub unsafe fn set_kernel_default_trap() {
     extern "C" {
-        fn __kernel_default_vector();
+        fn __kernel_default_trap_vector();
         fn __kernel_default_trap_entry();
     }
     if true {
-        stvec::write(__kernel_default_vector as usize, TrapMode::Vectored);
+        stvec::write(__kernel_default_trap_vector as usize, TrapMode::Vectored);
     } else {
         stvec::write(__kernel_default_trap_entry as usize, TrapMode::Direct);
     }

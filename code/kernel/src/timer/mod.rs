@@ -5,12 +5,12 @@ use core::{
 
 use ftl_util::time::{Instant, TimeSpec, TimeVal, TimeZone, UtcTime};
 
-use crate::{board::CLOCK_FREQ, hart::sbi, local, riscv::register::time, xdebug::PRINT_TICK};
+use crate::{
+    board::CLOCK_FREQ, config::TIME_INTERRUPT_PER_SEC, hart::sbi, local, riscv::register::time,
+    xdebug::PRINT_TICK,
+};
 
 pub mod sleep;
-
-/// how many time interrupt per second
-const TIME_INTERRUPT_PER_SEC: usize = 20;
 
 pub fn init() {
     sleep::sleep_queue_init();

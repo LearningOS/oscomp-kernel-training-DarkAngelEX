@@ -30,10 +30,7 @@ pub fn kernel_default_exception(a0: usize) {
     };
     match exception {
         Exception::InstructionMisaligned => todo!(),
-        Exception::InstructionFault => {
-            println!("InstructionFault ra: {} sepc: {}", KTrapCX::new_ref(a0).ra(), sepc);
-            fatal_exception_error();
-        }
+        Exception::InstructionFault => fatal_exception_error(a0),
         Exception::IllegalInstruction => {
             println!("illiegal IR of sepc: {:#x}", sepc);
             todo!();
@@ -42,12 +39,12 @@ pub fn kernel_default_exception(a0: usize) {
             println!("breakpoint of sepc: {:#x}", sepc);
             sepc = tools::next_sepc(sepc);
         }
-        Exception::LoadFault => fatal_exception_error(),
-        Exception::StoreMisaligned => fatal_exception_error(),
-        Exception::StoreFault => fatal_exception_error(),
+        Exception::LoadFault => fatal_exception_error(a0),
+        Exception::StoreMisaligned => fatal_exception_error(a0),
+        Exception::StoreFault => fatal_exception_error(a0),
         Exception::UserEnvCall => todo!(),
         Exception::VirtualSupervisorEnvCall => todo!(),
-        Exception::InstructionPageFault => fatal_exception_error(),
+        Exception::InstructionPageFault => fatal_exception_error(a0),
         e @ (Exception::LoadPageFault | Exception::StorePageFault) => {
             sepc = page_fault::page_fault_handle(e, stval, sepc);
         }
@@ -55,22 +52,28 @@ pub fn kernel_default_exception(a0: usize) {
         Exception::LoadGuestPageFault => todo!(),
         Exception::VirtualInstruction => todo!(),
         Exception::StoreGuestPageFault => todo!(),
-        Exception::Unknown => fatal_exception_error(),
+        Exception::Unknown => fatal_exception_error(a0),
     }
 
     *in_exception = false;
     sepc::write(sepc);
 }
 
-fn fatal_exception_error() -> ! {
+fn fatal_exception_error(a0: usize) -> ! {
     let sepc = sepc::read();
+    let ra = if a0 != 0 {
+        KTrapCX::new_ref(a0).ra()
+    } else {
+        0
+    };
     println!(
-        "kernel fatal_exception_error! {:?} bad addr = {:#x}, sepc = {:#x}, hart = {} sp = {:#x}",
+        "kernel fatal_exception_error! {:?} bad addr = {:#x}, sepc = {:#x}, hart = {} sp = {:#x} ra = {:#x}",
         scause::read().cause(),
         stval::read(),
         sepc,
         cpu::hart_id(),
         hart::current_sp(),
+        ra
     );
     panic!()
 }
