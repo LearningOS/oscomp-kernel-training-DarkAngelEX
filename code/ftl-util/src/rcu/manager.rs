@@ -74,7 +74,7 @@ impl<S: MutexSupport> RcuManager<S> {
         let mut need_release; // 真的需要释放东西(队列不为空)
         let mut prev = self.flags.load(Ordering::Relaxed);
         if prev & mask_all == 0 {
-            if add.len() != 0 {
+            if !add.is_empty() {
                 fast_append(&mut self.cp.lock().rcu_pending, add);
             }
             return;
@@ -99,14 +99,14 @@ impl<S: MutexSupport> RcuManager<S> {
             }
         }
         if !release {
-            if add.len() != 0 {
+            if !add.is_empty() {
                 fast_append(&mut self.cp.lock().rcu_pending, add);
             }
             return;
         }
         if !need_release {
             // 绕过锁
-            if add.len() != 0 {
+            if !add.is_empty() {
                 fast_append(&mut self.cp.lock().rcu_current, add);
             }
             return;
@@ -140,12 +140,14 @@ impl<S: MutexSupport> RcuManager<S> {
 }
 
 /// vec为3个usize, swap_nonoverlapping 比 swap 更快
+#[allow(clippy::ptr_arg)]
 fn vec_swap<T>(a: &mut Vec<T>, b: &mut Vec<T>) {
     unsafe {
         core::ptr::swap_nonoverlapping(a, b, 1);
     }
 }
 
+#[allow(clippy::ptr_arg)]
 fn fast_append<T>(dst: &mut Vec<T>, src: &mut Vec<T>) {
     if dst.len() + 20 < src.len() {
         vec_swap(dst, src);

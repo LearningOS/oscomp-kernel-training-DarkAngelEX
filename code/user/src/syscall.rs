@@ -131,7 +131,7 @@ pub fn sys_exec(path: &str, args: &[*const u8]) -> isize {
         [
             path.as_ptr() as usize,
             args.as_ptr() as usize,
-            [b"PATH=/".as_ptr(), 0 as *const u8].as_ptr() as usize,
+            [b"PATH=/".as_ptr(), core::ptr::null()].as_ptr() as usize,
         ],
     )
 }

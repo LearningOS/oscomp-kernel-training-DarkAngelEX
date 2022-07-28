@@ -87,9 +87,15 @@ impl<T> ListNode<T> {
             false
         }
     }
+    /// # Safety
+    ///
+    /// 自行保证指针的安全
     pub unsafe fn set_prev(&mut self, prev: *mut Self) {
         self.prev = prev;
     }
+    /// # Safety
+    ///
+    /// 自行保证指针的安全
     pub unsafe fn set_next(&mut self, next: *mut Self) {
         self.next = next;
     }
@@ -164,7 +170,9 @@ impl<T> ListNode<T> {
             self.prev = core::ptr::null_mut();
         }
     }
-    /// 此函数不会重置自身
+    /// # Safety
+    ///
+    /// 此函数不会重置自身, 释放后禁止再被使用
     #[inline(always)]
     pub unsafe fn pop_self_fast(&self) {
         let prev = self.prev;

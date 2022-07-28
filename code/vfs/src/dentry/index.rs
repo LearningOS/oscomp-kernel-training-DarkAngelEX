@@ -18,6 +18,7 @@ pub(crate) struct DentryIndex {
 
 impl DentryIndex {
     pub fn new() -> Self {
+        #[allow(clippy::declare_interior_mutable_const)]
         const INIT: RwSpinMutex<BTreeMap<AllHash, HBNode>, Spin> =
             RwSpinMutex::new(BTreeMap::new());
         Self { table: [INIT; _] }

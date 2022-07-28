@@ -12,6 +12,7 @@ use super::MutexSupport;
 
 const MAX_NEST: usize = 4;
 
+#[allow(clippy::upper_case_acronyms)]
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct LPT {
@@ -179,10 +180,17 @@ impl<T: ?Sized, S: MutexSupport> QSpinLock<T, S> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
     #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
@@ -285,7 +293,9 @@ fn obtain_lock(this: &QAtomicVal, mut qval: QVal) {
             core::hint::spin_loop();
         }
     }
+
     // loop break则进入queue流程
+    #[allow(clippy::never_loop)]
     loop {
         // 如果tail或pending不为0说明不是第一个等待者
         if qval.mask_locked().val() != 0 {
@@ -358,14 +368,13 @@ fn obtain_lock(this: &QAtomicVal, mut qval: QVal) {
         core::hint::spin_loop();
         qval = this.load(Ordering::Relaxed);
     }
-    if qval.tail() == tail {
-        if this
+    if qval.tail() == tail
+        && this
             .cas_val(qval, QVal::new((0, 0, 1)), Ordering::Relaxed)
             .is_ok()
-        {
-            unsafe { *count_ptr -= 1 }
-            return;
-        }
+    {
+        unsafe { *count_ptr -= 1 }
+        return;
     }
     this.as_locked().store(1, Ordering::Relaxed);
     if next.is_none() {

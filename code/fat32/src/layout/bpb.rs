@@ -119,51 +119,47 @@ impl RawBPB {
 
 impl Display for RawBPB {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "sector_bytes: - - - - - - {}\n", self.sector_bytes)?;
-        write!(f, "sector_per_cluster:       {}\n", self.sector_per_cluster)?;
-        write!(f, "sector_reserved:- - - - - {}\n", self.sector_reserved)?;
-        write!(f, "fat_num:                  {}\n", self.fat_num)?;
-        write!(
+        writeln!(f, "sector_bytes: - - - - - - {}", self.sector_bytes)?;
+        writeln!(f, "sector_per_cluster:       {}", self.sector_per_cluster)?;
+        writeln!(f, "sector_reserved:- - - - - {}", self.sector_reserved)?;
+        writeln!(f, "fat_num:                  {}", self.fat_num)?;
+        writeln!(
             f,
-            "discard_root_entry_size:- {}\n",
+            "discard_root_entry_size:- {}",
             self.discard_root_entry_size
         )?;
-        write!(
+        writeln!(
             f,
-            "discard_small_sector_size:{}\n",
+            "discard_small_sector_size:{}",
             self.discard_small_sector_size
         )?;
-        write!(f, "media_descriptor: - - - - {}\n", self.media_descriptor)?;
-        write!(
+        writeln!(f, "media_descriptor: - - - - {}", self.media_descriptor)?;
+        writeln!(
             f,
-            "discard_sector_per_fat:   {}\n",
+            "discard_sector_per_fat:   {}",
             self.discard_sector_per_fat
         )?;
-        write!(f, "sertor_per_track: - - - - {}\n", self.sertor_per_track)?;
-        write!(f, "head_num:                 {}\n", self.head_num)?;
-        write!(f, "sector_hidden:- - - - - - {}\n", self.sector_hidden)?;
-        write!(f, "sector_total:             {}\n", self.sector_total)?;
-        write!(f, "sector_per_fat: - - - - - {}\n", self.sector_per_fat)?;
-        write!(f, "extended_flag:            {}\n", self.extended_flag)?;
-        write!(f, "version:- - - - - - - - - {}\n", self.version)?;
-        write!(f, "root_cluster_id:          {}\n", self.root_cluster_id)?;
-        write!(f, "info_cluster_id:- - - - - {}\n", self.info_cluster_id)?;
-        write!(f, "buckup_cluster_id:        {}\n", self.buckup_cluster_id)?;
-        write!(f, "reversed_0: - - - - - - - {:?}\n", self.reversed_0)?;
-        write!(f, "physical_drive_num:       {}\n", self.physical_drive_num)?;
-        write!(f, "reversed_1: - - - - - - - {}\n", self.reversed_1)?;
-        write!(
+        writeln!(f, "sertor_per_track: - - - - {}", self.sertor_per_track)?;
+        writeln!(f, "head_num:                 {}", self.head_num)?;
+        writeln!(f, "sector_hidden:- - - - - - {}", self.sector_hidden)?;
+        writeln!(f, "sector_total:             {}", self.sector_total)?;
+        writeln!(f, "sector_per_fat: - - - - - {}", self.sector_per_fat)?;
+        writeln!(f, "extended_flag:            {}", self.extended_flag)?;
+        writeln!(f, "version:- - - - - - - - - {}", self.version)?;
+        writeln!(f, "root_cluster_id:          {}", self.root_cluster_id)?;
+        writeln!(f, "info_cluster_id:- - - - - {}", self.info_cluster_id)?;
+        writeln!(f, "buckup_cluster_id:        {}", self.buckup_cluster_id)?;
+        writeln!(f, "reversed_0: - - - - - - - {:?}", self.reversed_0)?;
+        writeln!(f, "physical_drive_num:       {}", self.physical_drive_num)?;
+        writeln!(f, "reversed_1: - - - - - - - {}", self.reversed_1)?;
+        writeln!(
             f,
-            "extended_boot_signature:  {}\n",
+            "extended_boot_signature:  {}",
             self.extended_boot_signature
         )?;
-        write!(
-            f,
-            "volume_serial_number: - - {}\n",
-            self.volume_serial_number
-        )?;
-        write!(f, "volume_label:             {:?}\n", self.volume_label)?;
-        write!(f, "system_id:- - - - - - - - {:?}\n", self.system_id)?;
+        writeln!(f, "volume_serial_number: - - {}", self.volume_serial_number)?;
+        writeln!(f, "volume_label:             {:?}", self.volume_label)?;
+        writeln!(f, "system_id:- - - - - - - - {:?}", self.system_id)?;
         Ok(())
     }
 }

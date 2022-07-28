@@ -113,12 +113,14 @@ impl VfsInode {
     pub fn fsinode_ptr(&self) -> NonNull<dyn FsInode> {
         NonNull::new(self.fsinode.as_ref() as *const _ as *mut _).unwrap()
     }
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn fsinode_mut(&self) -> &mut dyn FsInode {
         &mut *self.fsinode_ptr().as_ptr()
     }
     pub fn vfsinode_ptr(&self) -> NonNull<Self> {
         NonNull::new(self as *const _ as *mut _).unwrap()
     }
+    #[allow(clippy::mut_from_ref)]
     pub unsafe fn vfsinode_mut(&self) -> &mut Self {
         &mut *self.vfsinode_ptr().as_ptr()
     }

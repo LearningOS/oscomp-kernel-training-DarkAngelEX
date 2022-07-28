@@ -25,7 +25,6 @@ unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for RwSpinMutex<T, S> {}
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for RwSpinMutex<T, S> {}
 
 impl<T, S: MutexSupport> RwSpinMutex<T, S> {
-
     #[inline(always)]
     pub const fn new(user_data: T) -> Self {
         RwSpinMutex {
@@ -50,10 +49,17 @@ impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全
     #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
@@ -129,7 +135,7 @@ impl<T: ?Sized, S: MutexSupport> RwSpinMutex<T, S> {
             core::hint::spin_loop();
         }
         atomic::fence(Ordering::Acquire);
-        return SharedRwMutexGuard { mutex: self, guard };
+        SharedRwMutexGuard { mutex: self, guard }
     }
 }
 

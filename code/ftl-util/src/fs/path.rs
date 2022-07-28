@@ -57,8 +57,5 @@ pub fn write_path_to<'a>(src: impl Iterator<Item = &'a str>, dst: &mut [u8]) {
 }
 
 pub fn is_absolute_path(s: &str) -> bool {
-    match s.as_bytes().first() {
-        Some(b'/') | Some(b'\\') => true,
-        _ => false,
-    }
+    matches!(s.as_bytes().first(), Some(b'/') | Some(b'\\'))
 }

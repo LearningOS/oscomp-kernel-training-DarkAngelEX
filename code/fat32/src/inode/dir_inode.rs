@@ -484,7 +484,7 @@ impl DirInode {
                 });
             })
             .await?;
-        return Ok(EntryPlace::new(cluster_off, cid_2, entry_off - 1));
+        Ok(EntryPlace::new(cluster_off, cid_2, entry_off - 1))
     }
     /// 返回短文件名 文件名首项位置 短文件名位置
     async fn search_impl(
@@ -497,12 +497,12 @@ impl DirInode {
             if b.is_same(name) {
                 return ControlFlow::Break((b.short, b.place()));
             }
-            try { () }
+            try {}
         })
         .await?;
         match r {
             ControlFlow::Continue(()) => Ok(None),
-            ControlFlow::Break(b) => return Ok(Some(b)),
+            ControlFlow::Break(b) => Ok(Some(b)),
         }
     }
     async fn raw_entry_try_fold<A, B>(
@@ -732,7 +732,7 @@ impl DirName {
             .all(|(a, b)| a.eq_ignore_ascii_case(&b))
     }
     fn is_same(&self, str: &str) -> bool {
-        if self.long.len() != 0 {
+        if !self.long.is_empty() {
             return self.long_same(str);
         }
         let buf = &mut [0; 12];

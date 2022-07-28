@@ -1,3 +1,5 @@
+use core::cell::SyncUnsafeCell;
+
 use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
@@ -7,7 +9,7 @@ use ftl_util::time::UtcTime;
 use crate::{
     layout::name::{Attr, RawShortName},
     mutex::{RwSleepMutex, RwSpinMutex},
-    tools::{AIDAllocator, Align8, SyncUnsafeCell, AID, CID},
+    tools::{AIDAllocator, Align8, AID, CID},
     Fat32Manager,
 };
 
@@ -237,7 +239,7 @@ impl InodeCacheInner {
         debug_assert!(self.cid_start.is_next());
         let ret = (0, self.cid_start);
 
-        return Some(ret);
+        Some(ret)
     }
     /// 返回簇偏移, 簇ID
     /// Ok(None) 空文件
@@ -252,7 +254,7 @@ impl InodeCacheInner {
                 return Ok(Some(self.almost_last));
             }
         }
-        return Err(());
+        Err(())
     }
     pub fn append_first(&mut self, cid: CID) {
         debug_assert!(self.cid_list.is_empty());

@@ -30,7 +30,7 @@ fn system_test(
     spawner: Box<dyn VfsSpawner>,
 ) -> impl Future<Output = ()> + Send + 'static {
     async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
-        for (i, (dt, name)) in dir.list(&manager).await.unwrap().into_iter().enumerate() {
+        for (i, (dt, name)) in dir.list(manager).await.unwrap().into_iter().enumerate() {
             println!("{:>2} <{}> {:?}", i, name, dt);
         }
     }

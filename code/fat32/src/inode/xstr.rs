@@ -8,8 +8,7 @@ pub fn utf16_to_string<'a>(src: impl DoubleEndedIterator<Item = &'a [u16; 13]>) 
     let u16_iter = src
         .rev()
         .flat_map(|&s| s.into_iter())
-        .take_while(|&s| s != 0x00)
-        .into_iter();
+        .take_while(|&s| s != 0x00);
     char::decode_utf16(u16_iter)
         .map(|r| r.unwrap_or(core::char::REPLACEMENT_CHARACTER))
         .collect()
@@ -183,7 +182,7 @@ impl ShortFinder {
             Some(i) => unsafe { core::str::from_utf8_unchecked(&src.as_bytes()[..i]) },
             None => src,
         };
-        for c in name_str.chars().map(&mut char_forward).filter_map(|v| v) {
+        for c in name_str.chars().filter_map(&mut char_forward) {
             if r.name_len == r.name.len() {
                 r.force = true;
                 break;
@@ -198,7 +197,7 @@ impl ShortFinder {
             None => "",
         };
         let mut ext_len = 0;
-        for c in ext_str.chars().map(&mut char_forward).filter_map(|v| v) {
+        for c in ext_str.chars().filter_map(&mut char_forward) {
             if ext_len == r.ext.len() {
                 r.force = true;
                 break;
@@ -294,7 +293,7 @@ impl ShortFinder {
         }
         fn u16_ascii(n: u16, dst: &mut [u8; 4]) {
             for (i, c) in dst.iter_mut().rev().enumerate() {
-                *c = to_ascii(n >> (i as u32) * 4);
+                *c = to_ascii(n >> ((i as u32) * 4));
             }
         }
         dst.name[0] = self.name[0];

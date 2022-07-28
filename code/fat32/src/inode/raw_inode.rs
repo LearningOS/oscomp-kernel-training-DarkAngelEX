@@ -17,13 +17,14 @@ use crate::{
 
 use super::{dir_inode::DirInode, file_inode::FileInode, inode_cache::InodeCache, InodeMark};
 
+type LastCache = Option<(usize, (CID, Arc<Cache>))>;
 /// 每个打开的文件将持有一个RawInode
 ///
 /// Inode可以直接从InodeCache产生
 pub(crate) struct RawInode {
     pub cache: Arc<InodeCache>,
     pub parent: Arc<InodeCache>,
-    last_cache: RwSpinMutex<Option<(usize, (CID, Arc<Cache>))>>, // 最近一次访问的块
+    last_cache: RwSpinMutex<LastCache>, // 最近一次访问的块
     is_root: bool,
     _mark: Arc<InodeMark>,
 }
@@ -101,7 +102,7 @@ impl RawInode {
                 if cur == n {
                     return ControlFlow::Break(this);
                 }
-                return ControlFlow::Continue(this);
+                try { this }
             })
             .await?;
         let mut lock = self.cache.inner.unique_lock();
@@ -173,9 +174,9 @@ impl RawInode {
                 self.last_cache
                     .unique_lock()
                     .replace((n, (cid, cache.clone())));
-                return Ok(Ok((cid, cache)));
+                Ok(Ok((cid, cache)))
             }
-            Err(tup) => return Ok(Err(tup)),
+            Err(tup) => Ok(Err(tup)),
         }
     }
     /// 找不到块就分配新的并使用init函数初始化

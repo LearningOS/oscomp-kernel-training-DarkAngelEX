@@ -108,10 +108,17 @@ impl<T: ?Sized, S: MutexSupport> TickLock<T, S> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    /// # Safety
+    ///
+    /// 用户保证内部读取的安全性
     #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    /// # Safety
+    ///
+    /// 用户保证内部读取的安全性
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
@@ -140,6 +147,9 @@ impl<T: ?Sized, S: MutexSupport> TickLock<T, S> {
             support_guard,
         }
     }
+    /// # Safety
+    ///
+    /// 需要保证持有锁时不发生上下文切换
     #[inline(always)]
     pub unsafe fn send_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
         SendWraper::new(self.lock())

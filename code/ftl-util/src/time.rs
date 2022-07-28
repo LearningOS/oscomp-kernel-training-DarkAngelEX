@@ -98,7 +98,7 @@ impl TimeSpec {
         self.tv_nsec == Self::UTIME_OMIT
     }
     pub fn valid(&self) -> SysR<()> {
-        if self.tv_nsec >= 1000_000_000 {
+        if self.tv_nsec >= 1_000_000_000 {
             return Err(SysError::EINVAL);
         }
         Ok(())

@@ -44,9 +44,13 @@ impl FsType for Fat32Type {
         Box::new(Fat32 { manager })
     }
 }
-
+impl const Default for Fat32Type {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 impl Fat32Type {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self
     }
 }

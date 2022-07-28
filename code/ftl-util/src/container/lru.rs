@@ -44,7 +44,7 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
         }
         let mut x = lk.list.pop_next().unwrap();
         unsafe {
-            Some(release(x.as_mut()));
+            release(x.as_mut());
         }
         (r, Some(x))
     }
@@ -56,10 +56,11 @@ impl<T: 'static, A: 'static> LRUManager<T, A> {
         let mut x = lk.list.pop_next()?;
         lk.cur -= 1;
         unsafe {
-            Some(release(x.as_mut()));
+            release(x.as_mut());
         }
         Some(x)
     }
+    #[allow(clippy::result_unit_err)]
     pub fn try_remove(
         &self,
         node: &mut InListNode<T, A>,

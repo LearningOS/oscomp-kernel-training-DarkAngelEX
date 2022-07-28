@@ -22,6 +22,12 @@ impl<K: Ord, V> RBTree<K, V> {
     }
 }
 
+impl<K: Ord, V: ?Sized> Default for RBTree<K, V> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<K: Ord, V: ?Sized> RBTree<K, V> {
     pub fn new() -> Self {
         Self(E.arc())
@@ -41,6 +47,7 @@ impl<K: Ord, V: ?Sized> RBTree<K, V> {
 }
 
 // #[test]
+#[allow(clippy::bool_assert_comparison)]
 pub fn test() {
     let a = RBTree::new();
     let b = a.insert(1, 1).insert(2, 2).insert(3, 3);
@@ -97,7 +104,7 @@ fn insert<K: Ord, V: ?Sized>(x: Arc<(K, V)>, s: &RB<K, V>) -> RB<K, V> {
         }
     }
     match ins(s, x) {
-        T(_, a, z, b) => return T(B, a.clone(), z.clone(), b.clone()),
+        T(_, a, z, b) => T(B, a, z, b),
         E => unreachable!(),
     }
 }

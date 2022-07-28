@@ -93,7 +93,7 @@ impl VfsManager {
         m.dentrys.init();
         m.mounts.init();
         m.init_root();
-        m.import_fstype(TmpFsType::new()); // 导入 tmpfs
+        m.import_fstype(TmpFsType::box_new()); // 导入 tmpfs
         m
     }
 
@@ -116,14 +116,16 @@ impl VfsManager {
         let tmpfs = TmpFs::new(self.alloc_dev());
         let inode = tmpfs.new_dir();
         let fssp = Fssp::new(Some(tmpfs)).into_raw();
-        let dentry = DentryCache::new(
+        let dentry = DentryCache::new_inited(
             HashName::new(&*parent, &name),
             true,
             Some(parent),
             InodeS::Some(VfsInode::new(fssp, inode)),
-            NonNull::new(&mut self.dentrys.lru).unwrap(),
-            fssp,
-            NonNull::new(&mut self.dentrys.index).unwrap(),
+            (
+                NonNull::new(&mut self.dentrys.lru).unwrap(),
+                fssp,
+                NonNull::new(&mut self.dentrys.index).unwrap(),
+            ),
             false,
         );
         self.special_dir.try_insert(name, dentry).ok().unwrap();
@@ -208,7 +210,7 @@ impl VfsManager {
         if !path.dentry.is_dir() || path::name_invalid(name) {
             return Err(SysError::ENOTDIR);
         }
-        if let Ok(_) = self.walk_name(path.clone(), name).await {
+        if let Ok(_path) = self.walk_name(path.clone(), name).await {
             return Err(SysError::EEXIST);
         }
         let dentry = path.dentry.place_inode(name, inode).await?;

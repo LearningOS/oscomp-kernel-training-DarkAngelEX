@@ -77,7 +77,7 @@ impl Dentry {
     pub fn new_root(dentrys: &DentryManager, fssp: NonNull<Fssp>, root_inode: InodeS) -> Arc<Self> {
         let (lru, index) = (dentrys.lru_ptr(), dentrys.index_ptr());
         let hn = HashName::new(core::ptr::null(), "");
-        DentryCache::new(hn, true, None, root_inode, lru, fssp, index, false)
+        DentryCache::new_inited(hn, true, None, root_inode, (lru, fssp, index), false)
     }
     /// 通过序列号可以在不持有睡眠锁的情况下进行缓存搜索
     ///
@@ -129,14 +129,12 @@ impl Dentry {
         }
         let inode = cache.inode.lock().clone().into_inode()?;
         let new = inode.search(name).await?;
-        let dentry = DentryCache::new(
+        let dentry = DentryCache::new_inited(
             HashName::new(self.as_ref(), name),
             new.is_dir(),
             Some(self.clone()),
             InodeS::Some(new),
-            cache.lru,
-            cache.fssp,
-            cache.index,
+            (cache.lru, cache.fssp, cache.index),
             true,
         );
         debug_assert!(inode_seq == self.inode_seq());
@@ -164,14 +162,12 @@ impl Dentry {
         }
         // 文件名查重将由create内部进行
         let vfsinode = inode.create(name, dir, rw).await?;
-        let dentry = DentryCache::new(
+        let dentry = DentryCache::new_inited(
             hash_name,
             dir,
             Some(self.clone()),
             InodeS::Some(vfsinode),
-            self.cache.lru,
-            self.cache.fssp,
-            self.cache.index,
+            (self.cache.lru, self.cache.fssp, self.cache.index),
             true,
         );
         self.cache.seq_increase();
@@ -197,14 +193,12 @@ impl Dentry {
         }
         // 文件名查重将由create内部进行
         let vfsinode = dinode.place_inode(name, inode).await?;
-        let dentry = DentryCache::new(
+        let dentry = DentryCache::new_inited(
             hash_name,
             false,
             Some(self.clone()),
             InodeS::Some(vfsinode),
-            self.cache.lru,
-            self.cache.fssp,
-            self.cache.index,
+            (self.cache.lru, self.cache.fssp, self.cache.index),
             true,
         );
         self.cache.seq_increase();
@@ -329,14 +323,12 @@ unsafe impl Sync for DentryCache {}
 
 impl DentryCache {
     /// 将自身加入索引器
-    pub fn new(
+    pub fn new_inited(
         name: HashName,
         is_dir: bool,
         parent: Option<Arc<Dentry>>,
         inode: InodeS,
-        lru: NonNull<LRUQueue>,
-        fssp: NonNull<Fssp>,
-        index: NonNull<DentryIndex>,
+        (lru, fssp, index): (NonNull<LRUQueue>, NonNull<Fssp>, NonNull<DentryIndex>),
         in_index: bool,
     ) -> Arc<Dentry> {
         let mut cache = Box::new(Self {
@@ -443,13 +435,12 @@ impl DentryCache {
         debug_assert!(!self.closed());
         debug_assert!(self.lru_node.is_empty());
         debug_assert!(self.lru_own.is_none());
-        if self.is_dir {
-            if self.mount.rcu_read().is_some() // 禁止释放挂载点
+        if self.is_dir
+            && (self.mount.rcu_read().is_some() // 禁止释放挂载点
             || self.parent.is_none() // 禁止释放根目录
-            || !self.sub_head.lock().is_empty()
-            {
-                return Err(SysError::EBUSY);
-            }
+            || !self.sub_head.lock().is_empty())
+        {
+            return Err(SysError::EBUSY);
         }
         self.closed.store(true, Ordering::Release);
         unsafe {
@@ -491,6 +482,8 @@ impl DentryCache {
     pub fn parent(&self) -> Option<Arc<Dentry>> {
         self.parent.clone()
     }
+    #[allow(clippy::mut_from_ref)]
+    #[allow(clippy::cast_ref_to_mut)]
     unsafe fn this_mut(&self) -> &mut Self {
         &mut *(self as *const _ as *mut Self)
     }

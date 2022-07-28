@@ -126,7 +126,7 @@ impl RawShortName {
         if self.ext[0] == 0x20 {
             return &buf[0..n];
         }
-        buf[n] = '.' as u8;
+        buf[n] = b'.';
         n += 1;
         for &ch in &self.ext {
             if ch == 0x20 {
@@ -179,7 +179,7 @@ impl RawShortName {
     }
     pub fn set_create_time(&mut self, utc_time: &UtcTime) {
         stack_trace!();
-        debug_assert!(utc_time.nano < 1000_000_000);
+        debug_assert!(utc_time.nano < 1_000_000_000);
         let (hms, date) = Self::time_tran(&utc_time.ymd, &utc_time.hms);
         self.create_ms = (utc_time.nano / 10_000_000) as u8;
         self.create_hms = hms;
@@ -250,7 +250,9 @@ impl RawLongName {
         self.checksum = checksum;
         self.zero2 = [0; 2];
     }
+    #[allow(clippy::manual_memcpy)]
     pub fn store_name(&self, dst: &mut [u16; 13]) {
+        // packed 类型成员不能使用函数, 因为没有对齐
         for i in 0..5 {
             dst[i] = self.p1[i];
         }
@@ -261,7 +263,9 @@ impl RawLongName {
             dst[i + 11] = self.p3[i];
         }
     }
+    #[allow(clippy::manual_memcpy)]
     pub fn load_name(&mut self, src: &[u16; 13]) {
+        // packed 类型成员不能使用函数, 因为没有对齐
         for i in 0..5 {
             self.p1[i] = src[i];
         }

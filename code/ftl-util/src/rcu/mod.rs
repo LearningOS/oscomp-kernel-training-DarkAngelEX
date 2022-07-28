@@ -43,6 +43,9 @@ impl Drop for RcuDrop {
     }
 }
 impl RcuDrop {
+    /// # Safety
+    /// 
+    /// 只能由RCU控制器释放
     #[inline(always)]
     pub unsafe fn release(self) {
         self.1(self.0);
@@ -78,6 +81,8 @@ pub trait RcuCollect: Sized + 'static {
             _mark: PhantomData,
         }
     }
+    /// # Safety
+    /// 
     /// 用户需要保证此函数有锁
     #[inline]
     unsafe fn rcu_write(&self, src: Self) {
@@ -108,6 +113,9 @@ pub trait RcuCollect: Sized + 'static {
             rcu_from::<Self>(old).rcu_drop();
         }
     }
+    /// # Safety
+    /// 
+    /// 需要用管理器系统释放 `RcuDrop`
     #[must_use]
     #[inline(always)]
     unsafe fn rcu_transmute(self) -> RcuDrop {
@@ -204,6 +212,8 @@ impl<T: RcuCollect> RcuWraper<T> {
     pub fn rcu_read(&self) -> impl Deref<Target = T> + '_ {
         unsafe { &*self.0.get() }.rcu_read()
     }
+    /// # Safety
+    /// 
     /// 需要手动加锁
     #[inline]
     pub unsafe fn rcu_write(&self, src: T) {
@@ -233,6 +243,8 @@ impl<T: RcuCollect, S: MutexSupport> LockedRcuWrapper<T, S> {
     pub fn rcu_write(&self, src: T) {
         unsafe { self.0.lock().rcu_write(src) }
     }
+    /// # Safety
+    /// 
     /// 此函数和rcu_read不可同时使用
     #[inline]
     pub unsafe fn lock(&self) -> impl DerefMut<Target = T> + '_ {

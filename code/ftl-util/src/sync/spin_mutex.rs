@@ -52,17 +52,19 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
     #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
-        &mut *self.data.get()
-    }
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn assert_unique_get(&self) -> &mut T {
-        assert!(!self.lock.load(Ordering::Relaxed));
         &mut *self.data.get()
     }
     /// Wait until the lock looks unlocked before retrying
@@ -95,6 +97,9 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
             support_guard,
         }
     }
+    /// # Safety
+    ///
+    /// 需要保证持有锁时不发生上下文切换
     #[inline(always)]
     pub unsafe fn send_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
         SendWraper::new(self.lock())

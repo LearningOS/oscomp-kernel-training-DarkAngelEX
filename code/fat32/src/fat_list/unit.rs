@@ -39,12 +39,12 @@ impl ListUnit {
     }
     /// 此函数不更新aid
     pub fn raw_get(&self, off: usize) -> CID {
-        unsafe { (&mut *self.buffer.get()).access_ro()[off] }
+        unsafe { (&*self.buffer.get()).access_ro()[off] }
     }
     pub fn get(&self, off: usize, aid: AID) -> CID {
         unsafe {
             *self.aid.get() = aid;
-            (&mut *self.buffer.get()).access_ro()[off]
+            (&*self.buffer.get()).access_ro()[off]
         }
     }
     pub fn update_aid(&self, aid: AID) {

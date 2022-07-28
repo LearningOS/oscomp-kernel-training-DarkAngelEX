@@ -74,6 +74,7 @@ impl TmpFsFile {
             let end = offset + buf.len();
             if end <= lk.len() {
                 unsafe {
+                    #[allow(clippy::cast_ref_to_mut)]
                     (*(&lk[offset..end] as *const _ as *mut [u8])).copy_from_slice(buf);
                 }
                 return Ok(buf.len());

@@ -97,10 +97,10 @@ fn run_item(name: &str, a: &str, b: &str, c: &str) {
         let mut a = a.to_string();
         let mut b = b.to_string();
         let mut c = c.to_string();
-        name.push_str("\0");
-        a.push_str("\0");
-        b.push_str("\0");
-        c.push_str("\0");
+        name.push('\0');
+        a.push('\0');
+        b.push('\0');
+        c.push('\0');
         exec(
             &name,
             &[
@@ -116,7 +116,4 @@ fn run_item(name: &str, a: &str, b: &str, c: &str) {
     }
     let mut code = 0;
     wait(&mut code);
-    if code == -123456 {
-        return;
-    }
 }

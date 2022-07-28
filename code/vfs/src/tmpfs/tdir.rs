@@ -39,6 +39,7 @@ impl TmpFsDir {
             fs,
         }
     }
+    #[allow(clippy::cast_ref_to_mut)]
     pub(super) unsafe fn set_fs(&self, fs: NonNull<TmpFs>) {
         *(&self.fs as *const _ as *mut _) = fs;
     }

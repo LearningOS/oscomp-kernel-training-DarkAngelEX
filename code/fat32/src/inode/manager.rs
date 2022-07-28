@@ -154,7 +154,7 @@ impl InodeManagerInner {
             }
             Ok(ic) => drop(ic),
         }
-        return Ok(true);
+        Ok(true)
     }
     ///
     pub fn unused_release(&mut self, iid: IID) -> SysR<bool> {

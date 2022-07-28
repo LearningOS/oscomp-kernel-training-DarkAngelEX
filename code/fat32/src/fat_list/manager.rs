@@ -392,9 +392,8 @@ impl ListManager {
             Err(e) => return (0, Err(e)),
             Ok(u) => u,
         };
-        match unsafe { unit.to_unique() } {
-            Err(e) => return (0, Err(e)),
-            Ok(()) => (),
+        if let Err(e) = unsafe { unit.to_unique() } {
+            return (0, Err(e));
         }
         let next_cid = unit.get(uoff, self.aid_alloc.alloc());
         match self.free_cluster_at_impl(next_cid, sems).await {

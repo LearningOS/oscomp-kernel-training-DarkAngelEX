@@ -19,6 +19,7 @@ pub(crate) enum Buffer {
 ///
 /// 由于长度对齐到2的幂次 Arc<[u8]>在分配内存时会在前增加引用计数成员, 这会导致伙伴分配器浪费一倍的内存!
 #[derive(Clone)]
+#[allow(clippy::redundant_allocation)]
 pub(crate) struct SharedBuffer(pub Arc<Box<[u8]>>);
 
 impl Deref for SharedBuffer {

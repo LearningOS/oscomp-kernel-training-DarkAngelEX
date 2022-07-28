@@ -57,20 +57,19 @@ impl<T: ?Sized, S: MutexSupport> SeqMutex<T, S> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
     #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
-        &mut *self.data.get()
-    }
-    /// Assume the mutex is free and get reference of value.
-    ///
-    /// This is only safe during initialization
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn assert_unique_get(&self) -> &mut T {
-        assert!(!self.seq.load(Ordering::Relaxed) % 2 == 0);
         &mut *self.data.get()
     }
     ///
@@ -144,6 +143,9 @@ impl<T: ?Sized, S: MutexSupport> SeqMutex<T, S> {
             support_guard,
         }
     }
+    /// # Safety
+    ///
+    /// 需要保证持有锁时不发生上下文切换
     #[inline(always)]
     pub unsafe fn send_write_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
         SendWraper::new(self.write_lock())

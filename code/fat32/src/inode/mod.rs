@@ -1,3 +1,5 @@
+#![allow(clippy::upper_case_acronyms)]
+
 use alloc::sync::Arc;
 use ftl_util::{
     error::{SysError, SysR, SysRet},

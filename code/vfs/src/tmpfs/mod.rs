@@ -32,7 +32,7 @@ use self::{tdir::TmpFsDir, tfile::TmpFsFile};
 pub struct TmpFsType;
 
 impl TmpFsType {
-    pub fn new() -> Box<dyn FsType> {
+    pub fn box_new() -> Box<dyn FsType> {
         Box::new(Self)
     }
 }

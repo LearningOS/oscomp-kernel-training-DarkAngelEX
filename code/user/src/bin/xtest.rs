@@ -27,14 +27,11 @@ fn test_fn() {
     assert!(n >= 0);
     if n == 0 {
         let name = "12345";
-        exec(&"1234", &[name.as_ptr(), core::ptr::null()]);
+        exec("1234", &[name.as_ptr(), core::ptr::null()]);
         println!("exec fail!");
         // exit(-123456);
         unreachable!();
     }
     let mut code = 0;
     wait(&mut code);
-    if code == -123456 {
-        return;
-    }
 }

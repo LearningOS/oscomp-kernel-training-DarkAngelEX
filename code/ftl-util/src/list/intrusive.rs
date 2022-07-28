@@ -96,7 +96,9 @@ impl<T, A> InListNode<T, A> {
 }
 
 impl<T, A: ListAccess<T, Self>> InListNode<T, A> {
-    /// unsafe:
+    /// # Safety
+    /// 
+    /// 用户自行保证使用的安全性, 下面是获取多个mut的反例
     ///
     /// &mut A(1, 2) -> (&mut A.1, &A.2)
     ///
@@ -106,7 +108,9 @@ impl<T, A: ListAccess<T, Self>> InListNode<T, A> {
     pub unsafe fn access(&self) -> &T {
         A::get(self)
     }
-    /// unsafe:
+    /// # Safety
+    /// 
+    /// 用户自行保证唯一性, 下面是获取多个mut的反例
     ///
     /// &mut A(1, 2) -> (&mut A.1, &mut A.2)
     ///

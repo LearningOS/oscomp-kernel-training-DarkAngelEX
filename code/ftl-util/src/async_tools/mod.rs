@@ -54,6 +54,9 @@ impl Future for TakeWakerPtrFuture {
 pub struct SendWraper<T>(T);
 
 impl<T> SendWraper<T> {
+    /// # Safety
+    ///
+    /// 用户自行保证它不会跨越await
     #[inline(always)]
     pub unsafe fn new(v: T) -> Self {
         SendWraper(v)

@@ -93,10 +93,7 @@ impl VfsFile {
         self.inode.fsinode.as_ref()
     }
     pub fn parent(&self) -> SysR<Option<Arc<Self>>> {
-        self.path
-            .parent()
-            .map(|p| VfsFile::from_path_arc(p))
-            .transpose()
+        self.path.parent().map(VfsFile::from_path_arc).transpose()
     }
     pub async fn read_all(&self) -> SysR<Vec<u8>> {
         let bytes = self.fsinode().bytes()?;

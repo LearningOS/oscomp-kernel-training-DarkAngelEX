@@ -21,6 +21,7 @@
 #![feature(get_mut_unchecked)]
 #![feature(split_array)]
 #![feature(array_try_map)]
+#![feature(sync_unsafe_cell)]
 #![allow(dead_code)]
 
 const PRINT_BLOCK_OP: bool = false;
