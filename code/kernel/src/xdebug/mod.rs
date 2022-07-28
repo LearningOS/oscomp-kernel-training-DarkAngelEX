@@ -21,6 +21,7 @@ pub const CLOSE_LOCAL_HEAP: bool = false;
 
 pub const FRAME_DEALLOC_OVERWRITE: bool = true || FRAME_MODIFY_CHECK;
 pub const HEAP_DEALLOC_OVERWRITE: bool = true;
+pub const HEAP_ALLOC_OVERWRITE: bool = true;
 
 pub const FRAME_RELEASE_CHECK: bool = true; // 检测frame是否被二次释放
 pub const FRAME_MODIFY_CHECK: bool = true; // 检测frame释放后是否被修改

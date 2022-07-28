@@ -9,33 +9,13 @@ use user_lib::{exec, exit, fork, open, println, read, wait, write, OpenFlags};
 
 const PRINT_LINE: bool = false;
 
-#[macro_export]
-macro_rules! color_str {
-    ($n: expr) => {
-        concat!("\x1b[", $n, "m")
-    };
-}
-#[macro_export]
-macro_rules! reset_color {
-    () => {
-        color_str!(0)
-    };
-}
-#[macro_export]
-macro_rules! to_yellow {
-    () => {
-        color_str!(93)
-    };
-    ($str: literal) => {
-        concat!(to_yellow!(), $str, reset_color!())
-    };
-}
-
 #[no_mangle]
 fn main() -> i32 {
     match fork() {
         0 => {
-            run_all_case_forever();
+            // run_all_case();
+            // run_all_case_forever();
+            run_signle_forever("pthread_cancel_points");
             exit(0);
         }
         1.. => {
@@ -47,11 +27,22 @@ fn main() -> i32 {
     exit(0)
 }
 
+fn run_signle_forever(name: &'static str) {
+    for i in 0..1000 {
+        println!(
+            "<<<<<<<<<<<<<<<<<<<<<< just_run_signle_forever epoch {} >>>>>>>>>>>>>>>>>>>>>>>",
+            i
+        );
+        run_item("./runtest.exe", "-w", "entry-static.exe", name);
+    }
+}
+
 fn run_all_case_forever() {
     for i in 0..100 {
-        to_yellow!();
-        println!("run_all_case_forever epoch {}", i);
-        reset_color!();
+        println!(
+            "<<<<<<<<<<<<<<<<<<<<<< run_all_case_forever epoch {} >>>>>>>>>>>>>>>>>>>>>>>",
+            i
+        );
         run_all_case();
     }
 }

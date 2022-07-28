@@ -17,12 +17,13 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
     let mut do_exit = false;
     let mut user_fatal_error = || {
         println!(
-            "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
+            "[kernel]user_fatal_error page_fault {:?} {:?} {:?} stval: {:#x} sepc: {:#x} ra: {:#x}",
             thread.process.pid(),
             thread.tid(),
             e,
             stval,
-            sepc
+            sepc,
+            thread.get_context().ra()
         );
         if stval != sepc {
             print!("error IR: ");

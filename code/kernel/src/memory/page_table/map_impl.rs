@@ -116,6 +116,7 @@ impl PageTable {
     }
     /// 返回的 pte 一定包含 V 标志位
     pub fn try_get_pte_user(&mut self, addr: UserAddr4K) -> Option<&mut PageTableEntry> {
+        stack_trace!();
         macro_rules! return_or_check {
             ($pte: ident, $a: expr) => {
                 if !$pte.is_valid() {

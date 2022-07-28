@@ -63,7 +63,12 @@ impl IntrusiveLinkedList {
             x = unsafe { *x.ok_or((target, cnt as isize))?.cast().as_ptr() };
             cnt -= 1;
         }
-        if x.is_some() {
+        if let Some(p) = x {
+            println!(
+                "size check fail! target: {} ptr: {:#x}",
+                target,
+                p.as_ptr() as usize
+            );
             return Err((target, -1));
         }
         Ok(self.size)

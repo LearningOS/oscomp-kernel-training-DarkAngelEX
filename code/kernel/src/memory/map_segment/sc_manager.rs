@@ -90,6 +90,7 @@ impl SCManager {
         mut shared_release: impl FnMut(UserAddr4K),
         mut unique_release: impl FnMut(UserAddr4K),
     ) {
+        stack_trace!();
         for (&addr, a) in self.0.range_mut(range.clone()) {
             match a.fetch_sub(1, Ordering::Relaxed) {
                 0 => panic!(),

@@ -89,7 +89,7 @@ impl_usize_from!(AsidVersion, v, v.0);
 impl_usize_from!(AsidInfo, v, v.0);
 
 impl Asid {
-    // const ZERO: Self = Asid(0);
+    pub const ZERO: Self = Asid(0);
     fn is_valid(&self) -> bool {
         self.into_usize() < MAX_ASID
     }

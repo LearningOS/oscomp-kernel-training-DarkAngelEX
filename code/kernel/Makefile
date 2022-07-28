@@ -16,7 +16,7 @@ FS_IMG_SRC := ../fat32-fuse/fat32.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
-SMP := 2
+SMP := 1
 MEMORY_SIZE := 128M
 
 # BOARD
@@ -150,10 +150,12 @@ drun: build
 		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 		-s -S
 
+#	-ex 'file $(KERNEL_ELF)'
+#	-ex 'file ../disk/entry-static.exe'
 #	-ex 'file ../disk/entry-dynamic.exe'
 dgdb:
 	@riscv64-unknown-elf-gdb \
-		-ex 'file $(KERNEL_ELF)' \
+		-ex 'file ../disk/entry-static.exe' \
 		-ex 'set arch riscv:rv64' \
 		-ex 'target remote localhost:1234' \
 

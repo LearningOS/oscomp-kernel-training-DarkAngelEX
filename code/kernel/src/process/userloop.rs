@@ -50,6 +50,7 @@ async fn userloop(thread: Arc<Thread>) {
         {
             let local = local::hart_local();
             local.local_rcu.critical_end_tick();
+            local.local_rcu.critical_start();
             context.run_user();
             local.local_rcu.critical_start();
         }
@@ -63,12 +64,13 @@ async fn userloop(thread: Arc<Thread>) {
         let mut do_exit = false;
         let mut user_fatal_error = || {
             println!(
-                "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
+                "[kernel]user_fatal_error userloop {:?} {:?} {:?} stval: {:#x} sepc: {:#x} ra: {:#x}",
                 thread.process.pid(),
                 thread.tid(),
                 scause,
                 stval,
-                context.user_sepc
+                context.user_sepc,
+                context.ra(),
             );
             do_exit = true;
         };
@@ -126,7 +128,7 @@ async fn userloop(thread: Arc<Thread>) {
     if thread.process.pid() == Pid(0) {
         panic!("initproc exit");
     }
-    exit::exit_impl(&thread).await; 
+    exit::exit_impl(&thread).await;
 }
 
 pub fn spawn(thread: Arc<Thread>) {

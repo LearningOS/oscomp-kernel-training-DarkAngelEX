@@ -38,6 +38,7 @@ pub async fn exit_impl(thread: &Thread) {
         process.event_bus.close();
         memory::set_satp_by_global();
         (parent, children) = alive.take_parent_children();
+        stack_trace!();
         *lock = None; // 这里会释放进程页表
     }
     local::all_hart_sfence_vma_asid(asid);

@@ -10,7 +10,7 @@ use crate::{
     memory::address::PageCount,
     sync::mutex::SpinNoIrqLock,
     tools::container::intrusive_linked_list::IntrusiveLinkedList,
-    xdebug::{CLOSE_HEAP_DEALLOC, CLOSE_LOCAL_HEAP, HEAP_DEALLOC_OVERWRITE},
+    xdebug::{CLOSE_HEAP_DEALLOC, CLOSE_LOCAL_HEAP, HEAP_ALLOC_OVERWRITE, HEAP_DEALLOC_OVERWRITE},
 };
 
 mod delay_gc_list;
@@ -18,7 +18,8 @@ pub mod detector;
 mod gc_heap;
 pub mod local_heap;
 
-pub const HEAP_OVERWRITE_MAGIC: u8 = 0xf2;
+pub const HEAP_DEALLOC_OVERWRITE_MAGIC: u8 = 0xf2;
+pub const HEAP_ALLOC_OVERWRITE_MAGIC: u8 = 0xf4;
 
 struct GlobalHeap {
     heap: SpinNoIrqLock<DelayGCHeap>,
@@ -45,14 +46,16 @@ unsafe impl GlobalAlloc for GlobalHeap {
                 ),
             }
         };
+        if HEAP_ALLOC_OVERWRITE {
+            core::slice::from_raw_parts_mut(ret, layout.size()).fill(HEAP_ALLOC_OVERWRITE_MAGIC);
+        }
         detector::alloc_run(ret, pl)
     }
 
     unsafe fn dealloc(&self, ptr: *mut u8, layout: Layout) {
         let (ptr, layout) = detector::dealloc_run(ptr, layout);
         if HEAP_DEALLOC_OVERWRITE {
-            let arr = core::slice::from_raw_parts_mut(ptr, layout.size());
-            arr.fill(HEAP_OVERWRITE_MAGIC);
+            core::slice::from_raw_parts_mut(ptr, layout.size()).fill(HEAP_DEALLOC_OVERWRITE_MAGIC);
         }
         if CLOSE_HEAP_DEALLOC {
             return;

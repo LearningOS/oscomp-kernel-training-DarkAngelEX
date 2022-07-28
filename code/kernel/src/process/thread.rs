@@ -33,7 +33,7 @@ use crate::{
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
     trap::context::UKContext,
     user::check::UserCheck,
-    xdebug::PRINT_SYSCALL_ALL,
+    xdebug::PRINT_SYSCALL_ALL, local,
 };
 
 use super::{
@@ -110,6 +110,7 @@ impl Thread {
     }
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn cleartid(&self) {
+        stack_trace!();
         if let Some(ptr) = self.inner().clear_child_tid.nonnull_mut() {
             while let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
                 if PRINT_SYSCALL_ALL {
@@ -286,6 +287,7 @@ impl Thread {
             .process
             .alive_then(|a| a.threads.push(&thread))
             .unwrap();
+        local::all_hart_fence_i();
         Ok(thread)
     }
     pub fn clone_thread(
@@ -328,6 +330,7 @@ impl Thread {
             .process
             .alive_then(|a| a.threads.push(&thread))
             .unwrap();
+        // 不需要刷新指令缓存
         Ok(thread)
     }
 

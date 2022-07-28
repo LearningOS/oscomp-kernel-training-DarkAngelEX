@@ -95,6 +95,7 @@ impl MapSegment {
         allocator: &'a mut dyn FrameAllocator,
     ) -> impl FnMut(Box<dyn UserAreaHandler>, URange) + 'a {
         move |mut h: Box<dyn UserAreaHandler>, r: URange| {
+            stack_trace!();
             let pt = pt as *mut PageTable;
             macro_rules! pt {
                 () => {
@@ -102,6 +103,7 @@ impl MapSegment {
                 };
             }
             let shared_release = |addr| {
+                stack_trace!();
                 let pte = pt!().try_get_pte_user(addr).unwrap();
                 debug_assert!(pte.is_leaf());
                 pte.reset();

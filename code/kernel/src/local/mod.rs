@@ -1,6 +1,6 @@
 use core::sync::atomic::Ordering;
 
-use alloc::{boxed::Box, vec::Vec};
+use alloc::boxed::Box;
 use ftl_util::local::FTLCPULocal;
 use riscv::register::sstatus;
 
@@ -11,15 +11,20 @@ use crate::{
         self,
         address::UserAddr4K,
         allocator::LocalHeap,
-        asid::{Asid, AsidVersion},
+        asid::{Asid, AsidVersion, USING_ASID},
         rcu::LocalRcuManager,
     },
     sync::mutex::SpinNoIrqLock,
 };
 
-use self::{always_local::AlwaysLocal, task_local::TaskLocal};
+use self::{
+    always_local::AlwaysLocal,
+    mailbox::{HartMailBox, MailEvent},
+    task_local::TaskLocal,
+};
 
 pub mod always_local;
+mod mailbox;
 pub mod task_local;
 
 #[allow(clippy::declare_interior_mutable_const)]
@@ -44,12 +49,12 @@ pub struct HartLocal {
     kstack_bottom: usize,
     pub interrupt: bool,
     asid_version: AsidVersion,
-    queue: Vec<Box<dyn FnOnce()>>,
     pub in_exception: bool, // forbid exception nest
     pub local_heap: LocalHeap,
     pub local_rcu: LocalRcuManager,
+    local_mail: HartMailBox,
     _align64: Align64, // 让mailbox不会和其他部分共享cacheline
-    mailbox: SpinNoIrqLock<Vec<Box<dyn FnOnce()>>>,
+    mailbox: SpinNoIrqLock<HartMailBox>,
     pub idle: bool,
 }
 
@@ -95,8 +100,8 @@ impl HartLocal {
             enable: false,
             always_local: AlwaysLocal::new(),
             local_now: LocalNow::Idle,
-            queue: Vec::new(),
-            mailbox: SpinNoIrqLock::new(Vec::new()),
+            local_mail: HartMailBox::new(),
+            mailbox: SpinNoIrqLock::new(HartMailBox::new()),
             kstack_bottom: 0,
             asid_version: AsidVersion::first_asid_version(),
             interrupt: false,
@@ -113,21 +118,19 @@ impl HartLocal {
     pub fn cpuid(&self) -> usize {
         unsafe { *self.ftl_cpulocal.cpuid.as_mut_ptr() }
     }
-    fn register(&self, f: impl FnOnce() + 'static) {
+    fn register(&self, f: impl FnOnce(&mut HartMailBox)) {
         if self.enable {
-            self.mailbox.lock().push(Box::new(f))
+            f(&mut *self.mailbox.lock())
         }
     }
     pub fn handle(&mut self) {
-        debug_assert!(self.queue.is_empty());
+        debug_assert!(self.local_mail.is_empty());
         // use swap instead of take bucause it can keep reverse space.
         if unsafe { self.mailbox.unsafe_get().is_empty() } {
             return;
         }
-        core::mem::swap(&mut self.queue, &mut *self.mailbox.lock());
-        while let Some(f) = self.queue.pop() {
-            f()
-        }
+        core::mem::swap(&mut self.local_mail, &mut *self.mailbox.lock());
+        self.local_mail.handle();
     }
     #[inline(always)]
     pub fn task(&mut self) -> &mut TaskLocal {
@@ -194,6 +197,7 @@ impl HartLocal {
         self.idle = false;
     }
 }
+
 pub fn init() {
     let local = hart_local();
     local.enable = true;
@@ -252,35 +256,41 @@ pub fn asid_version_update(latest_version: AsidVersion) {
 }
 
 #[inline(always)]
-pub fn all_hart_fn(f: impl Fn<(), Output = impl FnOnce() + 'static>) {
-    let cur = cpu::hart_id();
+pub fn all_hart_fn(mut f: impl FnMut(&mut HartMailBox)) {
+    let hart_local = hart_local();
+    let cur = hart_local.cpuid();
     for i in cpu::hart_range() {
         if i == cur {
             continue;
         }
-        unsafe { get_local_by_id(i).register(f()) };
+        unsafe { get_local_by_id(i).register(|m| f(m)) };
     }
-    f()();
+    f(&mut hart_local.local_mail);
+    hart_local.local_mail.handle();
 }
 
 pub fn all_hart_fence_i() {
-    all_hart_fn(|| sfence::fence_i);
+    all_hart_fn(|m| m.set_flag(MailEvent::FENCE_I));
 }
 
 pub fn all_hart_sfence_vma_asid(asid: Asid) {
-    all_hart_fn(|| move || sfence::sfence_vma_asid(asid.into_usize()));
+    all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_asid(asid.into_usize())))
 }
 
 pub fn all_hart_sfence_vma_va_asid(va: UserAddr4K, asid: Asid) {
-    all_hart_fn(|| move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()));
+    assert!(USING_ASID || asid == Asid::ZERO);
+    all_hart_fn(move |m| {
+        m.spec_sfence(move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()))
+    });
 }
 
 pub fn all_hart_sfence_vma_all_no_global() {
-    all_hart_fn(|| sfence::sfence_vma_all_no_global);
+    assert!(!USING_ASID);
+    all_hart_fn(|m| m.set_flag(MailEvent::SFENCE_VMA_ALL_NO_GLOBAL));
 }
 
 pub fn all_hart_sfence_vma_va_global(va: UserAddr4K) {
-    all_hart_fn(|| move || sfence::sfence_vma_va_global(va.into_usize()));
+    all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_va_global(va.into_usize())))
 }
 
 pub fn try_wake_idle_hart() {
