@@ -87,7 +87,10 @@ fn run_item(name: &str, a: &str, b: &str, c: &str) {
     //     return;
     // }
     let n = fork();
-    assert!(n >= 0);
+    if n < 0 {
+        println!("fork fail! err: {}", n);
+        exit(-1);
+    }
     if n == 0 {
         let mut name = name.to_string();
         let mut a = a.to_string();

@@ -1,7 +1,7 @@
 use alloc::vec::Vec;
 use ftl_util::rcu::{manager::RcuManager, RcuDrop};
 
-use crate::{local, sync::SpinNoIrq};
+use crate::{local, sync::SpinNoIrq, xdebug::CRITICAL_END_FORCE};
 
 const NODE_PER_LIST: usize = 300; // 每个CPU的缓存中位数
 
@@ -51,7 +51,7 @@ impl LocalRcuManager {
         GLOBAL_RCU_MANAGER.critical_end(self.id, &mut self.pending);
     }
     pub fn critical_end_tick(&mut self) {
-        if !self.tick {
+        if !CRITICAL_END_FORCE && !self.tick {
             return;
         }
         self.tick = false;

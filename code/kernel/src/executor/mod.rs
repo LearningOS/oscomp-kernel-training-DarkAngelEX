@@ -76,8 +76,9 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         unsafe {
-            let this = self.get_unchecked_mut();
             let local = local::hart_local();
+            local.handle();
+            let this = self.get_unchecked_mut();
             local.local_rcu.critical_start();
             local.switch_kernel_task(&mut this.always_local);
             let r = Pin::new_unchecked(&mut this.task).poll(cx);

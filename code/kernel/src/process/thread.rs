@@ -13,7 +13,7 @@ use alloc::{
     vec::Vec,
 };
 use ftl_util::error::SysR;
-use riscv::register::sstatus;
+use riscv::register::sstatus::{self, SPP};
 use vfs::VfsFile;
 
 use crate::{
@@ -216,10 +216,14 @@ impl Thread {
                 exited: false,
             }),
         };
+        let mut sstatus = sstatus::read();
+        sstatus.set_sie(false);
+        sstatus.set_spie(false);
+        sstatus.set_spp(SPP::User);
         thread.inner.get_mut().uk_context.exec_init(
             user_sp,
             entry_point,
-            sstatus::read(),
+            sstatus,
             floating::default_fcsr(),
             argc,
             argv,

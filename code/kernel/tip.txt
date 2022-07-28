@@ -56,3 +56,6 @@ watch *0xfffffff08038e008
 b *0x424f0
 
 b *0x42534
+
+b *0xffffffff80241440
+b *0xffffffff80241490

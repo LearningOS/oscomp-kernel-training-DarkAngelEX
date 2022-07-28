@@ -5,15 +5,16 @@ use crate::{local, timer};
 #[no_mangle]
 pub fn kernel_default_interrupt() {
     stack_trace!();
+    debug_assert!(!local::hart_local().interrupt);
+    local::hart_local().interrupt = true;
+    debug_assert!(!sstatus::read().sie());
+    
     let interrupt = match scause::read().cause() {
         scause::Trap::Interrupt(i) => i,
         scause::Trap::Exception(e) => {
             panic!("should kernel_interrupt but {:?}", e);
         }
     };
-    debug_assert!(!local::hart_local().interrupt);
-    debug_assert!(!sstatus::read().sie());
-    local::hart_local().interrupt = true;
 
     match interrupt {
         scause::Interrupt::UserSoft => todo!(),

@@ -155,12 +155,12 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
             let _sie = AutoSie::new();
             tools::multi_thread_test(hartid);
         }
+        smp_v!(AP_INIT_WAIT => 0);
+        smp_v!(true => AP_CAN_RUN);
         if !CLOSE_TIME_INTERRUPT {
             trap::enable_timer_interrupt();
             timer::set_next_trigger();
         }
-        smp_v!(AP_INIT_WAIT => 0);
-        smp_v!(true => AP_CAN_RUN);
     });
     crate::kmain(hartid);
 }

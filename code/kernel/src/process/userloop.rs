@@ -32,13 +32,13 @@ async fn userloop(thread: Arc<Thread>) {
     if thread.process.is_alive() {
         thread.settid().await;
     }
+    let context = thread.get_context();
     loop {
         local::handle_current_local();
-        let context = thread.get_context();
+
         let auto_sie = AutoSie::new();
-        if false {
-            sfence::sfence_vma_all_global();
-        }
+
+        // sfence::sfence_vma_all_global();
 
         if !thread.process.is_alive() {
             break;
@@ -47,11 +47,14 @@ async fn userloop(thread: Arc<Thread>) {
             Err(Dead) => break,
             Ok(()) => (),
         }
+
         {
             let local = local::hart_local();
             local.local_rcu.critical_end_tick();
             local.local_rcu.critical_start();
+
             context.run_user();
+
             local.local_rcu.critical_start();
         }
 
@@ -59,6 +62,7 @@ async fn userloop(thread: Arc<Thread>) {
         let stval = stval::read();
 
         drop(auto_sie);
+
         local::handle_current_local();
 
         let mut do_exit = false;

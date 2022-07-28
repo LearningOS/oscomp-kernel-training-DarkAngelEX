@@ -237,16 +237,14 @@ impl UKContext {
         new
     }
     pub fn run_user(&mut self) {
-        match FLOAT_ENABLE {
-            true => unsafe {
-                floating::load_fx(&mut self.user_fx);
-                self.user_sstatus.set_fs(FS::Clean);
-                super::run_user(self);
-                floating::store_fx_mark(&mut self.user_fx, &mut self.user_sstatus);
-            },
-            false => {
-                super::run_user(self);
-            }
+        debug_assert!(!self.user_sstatus.sie());
+        if FLOAT_ENABLE {
+            unsafe { floating::load_fx(&mut self.user_fx) };
+            self.user_sstatus.set_fs(FS::Clean);
+        }
+        super::run_user(self);
+        if FLOAT_ENABLE {
+            floating::store_fx_mark(&mut self.user_fx, &mut self.user_sstatus);
         }
     }
 }

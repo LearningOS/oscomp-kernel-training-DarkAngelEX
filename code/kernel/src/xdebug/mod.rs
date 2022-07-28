@@ -35,6 +35,7 @@ pub const NO_SYSCALL_PANIC: bool = false;
 pub const CLOSE_RANDOM: bool = true; // 让每次系统运行结果都一样, 不使用基于时钟的随机
 
 pub const LIMIT_SIGNAL_COUNT: Option<usize> = None; // 信号处理超过预定数量时panic
+pub const CRITICAL_END_FORCE: bool = false || CLOSE_TIME_INTERRUPT;
 
 #[macro_use]
 pub mod trace;
