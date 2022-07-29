@@ -32,6 +32,10 @@ impl Fd {
     }
 }
 
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FdSet {}
+
 const F_LINUX_SPECIFIC_BASE: u32 = 1024;
 const F_DUPFD: u32 = 0;
 const F_DUPFD_CLOEXEC: u32 = F_LINUX_SPECIFIC_BASE + 6;

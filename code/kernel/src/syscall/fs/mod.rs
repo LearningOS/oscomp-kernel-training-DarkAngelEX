@@ -287,6 +287,10 @@ impl Syscall<'_> {
         }
         file.read_at(offset, &mut *buf.access_mut()).await
     }
+    pub async fn sys_pselect6(&mut self) -> SysRet {
+        // let (nfds, readfds, writefds, exceptfds, timeout, sigmask): () = self.cx.into();
+        todo!()
+    }
     /// 未实现功能
     pub async fn sys_ppoll(&mut self) -> SysRet {
         stack_trace!();

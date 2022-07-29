@@ -42,23 +42,25 @@ impl LocalHeap {
     }
     fn try_using(&mut self) -> Result<impl Drop, ()> {
         struct AutoUsed {
-            ptr: *mut LocalHeap,
+            in_used: *mut bool,
         }
         impl Drop for AutoUsed {
             fn drop(&mut self) {
                 unsafe {
-                    assert!((*self.ptr).in_used);
-                    (*self.ptr).in_used = false;
+                    debug_assert!(*self.in_used);
+                    atomic::compiler_fence(Ordering::Release);
+                    core::ptr::write_volatile(&mut *self.in_used, false);
+                    *self.in_used = false;
                 }
             }
         }
         if self.in_used {
             return Err(());
         }
-        self.in_used = true;
+        unsafe { core::ptr::write_volatile(&mut self.in_used, true) }
         atomic::compiler_fence(Ordering::Release);
         Ok(AutoUsed {
-            ptr: self as *const _ as *mut _,
+            in_used: &mut self.in_used,
         })
     }
 
