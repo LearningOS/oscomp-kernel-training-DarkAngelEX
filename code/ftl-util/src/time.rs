@@ -52,6 +52,7 @@ impl Add<Duration> for Instant {
 impl Sub<Duration> for Instant {
     type Output = Self;
     fn sub(self, rhs: Duration) -> Self::Output {
+        debug_assert!(self.0 >= rhs);
         Self(self.0 - rhs)
     }
 }
@@ -74,7 +75,7 @@ impl SubAssign<Duration> for Instant {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeSpec {
     pub tv_sec: usize,
     pub tv_nsec: usize, // 纳秒
@@ -130,13 +131,28 @@ impl TimeSpec {
     }
 }
 
+impl From<Duration> for TimeSpec {
+    fn from(dur: Duration) -> Self {
+        Self::from_duration(dur)
+    }
+}
+impl From<Instant> for TimeSpec {
+    fn from(now: Instant) -> Self {
+        Self::from_instant(now)
+    }
+}
+
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeVal {
     pub tv_sec: usize,
     pub tv_usec: usize, // 微妙
 }
 impl TimeVal {
+    pub const ZERO: Self = Self {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
     pub fn from_duration(dur: Duration) -> Self {
         Self {
             tv_sec: dur.as_secs() as usize,
@@ -145,8 +161,14 @@ impl TimeVal {
     }
 }
 
+impl From<Duration> for TimeVal {
+    fn from(dur: Duration) -> Self {
+        Self::from_duration(dur)
+    }
+}
+
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeZone {
     pub tz_minuteswest: u32,
     pub tz_dsttime: u32,

@@ -228,9 +228,10 @@ impl ReadPipeFuture<'_> {
     }
     fn wake_writer(writer: &Weak<PipeWriter>) -> impl FnMut() + '_ {
         || {
-            writer
-                .upgrade()
-                .map(|w| w.waker.lock().as_ref().map(|w| w.wake_by_ref()));
+            let _: Option<_> = try {
+                writer.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
+                Some(())
+            };
         }
     }
 }
@@ -277,9 +278,10 @@ impl WritePipeFuture<'_> {
     }
     fn wake_reader(reader: &Weak<PipeReader>) -> impl FnMut() + '_ {
         || {
-            reader
-                .upgrade()
-                .map(|w| w.waker.lock().as_ref().map(|w| w.wake_by_ref()));
+            let _: Option<_> = try {
+                reader.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
+                Some(())
+            };
         }
     }
 }

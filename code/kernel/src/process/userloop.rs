@@ -51,9 +51,9 @@ async fn userloop(thread: Arc<Thread>) {
             let local = local::hart_local();
             local.local_rcu.critical_end_tick();
             local.local_rcu.critical_start();
-
+            thread.timer_into_user();
             context.run_user();
-
+            thread.timer_leave_user();
             local.local_rcu.critical_start();
         }
 

@@ -17,10 +17,7 @@ use crate::{
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
-    process::{
-        resource::{self, RLimit},
-        search, thread, userloop, CloneFlag, Pid,
-    },
+    process::{search, thread, userloop, CloneFlag, Pid},
     sync::even_bus::{self, Event},
     timer,
     tools::allocator::from_usize_allocator::FromUsize,
@@ -237,6 +234,9 @@ impl Syscall<'_> {
                 p
             };
             if let Some(process) = process {
+                // 找到了一个子进程
+                let timer_sub = *process.timer.lock();
+                self.process.timer.lock().append_child(&timer_sub);
                 if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
                     let access = UserCheck::new(self.process)
@@ -470,46 +470,6 @@ impl Syscall<'_> {
         xwrite!(version, b"1.0.0");
         xwrite!(machine, b"riscv64");
         xwrite!(domainname, b"192.168.0.1");
-        Ok(0)
-    }
-    /// 设置系统资源
-    pub async fn sys_prlimit64(&mut self) -> SysRet {
-        stack_trace!();
-        let (pid, resource, new_limit, old_limit): (
-            Pid,
-            u32,
-            UserReadPtr<RLimit>,
-            UserWritePtr<RLimit>,
-        ) = self.cx.into();
-
-        if PRINT_SYSCALL_PROCESS {
-            println!(
-                "sys_prlimit64 pid:{:?}, resource:{}, new_ptr: {:#x}, old_ptr: {:#x}",
-                pid,
-                resource,
-                new_limit.as_usize(),
-                old_limit.as_usize()
-            );
-        }
-
-        let uc = UserCheck::new(self.process);
-        let new = match new_limit.is_null() {
-            false => Some(uc.readonly_value(new_limit).await?.load()),
-            true => None,
-        };
-        if (PRINT_SYSCALL_PROCESS || false) && let Some(new) = new {
-            println!("new: {:?}", new);
-        }
-        let old = match pid {
-            Pid(0) => resource::prlimit_impl(self.process, resource, new)?,
-            _ => {
-                let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
-                resource::prlimit_impl(&process, resource, new)?
-            }
-        };
-        if !old_limit.is_null() {
-            uc.writable_value(old_limit).await?.store(old);
-        }
         Ok(0)
     }
 }

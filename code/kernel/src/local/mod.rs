@@ -155,6 +155,7 @@ impl HartLocal {
         }
         let open_intrrupt = AlwaysLocal::env_change(new, old);
         unsafe { task.task().page_table.get().using() }
+        task.task().thread.timer_into_thread();
         core::mem::swap(&mut self.local_now, task);
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
@@ -165,6 +166,7 @@ impl HartLocal {
         assert!(matches!(task, LocalNow::Idle));
         // save floating register
         floating::switch_out(&mut self.task().thread.get_context().user_fx);
+        self.task().thread.timer_leave_thread();
         let new = task.always(&mut self.always_local);
         let old = self.always();
         if old.sie_cur() == 0 {

@@ -400,14 +400,13 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     let psm = &process.signal_manager;
     tsm.fetch_mailbox();
     let mask = *tsm.mask();
-    let mut take_sig_fn = || {
+    let take_sig_fn: ControlFlow<Sig> = try {
         tsm.take_std_signal()?;
         psm.take_std_signal(mask.std_signal())?;
         tsm.take_rt_signal()?;
         psm.take_rt_signal(&mask)?;
-        ControlFlow::CONTINUE
     };
-    let signal = match take_sig_fn().break_value() {
+    let signal = match take_sig_fn.break_value() {
         Some(s) => s,
         None => return Ok(()),
     };

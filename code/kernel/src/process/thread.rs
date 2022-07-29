@@ -32,14 +32,19 @@ use crate::{
         Sig,
     },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    timer,
     trap::context::UKContext,
     user::check::UserCheck,
     xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::{
-    children::ChildrenSet, fd::FdTable, search, tid::TidHandle, AliveProcess, CloneFlag, Dead,
-    Process, Tid,
+    children::ChildrenSet,
+    fd::FdTable,
+    resource::{ProcessTimer, ThreadTimer},
+    search,
+    tid::TidHandle,
+    AliveProcess, CloneFlag, Dead, Process, Tid,
 };
 
 pub struct ThreadGroup {
@@ -131,6 +136,34 @@ impl Thread {
     pub fn exit_send_signal(&self) -> Option<Sig> {
         self.inner().exit_signal
     }
+    pub fn timer(&self) -> &ThreadTimer {
+        &self.inner().timer
+    }
+    pub fn timer_into_thread(&self) {
+        let timer = &mut self.inner().timer;
+        timer.into_thread(timer::now());
+    }
+    pub fn timer_leave_thread(&self) {
+        let timer = &mut self.inner().timer;
+        timer.leave_thread(timer::now());
+        timer.maybe_submit(&self.process);
+    }
+    /// 刷新当前线程的计时器并提交至进程
+    pub fn timer_fence(&self) {
+        let timer = &mut self.inner().timer;
+        timer.timer_fence(timer::now());
+        timer.submit(&mut *self.process.timer.lock());
+    }
+    pub fn timer_into_user(&self) {
+        let timer = &mut self.inner().timer;
+        timer.into_user(timer::now());
+        timer.maybe_submit(&self.process);
+    }
+    pub fn timer_leave_user(&self) {
+        let timer = &mut self.inner().timer;
+        timer.leave_user(timer::now());
+        timer.maybe_submit(&self.process);
+    }
 }
 
 impl Drop for Thread {
@@ -163,6 +196,8 @@ pub struct ThreadInner {
     pub futex_index: FutexIndex,
     /// 通过exit退出的线程将为true
     pub exited: bool,
+    /// 时间统计
+    pub timer: ThreadTimer,
 }
 
 impl Thread {
@@ -198,6 +233,7 @@ impl Thread {
                 fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(i32::MIN),
+            timer: Mutex::new(ProcessTimer::ZERO),
         });
         let mut thread = Self {
             tid,
@@ -214,6 +250,7 @@ impl Thread {
                 robust_list: UserInOutPtr::null(),
                 futex_index: FutexIndex::new(),
                 exited: false,
+                timer: ThreadTimer::ZERO,
             }),
         };
         let mut sstatus = sstatus::read();
@@ -279,6 +316,7 @@ impl Thread {
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
                 exited: false,
+                timer: ThreadTimer::ZERO,
             }),
         });
         search::insert_thread(&thread);
@@ -322,6 +360,7 @@ impl Thread {
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
                 exited: false,
+                timer: ThreadTimer::ZERO,
             }),
         });
         search::insert_thread(&thread);

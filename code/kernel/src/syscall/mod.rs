@@ -10,11 +10,12 @@ use crate::{
 };
 
 mod fs;
-pub mod futex;
+mod futex;
 mod mmap;
 mod net;
 mod process;
-pub mod random;
+mod random;
+mod resource;
 mod signal;
 mod thread;
 mod time;
@@ -71,6 +72,7 @@ const SYSCALL_TIMES: usize = 153;
 const SYSCALL_SETPGID: usize = 154;
 const SYSCALL_GETPGID: usize = 155;
 const SYSCALL_UNAME: usize = 160;
+const SYSCALL_GETRUSAGE: usize = 165;
 const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
@@ -176,6 +178,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_SETPGID => self.sys_setpgid(),
             SYSCALL_GETPGID => self.sys_getpgid(),
             SYSCALL_UNAME => self.sys_uname().await,
+            SYSCALL_GETRUSAGE => self.sys_getrusage().await,
             SYSCALL_GETTIMEOFDAY => self.sys_gettimeofday().await,
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETPPID => self.sys_getppid(),

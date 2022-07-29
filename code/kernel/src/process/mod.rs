@@ -23,6 +23,7 @@ use self::{
     children::ChildrenSet,
     fd::FdTable,
     pid::PidHandle,
+    resource::ProcessTimer,
     thread::{Thread, ThreadGroup},
 };
 
@@ -76,6 +77,7 @@ pub struct Process {
     pub signal_manager: ProcSignalManager,
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
+    pub timer: Mutex<ProcessTimer>,
 }
 
 impl Drop for Process {
@@ -149,6 +151,7 @@ impl Process {
             signal_manager: self.signal_manager.fork(),
             alive: Mutex::new(Some(new_alive)),
             exit_code: AtomicI32::new(i32::MIN),
+            timer: Mutex::new(ProcessTimer::ZERO),
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();

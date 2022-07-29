@@ -24,6 +24,7 @@ pub async fn exit_impl(thread: &Thread) {
     thread.cleartid().await;
     let (parent, mut children);
     let asid;
+    thread.timer_fence();
     {
         let mut lock = process.alive.lock();
         let alive = match lock.as_mut() {

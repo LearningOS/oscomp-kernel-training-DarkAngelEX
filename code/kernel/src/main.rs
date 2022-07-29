@@ -45,6 +45,7 @@
 #![feature(slice_ptr_len)]
 #![feature(slice_ptr_get)]
 #![feature(slice_from_ptr_range)]
+#![feature(try_blocks)]
 #![feature(try_trait_v2)]
 #![feature(trait_alias)]
 #![feature(trait_upcasting)]
