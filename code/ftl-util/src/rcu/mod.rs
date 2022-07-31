@@ -66,9 +66,9 @@ pub trait RcuCollect: Sized + 'static {
     fn rcu_assert() {
         use core::mem::{align_of, size_of};
         // 这几个判断将在编译时被计算
-        assert_eq!(size_of::<Self>(), align_of::<Self>());
+        assert_eq!(size_of::<Self>(), align_of::<Self>()); // size和align相等时可被一条指令执行
         assert!(size_of::<Self>() <= size_of::<usize>());
-        assert!(4 <= size_of::<usize>());
+        assert!(size_of::<u32>() <= size_of::<usize>());
     }
     #[must_use]
     #[inline(always)]

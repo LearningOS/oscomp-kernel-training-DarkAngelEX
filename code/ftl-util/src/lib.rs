@@ -1,5 +1,6 @@
 #![no_std]
 #![feature(allocator_api)]
+#![feature(assert_matches)]
 #![feature(const_trait_impl)]
 #![feature(atomic_mut_ptr)]
 #![feature(if_let_guard)]

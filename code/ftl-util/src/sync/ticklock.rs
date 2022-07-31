@@ -210,8 +210,8 @@ impl<'a, T: ?Sized, S: MutexSupport> Drop for TickGuard<'a, T, S> {
     #[inline(always)]
     fn drop(&mut self) {
         debug_assert_eq!(self.tick, self.mutex.atc.cur().load(Ordering::Relaxed));
-        let nxt = self.tick.wrapping_add(1);
-        self.mutex.atc.cur().store(nxt, Ordering::Release);
+        let next = self.tick.wrapping_add(1);
+        self.mutex.atc.cur().store(next, Ordering::Release);
         S::after_unlock(&mut self.support_guard);
     }
 }
