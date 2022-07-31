@@ -17,7 +17,7 @@ SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
 SMP := 4
-MEMORY_SIZE := 128M
+MEMORY_SIZE := 64M
 
 # BOARD
 BOARD ?= qemu

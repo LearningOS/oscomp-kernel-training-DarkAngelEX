@@ -139,9 +139,9 @@ impl Thread {
     pub fn timer(&self) -> &ThreadTimer {
         &self.inner().timer
     }
-    pub fn timer_into_thread(&self) {
+    pub fn timer_enter_thread(&self) {
         let timer = &mut self.inner().timer;
-        timer.into_thread(timer::now());
+        timer.enter_thread(timer::now());
     }
     pub fn timer_leave_thread(&self) {
         let timer = &mut self.inner().timer;
@@ -156,7 +156,7 @@ impl Thread {
     }
     pub fn timer_into_user(&self) {
         let timer = &mut self.inner().timer;
-        timer.into_user(timer::now());
+        timer.enter_user(timer::now());
         timer.maybe_submit(&self.process);
     }
     pub fn timer_leave_user(&self) {

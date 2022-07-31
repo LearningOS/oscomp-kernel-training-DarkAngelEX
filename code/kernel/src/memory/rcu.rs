@@ -7,23 +7,23 @@ const NODE_PER_LIST: usize = 300; // 每个CPU的缓存中位数
 
 static GLOBAL_RCU_MANAGER: RcuManager<SpinNoIrq> = RcuManager::new();
 
-/// 为了提高效率, `LocalRcuManager`并不是每次进出用户态都向全局RCU控制器提交,
-/// 而是等待时钟中断到达后再提交, 彻底删除锁的使用.
+/// 为了提高效率, `LocalRcuManager`并不会每次进出用户态或切换线程都向
+/// 全局RCU控制器提交释放队列, 而是等待时钟中断到达后再提交, 彻底删除锁竞争
 ///
 /// 但时钟中断并不会在我们预期的时刻发生. 因此需要等待临界区结束时再关闭临界区
 pub struct LocalRcuManager {
     pending: Vec<RcuDrop>,
-    critical: bool,
-    id: usize,
-    tick: bool,
+    id: usize,      // CPU编号, 保证唯一性即可
+    critical: bool, // 仅用于 debug_assert
+    tick: bool,     // 时钟中断到达标志
 }
 
 impl LocalRcuManager {
     pub const fn new() -> Self {
         Self {
             pending: Vec::new(),
-            critical: false,
             id: usize::MAX,
+            critical: false,
             tick: false,
         }
     }
@@ -50,6 +50,7 @@ impl LocalRcuManager {
         self.critical = false;
         GLOBAL_RCU_MANAGER.critical_end(self.id, &mut self.pending);
     }
+    /// 当时钟中断到达了才会将tick设为true, 此时才离开临界区
     pub fn critical_end_tick(&mut self) {
         if !CRITICAL_END_FORCE && !self.tick {
             return;
@@ -61,6 +62,7 @@ impl LocalRcuManager {
         debug_assert!(self.critical);
         self.pending.push(v);
     }
+    /// special_push 允许在临界区之外运行, 作用是提交未释放内存
     pub fn special_push(&mut self, v: RcuDrop) {
         self.pending.push(v);
     }

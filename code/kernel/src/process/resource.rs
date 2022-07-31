@@ -85,7 +85,7 @@ impl ThreadTimer {
     pub fn stime(&self) -> Duration {
         self.stime_submit + self.stime
     }
-    pub fn into_user(&mut self, instant: Instant) {
+    pub fn enter_user(&mut self, instant: Instant) {
         debug_assert!(self.time_point != Instant::BASE);
         debug_assert!(self.running && !self.user);
         self.stime += instant - self.time_point;
@@ -98,7 +98,7 @@ impl ThreadTimer {
         self.time_point = instant;
         self.user = false;
     }
-    pub fn into_thread(&mut self, instant: Instant) {
+    pub fn enter_thread(&mut self, instant: Instant) {
         debug_assert!(!self.running && !self.user);
         self.time_point = instant;
         self.running = true;

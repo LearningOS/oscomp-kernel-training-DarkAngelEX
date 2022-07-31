@@ -22,16 +22,16 @@ pub const PAGE_SIZE_BITS: usize = 12; // 12
 #[deprecated]
 pub const TRAMPOLINE: usize = 0xffff_ffff_ffff_f000;
 
-// 1GB
+/// 1GB
 pub const HARDWARD_BEGIN: usize = 0xffff_ffff_c000_0000;
 pub const HARDWARD_END: usize = 0xffff_ffff_ffff_f000;
 
-// 8MB
-/// only used in init pagetable, then need to replace to range MEMORY
-pub const INIT_MEMORY_SIZE: usize = 0x400_0000; // 8MB = 2^23
+/// 8MB
+/// only used in init pagetable, then need to replace to range MEMORY, 1MB = 0x1_00000
+pub const INIT_MEMORY_SIZE: usize = 0x4000000;
 pub const INIT_MEMORY_END: usize = KERNEL_TEXT_BEGIN + INIT_MEMORY_SIZE;
 
-// 1GB
+/// 1GB
 pub const KERNEL_TEXT_BEGIN: usize = 0xffff_ffff_8000_0000;
 pub const KERNEL_TEXT_END: usize = 0xffff_ffff_c000_0000;
 

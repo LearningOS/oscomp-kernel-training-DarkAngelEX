@@ -5,7 +5,7 @@ use core::{
     fmt,
     marker::PhantomData,
     ops::{Deref, DerefMut},
-    sync::atomic::{AtomicUsize, Ordering},
+    sync::atomic::{self, AtomicUsize, Ordering},
 };
 
 use crate::async_tools::SendWraper;
@@ -72,19 +72,21 @@ impl<T: ?Sized, S: MutexSupport> SeqMutex<T, S> {
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
-    ///
     /// 此函数运行时不会产生任何原子同步指令, 只有两次fence
     ///
     /// 读取过程中如果有写者介入会重新开始读取过程
-    ///
     #[inline(always)]
     pub fn read<U>(&self, mut run: impl FnMut(&T) -> U) -> U {
-        let mut seq = self.seq.load(Ordering::Acquire);
+        let mut seq = self.seq.load(Ordering::Relaxed);
         let mut ret;
         loop {
             seq = self.wait_unlock(seq);
+            atomic::fence(Ordering::Acquire);
+
             ret = run(unsafe { &*self.data.get() });
-            let new_seq = self.seq.load(Ordering::Acquire);
+            
+            atomic::fence(Ordering::Acquire);
+            let new_seq = self.seq.load(Ordering::Relaxed);
             if seq == new_seq {
                 break;
             }

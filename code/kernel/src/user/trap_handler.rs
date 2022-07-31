@@ -51,22 +51,24 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
     }
     let rv = || {
         stack_trace!();
-        let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
+        let addr = UserAddr::try_from(stval as *const u8)?;
         let perm = AccessType::from_exception(e).unwrap();
         let addr = addr.floor();
         let allocator = &mut frame::default_allocator();
         match thread
             .process
-            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))
-            .map_err(|_| ())?
+            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))?
         {
             Ok(x) => Ok(Ok(x)),
             Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
-            Err(TryRunFail::Error(_e)) => Err(()),
+            Err(TryRunFail::Error(e)) => Err(e),
         }
     };
     match rv() {
-        Err(()) => user_fatal_error(),
+        Err(e) => {
+            println!("page fault handle fail: {:?}", e);
+            user_fatal_error()
+        }
         Ok(Ok(flush)) => {
             if PRINT_PAGE_FAULT {
                 println!("{}", to_green!("success handle exception"));

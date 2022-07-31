@@ -62,8 +62,8 @@ impl MutexInner {
     }
 }
 
-unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for RwSleepMutex<T, S> {}
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for RwSleepMutex<T, S> {}
+unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for RwSleepMutex<T, S> {}
 
 impl<T, S: MutexSupport> RwSleepMutex<T, S> {
     pub const fn new(user_data: T) -> Self {

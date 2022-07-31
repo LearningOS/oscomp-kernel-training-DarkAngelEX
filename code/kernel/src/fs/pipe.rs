@@ -280,7 +280,7 @@ impl WritePipeFuture<'_> {
         || {
             let _: Option<_> = try {
                 reader.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
-                Some(())
+                Some(()) // 为了让愚蠢的rust-analyzer不爆红
             };
         }
     }

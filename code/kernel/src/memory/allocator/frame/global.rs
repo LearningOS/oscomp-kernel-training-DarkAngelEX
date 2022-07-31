@@ -3,7 +3,8 @@
 //! this module will alloc frame(4KB)
 use crate::{
     config::{
-        DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
+        DIRECT_MAP_BEGIN, DIRECT_MAP_END, KERNEL_OFFSET_FROM_DIRECT_MAP, MEMORY_INIT_KERNEL_END,
+        PAGE_SIZE,
     },
     memory::{
         address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
@@ -212,7 +213,7 @@ pub fn init_frame_allocator() {
     println!("[FTL OS]init_frame_allocator");
     FRAME_ALLOCATOR.lock().init(
         PhyAddrRef::<u8>::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
-        PhyAddrRef::<u8>::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
+        PhyAddrRef::<u8>::from(MEMORY_INIT_KERNEL_END).floor(),
     );
 }
 // pub fn size() -> usize {

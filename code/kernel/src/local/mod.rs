@@ -155,7 +155,7 @@ impl HartLocal {
         }
         let open_intrrupt = AlwaysLocal::env_change(new, old);
         unsafe { task.task().page_table.get().using() }
-        task.task().thread.timer_into_thread();
+        task.task().thread.timer_enter_thread();
         core::mem::swap(&mut self.local_now, task);
         if open_intrrupt {
             unsafe { sstatus::set_sie() };

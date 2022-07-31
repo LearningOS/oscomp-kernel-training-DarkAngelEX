@@ -92,7 +92,7 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         clear_bss();
         xdebug::init();
         console::init();
-        println!("[FTL OS]version 0.1.0");
+        println!("[FTL OS]version 0.2.0");
         println!("{}", ftl_logo());
         INIT_HART.store(hartid, Ordering::Release);
         // #[cfg(feature = "board_hifive")]
@@ -244,9 +244,12 @@ fn show_seg() {
     xprlntln(sbss, "sbss");
     xprlntln(ebss, "ebss");
     xprlntln(end, "end");
+    let text_size = etext as usize - start as usize;
+    let (m, k, b) = tools::size_to_mkb(text_size);
+    println!("text size:   {}MB {}KB {}Bytes (stext..etext)", m, k, b);
     let kernel_size = end as usize - start as usize;
     let (m, k, b) = tools::size_to_mkb(kernel_size);
-    println!("kernel static size: {}MB {}KB {}Bytes", m, k, b);
+    println!("total size:  {}MB {}KB {}Bytes (start..end)", m, k, b);
 }
 
 #[inline(always)]

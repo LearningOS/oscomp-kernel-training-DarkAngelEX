@@ -48,7 +48,7 @@ impl HartMailBox {
                 sfence::sfence_vma_all_no_global();
                 self.spec_sfence.clear();
             } else if self.event.contains(MailEvent::SFENCE_SPEC) {
-                self.spec_sfence.drain(..).into_iter().for_each(|f| f());
+                self.spec_sfence.drain(..).for_each(|f| f());
             }
             self.spec_sfence.clear();
             self.event.remove(MailEvent::SFENCE_SET);
