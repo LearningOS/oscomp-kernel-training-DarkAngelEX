@@ -17,12 +17,13 @@ SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
 SMP := 4
-MEMORY_SIZE := 64M
+MEMORY_SIZE := 128M
 
 # BOARD
 BOARD ?= qemu
 # SBI ?= rustsbi
 SBI ?= opensbi
+BOOTLOADER_ELF := ../bootloader/$(SBI)-$(BOARD)
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
 K210_BOOTLOADER_SIZE := 131072
 
@@ -132,6 +133,18 @@ else
 	python3 $(K210-BURNER) -p $(K210-SERIALPORT) -b 1500000 $(KERNEL_BIN)
 	python3 -m serial.tools.miniterm --eol LF --dtr 0 --rts 0 --filter direct $(K210-SERIALPORT) 115200
 endif
+
+simulation: build
+	qemu-system-riscv64 \
+		-machine virt \
+		-kernel $(KERNEL_BIN) \
+		-m 128M \
+		-nographic \
+		-smp 2 \
+		-bios $(BOOTLOADER_ELF) \
+		-drive file=$(FS_IMG),if=none,format=raw,id=x0  \
+		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 
+#		-initrd initrd.img
 
 debug: build
 	@tmux new-session -d \

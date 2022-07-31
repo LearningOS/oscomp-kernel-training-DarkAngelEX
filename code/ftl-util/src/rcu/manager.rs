@@ -18,7 +18,7 @@ use super::{RcuCollect, RcuDrop};
 /// 管理器包含两个集合, current / pending. current 只能从 pending 转换而来, 不允许追加.
 /// 当所有核心的临界区结束时将释放current中的全部元素
 ///
-/// flags划分为2部分, [6:32|31:0] = [current|pending]
+/// flags划分为2部分, [63:32|31:0] = [current|pending]
 ///     current: rcu_current 临界区运行的hart
 ///     pending: 正在临界区运行的hart
 ///
