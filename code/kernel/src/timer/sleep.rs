@@ -10,6 +10,7 @@ use alloc::collections::BinaryHeap;
 use ftl_util::{
     async_tools,
     error::{SysError, SysRet},
+    time::Instant,
 };
 
 use crate::{
@@ -21,11 +22,11 @@ use crate::{
 };
 
 struct TimerCondVar {
-    timeout: Duration,
+    timeout: Instant,
     waker: Waker,
 }
 impl TimerCondVar {
-    pub fn new(timeout: Duration, waker: Waker) -> Self {
+    pub fn new(timeout: Instant, waker: Waker) -> Self {
         Self { timeout, waker }
     }
 }
@@ -57,24 +58,28 @@ impl SleepQueue {
             queue: BinaryHeap::new(),
         }
     }
-    pub fn ignore(timeout: Duration) -> bool {
+    pub fn ignore(timeout: Instant) -> bool {
         timeout.as_secs() >= i64::MAX as u64
     }
-    pub fn push(&mut self, ticks: Duration, waker: Waker) {
-        if Self::ignore(ticks) {
+    pub fn push(&mut self, now: Instant, waker: Waker) {
+        if Self::ignore(now) {
             return;
         }
-        self.queue.push(Reverse(TimerCondVar::new(ticks, waker)))
+        self.queue.push(Reverse(TimerCondVar::new(now, waker)))
     }
-    pub fn check_timer(&mut self, current: Duration) {
+    /// 返回唤醒的数量
+    pub fn check_timer(&mut self, current: Instant) -> usize {
         stack_trace!();
+        let mut n = 0;
         while let Some(Reverse(v)) = self.queue.peek() {
             if v.timeout <= current {
                 self.queue.pop().unwrap().0.waker.wake();
+                n += 1;
             } else {
                 break;
             }
         }
+        n
     }
 }
 
@@ -84,17 +89,17 @@ pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock() = Some(SleepQueue::new());
 }
 
-pub fn timer_push_task(ticks: Duration, waker: Waker) {
+pub fn timer_push_task(ticks: Instant, waker: Waker) {
     if SleepQueue::ignore(ticks) {
         return;
     }
     SLEEP_QUEUE.lock().as_mut().unwrap().push(ticks, waker);
 }
 
-pub fn check_timer() {
+pub fn check_timer() -> usize {
     stack_trace!();
-    let current = super::get_time();
-    SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current);
+    let current = super::now();
+    SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current)
 }
 
 pub async fn just_wait(dur: Duration) {
@@ -104,14 +109,14 @@ pub async fn just_wait(dur: Duration) {
     ptr.await
 }
 
-struct JustWaitFuture(Duration);
+struct JustWaitFuture(Instant);
 impl JustWaitFuture {
     pub fn new(dur: Duration) -> Self {
-        Self(super::get_time() + dur)
+        Self(super::now() + dur)
     }
     pub async fn init(self: Pin<&mut Self>) {
         thread::yield_now().await;
-        if self.0 <= super::get_time() {
+        if self.0 <= super::now() {
             return;
         }
         let waker = async_tools::take_waker().await;
@@ -123,7 +128,7 @@ impl Future for JustWaitFuture {
     type Output = ();
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.0 <= super::get_time() {
+        if self.0 <= super::now() {
             return Poll::Ready(());
         }
         Poll::Pending
@@ -131,9 +136,9 @@ impl Future for JustWaitFuture {
 }
 
 pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
-    let deadline = super::get_time() + dur;
+    let deadline = super::now() + dur;
     thread::yield_now().await;
-    if super::get_time() >= deadline {
+    if super::now() >= deadline {
         return Ok(0);
     }
     if event_bus.event() != Event::empty() {
@@ -146,12 +151,12 @@ pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
 }
 
 struct SleepFuture<'a> {
-    deadline: Duration,
+    deadline: Instant,
     event_bus: &'a EventBus,
 }
 
 impl<'a> SleepFuture<'a> {
-    pub fn new(deadline: Duration, event_bus: &'a EventBus) -> Self {
+    pub fn new(deadline: Instant, event_bus: &'a EventBus) -> Self {
         Self {
             deadline,
             event_bus,
@@ -169,7 +174,7 @@ impl<'a> Future for SleepFuture<'a> {
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
         stack_trace!();
-        if self.deadline <= super::get_time() {
+        if self.deadline <= super::now() {
             return Poll::Ready(Ok(0));
         } else if self.event_bus.event() != Event::empty() {
             return Poll::Ready(Err(SysError::EINTR));

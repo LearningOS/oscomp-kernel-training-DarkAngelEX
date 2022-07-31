@@ -3,7 +3,7 @@
     .global __return_from_user
     .global __kernel_default_exception_entry
     .global __kernel_default_interrupt_entry
-    .global __kernel_default_vector
+    .global __kernel_default_trap_vector
     .global __kernel_default_trap_entry
     # .global __load_fx
     # .global __store_fx
@@ -201,12 +201,13 @@ __kernel_default_interrupt_entry:
     sret
 
     .align 8
-__kernel_default_vector:
+__kernel_default_trap_vector:
     j __kernel_default_exception_entry
     .rept 16
     .align 2
     j __kernel_default_interrupt_entry
     .endr
+    unimp
 
     .align 6
 __kernel_default_trap_entry:
@@ -227,6 +228,7 @@ __kernel_default_trap_entry:
     sd  a5, 14*8(sp)
     sd  a6, 15*8(sp)
     sd  a7, 16*8(sp)
+    mv  a0, sp
     call kernel_default_trap
     ld  ra,  1*8(sp)
     ld  t0,  2*8(sp)

@@ -1,15 +1,21 @@
 use alloc::vec::Vec;
 use ftl_util::xdebug::stack::XInfo;
 
-use crate::{hart::cpu, local};
+use crate::{hart::cpu, local, user::NativeAutoSie};
 
 pub fn init() {
     ftl_util::xdebug::stack::init(
         |msg, file, line| {
             let info = StackInfo::new(msg, file, line);
+            // 关中断防止中断处理程序干涉操作过程
+            let _sie = NativeAutoSie::new();
             local::always_local().stack_trace.push(info);
         },
-        || local::always_local().stack_trace.pop(),
+        || {
+            // 关中断防止中断处理程序干涉操作过程
+            let _sie = NativeAutoSie::new();
+            local::always_local().stack_trace.pop();
+        },
     );
 }
 

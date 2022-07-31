@@ -1,45 +1,65 @@
-use alloc::{boxed::Box, vec::Vec};
+use core::sync::atomic::Ordering;
+
+use alloc::boxed::Box;
+use ftl_util::local::FTLCPULocal;
 use riscv::register::sstatus;
 
 use crate::{
     config::PAGE_SIZE,
-    hart::{self, cpu, floating, sfence},
+    hart::{self, cpu, floating, sbi, sfence},
     memory::{
         self,
         address::UserAddr4K,
         allocator::LocalHeap,
-        asid::{Asid, AsidVersion},
+        asid::{Asid, AsidVersion, USING_ASID},
+        rcu::LocalRcuManager,
     },
-    sync::mutex::SpinNoIrqLock as Mutex,
+    sync::mutex::SpinNoIrqLock,
 };
 
-use self::{always_local::AlwaysLocal, task_local::TaskLocal};
+use self::{
+    always_local::AlwaysLocal,
+    mailbox::{HartMailBox, MailEvent},
+    task_local::TaskLocal,
+};
 
 pub mod always_local;
+mod mailbox;
 pub mod task_local;
 
 #[allow(clippy::declare_interior_mutable_const)]
 const HART_LOCAL_EACH: HartLocal = HartLocal::new();
 static mut HART_LOCAL: [HartLocal; 16] = [HART_LOCAL_EACH; 16];
 
+#[repr(align(64))]
+struct Align64;
+
 /// any hart can only access each unit so didn't need mutex.
 ///
 /// access other local must through function below.
-/// 
-/// use align(64) to avoid false share 
+///
+/// use align(64) to avoid false share
+#[repr(C)]
 #[repr(align(64))]
 pub struct HartLocal {
+    ftl_cpulocal: FTLCPULocal,
     enable: bool,
     always_local: AlwaysLocal,
     local_now: LocalNow,
-    queue: Vec<Box<dyn FnOnce()>>,
-    pending: Mutex<Vec<Box<dyn FnOnce()>>>,
     kstack_bottom: usize,
-    asid_version: AsidVersion,
     pub interrupt: bool,
+    asid_version: AsidVersion,
     pub in_exception: bool, // forbid exception nest
     pub local_heap: LocalHeap,
+    pub local_rcu: LocalRcuManager,
+    local_mail: HartMailBox,
+    _align64: Align64, // 让mailbox不会和其他部分共享cacheline
+    mailbox: SpinNoIrqLock<HartMailBox>,
+    pub idle: bool,
 }
+
+unsafe impl Send for HartLocal {}
+unsafe impl Sync for HartLocal {}
 
 pub enum LocalNow {
     Idle,
@@ -76,30 +96,41 @@ impl LocalNow {
 impl HartLocal {
     const fn new() -> Self {
         Self {
+            ftl_cpulocal: FTLCPULocal::new(usize::MAX),
             enable: false,
             always_local: AlwaysLocal::new(),
             local_now: LocalNow::Idle,
-            queue: Vec::new(),
-            pending: Mutex::new(Vec::new()),
+            local_mail: HartMailBox::new(),
+            mailbox: SpinNoIrqLock::new(HartMailBox::new()),
             kstack_bottom: 0,
             asid_version: AsidVersion::first_asid_version(),
             interrupt: false,
             in_exception: false,
+            _align64: Align64,
             local_heap: LocalHeap::new(),
+            local_rcu: LocalRcuManager::new(),
+            idle: false,
         }
     }
-    fn register(&self, f: impl FnOnce() + 'static) {
+    pub unsafe fn set_hartid(&self, cpuid: usize) {
+        self.ftl_cpulocal.cpuid.store(cpuid, Ordering::Release);
+    }
+    pub fn cpuid(&self) -> usize {
+        unsafe { *self.ftl_cpulocal.cpuid.as_mut_ptr() }
+    }
+    fn register(&self, f: impl FnOnce(&mut HartMailBox)) {
         if self.enable {
-            self.pending.lock().push(Box::new(f))
+            f(&mut *self.mailbox.lock())
         }
     }
-    fn handle(&mut self) {
-        debug_assert!(self.queue.is_empty());
+    pub fn handle(&mut self) {
+        debug_assert!(self.local_mail.is_empty());
         // use swap instead of take bucause it can keep reverse space.
-        core::mem::swap(&mut self.queue, &mut *self.pending.lock());
-        while let Some(f) = self.queue.pop() {
-            f()
+        if unsafe { self.mailbox.unsafe_get().is_empty() } {
+            return;
         }
+        core::mem::swap(&mut self.local_mail, &mut *self.mailbox.lock());
+        self.local_mail.handle();
     }
     #[inline(always)]
     pub fn task(&mut self) -> &mut TaskLocal {
@@ -124,6 +155,7 @@ impl HartLocal {
         }
         let open_intrrupt = AlwaysLocal::env_change(new, old);
         unsafe { task.task().page_table.get().using() }
+        task.task().thread.timer_enter_thread();
         core::mem::swap(&mut self.local_now, task);
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
@@ -134,6 +166,7 @@ impl HartLocal {
         assert!(matches!(task, LocalNow::Idle));
         // save floating register
         floating::switch_out(&mut self.task().thread.get_context().user_fx);
+        self.task().thread.timer_leave_thread();
         let new = task.always(&mut self.always_local);
         let old = self.always();
         if old.sie_cur() == 0 {
@@ -159,14 +192,27 @@ impl HartLocal {
             unsafe { sstatus::set_sie() };
         }
     }
+    pub fn enter_idle(&mut self) {
+        self.idle = true;
+    }
+    pub fn leave_idle(&mut self) {
+        self.idle = false;
+    }
 }
+
 pub fn init() {
-    hart_local().enable = true;
+    let local = hart_local();
+    local.enable = true;
+    local.local_rcu.init_id(local.cpuid());
+}
+pub unsafe fn bind_tp(hartid: usize) -> usize {
+    let hart_local = get_local_by_id(hartid);
+    hart_local.set_hartid(hartid);
+    hart_local as *const _ as usize
 }
 #[inline(always)]
 pub fn hart_local() -> &'static mut HartLocal {
-    let i = cpu::hart_id();
-    unsafe { &mut HART_LOCAL[i] }
+    unsafe { &mut *(cpu::get_tp() as *mut HartLocal) }
 }
 #[inline(always)]
 pub fn always_local() -> &'static mut AlwaysLocal {
@@ -180,6 +226,10 @@ pub fn task_local() -> &'static mut TaskLocal {
 #[inline(always)]
 pub unsafe fn get_local_by_id(id: usize) -> &'static HartLocal {
     &HART_LOCAL[id]
+}
+
+pub unsafe fn cpu_local_in_use() -> &'static [HartLocal] {
+    &HART_LOCAL[cpu::hart_range()]
 }
 
 pub fn set_stack() {
@@ -208,33 +258,68 @@ pub fn asid_version_update(latest_version: AsidVersion) {
 }
 
 #[inline(always)]
-pub fn all_hart_fn(f: impl Fn<(), Output = impl FnOnce() + 'static>) {
-    let cur = cpu::hart_id();
-    for i in cpu::hart_range() {
-        if i == cur {
-            continue;
+pub fn all_hart_fn(mut f: impl FnMut(&mut HartMailBox)) {
+    let hart_local = hart_local();
+    let cur = hart_local.cpuid();
+    unsafe {
+        for local in cpu_local_in_use() {
+            if local.cpuid() == cur {
+                continue;
+            }
+            local.register(|m| f(m));
         }
-        unsafe { get_local_by_id(i).register(f()) };
     }
-    f()();
+    f(&mut hart_local.local_mail);
+    hart_local.local_mail.handle();
 }
 
 pub fn all_hart_fence_i() {
-    all_hart_fn(|| sfence::fence_i);
+    all_hart_fn(|m| m.set_flag(MailEvent::FENCE_I));
 }
 
 pub fn all_hart_sfence_vma_asid(asid: Asid) {
-    all_hart_fn(|| move || sfence::sfence_vma_asid(asid.into_usize()));
+    debug_assert!(USING_ASID || asid == Asid::ZERO);
+    if USING_ASID {
+        all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_asid(asid.into_usize())))
+    } else {
+        all_hart_sfence_vma_all_no_global();
+    }
 }
 
 pub fn all_hart_sfence_vma_va_asid(va: UserAddr4K, asid: Asid) {
-    all_hart_fn(|| move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()));
+    debug_assert!(USING_ASID || asid == Asid::ZERO);
+    if USING_ASID {
+        all_hart_fn(move |m| {
+            m.spec_sfence(move || sfence::sfence_vma_va_asid(va.into_usize(), asid.into_usize()))
+        });
+    } else {
+        all_hart_sfence_vma_va_global(va);
+    }
 }
 
 pub fn all_hart_sfence_vma_all_no_global() {
-    all_hart_fn(|| sfence::sfence_vma_all_no_global);
+    assert!(!USING_ASID);
+    all_hart_fn(|m| m.set_flag(MailEvent::SFENCE_VMA_ALL_NO_GLOBAL));
 }
 
 pub fn all_hart_sfence_vma_va_global(va: UserAddr4K) {
-    all_hart_fn(|| move || sfence::sfence_vma_va_global(va.into_usize()));
+    all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_va_global(va.into_usize())))
+}
+
+pub fn try_wake_idle_hart() {
+    let this_cpu = hart_local().cpuid();
+    unsafe {
+        for cur in cpu_local_in_use().iter() {
+            let cur_id = cur.cpuid();
+            if cur_id == this_cpu {
+                continue;
+            }
+            if cur.idle {
+                // println!("send ipi: {} -> {}", this_cpu, cur_id);
+                let r = sbi::send_ipi(1 << cur_id);
+                assert_eq!(r, 0);
+                break;
+            }
+        }
+    }
 }

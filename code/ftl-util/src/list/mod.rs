@@ -1,10 +1,14 @@
-pub mod access;
-#[macro_use]
-mod intrusive;
-
-use core::{marker::PhantomPinned, ptr::NonNull};
+use core::{
+    marker::PhantomPinned,
+    ptr::NonNull,
+    sync::atomic::{self, Ordering},
+};
 
 pub use intrusive::InListNode;
+
+pub mod access;
+#[macro_use]
+pub mod intrusive;
 
 /// 侵入式链表节点
 ///
@@ -17,6 +21,7 @@ pub struct ListNode<T> {
 }
 
 unsafe impl<T> Send for ListNode<T> {}
+unsafe impl<T> Sync for ListNode<T> {}
 
 impl<T> ListNode<T> {
     #[inline(always)]
@@ -34,8 +39,12 @@ impl<T> ListNode<T> {
         self.next = self;
     }
     #[inline(always)]
+    pub fn inited(&self) -> bool {
+        !self.prev.is_null()
+    }
+    #[inline(always)]
     pub fn lazy_init(&mut self) {
-        if self.prev.is_null() {
+        if !self.inited() {
             debug_assert!(self.next.is_null());
             self.init();
         }
@@ -69,6 +78,7 @@ impl<T> ListNode<T> {
     }
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
+        debug_assert!(self.inited());
         if self.prev.as_const() == self {
             debug_assert!(self.next.as_const() == self);
             true
@@ -77,9 +87,15 @@ impl<T> ListNode<T> {
             false
         }
     }
+    /// # Safety
+    ///
+    /// 自行保证指针的安全
     pub unsafe fn set_prev(&mut self, prev: *mut Self) {
         self.prev = prev;
     }
+    /// # Safety
+    ///
+    /// 自行保证指针的安全
     pub unsafe fn set_next(&mut self, next: *mut Self) {
         self.next = next;
     }
@@ -106,6 +122,7 @@ impl<T> ListNode<T> {
         new.prev = self;
         new.next = self.next;
         debug_assert!(unsafe { (*self.next).prev == self });
+        debug_assert!(unsafe { (*self.prev).next == self });
         unsafe { (*self.next).prev = new };
         self.next = new;
     }
@@ -133,7 +150,29 @@ impl<T> ListNode<T> {
         }
         self.init();
     }
-    /// 此函数不会重置自身
+    #[inline(always)]
+    pub fn push_next_rcu(&mut self, new: &mut Self) {
+        debug_assert!(self as *mut _ != new as *mut _);
+        debug_assert!(new.is_empty());
+        new.prev = self;
+        new.next = self.next;
+        atomic::fence(Ordering::Release);
+        debug_assert!(unsafe { (*self.next).prev == self });
+        debug_assert!(unsafe { (*self.prev).next == self });
+        self.next = new;
+        unsafe { (*self.next).prev = new };
+    }
+    /// RCU 节点一旦释放禁止继续使用
+    #[inline(always)]
+    pub fn pop_self_rcu(&mut self) {
+        unsafe {
+            self.pop_self_fast();
+            self.prev = core::ptr::null_mut();
+        }
+    }
+    /// # Safety
+    ///
+    /// 此函数不会重置自身, 释放后禁止再被使用
     #[inline(always)]
     pub unsafe fn pop_self_fast(&self) {
         let prev = self.prev;

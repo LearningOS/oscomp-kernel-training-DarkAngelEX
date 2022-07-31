@@ -23,6 +23,8 @@ global_asm!(include_str!("./boot/entry64.asm"));
 static INIT_START: AtomicBool = AtomicBool::new(false);
 static INIT_HART: AtomicUsize = AtomicUsize::new(usize::MAX);
 static AP_CAN_INIT: AtomicBool = AtomicBool::new(false);
+static AP_INIT_WAIT: AtomicUsize = AtomicUsize::new(0);
+static AP_CAN_RUN: AtomicBool = AtomicBool::new(false);
 #[link_section = "data"]
 static FIRST_HART: AtomicBool = AtomicBool::new(false);
 #[link_section = "data"]
@@ -58,12 +60,31 @@ pub fn ftl_logo() -> &'static str {
     )
 }
 
+macro_rules! smp_v {
+    ($a: ident -= $v: literal) => {
+        $a.fetch_sub($v, Ordering::Release);
+    };
+    ($a: ident => $v: literal) => {
+        while $a.load(Ordering::Acquire) != $v {
+            core::hint::spin_loop();
+        }
+    };
+    ($v: expr => $a: ident) => {
+        $a.store($v, Ordering::Release);
+    };
+    ($a: ident => $v: expr) => {
+        while $a.load(Ordering::Acquire) != $v {
+            core::hint::spin_loop();
+        }
+    };
+}
+
 #[no_mangle]
 pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
-    unsafe { 
-        cpu::set_cpu_id(hartid); 
-        cpu::set_gp(); // 愚蠢的rust链接期不支持linker relax, 未使用
-     };
+    unsafe {
+        cpu::set_gp(); // 愚蠢的rust链接器不支持linker relax, 未使用
+        cpu::set_hart_local(hartid);
+    };
     if FIRST_HART
         .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
         .is_ok()
@@ -71,20 +92,23 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         clear_bss();
         xdebug::init();
         console::init();
-        println!("[FTL OS]version 0.1.0");
+        println!("[FTL OS]version 0.2.0");
         println!("{}", ftl_logo());
         INIT_HART.store(hartid, Ordering::Release);
-        #[cfg(feature = "board_hifive")]
-        {
-            for i in (1..=4).filter(|&i| i != hartid) {
-                let status = sbi::sbi_hart_get_status(i);
-                println!("hart {} status {}", i, status);
-                sbi::sbi_hart_start(i, 0x80200000, 0);
-            }
+        // #[cfg(feature = "board_hifive")]
+
+        for i in (0..=4).filter(|&i| i != hartid) {
+            // #[cfg(feature = "board_hifive")]
+            // if i == 0 {
+            //     continue;
+            // }
+            let status = sbi::sbi_hart_get_status(i);
+            println!("hart {} status {}", i, status);
+            sbi::sbi_hart_start(i, 0x80200000, 0);
         }
-        INIT_START.store(true, Ordering::Release);
+        smp_v!(true => INIT_START);
     } else {
-        while !INIT_START.load(Ordering::Acquire) {}
+        smp_v!(INIT_START => true);
     }
     local::init();
     println!(
@@ -97,8 +121,6 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
     unsafe { cpu::init(hartid) };
     local::set_stack();
     if hartid != INIT_HART.load(Ordering::Acquire) {
-        while !AP_CAN_INIT.load(Ordering::Acquire) {}
-        println!("[FTL OS]hart {} started", hartid);
         others_main(hartid); // -> !!!!!!!!!!!!!!! main !!!!!!!!!!!!!!!
     }
     // init all module there
@@ -138,11 +160,14 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
         println!("[FTL OS]hello! from hart {}", hartid);
         sfence::fence_i();
         println!("init complete! weakup the other cores.");
-        AP_CAN_INIT.store(true, Ordering::Release);
+        smp_v!(cpu::count() - 1 => AP_INIT_WAIT);
+        smp_v!(true => AP_CAN_INIT);
         {
             let _sie = AutoSie::new();
             tools::multi_thread_test(hartid);
         }
+        smp_v!(AP_INIT_WAIT => 0);
+        smp_v!(true => AP_CAN_RUN);
         if !CLOSE_TIME_INTERRUPT {
             trap::enable_timer_interrupt();
             timer::set_next_trigger();
@@ -152,6 +177,8 @@ pub extern "C" fn rust_main(hartid: usize, device_tree_paddr: usize) -> ! {
 }
 
 fn others_main(hartid: usize) -> ! {
+    smp_v!(AP_CAN_INIT => true);
+    println!("[FTL OS]hart {} started", hartid);
     println!("[FTL OS]hart {} init by global satp", hartid);
     memory::set_satp_by_global();
     sfence::sfence_vma_all_global();
@@ -165,6 +192,8 @@ fn others_main(hartid: usize) -> ! {
         timer::set_next_trigger();
     }
     println!("[FTL OS]hart {} init complete", hartid);
+    smp_v!(AP_INIT_WAIT -= 1);
+    smp_v!(AP_CAN_RUN => true);
     crate::kmain(hartid);
 }
 
@@ -174,7 +203,12 @@ fn clear_bss() {
         fn sbss();
         fn ebss();
     }
-    (sbss as usize..ebss as usize).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
+    unsafe {
+        let sbss = sbss as *mut usize;
+        let ebss = ebss as *mut usize;
+        core::slice::from_mut_ptr_range(sbss..ebss).fill(0);
+    }
+    // (sbss as usize..ebss as usize).for_each(|a| unsafe { (a as *mut u8).write_volatile(0) });
 }
 
 fn show_seg() {
@@ -210,11 +244,15 @@ fn show_seg() {
     xprlntln(sbss, "sbss");
     xprlntln(ebss, "ebss");
     xprlntln(end, "end");
+    let text_size = etext as usize - start as usize;
+    let (m, k, b) = tools::size_to_mkb(text_size);
+    println!("text size:   {}MB {}KB {}Bytes (stext..etext)", m, k, b);
     let kernel_size = end as usize - start as usize;
     let (m, k, b) = tools::size_to_mkb(kernel_size);
-    println!("kernel static size: {}MB {}KB {}Bytes", m, k, b);
+    println!("total size:  {}MB {}KB {}Bytes (start..end)", m, k, b);
 }
 
+#[inline(always)]
 pub fn current_sp() -> usize {
     let ret: usize;
     unsafe {

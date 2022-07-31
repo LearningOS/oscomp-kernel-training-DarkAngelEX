@@ -8,6 +8,7 @@ use crate::{
     local,
     memory::{
         address::{PageCount, UserAddr},
+        allocator::frame,
         user_ptr::{Read, UserPtr, UserReadPtr, UserWritePtr, Write},
     },
     process::Process,
@@ -36,6 +37,7 @@ impl<'a> UserCheck<'a> {
     where
         T: UserType,
     {
+        let allocator = &mut frame::default_allocator();
         // misalign check
         if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
             return Err(SysError::EFAULT);
@@ -43,7 +45,7 @@ impl<'a> UserCheck<'a> {
         let mut uptr = UserAddr::try_from(ptr)?;
 
         let check_impl = UserCheckImpl::new(self.process);
-        check_impl.read_check_async(ptr).await?;
+        check_impl.read_check_async(ptr, allocator).await?;
 
         let mut len = 0;
         let mut ch_is_null = move || {
@@ -61,7 +63,7 @@ impl<'a> UserCheck<'a> {
         loop {
             let nxt_ptr = ptr.offset(len as isize);
             if nxt_ptr.as_usize() % PAGE_SIZE == 0 {
-                check_impl.read_check_async(nxt_ptr).await?;
+                check_impl.read_check_async(nxt_ptr, allocator).await?;
             }
             if ch_is_null() {
                 break;
@@ -106,14 +108,17 @@ impl<'a> UserCheck<'a> {
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(SysError::EFAULT);
         }
+        let allocator = &mut frame::default_allocator();
         let mut cur = UserAddr::try_from(ptr)?.floor();
         let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
         let check_impl = UserCheckImpl::new(self.process);
         while cur != uend4k {
             let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
             // if error occur will change status by exception
-            check_impl.read_check_async::<u8>(cur_ptr).await?;
-            cur.add_page_assign(PageCount::from_usize(1));
+            check_impl
+                .read_check_async::<u8>(cur_ptr, allocator)
+                .await?;
+            cur.add_page_assign(PageCount(1));
         }
         let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
         Ok(UserData::new(unsafe { &*slice }))
@@ -125,6 +130,7 @@ impl<'a> UserCheck<'a> {
         len: usize,
     ) -> SysR<UserDataMut<T>> {
         // println!("tran 0");
+        let allocator = &mut frame::default_allocator();
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             println!(
                 "[kernel]user write ptr check fail: no align. ptr: {:#x} align: {}",
@@ -138,7 +144,9 @@ impl<'a> UserCheck<'a> {
         let check_impl = UserCheckImpl::new(self.process);
         while cur != uend4k {
             let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
-            check_impl.write_check_async::<u8>(cur_ptr).await?;
+            check_impl
+                .write_check_async::<u8>(cur_ptr, allocator)
+                .await?;
             cur.add_page_assign(PageCount(1));
         }
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
@@ -156,7 +164,10 @@ impl<'a> UserCheck<'a> {
         }
         let check_impl = UserCheckImpl::new(self.process);
         check_impl
-            .atomic_u32_check_async(UserWritePtr::from_usize(ptr.as_usize()))
+            .atomic_u32_check_async(
+                UserWritePtr::from_usize(ptr.as_usize()),
+                &mut frame::default_allocator(),
+            )
             .await?;
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut().cast(), 1);
         Ok(UserDataMut::new(slice))

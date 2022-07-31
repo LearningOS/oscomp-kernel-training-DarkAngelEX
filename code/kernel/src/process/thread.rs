@@ -12,12 +12,14 @@ use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use ftl_util::{error::SysR, fs::VfsInode};
-use riscv::register::sstatus;
+use ftl_util::error::SysR;
+use riscv::register::sstatus::{self, SPP};
+use vfs::VfsFile;
 
 use crate::{
     futex::{Futex, FutexIndex, RobustListHead, WakeStatus, FUTEX_BITSET_MATCH_ANY},
     hart::floating,
+    local,
     memory::{
         self,
         address::{PageCount, UserAddr},
@@ -30,14 +32,19 @@ use crate::{
         Sig,
     },
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    timer,
     trap::context::UKContext,
     user::check::UserCheck,
     xdebug::PRINT_SYSCALL_ALL,
 };
 
 use super::{
-    children::ChildrenSet, fd::FdTable, search, tid::TidHandle, AliveProcess, CloneFlag, Dead,
-    Process, Tid,
+    children::ChildrenSet,
+    fd::FdTable,
+    resource::{ProcessTimer, ThreadTimer},
+    search,
+    tid::TidHandle,
+    AliveProcess, CloneFlag, Dead, Process, Tid,
 };
 
 pub struct ThreadGroup {
@@ -109,6 +116,7 @@ impl Thread {
     }
     /// 此函数将在线程首次进入用户态前执行一次, 忽略页错误
     pub async fn cleartid(&self) {
+        stack_trace!();
         if let Some(ptr) = self.inner().clear_child_tid.nonnull_mut() {
             while let Ok(buf) = UserCheck::new(&self.process).writable_value(ptr).await {
                 if PRINT_SYSCALL_ALL {
@@ -127,6 +135,34 @@ impl Thread {
     }
     pub fn exit_send_signal(&self) -> Option<Sig> {
         self.inner().exit_signal
+    }
+    pub fn timer(&self) -> &ThreadTimer {
+        &self.inner().timer
+    }
+    pub fn timer_enter_thread(&self) {
+        let timer = &mut self.inner().timer;
+        timer.enter_thread(timer::now());
+    }
+    pub fn timer_leave_thread(&self) {
+        let timer = &mut self.inner().timer;
+        timer.leave_thread(timer::now());
+        timer.maybe_submit(&self.process);
+    }
+    /// 刷新当前线程的计时器并提交至进程
+    pub fn timer_fence(&self) {
+        let timer = &mut self.inner().timer;
+        timer.timer_fence(timer::now());
+        timer.submit(&mut *self.process.timer.lock());
+    }
+    pub fn timer_into_user(&self) {
+        let timer = &mut self.inner().timer;
+        timer.enter_user(timer::now());
+        timer.maybe_submit(&self.process);
+    }
+    pub fn timer_leave_user(&self) {
+        let timer = &mut self.inner().timer;
+        timer.leave_user(timer::now());
+        timer.maybe_submit(&self.process);
     }
 }
 
@@ -160,21 +196,23 @@ pub struct ThreadInner {
     pub futex_index: FutexIndex,
     /// 通过exit退出的线程将为true
     pub exited: bool,
+    /// 时间统计
+    pub timer: ThreadTimer,
 }
 
 impl Thread {
     pub fn new_initproc(
-        cwd: Arc<dyn VfsInode>,
+        cwd: Arc<VfsFile>,
         elf_data: &[u8],
         args: Vec<String>,
         envp: Vec<String>,
     ) -> Arc<Self> {
-        let reverse_stack = PageCount::from_usize(2);
+        let reverse_stack = PageCount(2);
         let (user_space, user_sp, entry_point, auxv) =
             UserSpace::from_elf(elf_data, reverse_stack).unwrap();
         unsafe { user_space.raw_using() };
         let (user_sp, argc, argv, xenvp) =
-            user_space.push_args(user_sp.into(), &args, &envp, &auxv, reverse_stack);
+            user_space.push_args(user_sp, &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
         drop(args);
         let (tid, pid) = super::tid::alloc_tid_pid();
@@ -195,6 +233,7 @@ impl Thread {
                 fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(i32::MIN),
+            timer: Mutex::new(ProcessTimer::ZERO),
         });
         let mut thread = Self {
             tid,
@@ -211,16 +250,19 @@ impl Thread {
                 robust_list: UserInOutPtr::null(),
                 futex_index: FutexIndex::new(),
                 exited: false,
+                timer: ThreadTimer::ZERO,
             }),
         };
+        let mut sstatus = sstatus::read();
+        sstatus.set_sie(false);
+        sstatus.set_spie(false);
+        sstatus.set_spp(SPP::User);
         thread.inner.get_mut().uk_context.exec_init(
             user_sp,
             entry_point,
-            sstatus::read(),
+            sstatus,
             floating::default_fcsr(),
-            argc,
-            argv,
-            xenvp,
+            (argc, argv, xenvp),
         );
         let thread = Arc::new(thread);
         process
@@ -274,6 +316,7 @@ impl Thread {
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
                 exited: false,
+                timer: ThreadTimer::ZERO,
             }),
         });
         search::insert_thread(&thread);
@@ -285,6 +328,7 @@ impl Thread {
             .process
             .alive_then(|a| a.threads.push(&thread))
             .unwrap();
+        local::all_hart_fence_i();
         Ok(thread)
     }
     pub fn clone_thread(
@@ -316,6 +360,7 @@ impl Thread {
                 robust_list: inner.robust_list,
                 futex_index: inner.futex_index.fork(),
                 exited: false,
+                timer: ThreadTimer::ZERO,
             }),
         });
         search::insert_thread(&thread);
@@ -327,6 +372,7 @@ impl Thread {
             .process
             .alive_then(|a| a.threads.push(&thread))
             .unwrap();
+        // 不需要刷新指令缓存
         Ok(thread)
     }
 
@@ -352,7 +398,7 @@ impl Thread {
             .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))
             .unwrap();
         if let Some(fx) = fx.as_ref() {
-            self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
+            self.inner().futex_index.insert(ua, Arc::downgrade(fx));
         }
         fx
     }

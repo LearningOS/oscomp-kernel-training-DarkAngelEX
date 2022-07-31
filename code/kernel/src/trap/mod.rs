@@ -45,22 +45,22 @@ pub fn run_user(cx: &mut UKContext) {
 }
 
 #[no_mangle]
-pub fn kernel_default_trap() {
+pub fn kernel_default_trap(a0: usize) {
     stack_trace!();
     match scause::read().cause() {
         scause::Trap::Interrupt(_) => kernel_interrupt::kernel_default_interrupt(),
-        scause::Trap::Exception(_) => kernel_exception::kernel_default_exception(),
+        scause::Trap::Exception(_) => kernel_exception::kernel_default_exception(a0),
     }
 }
 
 #[inline(always)]
 pub unsafe fn set_kernel_default_trap() {
     extern "C" {
-        fn __kernel_default_vector();
+        fn __kernel_default_trap_vector();
         fn __kernel_default_trap_entry();
     }
     if true {
-        stvec::write(__kernel_default_vector as usize, TrapMode::Vectored);
+        stvec::write(__kernel_default_trap_vector as usize, TrapMode::Vectored);
     } else {
         stvec::write(__kernel_default_trap_entry as usize, TrapMode::Direct);
     }

@@ -1,10 +1,11 @@
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::{async_tools::ASysR, error::SysR, fs::File};
+use ftl_util::{async_tools::ASysR, error::SysR};
+use vfs::File;
 
 use crate::{
     memory::{
         address::UserAddr4K,
-        allocator::frame,
+        allocator::frame::{self, FrameAllocator},
         asid::Asid,
         page_table::{PTEFlags, PageTableEntry},
         user_space::{AccessType, UserArea},
@@ -14,7 +15,6 @@ use crate::{
     syscall::SysError,
     tools::{
         self,
-        allocator::TrackerAllocator,
         range::URange,
         xasync::{HandlerID, TryR, TryRunFail},
         DynDropRun,
@@ -66,7 +66,13 @@ pub trait UserAreaHandler: Send + 'static {
     /// 新加入管理器时将调用此函数 保证范围内无映射 此函数是唯一标记 &mut 的函数
     ///
     /// 必须设置正确的id
-    fn init(&mut self, id: HandlerID, pt: &mut PageTable, all: URange) -> SysR<()>;
+    fn init(
+        &mut self,
+        id: HandlerID,
+        pt: &mut PageTable,
+        all: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()>;
     /// 此项初始化后禁止修改
     fn max_perm(&self) -> PTEFlags {
         PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U
@@ -84,16 +90,40 @@ pub trait UserAreaHandler: Send + 'static {
     /// try_xx user_space获得页表所有权，进程一定是有效的
     ///
     /// 如果操作失败且返回Async则改为调用 a_map.
-    fn map_spec(&self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>>;
-    fn map(&mut self, pt: &mut PageTable, range: URange) -> TryR<(), Box<dyn AsyncHandler>> {
-        self.map_spec(pt, range)
+    fn map_spec(
+        &self,
+        pt: &mut PageTable,
+        range: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> TryR<(), Box<dyn AsyncHandler>>;
+    fn map(
+        &mut self,
+        pt: &mut PageTable,
+        range: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> TryR<(), Box<dyn AsyncHandler>> {
+        stack_trace!();
+        self.map_spec(pt, range, allocator)
     }
     /// 从 src 复制 range 到 dst, dst 获得所有权
     ///
     /// 保证范围内无有效映射
-    fn copy_map_spec(&self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()>;
-    fn copy_map(&mut self, src: &mut PageTable, dst: &mut PageTable, r: URange) -> SysR<()> {
-        self.copy_map_spec(src, dst, r)
+    fn copy_map_spec(
+        &self,
+        src: &mut PageTable,
+        dst: &mut PageTable,
+        r: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()>;
+    fn copy_map(
+        &mut self,
+        src: &mut PageTable,
+        dst: &mut PageTable,
+        r: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
+        stack_trace!();
+        self.copy_map_spec(src, dst, r, allocator)
     }
     /// 如果操作失败且返回Async则改为调用 a_page_fault.
     fn page_fault_spec(
@@ -101,14 +131,17 @@ pub trait UserAreaHandler: Send + 'static {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>>;
     fn page_fault(
         &mut self,
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
-        self.page_fault_spec(pt, addr, access)
+        stack_trace!();
+        self.page_fault_spec(pt, addr, access, allocator)
     }
     /// 所有权取消映射
     ///
@@ -117,18 +150,30 @@ pub trait UserAreaHandler: Send + 'static {
     /// 保证范围内不存在共享映射
     ///
     /// 调用后页表必须移除映射
-    fn unmap_spec(&self, pt: &mut PageTable, range: URange);
-    fn unmap(&mut self, pt: &mut PageTable, range: URange) {
-        self.unmap_spec(pt, range);
+    fn unmap_spec(&self, pt: &mut PageTable, range: URange, allocator: &mut dyn FrameAllocator);
+    fn unmap(&mut self, pt: &mut PageTable, range: URange, allocator: &mut dyn FrameAllocator) {
+        stack_trace!();
+        self.unmap_spec(pt, range, allocator);
     }
     /// 所有权取消映射一个页
     ///
     /// 保证此地址被映射 保证不是共享映射
     ///
     /// 调用后页表必须移除映射
-    fn unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K);
-    fn unmap_ua(&mut self, pt: &mut PageTable, addr: UserAddr4K) {
-        self.unmap_ua_spec(pt, addr)
+    fn unmap_ua_spec(
+        &self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        allocator: &mut dyn FrameAllocator,
+    );
+    fn unmap_ua(
+        &mut self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        allocator: &mut dyn FrameAllocator,
+    ) {
+        stack_trace!();
+        self.unmap_ua_spec(pt, addr, allocator)
     }
     /// 以 addr 为界切除 all 左侧, 即返回 all.start..addr, 自身变为 addr..all.end
     ///
@@ -159,19 +204,20 @@ pub trait UserAreaHandler: Send + 'static {
         &self,
         pt: &mut PageTable,
         range: URange,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<(), Box<dyn AsyncHandler>> {
         stack_trace!();
         if range.start >= range.end {
             return Ok(());
         }
         let perm = self.perm();
-        let allocator = &mut frame::defualt_allocator();
-        for r in pt.each_pte_iter(range) {
+        let alloc_same = unsafe { &mut *core::ptr::addr_of_mut!(*allocator) };
+        for r in pt.each_pte_iter(range, allocator) {
             let (_addr, pte) = r?;
             if pte.is_valid() {
                 continue;
             }
-            pte.alloc_by(perm, allocator)?;
+            pte.alloc_by(perm, alloc_same)?;
         }
         Ok(())
     }
@@ -181,8 +227,8 @@ pub trait UserAreaHandler: Send + 'static {
         src: &mut PageTable,
         dst: &mut PageTable,
         r: URange,
+        allocator: &mut dyn FrameAllocator,
     ) -> SysR<()> {
-        let allocator = &mut frame::defualt_allocator();
         for a in tools::range::ur_iter(r) {
             let src = src.try_get_pte_user(a);
             if src.is_none() {
@@ -204,6 +250,7 @@ pub trait UserAreaHandler: Send + 'static {
         pt: &mut PageTable,
         addr: UserAddr4K,
         access: AccessType,
+        allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         stack_trace!();
         access
@@ -212,26 +259,36 @@ pub trait UserAreaHandler: Send + 'static {
         // 可能同时进入的另一个线程已经处理了这个页错误
         pt.force_map_user(
             addr,
-            || {
-                let pa = frame::defualt_allocator().alloc()?.consume();
+            |allocator| {
+                let pa = allocator.alloc()?.consume();
                 pa.as_bytes_array_mut().fill(0);
                 Ok(PageTableEntry::new(pa.into(), self.map_perm()))
             },
-            &mut frame::defualt_allocator(),
+            allocator,
         )?;
         Ok(pt.flush_va_asid_fn(addr))
     }
     /// 所有权释放页表中存在映射的空间
-    fn default_unmap_spec(&self, pt: &mut PageTable, range: URange) {
+    fn default_unmap_spec(
+        &self,
+        pt: &mut PageTable,
+        range: URange,
+        allocator: &mut dyn FrameAllocator,
+    ) {
         stack_trace!();
-        pt.unmap_user_range_lazy(self.user_area(range), &mut frame::defualt_allocator());
+        pt.unmap_user_range_lazy(self.user_area(range), allocator);
     }
     /// 所有权释放页表中存在映射的空间
-    fn default_unmap_ua_spec(&self, pt: &mut PageTable, addr: UserAddr4K) {
+    fn default_unmap_ua_spec(
+        &self,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        allocator: &mut dyn FrameAllocator,
+    ) {
         stack_trace!();
         let pte = pt.try_get_pte_user(addr).unwrap();
         debug_assert!(pte.is_leaf());
-        unsafe { pte.dealloc_by(&mut frame::defualt_allocator()) };
+        unsafe { pte.dealloc_by(allocator) };
     }
 }
 
@@ -286,7 +343,7 @@ impl AsyncHandler for FileAsyncHandler {
                 return Err(SysError::EACCES);
             }
             let mut flush = None;
-            let allocator = &mut frame::defualt_allocator();
+            let allocator = &mut frame::default_allocator();
             for addr in tools::range::ur_iter(range) {
                 debug_assert!(addr >= self.start);
                 let offset = addr.into_usize() - self.start.into_usize() + self.offset;
@@ -320,7 +377,7 @@ impl AsyncHandler for FileAsyncHandler {
             if !self.file.can_read_offset() {
                 return Err(SysError::EACCES);
             }
-            let allocator = &mut frame::defualt_allocator();
+            let allocator = &mut frame::default_allocator();
             debug_assert!(addr >= self.start);
             let offset = addr.into_usize() - self.start.into_usize() + self.offset;
             let frame = allocator.alloc()?;

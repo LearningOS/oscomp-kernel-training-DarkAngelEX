@@ -1,7 +1,8 @@
-use core::{future::Future, pin::Pin};
+use core::future::Future;
 
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::{device::BlockDevice, utc_time::UtcTime};
+use ftl_util::device::BlockDevice;
+use vfs::{VfsClock, VfsSpawner};
 
 use crate::{
     fat_list::FatList,
@@ -12,37 +13,37 @@ use crate::{
 
 pub async fn test(
     device: impl BlockDevice,
-    utc_time: impl Fn() -> UtcTime + Send + Sync + 'static,
-    spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
+    clock: Box<dyn VfsClock>,
+    spawner: Box<dyn VfsSpawner>,
 ) {
     stack_trace!();
     println!("test start!");
     let device = Arc::new(device);
     info_test(device.clone()).await;
-    system_test(device.clone(), Box::new(utc_time), spawn_fn).await;
+    system_test(device.clone(), clock, spawner).await;
     println!("test end!");
 }
 
 fn system_test(
     device: Arc<dyn BlockDevice>,
-    utc_time: Box<dyn Fn() -> UtcTime + Send + Sync + 'static>,
-    spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>) + Clone + Send + 'static,
+    clock: Box<dyn VfsClock>,
+    spawner: Box<dyn VfsSpawner>,
 ) -> impl Future<Output = ()> + Send + 'static {
     async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
-        for (i, (dt, name)) in dir.list(&manager).await.unwrap().into_iter().enumerate() {
+        for (i, (dt, name)) in dir.list(manager).await.unwrap().into_iter().enumerate() {
             println!("{:>2} <{}> {:?}", i, name, dt);
         }
     }
     async move {
-        let mut manager = Fat32Manager::new(100, 100, 100, 100, 100);
-        manager.init(device, utc_time).await;
+        let mut manager = Fat32Manager::new(0, 100, 100, 100, 100, 100);
+        manager.init(device, clock).await;
         let root = manager.search_dir(&[]).await.unwrap();
         println!("/// show file ///");
         show_dir(&root, &manager).await;
         println!("/// show dir0 ///");
         let dir0 = root.search_dir(&manager, "dir0").await.unwrap();
         show_dir(&dir0, &manager).await;
-        manager.spawn_sync_task((2, 2), spawn_fn).await;
+        manager.spawn_sync_task((2, 2), spawner).await;
         println!("/// create dir2 0 ///");
         root.create_dir(&manager, "dir2", false, false)
             .await

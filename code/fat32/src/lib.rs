@@ -20,6 +20,8 @@
 #![feature(int_roundings)]
 #![feature(get_mut_unchecked)]
 #![feature(split_array)]
+#![feature(array_try_map)]
+#![feature(sync_unsafe_cell)]
 #![allow(dead_code)]
 
 const PRINT_BLOCK_OP: bool = false;
@@ -27,6 +29,7 @@ const PRINT_INODE_OP: bool = false;
 
 #[macro_use]
 extern crate ftl_util;
+extern crate vfs;
 #[macro_use]
 extern crate bitflags;
 extern crate alloc;
@@ -40,10 +43,11 @@ mod mutex;
 
 mod inode;
 mod tools;
+pub mod vfs_interface;
 pub mod xtest;
 
 pub use ftl_util::{
-    async_tools::ASysR, console_init, debug_init, device::BlockDevice, utc_time::UtcTime,
+    async_tools::ASysR, console_init, debug_init, device::BlockDevice, time::UtcTime,
 };
 pub use inode::{dir_inode::DirInode, file_inode::FileInode, AnyInode};
 pub use layout::name::Attr;

@@ -40,7 +40,9 @@ impl Drop for AsidInfoTracker {
 }
 
 impl AtomicAsidInfo {
-    const ZERO: Self = AtomicAsidInfo(AtomicUsize::new(0));
+    pub const fn zero() -> Self {
+        AtomicAsidInfo(AtomicUsize::new(0))
+    }
     pub fn new(ai: AsidInfo) -> Self {
         Self(AtomicUsize::new(ai.into_usize()))
     }
@@ -53,9 +55,11 @@ impl AtomicAsidInfo {
 }
 
 impl AsidInfoTracker {
-    const ZERO: Self = AsidInfoTracker {
-        asid_info: AtomicAsidInfo::ZERO,
-    };
+    const fn zero() -> Self {
+        Self {
+            asid_info: AtomicAsidInfo::zero(),
+        }
+    }
     fn alloc() -> Self {
         alloc_asid()
     }
@@ -89,7 +93,7 @@ impl_usize_from!(AsidVersion, v, v.0);
 impl_usize_from!(AsidInfo, v, v.0);
 
 impl Asid {
-    // const ZERO: Self = Asid(0);
+    pub const ZERO: Self = Asid(0);
     fn is_valid(&self) -> bool {
         self.into_usize() < MAX_ASID
     }
@@ -182,7 +186,7 @@ pub fn alloc_asid() -> AsidInfoTracker {
     if USING_ASID {
         ASID_MANAGER.lock().alloc()
     } else {
-        AsidInfoTracker::ZERO
+        AsidInfoTracker::zero()
     }
 }
 
@@ -229,7 +233,7 @@ pub fn asid_test() {
     let pa2 = pax2.data();
     let flags = PTEFlags::R | PTEFlags::W;
 
-    let allocator = &mut frame::defualt_allocator();
+    let allocator = &mut frame::default_allocator();
 
     space_1.map_par(va4k, pa1, flags, allocator).unwrap();
     space_2.map_par(va4k, pa2, flags, allocator).unwrap();

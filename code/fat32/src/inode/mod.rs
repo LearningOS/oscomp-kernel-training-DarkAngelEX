@@ -1,5 +1,10 @@
+#![allow(clippy::upper_case_acronyms)]
+
 use alloc::sync::Arc;
-use ftl_util::{error::SysRet, utc_time::UtcTime};
+use ftl_util::{
+    error::{SysError, SysR, SysRet},
+    time::Instant,
+};
 
 use crate::{
     layout::name::{Attr, RawShortName},
@@ -30,16 +35,16 @@ impl AnyInode {
             AnyInode::File(v) => v.attr(),
         }
     }
-    pub fn file(&self) -> Option<&FileInode> {
+    pub fn file(&self) -> SysR<&FileInode> {
         match self {
-            AnyInode::Dir(_) => None,
-            AnyInode::File(v) => Some(v),
+            AnyInode::Dir(_) => Err(SysError::EISDIR),
+            AnyInode::File(v) => Ok(v),
         }
     }
-    pub fn dir(&self) -> Option<&DirInode> {
+    pub fn dir(&self) -> SysR<&DirInode> {
         match self {
-            AnyInode::Dir(v) => Some(v),
-            AnyInode::File(_) => None,
+            AnyInode::Dir(v) => Ok(v),
+            AnyInode::File(_) => Err(SysError::ENOTDIR),
         }
     }
     pub fn short_name(&self) -> Align8<RawShortName> {
@@ -53,7 +58,7 @@ impl AnyInode {
         }
     }
     /// return None of this is dir
-    pub fn file_bytes(&self) -> Option<usize> {
+    pub fn file_bytes(&self) -> SysR<usize> {
         self.file().map(|f| f.bytes())
     }
     pub async fn blk_num(&self, manager: &Fat32Manager) -> SysRet {
@@ -69,7 +74,7 @@ impl AnyInode {
             AnyInode::File(v) => &v.inode,
         }
     }
-    pub async fn update_time(&self, access: Option<&UtcTime>, modify: Option<&UtcTime>) {
+    pub async fn update_time(&self, access: Option<Instant>, modify: Option<Instant>) {
         if access.is_none() && modify.is_none() {
             return;
         }
@@ -111,5 +116,8 @@ impl IID {
     /// 簇内目录项偏移
     pub fn off(self, cluster_bytes_log2: u32) -> usize {
         (self.0 as usize) & ((1 << (cluster_bytes_log2 - 5)) - 1)
+    }
+    pub fn get(self) -> u64 {
+        self.0
     }
 }

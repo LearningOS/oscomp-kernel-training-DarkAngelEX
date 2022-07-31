@@ -1,5 +1,6 @@
+#![allow(clippy::upper_case_acronyms)]
+
 use core::{
-    cell::UnsafeCell,
     ops::{Deref, DerefMut},
     sync::atomic::{AtomicUsize, Ordering},
 };
@@ -205,39 +206,5 @@ impl AIDAllocator {
     /// 递增1并返回原来的值
     pub fn alloc(&self) -> AID {
         AID(self.0.fetch_add(1, Ordering::Relaxed))
-    }
-}
-
-pub struct SyncUnsafeCell<T: ?Sized> {
-    data: UnsafeCell<T>,
-}
-
-unsafe impl<T: ?Sized> Send for SyncUnsafeCell<T> {}
-unsafe impl<T: ?Sized> Sync for SyncUnsafeCell<T> {}
-
-impl<T> SyncUnsafeCell<T> {
-    pub const fn new(value: T) -> Self {
-        Self {
-            data: UnsafeCell::new(value),
-        }
-    }
-    pub fn into_inner(self) -> T {
-        self.data.into_inner()
-    }
-    pub unsafe fn get(&self) -> &mut T {
-        // We can just cast the pointer from `UnsafeCell<T>` to `T` because of
-        // #[repr(transparent)]. This exploits libstd's special status, there is
-        // no guarantee for user code that this will work in future versions of the compiler!
-        &mut *(self as *const SyncUnsafeCell<T> as *const T as *mut T)
-    }
-    pub fn get_mut(&mut self) -> &mut T {
-        self.data.get_mut()
-    }
-}
-
-impl<T> const From<T> for SyncUnsafeCell<T> {
-    /// Creates a new `UnsafeCell<T>` containing the given value.
-    fn from(t: T) -> SyncUnsafeCell<T> {
-        SyncUnsafeCell::new(t)
     }
 }

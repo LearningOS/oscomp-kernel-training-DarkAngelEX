@@ -6,7 +6,7 @@ use alloc::sync::Arc;
 use riscv::register::scause::Exception;
 
 use crate::{
-    memory::{address::UserAddr, AccessType},
+    memory::{address::UserAddr, allocator::frame, AccessType},
     process::thread::Thread,
     tools::xasync::TryRunFail,
     xdebug::PRINT_PAGE_FAULT,
@@ -17,12 +17,13 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
     let mut do_exit = false;
     let mut user_fatal_error = || {
         println!(
-            "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
+            "[kernel]user_fatal_error page_fault {:?} {:?} {:?} stval: {:#x} sepc: {:#x} ra: {:#x}",
             thread.process.pid(),
             thread.tid(),
             e,
             stval,
-            sepc
+            sepc,
+            thread.get_context().ra()
         );
         if stval != sepc {
             print!("error IR: ");
@@ -48,25 +49,26 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             reset_color!()
         );
     }
-    let rv = {
-        || {
-            stack_trace!();
-            let addr = UserAddr::try_from(stval as *const u8).map_err(|_| ())?;
-            let perm = AccessType::from_exception(e).unwrap();
-            let addr = addr.floor();
-            match thread
-                .process
-                .alive_then(|a| a.user_space.page_fault(addr, perm))
-                .map_err(|_| ())?
-            {
-                Ok(x) => Ok(Ok(x)),
-                Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
-                Err(TryRunFail::Error(_e)) => Err(()),
-            }
+    let rv = || {
+        stack_trace!();
+        let addr = UserAddr::try_from(stval as *const u8)?;
+        let perm = AccessType::from_exception(e).unwrap();
+        let addr = addr.floor();
+        let allocator = &mut frame::default_allocator();
+        match thread
+            .process
+            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))?
+        {
+            Ok(x) => Ok(Ok(x)),
+            Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
+            Err(TryRunFail::Error(e)) => Err(e),
         }
-    }();
-    match rv {
-        Err(()) => user_fatal_error(),
+    };
+    match rv() {
+        Err(e) => {
+            println!("page fault handle fail: {:?}", e);
+            user_fatal_error()
+        }
         Ok(Ok(flush)) => {
             if PRINT_PAGE_FAULT {
                 println!("{}", to_green!("success handle exception"));

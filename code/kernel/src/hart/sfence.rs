@@ -1,13 +1,14 @@
 #![allow(dead_code)]
 use core::{arch::asm, mem::MaybeUninit};
 
+use crate::memory::asid::USING_ASID;
+
 #[inline(always)]
 pub fn fence_i() {
     unsafe { asm!("fence.i") };
 }
-///
+
 /// sfence_vma have two parameter, rs1 is address, rs2 is asid.
-///
 #[inline(always)]
 pub fn sfence_vma_all_global() {
     unsafe {
@@ -21,8 +22,10 @@ pub fn sfence_vma_asid(asid: usize) {
         asm!("sfence.vma x0, {}", in(reg)asid);
     }
 }
+
 #[inline(always)]
 pub fn sfence_vma_all_no_global() {
+    assert!(!USING_ASID);
     #[allow(unused_assignments)]
     unsafe {
         #[allow(clippy::uninit_assumed_init)]
@@ -34,9 +37,7 @@ pub fn sfence_vma_all_no_global() {
     }
 }
 
-///
-/// no fflush global TLB.
-///
+/// don't fflush global TLB.
 #[inline(always)]
 pub fn sfence_vma_va_global(va: usize) {
     unsafe {
@@ -45,16 +46,14 @@ pub fn sfence_vma_va_global(va: usize) {
         );
     }
 }
-///
+
 /// fflush all TLB in this va but not global TLB
-///
 #[inline(always)]
 pub fn sfence_vma_va(va: usize) {
     sfence_vma_va_asid(va, 0);
 }
-///
-/// no fflush global TLB.
-///
+
+/// don't fflush global TLB.
 #[inline(always)]
 pub fn sfence_vma_va_asid(va: usize, asid: usize) {
     #[allow(unused_assignments)]

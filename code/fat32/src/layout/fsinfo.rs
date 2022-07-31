@@ -74,12 +74,12 @@ impl RawFsInfo {
 
 impl Display for RawFsInfo {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        write!(f, "signature_head:  {:#X}\n", self.signature_head)?;
-        write!(f, "signature_1:     {:#X}\n", self.signature_1)?;
-        write!(f, "cluster_free:    {}\n", self.cluster_free)?;
-        write!(f, "cluster_next:    {}\n", self.cluster_next)?;
-        write!(f, "reversed_1:      {:?}\n", self.reversed_1)?;
-        write!(f, "signature_trail: {:#X}\n", self.signature_trail)?;
+        writeln!(f, "signature_head:  {:#X}", self.signature_head)?;
+        writeln!(f, "signature_1:     {:#X}", self.signature_1)?;
+        writeln!(f, "cluster_free:    {}", self.cluster_free)?;
+        writeln!(f, "cluster_next:    {}", self.cluster_next)?;
+        writeln!(f, "reversed_1:      {:?}", self.reversed_1)?;
+        writeln!(f, "signature_trail: {:#X}", self.signature_trail)?;
         Ok(())
     }
 }

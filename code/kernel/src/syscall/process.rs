@@ -11,15 +11,13 @@ use crate::{
     fs, local,
     memory::{
         address::{PageCount, UserAddr},
+        allocator::frame,
         asid::USING_ASID,
         auxv::{AuxHeader, AT_BASE},
         user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
         UserSpace,
     },
-    process::{
-        resource::{self, RLimit},
-        search, thread, userloop, CloneFlag, Pid,
-    },
+    process::{search, thread, userloop, CloneFlag, Pid},
     sync::even_bus::{self, Event},
     timer,
     tools::allocator::from_usize_allocator::FromUsize,
@@ -59,12 +57,12 @@ impl Syscall<'_> {
         let set_child_tid = flag
             .contains(CloneFlag::CLONE_CHILD_SETTID)
             .then_some(ctid)
-            .unwrap_or(UserInOutPtr::null());
+            .unwrap_or_else(UserInOutPtr::null);
 
         let clear_child_tid = flag
             .contains(CloneFlag::CLONE_CHILD_CLEARTID)
             .then_some(ctid)
-            .unwrap_or(UserInOutPtr::null());
+            .unwrap_or_else(UserInOutPtr::null);
 
         let tls = flag.contains(CloneFlag::CLONE_SETTLS).then_some(tls);
 
@@ -101,6 +99,7 @@ impl Syscall<'_> {
             }
         }
         userloop::spawn(new);
+        local::try_wake_idle_hart();
         if PRINT_SYSCALL_PROCESS || PRINT_THIS {
             println!("\t-> {:?}", tid);
         }
@@ -138,15 +137,12 @@ impl Syscall<'_> {
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
-            Some(Ok(&mut self.alive_then(|a| a.cwd.clone()).path_iter())),
-            path.as_str(),
+            (Ok(self.alive_then(|a| a.cwd.clone())), path.as_str()),
             OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await?;
-        let mut iter = inode.path_iter();
-        iter.next_back();
-        let dir = fs::open_file(Some(Ok(&mut iter)), "", OpenFlags::RDONLY, Mode(0o500)).await?;
+        let dir = inode.parent()?.unwrap();
         let elf_data = inode.read_all().await?;
         let (mut user_space, user_sp, mut entry_point, mut auxv) =
             UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
@@ -175,7 +171,7 @@ impl Syscall<'_> {
         }
         unsafe { user_space.using() };
         let (user_sp, argc, argv, envp) =
-            user_space.push_args(user_sp.into(), &args, &alive.envp, &auxv, args_size);
+            user_space.push_args(user_sp, &args, &alive.envp, &auxv, args_size);
         drop(auxv);
         drop(args);
         // reset stack_id
@@ -188,7 +184,7 @@ impl Syscall<'_> {
         let cx = self.thread.get_context();
         let sstatus = cx.user_sstatus;
         let fcsr = cx.user_fx.fcsr;
-        cx.exec_init(user_sp, entry_point, sstatus, fcsr, argc, argv, envp);
+        cx.exec_init(user_sp, entry_point, sstatus, fcsr, (argc, argv, envp));
         local::all_hart_fence_i();
         check.assume_success();
         // rtld_fini: 动态链接器析构函数
@@ -238,6 +234,9 @@ impl Syscall<'_> {
                 p
             };
             if let Some(process) = process {
+                // 找到了一个子进程
+                let timer_sub = *process.timer.lock();
+                self.process.timer.lock().append_child(&timer_sub);
                 if let Some(exit_code_ptr) = exit_code_ptr.nonnull_mut() {
                     let exit_code = process.exit_code.load(Ordering::Relaxed);
                     let access = UserCheck::new(self.process)
@@ -320,7 +319,7 @@ impl Syscall<'_> {
                 .pgid
                 .load(Ordering::Relaxed),
         };
-        return Ok(pid);
+        Ok(pid)
     }
     pub fn sys_getpid(&mut self) -> SysRet {
         stack_trace!();
@@ -401,12 +400,12 @@ impl Syscall<'_> {
             None => None,
             Some(rem) => Some(UserCheck::new(self.process).writable_value(rem).await?),
         };
-        let now = timer::get_time();
+        let now = timer::now();
         let dur = req.as_duration();
         let deadline = now + dur;
         let ret = timer::sleep::sleep(dur, &self.process.event_bus).await;
         if let Some(rem) = rem {
-            let time_end = timer::get_time();
+            let time_end = timer::now();
             let time_rem = if time_end < deadline {
                 deadline - time_end
             } else {
@@ -427,7 +426,11 @@ impl Syscall<'_> {
             self.alive_then(|a| a.user_space.get_brk())
         } else {
             let brk = UserAddr::try_from(brk as *const u8)?;
-            self.alive_then(|a| a.user_space.reset_brk(brk))?;
+            if let Some(asid) =
+                self.alive_then(|a| a.user_space.reset_brk(brk, &mut frame::default_allocator()))?
+            {
+                local::all_hart_sfence_vma_asid(asid);
+            }
             brk
         };
         // println!("    -> {:#x}", brk);
@@ -467,49 +470,6 @@ impl Syscall<'_> {
         xwrite!(version, b"1.0.0");
         xwrite!(machine, b"riscv64");
         xwrite!(domainname, b"192.168.0.1");
-        Ok(0)
-    }
-    /// 设置系统资源
-    pub async fn sys_prlimit64(&mut self) -> SysRet {
-        stack_trace!();
-        let (pid, resource, new_limit, old_limit): (
-            Pid,
-            u32,
-            UserReadPtr<RLimit>,
-            UserWritePtr<RLimit>,
-        ) = self.cx.into();
-
-        if PRINT_SYSCALL_PROCESS {
-            println!(
-                "sys_prlimit64 pid:{:?}, resource:{}, new_ptr: {:#x}, old_ptr: {:#x}",
-                pid,
-                resource,
-                new_limit.as_usize(),
-                old_limit.as_usize()
-            );
-        }
-
-        let uc = UserCheck::new(self.process);
-        let new = match new_limit.is_null() {
-            false => Some(uc.readonly_value(new_limit).await?.load()),
-            true => None,
-        };
-        if (PRINT_SYSCALL_PROCESS || false) && let Some(new) = new {
-            println!("new: {:?}", new);
-        }
-        let old;
-        match pid {
-            Pid(0) => {
-                old = resource::prlimit_impl(self.process, resource, new)?;
-            }
-            _ => {
-                let process = search::find_proc(pid).ok_or(SysError::ESRCH)?;
-                old = resource::prlimit_impl(&process, resource, new)?;
-            }
-        };
-        if !old_limit.is_null() {
-            uc.writable_value(old_limit).await?.store(old);
-        }
         Ok(0)
     }
 }

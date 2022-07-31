@@ -11,7 +11,7 @@ pub trait RawAllocator<T> {
     fn alloc(&mut self) -> Result<T, FrameOOM>;
     unsafe fn dealloc(&mut self, value: T);
 }
-pub trait TrackerAllocator<T, H: Own<T>> {
+pub trait TrackerAllocator<T, H: Own<T>>: Send + Sync + 'static {
     fn alloc(&mut self) -> Result<H, FrameOOM>;
     unsafe fn dealloc(&mut self, value: T);
 }

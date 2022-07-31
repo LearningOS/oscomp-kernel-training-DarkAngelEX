@@ -1,9 +1,81 @@
-use core::time::Duration;
+use core::{
+    ops::{Add, AddAssign, Sub, SubAssign},
+    time::Duration,
+};
 
 use crate::error::{SysError, SysR};
 
+/// 起始时间为 1980-1-1 00:00
+#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Instant(Duration);
+
+impl Instant {
+    /// 1980-1-1 00:00
+    pub const BASE: Self = Instant(Duration::ZERO);
+    pub const MAX: Self = Instant(Duration::MAX);
+    pub fn year_mount_day_hour_min_second(self) -> (usize, usize, usize, usize, usize, usize) {
+        let seconds = self.0.as_secs();
+        let mins = seconds / 60;
+        let hours = mins / 60;
+        let days = hours / 24;
+        let mounts = days / 30;
+        let years = mounts / 12;
+        (
+            (years + 1980) as usize,
+            (mounts - years * 12) as usize,
+            (days - mounts / 30) as usize,
+            (hours - days * 24) as usize,
+            (mins - hours * 60) as usize,
+            (seconds - mins * 60) as usize,
+        )
+    }
+    pub fn days(self) -> usize {
+        self.year_mount_day_hour_min_second().2
+    }
+    pub fn subsec_nanos(self) -> u32 {
+        self.0.subsec_nanos()
+    }
+    pub fn as_secs(self) -> u64 {
+        self.0.as_secs()
+    }
+    pub fn as_nanos(self) -> u128 {
+        self.0.as_nanos()
+    }
+}
+
+impl Add<Duration> for Instant {
+    type Output = Self;
+    fn add(self, rhs: Duration) -> Self::Output {
+        Self(self.0 + rhs)
+    }
+}
+impl Sub<Duration> for Instant {
+    type Output = Self;
+    fn sub(self, rhs: Duration) -> Self::Output {
+        debug_assert!(self.0 >= rhs);
+        Self(self.0 - rhs)
+    }
+}
+impl Sub for Instant {
+    type Output = Duration;
+    fn sub(self, rhs: Self) -> Self::Output {
+        debug_assert!(self >= rhs);
+        self.0 - rhs.0
+    }
+}
+impl AddAssign<Duration> for Instant {
+    fn add_assign(&mut self, rhs: Duration) {
+        self.0 += rhs;
+    }
+}
+impl SubAssign<Duration> for Instant {
+    fn sub_assign(&mut self, rhs: Duration) {
+        self.0 -= rhs;
+    }
+}
+
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeSpec {
     pub tv_sec: usize,
     pub tv_nsec: usize, // 纳秒
@@ -27,7 +99,7 @@ impl TimeSpec {
         self.tv_nsec == Self::UTIME_OMIT
     }
     pub fn valid(&self) -> SysR<()> {
-        if self.tv_nsec >= 1000_000_000 {
+        if self.tv_nsec >= 1_000_000_000 {
             return Err(SysError::EINVAL);
         }
         Ok(())
@@ -38,18 +110,49 @@ impl TimeSpec {
             tv_nsec: dur.subsec_nanos() as usize,
         }
     }
+    pub fn from_instant(now: Instant) -> Self {
+        Self::from_duration(now - Instant::BASE)
+    }
     pub fn as_duration(self) -> Duration {
         Duration::from_nanos(self.tv_nsec as u64) + Duration::from_secs(self.tv_sec as u64)
+    }
+    pub fn as_instant(self) -> Instant {
+        Instant::BASE + self.as_duration()
+    }
+    pub fn user_map(self, now: impl FnOnce() -> Instant) -> SysR<Option<Self>> {
+        if self.is_now() {
+            Ok(Some(Self::from_duration(now() - Instant::BASE)))
+        } else if self.is_omit() {
+            Ok(None)
+        } else {
+            self.valid()?;
+            Ok(Some(self))
+        }
+    }
+}
+
+impl From<Duration> for TimeSpec {
+    fn from(dur: Duration) -> Self {
+        Self::from_duration(dur)
+    }
+}
+impl From<Instant> for TimeSpec {
+    fn from(now: Instant) -> Self {
+        Self::from_instant(now)
     }
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeVal {
     pub tv_sec: usize,
     pub tv_usec: usize, // 微妙
 }
 impl TimeVal {
+    pub const ZERO: Self = Self {
+        tv_sec: 0,
+        tv_usec: 0,
+    };
     pub fn from_duration(dur: Duration) -> Self {
         Self {
             tv_sec: dur.as_secs() as usize,
@@ -58,8 +161,14 @@ impl TimeVal {
     }
 }
 
+impl From<Duration> for TimeVal {
+    fn from(dur: Duration) -> Self {
+        Self::from_duration(dur)
+    }
+}
+
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct TimeZone {
     pub tz_minuteswest: u32,
     pub tz_dsttime: u32,
@@ -103,5 +212,13 @@ impl UtcTime {
     }
     pub fn nanosecond(&self) -> usize {
         self.nano
+    }
+    pub fn from_instant(now: Instant) -> Self {
+        let (y, mo, d, h, mi, s) = now.year_mount_day_hour_min_second();
+        UtcTime {
+            ymd: (y, mo, d),
+            hms: (h, mi, s),
+            nano: now.subsec_nanos() as usize,
+        }
     }
 }

@@ -108,6 +108,7 @@ impl CacheManagerInner {
             return Ok((c.clone(), None));
         }
         let (mut cache, replace_cid) = self.get_new_uninit_block()?;
+        stack_trace!();
         self.device
             .read_block(self.get_sid_of_cid(cid).0 as usize, cache.init_buffer()?)
             .await?;

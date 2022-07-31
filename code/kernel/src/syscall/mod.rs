@@ -10,10 +10,12 @@ use crate::{
 };
 
 mod fs;
-pub mod futex;
+mod futex;
 mod mmap;
+mod net;
 mod process;
-pub mod random;
+mod random;
+mod resource;
 mod signal;
 mod thread;
 mod time;
@@ -41,6 +43,7 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_PREAD64: usize = 67;
+const SYSCALL_PSELECT6: usize = 72;
 const SYSCALL_PPOLL: usize = 73;
 const SYSCALL_READLINKAT: usize = 78;
 const SYSCALL_NEWFSTATAT: usize = 79;
@@ -70,6 +73,7 @@ const SYSCALL_TIMES: usize = 153;
 const SYSCALL_SETPGID: usize = 154;
 const SYSCALL_GETPGID: usize = 155;
 const SYSCALL_UNAME: usize = 160;
+const SYSCALL_GETRUSAGE: usize = 165;
 const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
@@ -77,6 +81,15 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
+const SYSCALL_SOCKET: usize = 198;
+const SYSCALL_BIND: usize = 200;
+const SYSCALL_LISTEN: usize = 201;
+const SYSCALL_ACCEPT: usize = 202;
+const SYSCALL_CONNECT: usize = 203;
+const SYSCALL_GETSOCKNAME: usize = 204;
+const SYSCALL_SENDTO: usize = 206;
+const SYSCALL_RECVFROM: usize = 207;
+const SYSCALL_SETSOCKOPT: usize = 208;
 const SYSCALL_BRK: usize = 214;
 const SYSCALL_MUNMAP: usize = 215;
 const SYSCALL_CLONE: usize = 220;
@@ -86,6 +99,7 @@ const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAIT4: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
 const SYSCALL_GETRANDOM: usize = 278;
+const SYSCALL_MEMBARRIER: usize = 283;
 
 pub struct Syscall<'a> {
     cx: &'a mut UKContext,
@@ -136,6 +150,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_READV => self.sys_readv().await,
             SYSCALL_WRITEV => self.sys_writev().await,
             SYSCALL_PREAD64 => self.sys_pread64().await,
+            SYSCALL_PSELECT6 => self.sys_pselect6().await,
             SYSCALL_PPOLL => self.sys_ppoll().await,
             SYSCALL_READLINKAT => self.sys_readlinkat().await,
             SYSCALL_NEWFSTATAT => self.sys_newfstatat().await,
@@ -165,6 +180,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_SETPGID => self.sys_setpgid(),
             SYSCALL_GETPGID => self.sys_getpgid(),
             SYSCALL_UNAME => self.sys_uname().await,
+            SYSCALL_GETRUSAGE => self.sys_getrusage().await,
             SYSCALL_GETTIMEOFDAY => self.sys_gettimeofday().await,
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETPPID => self.sys_getppid(),
@@ -172,6 +188,15 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETEUID => self.sys_geteuid(),
             SYSCALL_GETEGID => self.sys_getegid(),
             SYSCALL_GETTID => self.sys_gettid(),
+            SYSCALL_SOCKET => self.sys_socket(),
+            SYSCALL_BIND => self.sys_bind(),
+            SYSCALL_LISTEN => self.sys_listen(),
+            SYSCALL_ACCEPT => self.sys_accept(),
+            SYSCALL_CONNECT => self.sys_connect(),
+            SYSCALL_GETSOCKNAME => self.sys_getsockname(),
+            SYSCALL_SENDTO => self.sys_sendto().await,
+            SYSCALL_RECVFROM => self.sys_recvfrom().await,
+            SYSCALL_SETSOCKOPT => self.sys_setsockopt(),
             SYSCALL_BRK => self.sys_brk(),
             SYSCALL_MUNMAP => self.sys_munmap(),
             SYSCALL_CLONE => self.sys_clone().await,
@@ -181,7 +206,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_WAIT4 => self.sys_wait4().await,
             SYSCALL_PRLIMIT64 => self.sys_prlimit64().await,
             SYSCALL_GETRANDOM => self.sys_getrandom().await,
-
+            SYSCALL_MEMBARRIER => self.sys_membarrier(),
             unknown => panic!("[kernel]unsupported syscall_id: {}", unknown),
         };
         let a0 = match result {

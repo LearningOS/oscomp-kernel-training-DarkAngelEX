@@ -8,6 +8,7 @@ use core::{
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc, vec::Vec};
 use ftl_util::{device::BlockDevice, error::SysR};
+use vfs::VfsSpawner;
 
 use crate::{
     layout::bpb::RawBPB,
@@ -51,7 +52,7 @@ impl FatList {
             max_cid: CID(0),
             sector_bytes: 0,
             u32_per_sector_log2: 0,
-            max_unit_num: max_cache_num,
+            max_unit_num: 0,
             dirty_semaphore: Semaphore::new(max_dirty),
             manager: Arc::new(SleepMutex::new(ListManager::new(aid_alloc, max_cache_num))),
         }
@@ -181,21 +182,14 @@ impl FatList {
     /// 并发同步系统 参数为最大并发任务数
     ///
     /// 必须将此函数spawn后将waker更新进manager.sync_waker
-    pub async fn sync_task(
-        &mut self,
-        concurrent: usize,
-        mut spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-            + Clone
-            + Send
-            + 'static,
-    ) {
+    pub async fn sync_task(&mut self, concurrent: usize, spawner: Box<dyn VfsSpawner>) {
         let init_manager = Arc::get_mut(&mut self.manager).unwrap().get_mut();
         let device = init_manager.device.clone();
         let sync_start = init_manager.store_start.clone();
         let sync = init_manager.sync_pending.clone();
         let info_cluster_id = init_manager.info_cluster_id;
         let manager = self.manager.clone();
-        let mut spawn_fn_x = spawn_fn.clone();
+        let spawner_x = spawner.box_clone();
         let this_waker = GetWakerFuture.await;
         let future = async move {
             let sem = Arc::new(AtomicUsize::new(concurrent));
@@ -219,7 +213,7 @@ impl FatList {
                         let waker = waker.clone();
                         let buffer = buffer.clone();
                         let sid = ListManager::get_sid_of_unit_id(start, uid);
-                        spawn_fn_x(Box::pin(async move {
+                        spawner_x.spawn(Box::pin(async move {
                             device.write_block(sid.0 as usize, &*buffer).await.unwrap();
                             sem.fetch_add(1, Ordering::Relaxed);
                             waker.wake();
@@ -242,7 +236,7 @@ impl FatList {
                 let manager = manager.clone();
                 let sem = sem.clone();
                 let waker = waker.clone();
-                spawn_fn_x(Box::pin(async move {
+                spawner_x.spawn(Box::pin(async move {
                     device.write_block(info_cluster_id, &*buffer).await.unwrap();
                     manager.lock().await.fsinfo_leave_device();
                     sem.fetch_add(1, Ordering::Relaxed);
@@ -250,7 +244,7 @@ impl FatList {
                 }));
             }
         };
-        spawn_fn(Box::pin(future));
+        spawner.spawn(Box::pin(future));
         WaitingEventFuture(|| unsafe { self.manager.unsafe_get().sync_waker.as_ref().is_some() })
             .await;
 

@@ -5,14 +5,14 @@ use core::{
 };
 
 use alloc::vec::Vec;
-use riscv::register::scause::Exception;
+use riscv::register::{scause::Exception, sstatus};
 
 use crate::{
     local,
     memory::{
         self,
         address::{OutOfUserRange, UserAddr},
-        allocator::frame::global::FrameTracker,
+        allocator::frame::{self, global::FrameTracker},
         user_ptr::{Policy, UserPtr},
         PTEFlags, UserSpace,
     },
@@ -264,14 +264,6 @@ impl<T: Clone + Copy + 'static, P: Policy + 'static> UserType for UserPtr<T, P> 
         Self::from_usize(a)
     }
 }
-// impl<T: 'static> UserType for *mut T {
-//     fn is_null(&self) -> bool {
-//         *self == core::ptr::null_mut()
-//     }
-//     fn new_usize(a: usize) -> Self {
-//         a as Self
-//     }
-// }
 
 /// 持有 `AutoSie` 将关闭中断, 可以嵌套或使用在异步上下文
 pub struct AutoSie;
@@ -288,8 +280,39 @@ impl AutoSie {
 }
 
 impl Drop for AutoSie {
+    #[inline(always)]
     fn drop(&mut self) {
         local::always_local().sie_dec();
+    }
+}
+
+/// 不需要全局控制器介入的sie控制器, 必须以栈的方式使用
+pub struct NativeAutoSie(bool);
+
+impl !Send for NativeAutoSie {}
+impl !Sync for NativeAutoSie {}
+
+impl NativeAutoSie {
+    #[inline(always)]
+    pub fn new() -> Self {
+        let v = sstatus::read().sie();
+        if v {
+            unsafe {
+                sstatus::clear_sie();
+            }
+        }
+        Self(v)
+    }
+}
+
+impl Drop for NativeAutoSie {
+    #[inline(always)]
+    fn drop(&mut self) {
+        if self.0 {
+            unsafe {
+                sstatus::set_sie();
+            }
+        }
     }
 }
 
@@ -337,45 +360,28 @@ pub async fn test() {
     let initproc = search::get_initproc();
     let check = UserCheckImpl::new(&initproc);
     let mut array = 123usize;
-    let rw_data = &mut array as *mut _ as usize;
-    let ro_data = "123456".as_ptr() as *const u8 as usize;
-    let mut un_data = 1234567 as *const u8 as usize;
-    check.read_check_async::<u8>(rw_data.into()).await.unwrap();
-    check.read_check_async::<u8>(ro_data.into()).await.unwrap();
-    check
-        .read_check_async::<u8>(un_data.into())
-        .await
-        .unwrap_err();
-    check.write_check_async::<u8>(rw_data.into()).await.unwrap();
-    check
-        .write_check_async::<u8>(ro_data.into())
-        .await
-        .unwrap_err();
-    check
-        .write_check_async::<u8>(un_data.into())
-        .await
-        .unwrap_err();
-    check.atomic_u32_check_async(rw_data.into()).await.unwrap();
-    check
-        .atomic_u32_check_async(ro_data.into())
-        .await
-        .unwrap_err();
+    let rw = &mut array as *mut _ as usize;
+    let ro = "123456".as_ptr() as *const u8 as usize;
+    let mut un = 1234567 as *const u8 as usize;
+    let alloc = &mut frame::default_allocator();
+    check.read_check_rough::<u8>(rw.into(), alloc).unwrap();
+    check.read_check_rough::<u8>(ro.into(), alloc).unwrap();
+    check.read_check_rough::<u8>(un.into(), alloc).unwrap_err();
+    check.write_check_rough::<u8>(rw.into(), alloc).unwrap();
+    check.write_check_rough::<u8>(ro.into(), alloc).unwrap_err();
+    check.write_check_rough::<u8>(un.into(), alloc).unwrap_err();
+    check.atomic_u32_check_rough(rw.into(), alloc).unwrap();
+    check.atomic_u32_check_rough(ro.into(), alloc).unwrap_err();
     use crate::memory::{address::UserAddr4K, map_segment::handler::map_all};
     let mut space = UserSpace::from_global().unwrap();
     let h = map_all::MapAllHandler::box_new(PTEFlags::U);
     let start = UserAddr4K::from_usize_check(0x1000);
     let range = start..start.add_one_page();
-    space.map_segment.force_push(range, h).unwrap();
+    space.map_segment.force_push(range, h, alloc).unwrap();
     unsafe { space.raw_using() };
-    un_data = 0x1000 as *const u8 as usize;
-    check
-        .read_check_async::<u8>(un_data.into())
-        .await
-        .unwrap_err();
-    check
-        .write_check_async::<u8>(un_data.into())
-        .await
-        .unwrap_err();
+    un = 0x1000 as *const u8 as usize;
+    check.read_check_rough::<u8>(un.into(), alloc).unwrap_err();
+    check.write_check_rough::<u8>(un.into(), alloc).unwrap_err();
     memory::set_satp_by_global();
     println!("[FTL OS]user_check test pass");
 }

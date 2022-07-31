@@ -1,12 +1,13 @@
-use core::{future::Future, pin::Pin};
+pub mod file;
 
 use alloc::{boxed::Box, sync::Arc};
 use ftl_util::{
     device::BlockDevice,
     error::{SysError, SysR},
-    utc_time::UtcTime,
+    time::Instant,
     xdebug,
 };
+use vfs::{VfsClock, VfsSpawner};
 
 use crate::{
     block::CacheManager,
@@ -17,58 +18,55 @@ use crate::{
 };
 
 pub struct Fat32Manager {
+    pub dev: usize,
     pub(crate) bpb: RawBPB,
     pub(crate) list: FatList,
     pub(crate) caches: CacheManager,
     pub(crate) inodes: InodeManager,
     root_dir: Option<DirInode>,
-    utc_time: Option<Box<dyn Fn() -> UtcTime + Send + Sync + 'static>>,
+    clock: Option<Box<dyn VfsClock>>,
 }
 
 impl Fat32Manager {
     pub fn new(
-        list_max_dirty: usize,
-        list_max_cache: usize,
-        block_max_dirty: usize,
-        block_max_cache: usize,
-        inode_target_free: usize,
+        dev: usize,
+        list_max_dirty: usize,    // FAT链表 脏扇区限制
+        list_max_cache: usize,    // FAT链表 缓存扇区限制
+        block_max_dirty: usize,   // 数据簇 脏簇限制
+        block_max_cache: usize,   // 数据簇 缓存簇限制
+        inode_target_free: usize, // 最大缓存的未使用inode数量
     ) -> Self {
         Self {
+            dev,
             bpb: RawBPB::zeroed(),
             list: FatList::empty(list_max_dirty, list_max_cache),
             caches: CacheManager::new(block_max_dirty, block_max_cache),
             inodes: InodeManager::new(inode_target_free),
             root_dir: None,
-            utc_time: None,
+            clock: None,
         }
     }
-    pub async fn init(
-        &mut self,
-        device: Arc<dyn BlockDevice>,
-        utc_time: Box<dyn Fn() -> UtcTime + Send + Sync + 'static>,
-    ) {
+    pub async fn init(&mut self, device: Arc<dyn BlockDevice>, clock: Box<dyn VfsClock>) {
         xdebug::assert_sie_closed();
         self.bpb.load(&*device).await;
         self.list.init(&self.bpb, 0, device.clone()).await;
         self.caches.init(&self.bpb, device.clone()).await;
         self.inodes.init();
-        self.utc_time = Some(utc_time);
+        self.clock = Some(clock);
         self.init_root();
     }
-    pub fn bpb(&self) -> &RawBPB {
+    pub(crate) fn bpb(&self) -> &RawBPB {
         &self.bpb
     }
     pub async fn spawn_sync_task(
         &mut self,
         (concurrent_list, concurrent_cache): (usize, usize),
-        spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-            + Clone
-            + Send
-            + 'static,
+        spawner: Box<dyn VfsSpawner>,
     ) {
-        let x = spawn_fn.clone();
-        self.list.sync_task(concurrent_list, x).await;
-        self.caches.sync_task(concurrent_cache, spawn_fn).await;
+        self.list
+            .sync_task(concurrent_list, spawner.box_clone())
+            .await;
+        self.caches.sync_task(concurrent_cache, spawner).await;
     }
     fn init_root(&mut self) {
         let cache = self
@@ -139,7 +137,7 @@ impl Fat32Manager {
     /// 返回UTC时间
     ///
     /// (year, mount, day), (hour, mount, second), millisecond
-    pub(crate) fn utc_time(&self) -> UtcTime {
-        self.utc_time.as_ref().unwrap()()
+    pub(crate) fn now(&self) -> Instant {
+        self.clock.as_ref().unwrap().now()
     }
 }

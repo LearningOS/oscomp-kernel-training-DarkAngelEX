@@ -110,7 +110,7 @@ unsafe fn store_fx(fx: &mut FloatContext) {
         return;
     }
     fx.need_save = 0;
-    let mut t: usize = 1; // alloc a register but not zero.
+    let mut _t: usize = 1; // alloc a register but not zero.
     asm!("
             fsd  f0,  0*8({0})
             fsd  f1,  1*8({0})
@@ -147,7 +147,6 @@ unsafe fn store_fx(fx: &mut FloatContext) {
             csrr {1}, fcsr
             sw  {1}, 32*8({0})
         ", in(reg) fx,
-        inout(reg) t
+        inout(reg) _t
     );
-    drop(t);
 }

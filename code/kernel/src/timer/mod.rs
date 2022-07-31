@@ -3,18 +3,14 @@ use core::{
     time::Duration,
 };
 
-use ftl_util::{
-    error::SysR,
-    time::{TimeSpec, TimeVal, TimeZone},
-    utc_time::UtcTime,
+use ftl_util::time::{Instant, TimeSpec, TimeVal, TimeZone, UtcTime};
+
+use crate::{
+    board::CLOCK_FREQ, config::TIME_INTERRUPT_PER_SEC, hart::sbi, local, riscv::register::time,
+    xdebug::PRINT_TICK,
 };
 
-use crate::{board::CLOCK_FREQ, hart::sbi, riscv::register::time, xdebug::PRINT_TICK};
-
 pub mod sleep;
-
-/// how many time interrupt per second
-const TIME_INTERRUPT_PER_SEC: usize = 20;
 
 pub fn init() {
     sleep::sleep_queue_init();
@@ -42,19 +38,6 @@ impl Tms {
     }
 }
 
-pub fn time_sepc_to_utc(ts: TimeSpec) -> SysR<Option<UtcTime>> {
-    if ts.is_omit() {
-        return Ok(None);
-    }
-    let p = if ts.is_now() {
-        get_time_ticks()
-    } else {
-        ts.valid()?;
-        TimeTicks::from_time_spec(ts)
-    };
-    Ok(Some(p.utc()))
-}
-
 pub fn dur_to_tv_tz(dur: Duration) -> (TimeVal, TimeZone) {
     let tv = TimeVal::from_duration(dur);
     let tz = TimeZone {
@@ -75,6 +58,9 @@ impl TimeTicks {
     }
     pub fn into_usize(self) -> usize {
         self.0 as usize
+    }
+    pub fn from_duration(dur: Duration) -> Self {
+        Self::from_second(dur.as_secs() as u128) + Self::from_nanosecond(dur.subsec_nanos() as u128)
     }
     pub fn from_time_spec(ts: TimeSpec) -> Self {
         Self::from_second(ts.tv_sec as u128) + Self::from_nanosecond(ts.tv_nsec as u128)
@@ -107,10 +93,10 @@ impl TimeTicks {
         Self::mul_div_128_tick::<CLOCK_FREQ, 1000>(v)
     }
     pub fn from_microsecond(v: u128) -> Self {
-        Self::mul_div_128_tick::<CLOCK_FREQ, 1000_000>(v)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1_000_000>(v)
     }
     pub fn from_nanosecond(v: u128) -> Self {
-        Self::mul_div_128_tick::<CLOCK_FREQ, 1000_000_000>(v)
+        Self::mul_div_128_tick::<CLOCK_FREQ, 1_000_000_000>(v)
     }
     pub fn second(self) -> u128 {
         Self::mul_div_128::<1, CLOCK_FREQ>(self.0)
@@ -119,14 +105,14 @@ impl TimeTicks {
         Self::mul_div_128::<1000, CLOCK_FREQ>(self.0)
     }
     pub fn microsecond(self) -> u128 {
-        Self::mul_div_128::<1000_000, CLOCK_FREQ>(self.0)
+        Self::mul_div_128::<1_000_000, CLOCK_FREQ>(self.0)
     }
     pub fn nanosecond(self) -> u128 {
-        Self::mul_div_128::<1000_000_000, CLOCK_FREQ>(self.0)
+        Self::mul_div_128::<1_000_000_000, CLOCK_FREQ>(self.0)
     }
     pub fn utc(self) -> UtcTime {
         let second = self.second();
-        let nano = (self.nanosecond() - second * 1000_000_000) as usize;
+        let nano = (self.nanosecond() - second * 1_000_000_000) as usize;
         let second = second as usize;
         let min = second / 60;
         let hour = min / 60;
@@ -169,9 +155,9 @@ impl From<usize> for TimeTicks {
     }
 }
 
-pub fn get_time() -> Duration {
+pub fn now() -> Instant {
     let cur = get_time_ticks();
-    Duration::from_micros(cur.microsecond() as u64)
+    Instant::BASE + Duration::from_micros(cur.microsecond() as u64)
 }
 
 fn get_time_ticks() -> TimeTicks {
@@ -187,10 +173,16 @@ pub fn set_next_trigger() {
     set_time_ticks(get_time_ticks() + TimeTicks(CLOCK_FREQ / TIME_INTERRUPT_PER_SEC as u128));
 }
 
+pub fn set_next_trigger_ex(dur: Duration) {
+    set_time_ticks(get_time_ticks() + TimeTicks::from_duration(dur));
+}
+
 pub fn tick() {
     if PRINT_TICK {
         print!("!");
     }
+    let local = local::hart_local();
+    local.local_rcu.tick();
     sleep::check_timer();
     set_next_trigger();
 }

@@ -143,7 +143,7 @@ impl DirInode {
         }
         // 寻找短文件名
         let finder = Self::short_detect(inode, manager, name).await?;
-        let utc_time = manager.utc_time();
+        let now = manager.now();
         let parent_cid = inode.parent.inner.shared_lock().cid_start;
         let this_cid = inode.cache.inner.shared_lock().cid_start;
         debug_assert!(parent_cid.is_next());
@@ -155,13 +155,13 @@ impl DirInode {
             .caches
             .get_block_init(cid, |a| {
                 RawName::cluster_init(a);
-                a[0].short_init().init_dot_dir(2, parent_cid, &utc_time);
-                a[1].short_init().init_dot_dir(1, this_cid, &utc_time);
+                a[0].short_init().init_dot_dir(2, parent_cid, now);
+                a[1].short_init().init_dot_dir(1, this_cid, now);
             })
             .await?;
         let mut short = Align8(RawShortName::zeroed());
         finder.apply(&mut short);
-        short.init_except_name(cid, 0, Attr::new(true, read_only, hidden), &utc_time);
+        short.init_except_name(cid, 0, Attr::new(true, read_only, hidden), now);
         Self::create_entry_impl(inode, manager, name, short).await?;
         Ok(())
     }
@@ -182,10 +182,10 @@ impl DirInode {
         }
         // 寻找短文件名
         let finder = Self::short_detect(inode, manager, name).await?;
-        let utc_time = manager.utc_time();
+        let now = manager.now();
         let mut short = Align8(RawShortName::zeroed());
         finder.apply(&mut short);
-        short.init_except_name(CID::FREE, 0, Attr::new(false, read_only, hidden), &utc_time);
+        short.init_except_name(CID::FREE, 0, Attr::new(false, read_only, hidden), now);
         Self::create_entry_impl(inode, manager, name, short).await?;
         Ok(())
     }
@@ -484,7 +484,7 @@ impl DirInode {
                 });
             })
             .await?;
-        return Ok(EntryPlace::new(cluster_off, cid_2, entry_off - 1));
+        Ok(EntryPlace::new(cluster_off, cid_2, entry_off - 1))
     }
     /// 返回短文件名 文件名首项位置 短文件名位置
     async fn search_impl(
@@ -497,12 +497,12 @@ impl DirInode {
             if b.is_same(name) {
                 return ControlFlow::Break((b.short, b.place()));
             }
-            try { () }
+            try {}
         })
         .await?;
         match r {
             ControlFlow::Continue(()) => Ok(None),
-            ControlFlow::Break(b) => return Ok(Some(b)),
+            ControlFlow::Break(b) => Ok(Some(b)),
         }
     }
     async fn raw_entry_try_fold<A, B>(
@@ -732,7 +732,7 @@ impl DirName {
             .all(|(a, b)| a.eq_ignore_ascii_case(&b))
     }
     fn is_same(&self, str: &str) -> bool {
-        if self.long.len() != 0 {
+        if !self.long.is_empty() {
             return self.long_same(str);
         }
         let buf = &mut [0; 12];

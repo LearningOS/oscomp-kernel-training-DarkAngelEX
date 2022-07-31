@@ -1,5 +1,8 @@
 use alloc::boxed::Box;
-use ftl_util::{device::BlockDevice, utc_time::UtcTime};
+use ftl_util::{
+    device::BlockDevice,
+    time::{Instant, UtcTime},
+};
 
 use crate::tools::{self, Align8, CID};
 
@@ -36,6 +39,9 @@ impl Attr {
     pub fn writable(self) -> bool {
         !self.readonly()
     }
+    pub fn rw(self) -> (bool, bool) {
+        (true, self.writable())
+    }
 }
 
 /// 文件名不足8则填充0x20 子目录扩展名填充0x20
@@ -70,31 +76,26 @@ impl RawShortName {
         unsafe { core::mem::MaybeUninit::zeroed().assume_init() }
     }
     /// generate ".." "."
-    pub(crate) fn init_dot_dir(&mut self, dot_n: usize, cid: CID, utc_time: &UtcTime) {
+    pub(crate) fn init_dot_dir(&mut self, dot_n: usize, cid: CID, now: Instant) {
         debug_assert!(self.is_free());
         self.name[..dot_n].fill(b'.');
         self.name[dot_n..].fill(0x20);
         self.ext.fill(0x20);
         self.attributes = Attr::DIRECTORY;
         self.reversed = 0;
-        self.init_time(utc_time);
+        self.init_time(now);
         self.set_cluster(cid);
         self.file_bytes = 0;
     }
-    pub(crate) fn init_except_name(
-        &mut self,
-        cid: CID,
-        file_bytes: u32,
-        attr: Attr,
-        utc_time: &UtcTime,
-    ) {
+    pub(crate) fn init_except_name(&mut self, cid: CID, file_bytes: u32, attr: Attr, now: Instant) {
         self.reversed = 0;
         self.set_cluster(cid);
         self.attributes = attr;
-        self.init_time(utc_time);
+        self.init_time(now);
         self.file_bytes = file_bytes;
     }
-    pub fn init_time(&mut self, utc_time: &UtcTime) {
+    pub fn init_time(&mut self, now: Instant) {
+        let utc_time = UtcTime::from_instant(now);
         self.set_access_time(&utc_time);
         self.set_access_time(&utc_time);
         self.set_modify_time(&utc_time);
@@ -125,7 +126,7 @@ impl RawShortName {
         if self.ext[0] == 0x20 {
             return &buf[0..n];
         }
-        buf[n] = '.' as u8;
+        buf[n] = b'.';
         n += 1;
         for &ch in &self.ext {
             if ch == 0x20 {
@@ -178,7 +179,7 @@ impl RawShortName {
     }
     pub fn set_create_time(&mut self, utc_time: &UtcTime) {
         stack_trace!();
-        debug_assert!(utc_time.nano < 1000_000_000);
+        debug_assert!(utc_time.nano < 1_000_000_000);
         let (hms, date) = Self::time_tran(&utc_time.ymd, &utc_time.hms);
         self.create_ms = (utc_time.nano / 10_000_000) as u8;
         self.create_hms = hms;
@@ -249,7 +250,9 @@ impl RawLongName {
         self.checksum = checksum;
         self.zero2 = [0; 2];
     }
+    #[allow(clippy::manual_memcpy)]
     pub fn store_name(&self, dst: &mut [u16; 13]) {
+        // packed 类型成员不能使用函数, 因为没有对齐
         for i in 0..5 {
             dst[i] = self.p1[i];
         }
@@ -260,7 +263,9 @@ impl RawLongName {
             dst[i + 11] = self.p3[i];
         }
     }
+    #[allow(clippy::manual_memcpy)]
     pub fn load_name(&mut self, src: &[u16; 13]) {
+        // packed 类型成员不能使用函数, 因为没有对齐
         for i in 0..5 {
             self.p1[i] = src[i];
         }

@@ -1,7 +1,7 @@
 # Building
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
-MODE := debug
+MODE := release
 ADD_ARGS :=
 ARGS :=
 ARGS += $(ADD_ARGS)
@@ -16,13 +16,14 @@ FS_IMG_SRC := ../fat32-fuse/fat32.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
-SMP := 1
+SMP := 4
 MEMORY_SIZE := 128M
 
 # BOARD
 BOARD ?= qemu
 # SBI ?= rustsbi
 SBI ?= opensbi
+BOOTLOADER_ELF := ../bootloader/$(SBI)-$(BOARD)
 BOOTLOADER := ../bootloader/$(SBI)-$(BOARD).bin
 K210_BOOTLOADER_SIZE := 131072
 
@@ -133,6 +134,18 @@ else
 	python3 -m serial.tools.miniterm --eol LF --dtr 0 --rts 0 --filter direct $(K210-SERIALPORT) 115200
 endif
 
+simulation: build
+	qemu-system-riscv64 \
+		-machine virt \
+		-kernel $(KERNEL_BIN) \
+		-m 128M \
+		-nographic \
+		-smp 2 \
+		-bios $(BOOTLOADER_ELF) \
+		-drive file=$(FS_IMG),if=none,format=raw,id=x0  \
+		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 
+#		-initrd initrd.img
+
 debug: build
 	@tmux new-session -d \
 		"qemu-system-riscv64 -machine virt -nographic -bios $(BOOTLOADER) -m $(MEMORY_SIZE) \
@@ -150,8 +163,14 @@ drun: build
 		-device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0 \
 		-s -S
 
+#	-ex 'file $(KERNEL_ELF)'
+#	-ex 'file ../disk/entry-static.exe'
+#	-ex 'file ../disk/entry-dynamic.exe'
 dgdb:
-	@riscv64-unknown-elf-gdb -ex 'file $(KERNEL_ELF)' -ex 'file ../disk/entry-static.exe' -ex 'set arch riscv:rv64' -ex 'target remote localhost:1234'
+	@riscv64-unknown-elf-gdb \
+		-ex 'file $(KERNEL_ELF)' \
+		-ex 'set arch riscv:rv64' \
+		-ex 'target remote localhost:1234' \
 
 #qemu-riscv64
 

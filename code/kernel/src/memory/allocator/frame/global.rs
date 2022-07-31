@@ -3,15 +3,15 @@
 //! this module will alloc frame(4KB)
 use crate::{
     config::{
-        DIRECT_MAP_BEGIN, DIRECT_MAP_END, INIT_MEMORY_END, KERNEL_OFFSET_FROM_DIRECT_MAP, PAGE_SIZE,
+        DIRECT_MAP_BEGIN, DIRECT_MAP_END, KERNEL_OFFSET_FROM_DIRECT_MAP, MEMORY_INIT_KERNEL_END,
+        PAGE_SIZE,
     },
-    memory::address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
+    memory::{
+        address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
+        allocator::frame::list::FrameList,
+    },
     sync::mutex::SpinNoIrqLock,
-    tools::{
-        allocator::Own,
-        container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
-        error::FrameOOM,
-    },
+    tools::{allocator::Own, error::FrameOOM},
     xdebug::{
         trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
         CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
@@ -19,7 +19,8 @@ use crate::{
 };
 use core::fmt::Debug;
 
-use super::detector::FrameDetector;
+/// 每个帧被释放后将被填充 0xf0f0f0f0_f0f0f0f0, 除了开头的元信息
+pub const FRAME_OVERWRITE_MAGIC: usize = 0xf0f0_f0f0_f0f0_f0f0;
 
 #[derive(Debug)]
 pub struct FrameTracker {
@@ -68,12 +69,30 @@ trait GlobalFrameAllocator {
     }
 }
 
+fn alloc_check(pa: PhyAddrRef4K) {
+    debug_assert!(pa.into_usize() > DIRECT_MAP_BEGIN && pa.into_usize() < DIRECT_MAP_END);
+    if OPEN_MEMORY_TRACE && pa == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
+        trace::call_when_alloc();
+    }
+}
+
+fn dealloc_check(addr: PhyAddrRef4K) {
+    debug_assert!(addr.into_usize() % PAGE_SIZE == 0);
+    debug_assert!(addr.into_usize() > DIRECT_MAP_BEGIN && addr.into_usize() < DIRECT_MAP_END);
+    if OPEN_MEMORY_TRACE && addr == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
+        trace::call_when_dealloc();
+    }
+    FrameList::release_check(addr);
+    if FRAME_DEALLOC_OVERWRITE {
+        addr.as_usize_array_mut().fill(FRAME_OVERWRITE_MAGIC);
+    }
+}
+
 struct StackGlobalFrameAllocator {
     begin: PhyAddrRef4K, // used in recycle check.
     current: PhyAddrRef4K,
     end: PhyAddrRef4K,
-    recycled: NeverCloneLinkedList<PhyAddrRef4K>,
-    detector: FrameDetector,
+    recycled: FrameList,
 }
 
 impl StackGlobalFrameAllocator {
@@ -82,8 +101,7 @@ impl StackGlobalFrameAllocator {
             begin: unsafe { PhyAddrRef4K::from_usize(0) },
             current: unsafe { PhyAddrRef4K::from_usize(0) },
             end: unsafe { PhyAddrRef4K::from_usize(0) },
-            recycled: NeverCloneLinkedList::new(),
-            detector: FrameDetector::new(),
+            recycled: FrameList::new(),
         }
     }
     pub fn init(&mut self, begin: PhyAddrRef4K, end: PhyAddrRef4K) {
@@ -91,10 +109,13 @@ impl StackGlobalFrameAllocator {
         self.begin = begin;
         self.current = begin;
         self.end = end;
+        let m = (usize::from(end) - usize::from(begin)) / 1024 / 1024;
         println!(
-            "StackFrameAllocator init range: [{:#x} - {:#x}]",
+            "StackFrameAllocator init range:
+            [{:#x} - {:#x}] size = {} MB",
             usize::from(begin),
-            usize::from(end)
+            usize::from(end),
+            m
         );
     }
 }
@@ -103,14 +124,7 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         self.recycled.len() + (self.end.into_usize() - self.current.into_usize()) / PAGE_SIZE
     }
     fn alloc(&mut self) -> Result<PhyAddrRef4K, FrameOOM> {
-        fn pa_check(pa: PhyAddrRef4K) {
-            assert!(pa.into_usize() > DIRECT_MAP_BEGIN && pa.into_usize() < DIRECT_MAP_END);
-            if OPEN_MEMORY_TRACE && pa == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
-                trace::call_when_alloc();
-            }
-        }
         let pa = if let Some(pa) = self.recycled.pop() {
-            self.detector.alloc_run(pa);
             pa
         } else if self.current == self.end {
             return Err(FrameOOM);
@@ -119,27 +133,15 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
             self.current.step();
             pa
         };
-        pa_check(pa);
+        alloc_check(pa);
         Ok(pa)
     }
 
     fn dealloc(&mut self, addr: PhyAddrRef4K) {
-        if OPEN_MEMORY_TRACE && addr == PhyAddrRef::<u8>::from(TRACE_ADDR).floor() {
-            trace::call_when_dealloc();
-        }
-        if FRAME_DEALLOC_OVERWRITE {
-            let arr =
-                unsafe { core::slice::from_raw_parts_mut(addr.into_usize() as *mut u8, PAGE_SIZE) };
-            arr.fill(0xf0);
-        }
-        self.detector.dealloc_run(addr);
+        dealloc_check(addr);
         if CLOSE_FRAME_DEALLOC {
             return;
         }
-        // return;
-        // skip null
-        debug_assert!(addr.into_usize() % PAGE_SIZE == 0);
-        assert!(addr.into_usize() > DIRECT_MAP_BEGIN && addr.into_usize() < DIRECT_MAP_END);
         self.recycled.push(addr);
     }
 
@@ -153,6 +155,9 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         let nxt = self.current.add_page(n);
         if nxt > self.end {
             return Err(FrameOOM);
+        }
+        for i in 0..n.0 {
+            alloc_check(self.current.add_page(PageCount(i)));
         }
         self.current = nxt;
         Ok(ret)
@@ -169,13 +174,15 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
         }
         while let Some(pa) = self.recycled.pop() {
             if let Some(target) = range.next() {
-                self.detector.alloc_run(pa);
+                alloc_check(pa);
                 *target = pa;
             } else {
+                self.recycled.push(pa);
                 return Ok(());
             }
         }
         for target in range {
+            alloc_check(self.current);
             *target = self.current;
             self.current.add_page_assign(PageCount(1));
         }
@@ -184,9 +191,12 @@ impl GlobalFrameAllocator for StackGlobalFrameAllocator {
     }
 
     fn dealloc_iter<'a>(&mut self, range: impl Iterator<Item = &'a PhyAddrRef4K>) {
-        range.for_each(|&pa| {
-            self.detector.dealloc_run(pa);
-            self.recycled.push(pa)
+        range.for_each(|&addr| {
+            dealloc_check(addr);
+            if CLOSE_FRAME_DEALLOC {
+                return;
+            }
+            self.recycled.push(addr);
         });
     }
 }
@@ -203,7 +213,7 @@ pub fn init_frame_allocator() {
     println!("[FTL OS]init_frame_allocator");
     FRAME_ALLOCATOR.lock().init(
         PhyAddrRef::<u8>::from(end as usize - KERNEL_OFFSET_FROM_DIRECT_MAP).ceil(),
-        PhyAddrRef::<u8>::from(INIT_MEMORY_END - KERNEL_OFFSET_FROM_DIRECT_MAP).floor(),
+        PhyAddrRef::<u8>::from(MEMORY_INIT_KERNEL_END).floor(),
     );
 }
 // pub fn size() -> usize {
@@ -236,4 +246,8 @@ pub fn alloc_n<const N: usize>() -> Result<[FrameTracker; N], FrameOOM> {
 
 pub unsafe fn dealloc(par: PhyAddrRef4K) {
     FRAME_ALLOCATOR.lock().dealloc(par);
+}
+
+pub unsafe fn dealloc_iter<'a>(range: impl Iterator<Item = &'a PhyAddrRef4K>) {
+    FRAME_ALLOCATOR.lock().dealloc_iter(range);
 }

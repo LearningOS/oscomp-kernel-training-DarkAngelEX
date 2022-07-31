@@ -58,7 +58,7 @@ impl FileInode {
             cur += n;
             buffer = &mut buffer[n..];
         }
-        inode.update_access_time(&manager.utc_time());
+        inode.update_access_time(manager.now());
         inode.short_entry_sync(manager).await?;
         Ok(cur - offset)
     }
@@ -89,7 +89,7 @@ impl FileInode {
         }
         debug_assert!(cur <= end_offset);
         if cur == offset + buffer.len() {
-            inode.update_access_modify_time(&manager.utc_time());
+            inode.update_access_modify_time(manager.now());
             inode.short_entry_sync(manager).await?;
             return Ok(buffer.len());
         }
@@ -113,7 +113,7 @@ impl FileInode {
             buffer = &buffer[n..];
         }
         inode.update_file_bytes(cur);
-        inode.update_access_modify_time(&manager.utc_time());
+        inode.update_access_modify_time(manager.now());
         inode.short_entry_sync(manager).await?;
         Ok(cur - offset)
     }
@@ -139,7 +139,7 @@ impl FileInode {
             buffer = &buffer[n..];
         }
         inode.update_file_bytes(cur);
-        inode.update_access_modify_time(&manager.utc_time());
+        inode.update_access_modify_time(manager.now());
         inode.short_entry_sync(manager).await?;
         Ok(cur - offset)
     }

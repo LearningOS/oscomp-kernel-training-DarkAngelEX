@@ -1,10 +1,15 @@
 use core::time::Duration;
 
 use alloc::boxed::Box;
+use vfs::File;
 
 use crate::{console, sync::SleepMutex};
 
-use ftl_util::{async_tools::ASysRet, fs::File};
+use ftl_util::{
+    async_tools::ASysRet,
+    error::{SysError, SysRet},
+    fs::Seek,
+};
 
 pub struct Stdin;
 
@@ -24,7 +29,7 @@ impl File for Stdin {
         Box::pin(async move {
             const PRINT_STDIN: bool = false;
             let len = buf.len();
-            for i in 0..len {
+            for item in buf {
                 let mut c: usize;
                 if PRINT_STDIN {
                     print!("?");
@@ -45,13 +50,16 @@ impl File for Stdin {
                 if PRINT_STDIN {
                     print!("!");
                 }
-                buf[i] = c as u8;
+                *item = c as u8;
             }
             Ok(len)
         })
     }
     fn write<'a>(&'a self, _buf: &'a [u8]) -> ASysRet {
         panic!("Cannot write to stdin!");
+    }
+    fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
+        Err(SysError::ESPIPE)
     }
 }
 

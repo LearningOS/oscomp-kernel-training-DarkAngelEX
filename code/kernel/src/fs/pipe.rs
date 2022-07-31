@@ -12,8 +12,9 @@ use alloc::{
 use ftl_util::{
     async_tools::ASysRet,
     error::{SysError, SysRet},
-    fs::{File, Seek},
+    fs::Seek,
 };
+use vfs::File;
 
 use crate::{
     config::PAGE_SIZE,
@@ -126,10 +127,9 @@ pub struct PipeReader {
 
 impl Drop for PipeReader {
     fn drop(&mut self) {
-        self.writer
-            .upgrade()
-            .and_then(|w| w.waker.lock().take())
-            .map(|w| w.wake());
+        if let Some(w) = self.writer.upgrade().and_then(|w| w.waker.lock().take()) {
+            w.wake()
+        }
     }
 }
 impl File for PipeReader {
@@ -144,7 +144,7 @@ impl File for PipeReader {
     }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {
-            if buffer.len() == 0 {
+            if buffer.is_empty() {
                 return Ok(0);
             }
             let pipe = self.pipe.lock().await;
@@ -172,10 +172,9 @@ pub struct PipeWriter {
 
 impl Drop for PipeWriter {
     fn drop(&mut self) {
-        self.reader
-            .upgrade()
-            .and_then(|w| w.waker.lock().take())
-            .map(|w| w.wake());
+        if let Some(w) = self.reader.upgrade().and_then(|w| w.waker.lock().take()) {
+            w.wake()
+        }
     }
 }
 
@@ -194,7 +193,7 @@ impl File for PipeWriter {
     }
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet {
         Box::pin(async move {
-            if buffer.len() == 0 {
+            if buffer.is_empty() {
                 return Ok(0);
             }
             let pipe = self.pipe.lock().await;
@@ -229,9 +228,10 @@ impl ReadPipeFuture<'_> {
     }
     fn wake_writer(writer: &Weak<PipeWriter>) -> impl FnMut() + '_ {
         || {
-            writer
-                .upgrade()
-                .map(|w| w.waker.lock().as_ref().map(|w| w.wake_by_ref()));
+            let _: Option<_> = try {
+                writer.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
+                Some(())
+            };
         }
     }
 }
@@ -278,9 +278,10 @@ impl WritePipeFuture<'_> {
     }
     fn wake_reader(reader: &Weak<PipeReader>) -> impl FnMut() + '_ {
         || {
-            reader
-                .upgrade()
-                .map(|w| w.waker.lock().as_ref().map(|w| w.wake_by_ref()));
+            let _: Option<_> = try {
+                reader.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
+                Some(()) // 为了让愚蠢的rust-analyzer不爆红
+            };
         }
     }
 }

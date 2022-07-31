@@ -1,8 +1,9 @@
 use alloc::{collections::BTreeMap, sync::Arc};
 use ftl_util::{
     error::{SysR, SysRet},
-    fs::{File, OpenFlags},
+    fs::OpenFlags,
 };
+use vfs::File;
 
 use crate::{
     config::USER_FNO_DEFAULT,
@@ -30,6 +31,10 @@ impl Fd {
         Self(self.0 + 1)
     }
 }
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct FdSet {}
 
 const F_LINUX_SPECIFIC_BASE: u32 = 1024;
 const F_DUPFD: u32 = 0;
@@ -65,15 +70,15 @@ impl FdTable {
             search_start: Fd(0),
             limit: USER_FNO_DEFAULT,
         };
-        use crate::fs::dev::tty;
+        use crate::fs::stdio;
         // [0, 1, 2] => [stdin, stdout, stderr]
-        ret.insert(tty::inode(), false, OpenFlags::empty())
+        ret.insert(Arc::new(stdio::Stdin), false, OpenFlags::empty())
             .unwrap()
             .assert_eq(0);
-        ret.insert(tty::inode(), false, OpenFlags::empty())
+        ret.insert(Arc::new(stdio::Stdout), false, OpenFlags::empty())
             .unwrap()
             .assert_eq(1);
-        ret.insert(tty::inode(), false, OpenFlags::empty())
+        ret.insert(Arc::new(stdio::Stdout), false, OpenFlags::empty())
             .unwrap()
             .assert_eq(2);
         ret
@@ -120,7 +125,7 @@ impl FdTable {
         if search_from_start {
             self.search_start = Fd(min);
         }
-        return Ok(Fd(min));
+        Ok(Fd(min))
     }
     /// 自动选择
     pub fn insert(&mut self, file: Arc<dyn File>, close_on_exec: bool, op: OpenFlags) -> SysR<Fd> {
@@ -175,10 +180,10 @@ impl FdTable {
                 let fd = self.insert_min(min, file, close_on_exec, op)?;
                 Ok(fd.0)
             }
-            F_GETFD => return Ok(if node.close_on_exec { FD_CLOEXEC } else { 0 }),
+            F_GETFD => Ok(if node.close_on_exec { FD_CLOEXEC } else { 0 }),
             F_SETFD => {
                 node.close_on_exec = arg & FD_CLOEXEC != 0;
-                return Ok(0);
+                Ok(0)
             }
             F_GETFL => Ok(node.op.bits() as usize),
             F_SETFL => {

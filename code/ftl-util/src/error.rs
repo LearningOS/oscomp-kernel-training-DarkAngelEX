@@ -3,7 +3,7 @@ use core::{alloc::AllocError, fmt, ops::ControlFlow};
 use alloc::string::FromUtf8Error;
 
 pub type SysR<T> = Result<T, SysError>;
-pub type SysRet = SysR<usize>;
+pub type SysRet = Result<usize, SysError>;
 
 #[allow(dead_code, clippy::upper_case_acronyms)]
 #[repr(isize)]

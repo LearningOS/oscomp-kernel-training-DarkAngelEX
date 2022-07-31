@@ -6,8 +6,9 @@ use alloc::{
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use ftl_util::{
     error::SysR,
-    fs::{Mode, OpenFlags, VfsInode},
+    fs::{Mode, OpenFlags},
 };
+use vfs::VfsFile;
 
 use crate::{
     fs,
@@ -22,6 +23,7 @@ use self::{
     children::ChildrenSet,
     fd::FdTable,
     pid::PidHandle,
+    resource::ProcessTimer,
     thread::{Thread, ThreadGroup},
 };
 
@@ -75,6 +77,7 @@ pub struct Process {
     pub signal_manager: ProcSignalManager,
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
+    pub timer: Mutex<ProcessTimer>,
 }
 
 impl Drop for Process {
@@ -85,7 +88,7 @@ impl Drop for Process {
 
 pub struct AliveProcess {
     pub user_space: UserSpace,
-    pub cwd: Arc<dyn VfsInode>,
+    pub cwd: Arc<VfsFile>,
     pub exec_path: String,
     pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.
@@ -148,6 +151,7 @@ impl Process {
             signal_manager: self.signal_manager.fork(),
             alive: Mutex::new(Some(new_alive)),
             exit_code: AtomicI32::new(i32::MIN),
+            timer: Mutex::new(ProcessTimer::ZERO),
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();
@@ -169,42 +173,35 @@ impl AliveProcess {
 }
 
 #[cfg(feature = "submit")]
-static RUN_ALL_CASE: &'static [u8] = include_bytes!("../../run_all_case");
+static RUN_ALL_CASE: &[u8] = include_bytes!("../../run_all_case");
 #[cfg(not(feature = "submit"))]
-static RUN_ALL_CASE: &'static [u8] = &[];
+static RUN_ALL_CASE: &[u8] = &[];
 
 pub async fn init() {
     let initproc = "/initproc";
-    let cwd = fs::open_file(
-        Some(Ok([].into_iter())),
-        "/",
-        OpenFlags::RDONLY,
-        Mode(0o500),
-    )
-    .await
-    .unwrap();
+    let cwd = fs::open_file((Err(SysError::ENOENT), "/"), OpenFlags::RDONLY, Mode(0o500))
+        .await
+        .unwrap();
     if cfg!(feature = "submit") {
-        let mut args = Vec::new();
-        args.push(initproc.to_string());
+        println!("running submit program!");
+        let args = alloc::vec![initproc.to_string()];
         let envp = Vec::new();
         let thread = Thread::new_initproc(cwd, RUN_ALL_CASE, args, envp);
         userloop::spawn(thread);
     } else {
         println!("load initporc: {}", initproc);
         let inode = fs::open_file(
-            Some(Ok([].into_iter())),
-            initproc,
+            (Err(SysError::ENOENT), initproc),
             OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await
         .unwrap();
         let elf_data = inode.read_all().await.unwrap();
-        let mut args = Vec::new();
-        args.push(initproc.to_string());
+        let args = alloc::vec![initproc.to_string()];
         let envp = Vec::new();
         let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
         userloop::spawn(thread);
     }
-    println!("spawn initporc");
+    println!("spawn initporc completed");
 }

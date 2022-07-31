@@ -7,6 +7,7 @@ use core::{
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc};
 use ftl_util::{device::BlockDevice, error::SysR};
+use vfs::VfsSpawner;
 
 use crate::{
     layout::bpb::RawBPB,
@@ -103,14 +104,7 @@ impl CacheManager {
         self.inner.lock().await.release_block(cid)
     }
     /// 生成一个同步任务
-    pub async fn sync_task(
-        &mut self,
-        concurrent: usize,
-        mut spawn_fn: impl FnMut(Pin<Box<dyn Future<Output = ()> + Send + 'static>>)
-            + Clone
-            + Send
-            + 'static,
-    ) {
+    pub async fn sync_task(&mut self, concurrent: usize, spawner: Box<dyn VfsSpawner>) {
         // 这一行保证了同步任务只会生成一次
         let init_inner = Arc::get_mut(&mut self.inner).unwrap().get_mut();
         let device = init_inner.device.clone();
@@ -118,7 +112,7 @@ impl CacheManager {
         let spcl2 = init_inner.sector_per_cluster_log2;
         let sync = init_inner.sync_pending.clone();
         let manager = self.inner.clone();
-        let mut spawn_fn_x = spawn_fn.clone();
+        let spawner_x = spawner.box_clone();
         let this_waker = GetWakerFuture.await;
         let future = async move {
             let waker = GetWakerFuture.await;
@@ -133,7 +127,7 @@ impl CacheManager {
                     let sem = sem.clone();
                     let waker = waker.clone();
                     let sid = CacheManagerInner::raw_get_sid_of_cid(data_sector_start, spcl2, cid);
-                    spawn_fn_x(Box::pin(async move {
+                    spawner_x.spawn(Box::pin(async move {
                         device.write_block(sid.0 as usize, &*buffer).await.unwrap();
                         sem.fetch_add(1, Ordering::Relaxed);
                         waker.wake();
@@ -142,7 +136,7 @@ impl CacheManager {
                 manager.lock().await.dirty_suspend_iter(s.into_iter());
             }
         };
-        spawn_fn(Box::pin(future));
+        spawner.spawn(Box::pin(future));
         WaitingEventFuture(|| unsafe { self.inner.unsafe_get().sync_waker.as_ref().is_some() })
             .await;
 

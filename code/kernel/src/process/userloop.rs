@@ -32,37 +32,48 @@ async fn userloop(thread: Arc<Thread>) {
     if thread.process.is_alive() {
         thread.settid().await;
     }
+    let context = thread.get_context();
     loop {
         local::handle_current_local();
-        let context = thread.get_context();
+
         let auto_sie = AutoSie::new();
-        if false {
-            sfence::sfence_vma_all_global();
-        }
+
+        // sfence::sfence_vma_all_global();
 
         if !thread.process.is_alive() {
             break;
         }
-        match thread.handle_signal().await {
-            Err(Dead) => break,
-            Ok(()) => (),
+        if let Err(Dead) = thread.handle_signal().await {
+            break;
         }
-        context.run_user();
+
+        {
+            let local = local::hart_local();
+            local.local_rcu.critical_end_tick();
+            local.local_rcu.critical_start();
+            thread.timer_into_user();
+            context.run_user();
+            thread.timer_leave_user();
+            local.local_rcu.critical_start();
+        }
 
         let scause = scause::read().cause();
         let stval = stval::read();
 
         drop(auto_sie);
 
+        local::handle_current_local();
+
         let mut do_exit = false;
         let mut user_fatal_error = || {
             println!(
-                "[kernel]user_fatal_error {:?} {:?} {:?} stval: {:#x} sepc: {:#x}",
+                "[kernel]user_fatal_error userloop {:?} {:?} {:?} stval: {:#x} sepc: {:#x} ra: {:#x}",
                 thread.process.pid(),
                 thread.tid(),
                 scause,
                 stval,
-                context.user_sepc
+                context.user_sepc,
+                context.ra(),
             );
             do_exit = true;
         };
@@ -124,8 +135,8 @@ async fn userloop(thread: Arc<Thread>) {
 }
 
 pub fn spawn(thread: Arc<Thread>) {
-    let future = userloop(thread.clone());
-    let (runnable, task) = executor::spawn(OutermostFuture::new(thread, future));
+    let future = OutermostFuture::new(thread.clone(), userloop(thread));
+    let (runnable, task) = executor::spawn(future);
     runnable.schedule();
     task.detach();
 }
@@ -157,16 +168,19 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
+        local.handle();
+        local.local_rcu.critical_start();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
         if !USING_ASID {
             sfence::sfence_vma_all_no_global();
         }
         let ret = unsafe { Pin::new_unchecked(&mut this.future).poll(cx) };
+        local.leave_task_switch(&mut this.local_switch);
         if !USING_ASID {
             sfence::sfence_vma_all_no_global();
         }
-        local.leave_task_switch(&mut this.local_switch);
+        local.local_rcu.critical_end_tick();
         ret
     }
 }

@@ -1,13 +1,15 @@
+use core::cell::SyncUnsafeCell;
+
 use alloc::{
     sync::{Arc, Weak},
     vec::Vec,
 };
-use ftl_util::utc_time::UtcTime;
+use ftl_util::time::UtcTime;
 
 use crate::{
     layout::name::{Attr, RawShortName},
     mutex::{RwSleepMutex, RwSpinMutex},
-    tools::{AIDAllocator, Align8, SyncUnsafeCell, AID, CID},
+    tools::{AIDAllocator, Align8, AID, CID},
     Fat32Manager,
 };
 
@@ -91,7 +93,7 @@ impl InodeCache {
     }
     pub fn new_root(manager: &Fat32Manager) -> Self {
         let mut short = Align8(RawShortName::zeroed());
-        short.init_dot_dir(1, CID(manager.bpb.root_cluster_id), &manager.utc_time());
+        short.init_dot_dir(1, CID(manager.bpb.root_cluster_id), manager.now());
         let entry = EntryPlace::ROOT;
         let alive = manager.inodes.alive_weak();
         let aid_alloc = manager.inodes.aid_alloc.clone();
@@ -237,7 +239,7 @@ impl InodeCacheInner {
         debug_assert!(self.cid_start.is_next());
         let ret = (0, self.cid_start);
 
-        return Some(ret);
+        Some(ret)
     }
     /// 返回簇偏移, 簇ID
     /// Ok(None) 空文件
@@ -252,7 +254,7 @@ impl InodeCacheInner {
                 return Ok(Some(self.almost_last));
             }
         }
-        return Err(());
+        Err(())
     }
     pub fn append_first(&mut self, cid: CID) {
         debug_assert!(self.cid_list.is_empty());

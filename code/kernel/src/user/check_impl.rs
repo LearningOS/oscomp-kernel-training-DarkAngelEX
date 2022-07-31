@@ -11,6 +11,7 @@ use crate::{
     local,
     memory::{
         address::UserAddr,
+        allocator::frame::FrameAllocator,
         user_ptr::{UserReadPtr, UserWritePtr},
         AccessType,
     },
@@ -48,7 +49,11 @@ impl<'a> UserCheckImpl<'a> {
     fn status() -> &'static mut UserAccessStatus {
         &mut local::always_local().user_access_status
     }
-    pub fn atomic_u32_check_rough(&self, ptr: UserReadPtr<u32>) -> SysR<()> {
+    pub fn atomic_u32_check_rough(
+        &self,
+        ptr: UserReadPtr<u32>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_write_user_u32_atomic(ptr) {
             Ok(_) => return Ok(()),
@@ -58,11 +63,12 @@ impl<'a> UserCheckImpl<'a> {
                 }
             }
         }
-        self.handle_write_fault_rough(ptr).inspect_err(|e| {
-            if PRINT_CHECK_ERR {
-                println!("atomic_u32_check fail!(1) ptr: {:#x} cause: {}", ptr, e)
-            }
-        })?;
+        self.handle_write_fault_rough(ptr, allocator)
+            .inspect_err(|e| {
+                if PRINT_CHECK_ERR {
+                    println!("atomic_u32_check fail!(1) ptr: {:#x} cause: {}", ptr, e)
+                }
+            })?;
         try_write_user_u32_atomic(ptr).inspect_err(|e| {
             if PRINT_CHECK_ERR {
                 println!("atomic_u32_check fail!(2) ptr: {:#x} cause: {}", ptr, e)
@@ -70,7 +76,11 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub async fn atomic_u32_check_async(&self, ptr: UserWritePtr<u32>) -> SysR<()> {
+    pub async fn atomic_u32_check_async(
+        &self,
+        ptr: UserWritePtr<u32>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_write_user_u32_atomic(ptr) {
             Ok(_) => return Ok(()),
@@ -80,11 +90,13 @@ impl<'a> UserCheckImpl<'a> {
                 }
             }
         }
-        self.handle_write_fault_async(ptr).await.inspect_err(|e| {
-            if PRINT_CHECK_ERR {
-                println!("atomic_u32_check fail!(1) ptr: {:#x} cause: {}", ptr, e)
-            }
-        })?;
+        self.handle_write_fault_async(ptr, allocator)
+            .await
+            .inspect_err(|e| {
+                if PRINT_CHECK_ERR {
+                    println!("atomic_u32_check fail!(1) ptr: {:#x} cause: {}", ptr, e)
+                }
+            })?;
         try_write_user_u32_atomic(ptr).inspect_err(|e| {
             if PRINT_CHECK_ERR {
                 println!("atomic_u32_check fail!(2) ptr: {:#x} cause: {}", ptr, e)
@@ -92,7 +104,11 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub fn read_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> SysR<()> {
+    pub fn read_check_rough<T: Copy>(
+        &self,
+        ptr: UserReadPtr<T>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
@@ -102,7 +118,7 @@ impl<'a> UserCheckImpl<'a> {
                 }
             }
         }
-        self.handle_read_fault_rough(ptr)?;
+        self.handle_read_fault_rough(ptr, allocator)?;
         try_read_user_u8(ptr).inspect_err(|e| {
             if PRINT_CHECK_ERR {
                 println!("read_check_rough fail!(1) ptr: {:#x} cause: {}", ptr, e)
@@ -110,27 +126,33 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub fn write_check_rough<T: Copy>(&self, ptr: UserReadPtr<T>) -> SysR<()> {
+    pub fn write_check_rough<T: Copy>(
+        &self,
+        ptr: UserReadPtr<T>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
             Err(_e) => {
-                self.handle_write_fault_rough(ptr).inspect_err(|e| {
-                    if PRINT_CHECK_ERR {
-                        println!("write_check_rough fail!(0) ptr: {:#x} cause: {}", ptr, e)
-                    }
-                })?;
+                self.handle_write_fault_rough(ptr, allocator)
+                    .inspect_err(|e| {
+                        if PRINT_CHECK_ERR {
+                            println!("write_check_rough fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                        }
+                    })?;
                 try_read_user_u8(ptr)?
             }
         };
         match try_write_user_u8(ptr, v) {
             Ok(()) => Ok(()),
             Err(_e) => {
-                self.handle_write_fault_rough(ptr).inspect_err(|e| {
-                    if PRINT_CHECK_ERR {
-                        println!("write_check_rough fail!(1) ptr: {:#x} cause: {}", ptr, e)
-                    }
-                })?;
+                self.handle_write_fault_rough(ptr, allocator)
+                    .inspect_err(|e| {
+                        if PRINT_CHECK_ERR {
+                            println!("write_check_rough fail!(1) ptr: {:#x} cause: {}", ptr, e)
+                        }
+                    })?;
                 try_write_user_u8(ptr, v).inspect_err(|e| {
                     if PRINT_CHECK_ERR {
                         println!("write_check_rough fail!(2) ptr: {:#x} cause: {}", ptr, e)
@@ -140,7 +162,11 @@ impl<'a> UserCheckImpl<'a> {
             }
         }
     }
-    pub async fn read_check_async<T: Copy>(&self, ptr: UserReadPtr<T>) -> SysR<()> {
+    pub async fn read_check_async<T: Copy>(
+        &self,
+        ptr: UserReadPtr<T>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = ptr.as_usize();
         match try_read_user_u8(ptr) {
             Ok(_v) => return Ok(()),
@@ -150,11 +176,13 @@ impl<'a> UserCheckImpl<'a> {
                 }
             }
         }
-        self.handle_read_fault_async(ptr).await.inspect_err(|e| {
-            if PRINT_CHECK_ERR {
-                println!("read_check_async fail!(1) ptr: {:#x} cause: {}", ptr, e)
-            }
-        })?;
+        self.handle_read_fault_async(ptr, allocator)
+            .await
+            .inspect_err(|e| {
+                if PRINT_CHECK_ERR {
+                    println!("read_check_async fail!(1) ptr: {:#x} cause: {}", ptr, e)
+                }
+            })?;
         try_read_user_u8(ptr).inspect_err(|e| {
             if PRINT_CHECK_ERR {
                 println!("read_check_async fail!(2) ptr: {:#x} cause: {}", ptr, e)
@@ -162,16 +190,22 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
-    pub async fn write_check_async<T: Copy>(&self, ptr: UserWritePtr<T>) -> SysR<()> {
+    pub async fn write_check_async<T: Copy>(
+        &self,
+        ptr: UserWritePtr<T>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = ptr.as_usize();
         let v = match try_read_user_u8(ptr) {
             Ok(v) => v,
             Err(_e) => {
-                self.handle_write_fault_async(ptr).await.inspect_err(|e| {
-                    if PRINT_CHECK_ERR {
-                        println!("write_check_async fail!(0) ptr: {:#x} cause: {}", ptr, e)
-                    }
-                })?;
+                self.handle_write_fault_async(ptr, allocator)
+                    .await
+                    .inspect_err(|e| {
+                        if PRINT_CHECK_ERR {
+                            println!("write_check_async fail!(0) ptr: {:#x} cause: {}", ptr, e)
+                        }
+                    })?;
                 try_read_user_u8(ptr).inspect_err(|e| {
                     if PRINT_CHECK_ERR {
                         println!("write_check_async fail!(1) ptr: {:#x} cause: {}", ptr, e)
@@ -182,11 +216,13 @@ impl<'a> UserCheckImpl<'a> {
         match try_write_user_u8(ptr, v) {
             Ok(_v) => return Ok(()),
             Err(_e) => {
-                self.handle_write_fault_async(ptr).await.inspect_err(|e| {
-                    if PRINT_CHECK_ERR {
-                        println!("try_write_user_u8 fail!(2) ptr: {:#x} cause: {}", ptr, e)
-                    }
-                })?;
+                self.handle_write_fault_async(ptr, allocator)
+                    .await
+                    .inspect_err(|e| {
+                        if PRINT_CHECK_ERR {
+                            println!("try_write_user_u8 fail!(2) ptr: {:#x} cause: {}", ptr, e)
+                        }
+                    })?;
                 try_write_user_u8(ptr, v).inspect_err(|e| {
                     if PRINT_CHECK_ERR {
                         println!("try_write_user_u8 fail!(3) ptr: {:#x} cause: {}", ptr, e)
@@ -197,42 +233,57 @@ impl<'a> UserCheckImpl<'a> {
         Ok(())
     }
     #[inline]
-    fn handle_read_fault_rough(&self, ptr: usize) -> SysR<()> {
+    fn handle_read_fault_rough(&self, ptr: usize, allocator: &mut dyn FrameAllocator) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!(" handle_read_fault_rough {:#x}", ptr);
         }
-        self.handle_fault_rough(ptr, AccessType::RO)
+        self.handle_fault_rough(ptr, AccessType::RO, allocator)
     }
     #[inline]
-    fn handle_write_fault_rough(&self, ptr: usize) -> SysR<()> {
+    fn handle_write_fault_rough(&self, ptr: usize, allocator: &mut dyn FrameAllocator) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!("handle_write_fault_rough {:#x}", ptr);
         }
-        self.handle_fault_rough(ptr, AccessType::RW)
+        self.handle_fault_rough(ptr, AccessType::RW, allocator)
     }
     #[inline]
-    async fn handle_read_fault_async(&self, ptr: usize) -> SysR<()> {
+    async fn handle_read_fault_async(
+        &self,
+        ptr: usize,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!("handle_read_fault_async {:#x}", ptr);
         }
-        self.handle_fault_async(ptr, AccessType::RO).await
+        self.handle_fault_async(ptr, AccessType::RO, allocator)
+            .await
     }
     #[inline]
-    async fn handle_write_fault_async(&self, ptr: usize) -> SysR<()> {
+    async fn handle_write_fault_async(
+        &self,
+        ptr: usize,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         if PRINT_PAGE_FAULT {
             println!("handle_write_fault_async {:#x}", ptr);
         }
-        self.handle_fault_async(ptr, AccessType::RW).await
+        self.handle_fault_async(ptr, AccessType::RW, allocator)
+            .await
     }
     /// 此函数只会处理简单的页错误, 例如简单的空间分配, 但无法处理文件映射
     ///
     /// 此函数不需要异步上下文!
     #[inline]
-    fn handle_fault_rough(&self, ptr: usize, access: AccessType) -> SysR<()> {
+    fn handle_fault_rough(
+        &self,
+        ptr: usize,
+        access: AccessType,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
         let r = self
             .0
-            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access))?;
+            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access, allocator))?;
         match r {
             Ok(flush) => {
                 flush.run();
@@ -244,11 +295,16 @@ impl<'a> UserCheckImpl<'a> {
     }
     /// 此函数处理完整的页错误并可能阻塞线程
     #[inline]
-    async fn handle_fault_async(&self, ptr: usize, access: AccessType) -> SysR<()> {
+    async fn handle_fault_async(
+        &self,
+        ptr: usize,
+        access: AccessType,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
         let r = self
             .0
-            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access))?;
+            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access, allocator))?;
         let a = match r {
             Ok(flush) => {
                 flush.run();

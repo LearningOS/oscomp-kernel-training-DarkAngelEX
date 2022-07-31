@@ -2,9 +2,11 @@ use core::sync::atomic::{AtomicUsize, Ordering};
 
 use crate::{config::KERNEL_STACK_SIZE, hart, local, tools};
 
+use super::OPEN_DEBUG;
+
 pub const OPEN_MEMORY_TRACE: bool = false;
-pub const STACK_DETECTION: bool = true;
-pub const TRACE_ADDR: usize = 0xfffffff081281618;
+pub const STACK_DETECTION: bool = true && OPEN_DEBUG;
+pub const TRACE_ADDR: usize = 0xfffffff080390010;
 
 #[inline(never)]
 #[allow(unreachable_code, unused_variables)]
@@ -26,19 +28,19 @@ pub fn trace_by_cnt(cnt: usize) -> bool {
 #[macro_export]
 macro_rules! memory_trace {
     () => {
-        if crate::xdebug::trace::OPEN_MEMORY_TRACE {
-            crate::xdebug::trace::memory_trace("", file!(), line!());
+        if $crate::xdebug::trace::OPEN_MEMORY_TRACE {
+            $crate::xdebug::trace::memory_trace("", file!(), line!());
         }
-        if crate::xdebug::trace::STACK_DETECTION {
-            crate::xdebug::trace::stack_detection();
+        if $crate::xdebug::trace::STACK_DETECTION {
+            $crate::xdebug::trace::stack_detection();
         }
     };
     ($name: expr) => {
-        if crate::xdebug::trace::OPEN_MEMORY_TRACE {
-            crate::xdebug::trace::memory_trace($name, file!(), line!());
+        if $crate::xdebug::trace::OPEN_MEMORY_TRACE {
+            $crate::xdebug::trace::memory_trace($name, file!(), line!());
         }
-        if crate::xdebug::trace::STACK_DETECTION {
-            crate::xdebug::trace::stack_detection();
+        if $crate::xdebug::trace::STACK_DETECTION {
+            $crate::xdebug::trace::stack_detection();
         }
     };
 }
@@ -46,11 +48,11 @@ macro_rules! memory_trace {
 #[macro_export]
 macro_rules! memory_trace_show {
     ($name: expr) => {
-        if crate::xdebug::trace::OPEN_MEMORY_TRACE {
-            crate::xdebug::trace::memory_trace_show($name, file!(), line!());
+        if $crate::xdebug::trace::OPEN_MEMORY_TRACE {
+            $crate::xdebug::trace::memory_trace_show($name, file!(), line!());
         }
-        if crate::xdebug::trace::STACK_DETECTION {
-            crate::xdebug::trace::stack_detection();
+        if $crate::xdebug::trace::STACK_DETECTION {
+            $crate::xdebug::trace::stack_detection();
         }
     };
 }

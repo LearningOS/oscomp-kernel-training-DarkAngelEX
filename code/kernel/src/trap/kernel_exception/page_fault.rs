@@ -13,7 +13,7 @@ pub fn page_fault_handle(e: Exception, stval: usize, mut sepc: usize) -> usize {
 
     if local.sum_cur() != 0 {
         assert!(local.user_access_status.not_forbid());
-        if let Ok(addr) = UserAddr::try_from(stval as *const u8) {
+        if stval >= 0x1000 && let Ok(addr) = UserAddr::try_from(stval as *const u8) {
             if local.user_access_status.is_access() {
                 println!(
                     "access user data error! ignore this instruction. {:?} stval: {:#x}",
@@ -28,7 +28,7 @@ pub fn page_fault_handle(e: Exception, stval: usize, mut sepc: usize) -> usize {
         assert!(local.user_access_status.is_forbid());
     }
     if error {
-        fatal_exception_error()
+        fatal_exception_error(0)
     }
     sepc
 }

@@ -1,10 +1,10 @@
-use core::{ops::Range, time::Duration};
+use core::ops::Range;
 
 use alloc::{
     collections::BTreeMap,
     sync::{Arc, Weak},
 };
-use ftl_util::rcu::RcuCollect;
+use ftl_util::{rcu::RcuCollect, time::Instant};
 
 use crate::{
     memory::{address::UserAddr, user_ptr::UserInOutPtr},
@@ -118,7 +118,7 @@ impl Futex {
     pub async fn wait(
         &self,
         mask: u32,
-        timeout: Duration,
+        timeout: Instant,
         pid: Option<Pid>,
         mut fail: impl FnMut() -> bool,
     ) -> WaitStatus {
@@ -198,9 +198,9 @@ impl FutexSet {
             return;
         }
         let r: Range<UserAddr<u32>> = start.into()..end.into();
-        let cnt = self.0.range(r.clone()).map(|(&k, _)| k).count();
+        let cnt = self.0.range(r.clone()).count();
         if cnt == 0 {
-            return;
+            // do nothing
         } else if cnt == self.0.len() {
             self.0.clear();
         } else if cnt * 4 > self.0.len() {

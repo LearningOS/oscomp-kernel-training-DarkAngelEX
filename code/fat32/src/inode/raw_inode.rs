@@ -3,7 +3,7 @@ use core::ops::ControlFlow;
 use alloc::{sync::Arc, vec::Vec};
 use ftl_util::{
     error::{SysR, SysRet},
-    utc_time::UtcTime,
+    time::{Instant, UtcTime},
 };
 
 use crate::{
@@ -17,13 +17,14 @@ use crate::{
 
 use super::{dir_inode::DirInode, file_inode::FileInode, inode_cache::InodeCache, InodeMark};
 
+type LastCache = Option<(usize, (CID, Arc<Cache>))>;
 /// 每个打开的文件将持有一个RawInode
 ///
 /// Inode可以直接从InodeCache产生
 pub(crate) struct RawInode {
     pub cache: Arc<InodeCache>,
     pub parent: Arc<InodeCache>,
-    last_cache: RwSpinMutex<Option<(usize, (CID, Arc<Cache>))>>, // 最近一次访问的块
+    last_cache: RwSpinMutex<LastCache>, // 最近一次访问的块
     is_root: bool,
     _mark: Arc<InodeMark>,
 }
@@ -64,16 +65,19 @@ impl RawInode {
     pub fn update_file_bytes(&self, bytes: usize) {
         self.cache.inner.unique_lock().update_file_bytes(bytes);
     }
-    pub fn update_access_time(&self, utc_time: &UtcTime) {
-        self.cache.inner.unique_lock().update_access_time(utc_time);
+    pub fn update_access_time(&self, now: Instant) {
+        let utc = &UtcTime::from_instant(now);
+        self.cache.inner.unique_lock().update_access_time(utc);
     }
-    pub fn update_modify_time(&self, utc_time: &UtcTime) {
-        self.cache.inner.unique_lock().update_modify_time(utc_time);
+    pub fn update_modify_time(&self, now: Instant) {
+        let utc = &UtcTime::from_instant(now);
+        self.cache.inner.unique_lock().update_modify_time(utc);
     }
-    pub fn update_access_modify_time(&self, utc_time: &UtcTime) {
+    pub fn update_access_modify_time(&self, now: Instant) {
+        let utc = &UtcTime::from_instant(now);
         let lock = &mut *self.cache.inner.unique_lock();
-        lock.update_access_time(utc_time);
-        lock.update_modify_time(utc_time);
+        lock.update_access_time(utc);
+        lock.update_modify_time(utc);
     }
     /// 此函数将更新缓存
     ///
@@ -98,7 +102,7 @@ impl RawInode {
                 if cur == n {
                     return ControlFlow::Break(this);
                 }
-                return ControlFlow::Continue(this);
+                try { this }
             })
             .await?;
         let mut lock = self.cache.inner.unique_lock();
@@ -170,9 +174,9 @@ impl RawInode {
                 self.last_cache
                     .unique_lock()
                     .replace((n, (cid, cache.clone())));
-                return Ok(Ok((cid, cache)));
+                Ok(Ok((cid, cache)))
             }
-            Err(tup) => return Ok(Err(tup)),
+            Err(tup) => Ok(Err(tup)),
         }
     }
     /// 找不到块就分配新的并使用init函数初始化

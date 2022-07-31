@@ -30,22 +30,6 @@ unsafe impl<T: ?Sized + Send, S: MutexSupport> Sync for SpinMutex<T, S> {}
 unsafe impl<T: ?Sized + Send, S: MutexSupport> Send for SpinMutex<T, S> {}
 
 impl<T, S: MutexSupport> SpinMutex<T, S> {
-    /// Creates a new spinlock wrapping the supplied data.
-    ///
-    /// May be used statically:
-    ///
-    /// ```
-    /// #![feature(const_fn)]
-    /// use spin;
-    ///
-    /// static MUTEX: spin::Mutex<()> = spin::Mutex::new(());
-    ///
-    /// fn demo() {
-    ///     let lock = MUTEX.lock();
-    ///     // do something with lock
-    ///     drop(lock);
-    /// }
-    /// ```
     pub const fn new(user_data: T) -> Self {
         SpinMutex {
             lock: AtomicBool::new(false),
@@ -68,65 +52,54 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
     pub fn get_mut(&mut self) -> &mut T {
         self.data.get_mut()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
     #[inline(always)]
     pub unsafe fn unsafe_get(&self) -> &T {
         &*self.data.get()
     }
+    /// # Safety
+    ///
+    /// 自行保证数据访问的安全性
+    #[allow(clippy::mut_from_ref)]
     #[inline(always)]
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
+    /// Wait until the lock looks unlocked before retrying
     #[inline(always)]
-    fn obtain_lock(&self) {
-        while self
-            .lock
-            .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
-        {
-            let mut try_count = 0usize;
-            // Wait until the lock looks unlocked before retrying
-            while self.lock.load(Ordering::Relaxed) {
-                core::hint::spin_loop();
-                try_count += 1;
-                if try_count == 0x10000000 {
-                    panic!("Mutex: deadlock detected! try_count > {:#x}\n", try_count);
-                }
+    fn wait_unlock(&self) {
+        let mut try_count = 0usize;
+        while self.lock.load(Ordering::Relaxed) {
+            core::hint::spin_loop();
+            try_count += 1;
+            if try_count == 0x10000000 {
+                panic!("Mutex: deadlock detected! try_count > {:#x}\n", try_count);
             }
         }
     }
-    /// Assume the mutex is free and get reference of value.
-    ///
-    /// This is only safe during initialization
-    #[allow(clippy::mut_from_ref)]
-    pub unsafe fn assert_unique_get(&self) -> &mut T {
-        assert!(!self.lock.load(Ordering::Relaxed));
-        &mut *self.data.get()
-    }
-
-    /// Locks the spinlock and returns a guard.
-    ///
-    /// The returned value may be dereferenced for data access
-    /// and the lock will be dropped when the guard falls out of scope.
-    ///
-    /// ```
-    /// let mylock = spin::Mutex::new(0);
-    /// {
-    ///     let mut data = mylock.lock();
-    ///     // The lock is now locked and the data can be accessed
-    ///     *data += 1;
-    ///     // The lock is implicitly dropped
-    /// }
-    ///
-    /// ```
     #[inline(always)]
     pub fn lock(&self) -> impl DerefMut<Target = T> + '_ {
         let support_guard = S::before_lock();
-        self.obtain_lock();
+        loop {
+            self.wait_unlock();
+            if self
+                .lock
+                .compare_exchange(false, true, Ordering::Acquire, Ordering::Relaxed)
+                .is_ok()
+            {
+                break;
+            }
+        }
         MutexGuard {
             mutex: self,
             support_guard,
         }
     }
+    /// # Safety
+    ///
+    /// 需要保证持有锁时不发生上下文切换
     #[inline(always)]
     pub unsafe fn send_lock(&self) -> impl DerefMut<Target = T> + Send + '_ {
         SendWraper::new(self.lock())
@@ -136,22 +109,13 @@ impl<T: ?Sized, S: MutexSupport> SpinMutex<T, S> {
         self.data.get()
     }
 
-    /// Force unlock the spinlock.
-    ///
-    /// This is *extremely* unsafe if the lock is not held by the current
-    /// thread. However, this can be useful in some instances for exposing the
-    /// lock to FFI that doesn't know how to deal with RAII.
-    ///
-    /// If the lock isn't held, this is a no-op.
-    #[inline(always)]
-    pub unsafe fn force_unlock(&self) {
-        self.lock.store(false, Ordering::Release);
-    }
-
     /// Tries to lock the mutex. If it is already locked, it will return None. Otherwise it returns
     /// a guard within Some.
     #[inline(always)]
     pub fn try_lock(&self) -> Option<impl DerefMut<Target = T> + '_> {
+        if self.lock.load(Ordering::Relaxed) {
+            return None;
+        }
         let mut support_guard = S::before_lock();
         if self
             .lock
