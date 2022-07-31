@@ -1,7 +1,7 @@
 # Building
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
-MODE := debug
+MODE := release
 ADD_ARGS :=
 ARGS :=
 ARGS += $(ADD_ARGS)
