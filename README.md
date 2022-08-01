@@ -20,16 +20,33 @@ cd code/kernel
 make env
 ```
 
-然后生成FAT32标准的文件系统，此命令只需要执行一次：
+生成FAT32标准的文件系统，此命令只需要执行一次：
 
 ```shell
 make fs-img
 ```
 
-生成文件系统时会编译大赛的初赛测试样例，如果缺少相关工具链将无法生成文件系统。生成文件系统后就可以运行FTL OS了：
+生成磁盘后就可以运行FTL OS了：
 
 ```shell
 make run
+```
+
+fs-img中已经加载了决赛第一阶段的测试用例，如果想运行，请在进入OS的shell后输入：
+
+```shell
+run_all_case
+```
+
+shell将读取两个测试脚本并运行测试用例，下面是默认状态下的输出：
+
+```shell
+Rust user shell
+>> run_all_case
+========== START entry-static.exe argv ==========
+Pass!
+========== END entry-static.exe argv ==========
+...
 ```
 
 #### Hifive Unmatched的评测机模式运行
@@ -40,7 +57,7 @@ make run
 make all
 ```
 
-此命令将激活feature：`submit`、`hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了rust基础库，或使用qemu编译一次来下载相关库。
+此命令将激活feature：`submit`、`hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了rust依赖库，或使用qemu方式编译一次来下载相关的库。
 
 #### Hifive Unmatched普通模式运行
 
@@ -68,21 +85,23 @@ make native
 
 [code](code)：项目代码，各个文件夹的描述如下：
 
-|         文件夹         |                     描述                     |
-| :--------------------: | :------------------------------------------: |
-|       bootloader       |              rust-sbi二进制文件              |
-|      dependencies      |               项目依赖的外部库               |
-|        easy-fs         |   rCore-tutorial-v3的ext2文件系统，已弃用    |
-|      easy-fs-fuse      |  通过easy-fs生成`fs.img`磁盘文件供qemu使用   |
-|         fat32          |    FTL OS自主实现的FAT32异步多核文件系统     |
-|       fat32-fuse       |  通过fat32生成`fat32.img`磁盘文件供qemu使用  |
-|        ftl-util        |            FTL OS所有模块的基础库            |
-|         kernel         |                FTL OS内核实现                |
-| testsuits-for-oskernel |                 初赛测试程序                 |
-|          user          | 修改自rCore-tutorial-v3，包含shell与测试程序 |
+|         文件夹         |                       描述                        |
+| :--------------------: | :-----------------------------------------------: |
+|       bootloader       |                rust-sbi二进制文件                 |
+|      dependencies      |                 项目依赖的外部库                  |
+|          disk          |       决赛第一阶段的发布版本，会被写入磁盘        |
+|        easy-fs         |      rCore-tutorial-v3的ext2文件系统，已弃用      |
+|      easy-fs-fuse      | 通过easy-fs生成`fs.img`磁盘文件供qemu使用，已弃用 |
+|         fat32          |           FTL OS的FAT32异步多核文件系统           |
+|       fat32-fuse       |    通过fat32生成`fat32.img`磁盘文件供qemu使用     |
+|        ftl-util        |              FTL OS所有模块的基础库               |
+|          init          |           这里的所有文件都会被写入磁盘            |
+|         kernel         |                    FTL OS内核                     |
+| testsuits-for-oskernel |                   初赛测试程序                    |
+|       libc-test        |           决赛第一阶段的测试程序源代码            |
+|          user          |   修改自rCore-tutorial-v3，包含shell与测试程序    |
+|          vfs           |           FTL OS的异步多核虚拟文件系统            |
 
-## 初赛评测
+## 决赛
 
-FTL OS已在初赛测试获得满分：
-
-![image-20220531000711741](doc/pic/初赛结果.png)
+FTL OS已经在决赛第一阶段的评测中通过了全部测试点。
