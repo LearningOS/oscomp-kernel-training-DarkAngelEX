@@ -1,6 +1,6 @@
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::{hart::sfence, memory::asid::USING_ASID};
+use crate::{hart::sfence, memory::asid::USING_ASID, user::NativeAutoSie};
 
 bitflags! {
     pub struct MailEvent: usize {
@@ -17,6 +17,7 @@ impl MailEvent {
         .union(Self::SFENCE_SPEC);
 }
 
+/// HartMailBox 用来让多核CPU之间安全通信, 目前只用来发送sfence.vma和fence.i指令
 pub struct HartMailBox {
     event: MailEvent,
     spec_sfence: Vec<Box<dyn FnOnce()>>,
@@ -28,6 +29,10 @@ impl HartMailBox {
             event: MailEvent::empty(),
             spec_sfence: Vec::new(),
         }
+    }
+    // swap_nonoverlapping 比 swap 更快
+    pub fn swap(&mut self, other: &mut Self) {
+        unsafe { core::ptr::swap_nonoverlapping(self, other, 1) }
     }
     pub fn is_empty(&self) -> bool {
         self.event.is_empty()
@@ -41,8 +46,10 @@ impl HartMailBox {
             self.event.remove(MailEvent::FENCE_I);
         }
         if self.event.intersects(MailEvent::SFENCE_SET) {
+            let _sie = NativeAutoSie::new(); // 关中断
             if self.event.contains(MailEvent::SFENCE_VMA_ALL_GLOBAL) {
                 sfence::sfence_vma_all_global();
+                self.spec_sfence.clear();
             } else if self.event.contains(MailEvent::SFENCE_VMA_ALL_NO_GLOBAL) {
                 assert!(!USING_ASID);
                 sfence::sfence_vma_all_no_global();
@@ -50,7 +57,6 @@ impl HartMailBox {
             } else if self.event.contains(MailEvent::SFENCE_SPEC) {
                 self.spec_sfence.drain(..).for_each(|f| f());
             }
-            self.spec_sfence.clear();
             self.event.remove(MailEvent::SFENCE_SET);
         }
         debug_assert!(self.event.is_empty(), "{:?}", self.event);

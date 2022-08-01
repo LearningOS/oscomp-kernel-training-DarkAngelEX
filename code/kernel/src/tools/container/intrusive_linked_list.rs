@@ -2,7 +2,7 @@ use core::ptr::NonNull;
 
 use crate::xdebug::trace;
 
-// 侵入式链表
+// 侵入式链表, 记录了链表的尾部, 可以O(1)地合并两个链表
 pub struct IntrusiveLinkedList {
     head: Option<NonNull<usize>>,
     tail: *mut usize, // used in O(1) append. if is invalid when head is none.
@@ -33,6 +33,9 @@ impl IntrusiveLinkedList {
     }
     pub fn is_empty(&self) -> bool {
         self.head.is_none()
+    }
+    fn swap(&mut self, other: &mut Self) {
+        unsafe { core::ptr::swap_nonoverlapping(self, other, 1) }
     }
     pub fn from_range(begin: usize, end: usize, align_log2: usize) -> Self {
         let size = 1 << align_log2;
@@ -100,7 +103,7 @@ impl IntrusiveLinkedList {
             return;
         }
         match self.head {
-            None => core::mem::swap(self, src),
+            None => self.swap(src),
             Some(head_ptr) => {
                 unsafe { *src.tail = head_ptr.as_ptr() as usize };
                 self.head = src.head;

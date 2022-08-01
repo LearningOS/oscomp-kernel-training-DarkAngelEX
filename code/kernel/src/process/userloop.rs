@@ -141,11 +141,13 @@ pub fn spawn(thread: Arc<Thread>) {
     task.detach();
 }
 
+/// `OutermostFuture`用来一劳永逸地管理用户线程的环境切换, 例如页表切换和关中断状态等.
 struct OutermostFuture<F: Future + Send + 'static> {
-    future: F,
     local_switch: LocalNow,
+    future: F,
 }
 impl<F: Future + Send + 'static> OutermostFuture<F> {
+    #[inline]
     pub fn new(thread: Arc<Thread>, future: F) -> Self {
         let page_table = thread
             .process
@@ -157,8 +159,8 @@ impl<F: Future + Send + 'static> OutermostFuture<F> {
             page_table,
         }));
         Self {
-            future,
             local_switch,
+            future,
         }
     }
 }
@@ -168,8 +170,8 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
-        local.handle();
         local.local_rcu.critical_start();
+        local.handle();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
         if !USING_ASID {
@@ -181,6 +183,7 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
             sfence::sfence_vma_all_no_global();
         }
         local.local_rcu.critical_end_tick();
+        local.handle();
         ret
     }
 }

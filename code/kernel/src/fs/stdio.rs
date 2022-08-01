@@ -3,7 +3,7 @@ use core::time::Duration;
 use alloc::boxed::Box;
 use vfs::File;
 
-use crate::{console, sync::SleepMutex};
+use crate::{console, process::thread, sync::SleepMutex};
 
 use ftl_util::{
     async_tools::ASysRet,
@@ -41,7 +41,7 @@ impl File for Stdin {
                             use crate::timer::sleep;
                             sleep::just_wait(Duration::from_millis(5)).await;
                         } else {
-                            crate::process::thread::yield_now().await;
+                            thread::yield_now().await;
                         }
                         continue;
                     }

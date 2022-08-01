@@ -70,25 +70,28 @@ unsafe impl Send for LocalNow {}
 unsafe impl Sync for LocalNow {}
 
 impl LocalNow {
+    pub fn is_idle(&self) -> bool {
+        matches!(self, LocalNow::Idle)
+    }
     #[inline(always)]
-    pub fn always(&mut self, idle: *mut AlwaysLocal) -> &mut AlwaysLocal {
+    fn always(&mut self, idle: *mut AlwaysLocal) -> &mut AlwaysLocal {
         match self {
             LocalNow::Idle => unsafe { &mut *idle },
             LocalNow::Task(t) => &mut t.always_local,
         }
     }
     #[inline(always)]
-    pub fn always_ref(&self, idle: *const AlwaysLocal) -> &AlwaysLocal {
+    fn always_ref(&self, idle: *const AlwaysLocal) -> &AlwaysLocal {
         match self {
             LocalNow::Idle => unsafe { &*idle },
             LocalNow::Task(t) => &t.always_local,
         }
     }
     #[inline(always)]
-    pub fn task(&mut self) -> &mut TaskLocal {
+    fn task(&mut self) -> &mut TaskLocal {
         match self {
-            LocalNow::Idle => panic!(),
             LocalNow::Task(task) => task.as_mut(),
+            LocalNow::Idle => panic!(),
         }
     }
 }
@@ -123,13 +126,14 @@ impl HartLocal {
             f(&mut *self.mailbox.lock())
         }
     }
+    /// 处理其他CPU发送到这个CPU的信息, 例如fence.i, sfence.vma等
     pub fn handle(&mut self) {
         debug_assert!(self.local_mail.is_empty());
         // use swap instead of take bucause it can keep reverse space.
         if unsafe { self.mailbox.unsafe_get().is_empty() } {
             return;
         }
-        core::mem::swap(&mut self.local_mail, &mut *self.mailbox.lock());
+        self.mailbox.lock().swap(&mut self.local_mail);
         self.local_mail.handle();
     }
     #[inline(always)]
@@ -145,8 +149,8 @@ impl HartLocal {
         self.local_now.always_ref(&self.always_local)
     }
     pub fn enter_task_switch(&mut self, task: &mut LocalNow) {
-        assert!(matches!(&mut self.local_now, LocalNow::Idle));
-        assert!(matches!(task, LocalNow::Task(_)));
+        debug_assert!(self.local_now.is_idle());
+        debug_assert!(!task.is_idle());
         let new = task.always(&mut self.always_local); // 获取task
         let old = self.always();
         // 关中断 避免中断时使用always_local时发生错误
@@ -162,8 +166,8 @@ impl HartLocal {
         }
     }
     pub fn leave_task_switch(&mut self, task: &mut LocalNow) {
-        assert!(matches!(&mut self.local_now, LocalNow::Task(_)));
-        assert!(matches!(task, LocalNow::Idle));
+        debug_assert!(!self.local_now.is_idle());
+        debug_assert!(task.is_idle());
         // save floating register
         floating::switch_out(&mut self.task().thread.get_context().user_fx);
         self.task().thread.timer_leave_thread();
@@ -173,21 +177,25 @@ impl HartLocal {
             unsafe { sstatus::clear_sie() };
         }
         let open_intrrupt = AlwaysLocal::env_change(new, old);
+        // 现在中断关闭了
         memory::set_satp_by_global();
         core::mem::swap(&mut self.local_now, task);
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
         }
     }
+    /// 进入内核线程会交换运行的`AlwaysLocal`和原来的`AlwaysLocal`, 退出时再切回来
     pub fn switch_kernel_task(&mut self, task: &mut AlwaysLocal) {
-        debug_assert!(matches!(&mut self.local_now, LocalNow::Idle));
+        // 进入内核线程不会改变 local_now, 因此它是调度态的
+        debug_assert!(self.local_now.is_idle());
         let old = self.always();
         // 关中断 避免中断时使用always_local时发生错误
         if old.sie_cur() == 0 {
             unsafe { sstatus::clear_sie() };
         }
         let open_intrrupt = AlwaysLocal::env_change(task, old);
-        core::mem::swap(&mut self.always_local, task);
+        // 现在中断关闭了
+        self.always_local.swap(task);
         if open_intrrupt {
             unsafe { sstatus::set_sie() };
         }
@@ -210,10 +218,16 @@ pub unsafe fn bind_tp(hartid: usize) -> usize {
     hart_local.set_hartid(hartid);
     hart_local as *const _ as usize
 }
+/// tp寄存器里面放的就是CPU控制块指针
+///
+/// 为什么要浪费tp这么大的64位寄存器只用来放一个数字?
+///
+/// tp放指针了怎么拿到CPU-ID? 把CPU-ID放控制块里面
 #[inline(always)]
 pub fn hart_local() -> &'static mut HartLocal {
     unsafe { &mut *(cpu::get_tp() as *mut HartLocal) }
 }
+///
 #[inline(always)]
 pub fn always_local() -> &'static mut AlwaysLocal {
     hart_local().always()

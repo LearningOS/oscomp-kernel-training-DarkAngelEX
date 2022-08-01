@@ -102,6 +102,7 @@ pub fn check_timer() -> usize {
     SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current)
 }
 
+/// 只能被定时器唤醒的future
 pub async fn just_wait(dur: Duration) {
     let mut future = JustWaitFuture::new(dur);
     let mut ptr = Pin::new(&mut future);
@@ -135,6 +136,7 @@ impl Future for JustWaitFuture {
     }
 }
 
+/// 允许线程被定时器或其他的事件唤醒
 pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
     let deadline = super::now() + dur;
     thread::yield_now().await;

@@ -12,10 +12,10 @@ static GLOBAL_RCU_MANAGER: RcuManager<SpinNoIrq> = RcuManager::new();
 ///
 /// 但时钟中断并不会在我们预期的时刻发生. 因此需要等待临界区结束时再关闭临界区
 pub struct LocalRcuManager {
-    pending: Vec<RcuDrop>,
-    id: usize,      // CPU编号, 保证唯一性即可
-    critical: bool, // 仅用于 debug_assert
-    tick: bool,     // 时钟中断到达标志
+    pending: Vec<RcuDrop>, // 此CPU提交的释放队列
+    id: usize,             // CPU编号, 保证唯一性即可
+    critical: bool,        // 仅用于 debug_assert
+    tick: bool,            // 时钟中断到达标志
 }
 
 impl LocalRcuManager {
@@ -30,9 +30,11 @@ impl LocalRcuManager {
     pub fn init_id(&mut self, id: usize) {
         self.id = id;
     }
+    // 时钟中断会调用这个函数
     pub fn tick(&mut self) {
         self.tick = true;
     }
+    // 进入RCU临界区
     pub fn critical_start(&mut self) {
         stack_trace!();
         if self.critical {
@@ -42,6 +44,7 @@ impl LocalRcuManager {
         self.tick = false;
         GLOBAL_RCU_MANAGER.critical_start(self.id)
     }
+    // 强制结束RCU临界区并刷入缓存的释放队列
     pub fn critical_end(&mut self) {
         stack_trace!();
         if !self.critical && self.pending.is_empty() {
@@ -73,10 +76,11 @@ pub fn init() {
     ftl_util::rcu::init(rcu_release);
     rcu_test();
 }
-
+/// 提交到当前CPU的RCU释放队列
 pub fn rcu_release(v: RcuDrop) {
     local::hart_local().local_rcu.push(v);
 }
+/// 这个函数允许在RCU临界区之外向当前CPU提交RCU释放队列
 pub fn rcu_special_release(v: RcuDrop) {
     local::hart_local().local_rcu.special_push(v)
 }

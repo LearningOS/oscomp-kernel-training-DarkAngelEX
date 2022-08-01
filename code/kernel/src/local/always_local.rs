@@ -2,6 +2,10 @@ use riscv::register::sstatus;
 
 use crate::{user::UserAccessStatus, xdebug::stack_trace::StackTrace};
 
+/// `AlwaysLocal`是会在不同线程之间切换的控制块, 每个线程都有各自的`AlwaysLocal`.
+/// `AlwaysLocal`和`TaskLocal`的区别是调度态的CPU也会存在一个默认的`AlwaysLocal`,
+/// 保证无论CPU运行在何种状态, 都可以获取到一个`AlwaysLocal`, 中断上下文不可以访问
+/// `TaskLocal`, 但可以访问`AlwaysLocal`.
 pub struct AlwaysLocal {
     sie_count: usize,                         // 不为0时关中断
     sum_count: usize,                         // 不为0时允许访问用户数据 必须关中断
@@ -17,6 +21,10 @@ impl AlwaysLocal {
             user_access_status: UserAccessStatus::Forbid,
             stack_trace: StackTrace::new(),
         }
+    }
+    // swap_nonoverlapping 比 swap 更快
+    pub fn swap(&mut self, other: &mut Self) {
+        unsafe { core::ptr::swap_nonoverlapping(self, other, 1) }
     }
     #[inline(always)]
     pub fn sum_inc(&mut self) {
@@ -58,7 +66,7 @@ impl AlwaysLocal {
     pub fn sie_cur(&self) -> usize {
         self.sie_count
     }
-    // return true will open interrupt
+    // 这个函数会修改sum标志位并关闭中断, 结束临界区后再根据返回值设置中断标志位
     pub fn env_change(new: &mut Self, old: &mut Self) -> bool {
         unsafe {
             if (old.sum_cur() > 0) != (new.sum_cur() > 0) {

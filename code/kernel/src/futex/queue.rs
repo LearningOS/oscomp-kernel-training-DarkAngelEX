@@ -31,6 +31,8 @@ impl Node {
     }
 }
 
+/// Futex等待队列, 使用侵入式链表避免内存分配
+///
 /// 如果转移过程失败了会唤醒全部线程
 pub struct FutexQueue {
     list: ListNode<Node>,

@@ -110,11 +110,12 @@ use riscv::register::sstatus;
 pub fn kmain(_hart_id: usize) -> ! {
     stack_trace!(to_yellow!("running in global space"));
     let hart_local = local::hart_local();
-    let alwys_local = local::always_local();
-    assert!(alwys_local.sie_cur() == 0);
-    assert!(alwys_local.sum_cur() == 0);
+    let always_local = local::always_local();
+    assert!(always_local.sie_cur() == 0);
+    assert!(always_local.sum_cur() == 0);
 
     unsafe {
+        // 启用中断并关闭用户访问标志, 使它和always_local中的值对应
         sstatus::set_sie();
         sstatus::clear_sum();
     }
