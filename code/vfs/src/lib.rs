@@ -26,7 +26,7 @@ extern crate ftl_util;
 // extern crate bitflags;
 
 pub use {
-    file::{File, VfsFile},
+    file::{select, File, VfsFile},
     fssp::{Fs, FsType},
     inode::FsInode,
     manager::{DevAlloc, VfsClock, VfsManager, VfsSpawner, ZeroClock},

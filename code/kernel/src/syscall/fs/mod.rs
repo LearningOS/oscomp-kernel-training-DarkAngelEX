@@ -1,16 +1,14 @@
-use alloc::{string::String, sync::Arc, vec::Vec};
+use alloc::{string::String, sync::Arc};
 use ftl_util::{
     error::SysR,
     fs::{Mode, OpenFlags, Seek},
-    time::TimeSpec,
 };
 use vfs::{File, VfsFile};
 
 use crate::{
-    fs::{self, pipe, Iovec, Pollfd},
-    memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
+    fs::{self, pipe, Iovec},
+    memory::user_ptr::{UserReadPtr, UserWritePtr},
     process::fd::Fd,
-    signal::SignalSet,
     syscall::SysError,
     tools::{allocator::from_usize_allocator::FromUsize, path},
     user::check::UserCheck,
@@ -18,6 +16,7 @@ use crate::{
 };
 pub mod mount;
 pub mod stat;
+mod select;
 
 use super::{SysRet, Syscall};
 
@@ -287,38 +286,7 @@ impl Syscall<'_> {
         }
         file.read_at(offset, &mut *buf.access_mut()).await
     }
-    pub async fn sys_pselect6(&mut self) -> SysRet {
-        // let (nfds, readfds, writefds, exceptfds, timeout, sigmask): () = self.cx.into();
-        todo!()
-    }
-    /// 未实现功能
-    pub async fn sys_ppoll(&mut self) -> SysRet {
-        stack_trace!();
-        let (fds, nfds, timeout, sigmask, s_size): (
-            UserInOutPtr<Pollfd>,
-            usize,
-            UserReadPtr<TimeSpec>,
-            UserReadPtr<u8>,
-            usize,
-        ) = self.cx.into();
-        let uc = UserCheck::new(self.process);
-        let fds = uc.writable_slice(fds, nfds).await?;
-        if PRINT_SYSCALL_FS {
-            let fds: Vec<_> = fds.access().iter().map(|a| a.fd).collect();
-            println!("sys_ppoll fds: {:?} ..", fds);
-        }
-        let _timeout = match timeout.nonnull() {
-            Some(timeout) => Some(uc.readonly_value(timeout).await?.load()),
-            None => None,
-        };
-        let _sigset = if let Some(sigmask) = sigmask.nonnull() {
-            let v = uc.readonly_slice(sigmask, s_size).await?;
-            SignalSet::from_bytes(&*v.access())
-        } else {
-            SignalSet::EMPTY
-        };
-        Ok(nfds)
-    }
+
     pub async fn sys_readlinkat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, buf, size): (isize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =

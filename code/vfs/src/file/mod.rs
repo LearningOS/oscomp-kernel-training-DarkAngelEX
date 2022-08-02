@@ -17,6 +17,8 @@ use crate::{
     manager::path::Path,
 };
 
+pub mod select;
+
 pub trait File: Send + Sync + 'static {
     // 这个文件的工作路径
     fn vfs_file(&self) -> SysR<&VfsFile> {
