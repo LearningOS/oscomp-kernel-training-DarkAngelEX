@@ -1,11 +1,19 @@
-use alloc::vec::Vec;
-use ftl_util::{async_tools, error::SysRet, time::TimeSpec};
-use vfs::select::{SelectFuture, PL};
+use alloc::{sync::Arc, vec::Vec};
+use bit_field::BitField;
+use ftl_util::{
+    async_tools,
+    error::{SysError, SysR, SysRet},
+    time::TimeSpec,
+};
+use vfs::{
+    select::{SelectFuture, PL},
+    File,
+};
 
 use crate::{
     fs::Pollfd,
     memory::user_ptr::{UserInOutPtr, UserReadPtr},
-    process::fd::Fd,
+    process::{fd::Fd, AliveProcess},
     signal::SignalSet,
     syscall::Syscall,
     user::check::UserCheck,
@@ -16,8 +24,105 @@ const PRINT_SYSCALL_SELECT: bool = true || false && PRINT_SYSCALL || PRINT_SYSCA
 
 impl Syscall<'_> {
     pub async fn sys_pselect6(&mut self) -> SysRet {
-        // let (nfds, readfds, writefds, exceptfds, timeout, sigmask): () = self.cx.into();
-        todo!()
+        let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
+            usize,
+            UserInOutPtr<usize>,
+            UserInOutPtr<usize>,
+            UserInOutPtr<usize>,
+            UserReadPtr<TimeSpec>,
+            UserReadPtr<SignalSet>,
+        ) = self.cx.into();
+        if nfds == 0 {
+            return Err(SysError::EINVAL);
+        }
+        let arr_n = nfds.div_ceil(usize::BITS as usize);
+        let uc = UserCheck::new(self.process);
+        let r = uc.writable_slice(readfds, arr_n).await?;
+        let w = uc.writable_slice(writefds, arr_n).await?;
+        let e = uc.writable_slice(exceptfds, arr_n).await?;
+        if PRINT_SYSCALL_SELECT {
+            println!(
+                "sys_pselect6 nfds: {} r: {:#x} w: {:#x} e: {:#x}",
+                nfds,
+                r.access()[0],
+                w.access()[0],
+                e.access()[0],
+            );
+        }
+        let _timeout = match timeout.nonnull() {
+            Some(timeout) => {
+                let ts = uc.readonly_value(timeout).await?.load();
+                Some(ts.as_duration())
+            }
+            None => None,
+        };
+        let _sigset = if let Some(sigmask) = sigmask.nonnull() {
+            uc.readonly_value(sigmask).await?.load()
+        } else {
+            *self.thread.inner().signal_manager.mask()
+        };
+        let mut n = 0;
+        let set = self.alive_then(|a| -> SysR<Vec<_>> {
+            fn push_set_impl(
+                set: &mut Vec<(usize, Arc<dyn File>, PL)>,
+                a: &mut AliveProcess,
+                ran: &mut [usize],
+                events: PL,
+            ) -> SysR<usize> {
+                let mut n = 0;
+                for (i, pv) in ran.iter_mut().enumerate() {
+                    let mut v = *pv;
+                    let mut r = 0;
+                    while v != 0 {
+                        let place = v.trailing_zeros() as usize;
+                        debug_assert!(v.get_bit(place));
+                        v.set_bit(place, false);
+                        let fd = i * usize::BITS as usize + place;
+                        let f = a.fd_table.get(Fd(fd)).ok_or(SysError::EBADF)?;
+                        let cur = f.ppoll();
+                        if cur.intersects(PL::POLLFAIL | events) {
+                            n += 1;
+                            r.set_bit(place, true);
+                            continue;
+                        }
+                        set.push((fd, f.clone(), cur & PL::POLLSUCCESS));
+                    }
+                    *pv = r;
+                }
+                Ok(n)
+            }
+
+            let mut set = Vec::new();
+            n += push_set_impl(&mut set, a, &mut *r.access_mut(), PL::POLLIN)?;
+            n += push_set_impl(&mut set, a, &mut *w.access_mut(), PL::POLLOUT)?;
+            n += push_set_impl(&mut set, a, &mut *e.access_mut(), PL::POLLPRI)?;
+
+            Ok(set)
+        })?;
+        if n != 0 || set.is_empty() {
+            return Ok(n);
+        }
+        let mut waker = async_tools::take_waker().await;
+        let ret = SelectFuture::new(set, &mut waker).await;
+        let n = ret.len();
+
+        let r = &mut *r.access_mut();
+        let w = &mut *w.access_mut();
+        let e = &mut *e.access_mut();
+
+        let ub = usize::BITS as usize;
+        for (i, pl) in ret {
+            let x = i / ub;
+            let y = i % ub;
+            if pl.contains(PL::POLLIN) {
+                r[x].set_bit(y, true);
+            } else if pl.contains(PL::POLLOUT) {
+                w[x].set_bit(y, true);
+            } else if pl.contains(PL::POLLPRI) {
+                e[x].set_bit(y, true);
+            }
+        }
+        Ok(n)
     }
     /// 未实现功能
     pub async fn sys_ppoll(&mut self) -> SysRet {

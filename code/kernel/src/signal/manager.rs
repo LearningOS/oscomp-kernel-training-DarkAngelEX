@@ -107,7 +107,7 @@ impl ProcSignalManagerInner {
     pub fn get_action(&self, sig: Sig) -> (Action, &SignalSet) {
         sig.check();
         let act = &self.action[sig.0 as usize];
-        (act.get_action(sig.0), &act.mask)
+        (act.get_action(sig), &act.mask)
     }
     pub fn replace_action(&mut self, sig: Sig, new: &SigAction, old: &mut SigAction) {
         sig.check();

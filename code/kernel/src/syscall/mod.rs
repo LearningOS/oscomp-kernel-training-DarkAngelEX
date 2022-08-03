@@ -56,6 +56,7 @@ const SYSCALL_FUTEX: usize = 98;
 const SYSCALL_SET_ROBUST_LIST: usize = 99;
 const SYSCALL_GET_ROBUST_LIST: usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
+const SYSCALL_SETITIMER: usize = 103;
 const SYSCALL_CLOCK_GETTIME: usize = 113;
 const SYSCALL_SCHED_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
@@ -163,6 +164,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_SET_ROBUST_LIST => self.sys_set_robust_list().await,
             SYSCALL_GET_ROBUST_LIST => self.sys_get_robust_list().await,
             SYSCALL_NANOSLEEP => self.sys_nanosleep().await,
+            SYSCALL_SETITIMER => self.sys_setitimer().await,
             SYSCALL_CLOCK_GETTIME => self.sys_clock_gettime().await,
             SYSCALL_SCHED_YIELD => self.sys_sched_yield().await,
             SYSCALL_KILL => self.sys_kill(),

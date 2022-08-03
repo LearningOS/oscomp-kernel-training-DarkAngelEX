@@ -318,6 +318,7 @@ pub struct SignalStack {
     ss_size: usize,
 }
 
+#[derive(Debug)]
 pub enum Action {
     Abort,
     Ignore,
@@ -341,15 +342,17 @@ impl SigAction {
         USER_KRX_BEGIN + offset
     }
     #[inline(always)]
-    pub fn defalut_action(sig: u32) -> Action {
-        match sig as usize {
-            SIGCHLD | SIGCONT | SIGURG => Action::Ignore,
-            0..32 => Action::Abort,
+    pub fn defalut_action(sig: Sig) -> Action {
+        match sig.0 as usize {
+            0..32 => match sig.to_user() as usize {
+                SIGCHLD | SIGCONT | SIGURG => Action::Ignore,
+                _ => Action::Abort,
+            },
             32..SIG_N => Action::Ignore,
             e => panic!("error sig: {}", e),
         }
     }
-    pub fn get_action(&self, sig: u32) -> Action {
+    pub fn get_action(&self, sig: Sig) -> Action {
         match self.handler {
             SIG_DFL => Self::defalut_action(sig),
             SIG_IGN => Action::Ignore,
@@ -410,14 +413,14 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         Some(s) => s,
         None => return Ok(()),
     };
+    let (act, sig_mask) = psm.get_action(signal);
     // 找到了一个待处理信号
     if PRINT_SYSCALL_ALL {
         println!(
-            "handle_signal - find signal: {:?} sepc: {:#x}",
-            signal, thread.uk_context.user_sepc
+            "handle_signal - find signal: {:?} sepc: {:#x} act: {:?}",
+            signal, thread.uk_context.user_sepc, act
         );
     }
-    let (act, sig_mask) = psm.get_action(signal);
     let (handler, ra) = match act {
         Action::Abort => return Err(Dead),
         Action::Ignore => return Ok(()),

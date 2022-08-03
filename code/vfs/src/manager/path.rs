@@ -94,8 +94,8 @@ impl Path {
 
 impl VfsManager {
     /// 返回到达最后一个文件名的路径和文件名
-    pub(crate) async fn walk_path<'a>(
-        &self,
+    pub(crate) async fn walk_path<'a, 'b>(
+        &'b self,
         (base, path_str): (SysR<Arc<VfsFile>>, &'a str),
     ) -> SysR<(Path, &'a str)> {
         let mut path = if is_absolute_path(path_str) {

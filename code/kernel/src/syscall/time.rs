@@ -51,4 +51,7 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
+    pub async fn sys_setitimer(&mut self) -> SysRet {
+        todo!()
+    }
 }

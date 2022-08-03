@@ -26,6 +26,7 @@
 #![feature(generic_arg_infer)]
 #![feature(get_mut_unchecked)]
 #![feature(half_open_range_patterns)]
+#![feature(int_roundings)]
 #![feature(let_chains)]
 #![feature(map_first_last)]
 #![feature(map_try_insert)]
