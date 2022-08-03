@@ -5,10 +5,7 @@ use core::{
 };
 
 use alloc::{sync::Arc, vec::Vec};
-use ftl_util::{
-    list::InListNode,
-    sync::{spin_mutex::SpinMutex, Spin},
-};
+use ftl_util::list::InListNode;
 
 use crate::File;
 
@@ -26,6 +23,7 @@ bitflags! {
 inlist_access!(pub SelectWaiterAccessIN, SelectNode, node_in);
 inlist_access!(pub SelectWaiterAccessPRI, SelectNode, node_pri);
 inlist_access!(pub SelectWaiterAccessOUT, SelectNode, node_out);
+
 /// select 等待器
 pub struct SelectNode {
     node_in: InListNode<Self, SelectWaiterAccessIN>,
@@ -60,32 +58,30 @@ impl SelectNode {
 
 /// 在这个文件上等待的集合
 pub struct SelectSet {
-    head: SpinMutex<SelectNode, Spin>,
+    head: SelectNode,
 }
 
 impl SelectSet {
     pub const fn new() -> Self {
         Self {
-            head: SpinMutex::new(SelectNode::new(PL::empty())),
+            head: SelectNode::new(PL::empty()),
         }
     }
-    pub fn push(&self, node: &mut SelectNode) {
+    pub fn push(&mut self, node: &mut SelectNode) {
         // self.head.lock().
         debug_assert!(node.waker.is_some());
-        let mut lk = self.head.lock();
         let events = node.events;
         if events.contains(PL::POLLIN) {
-            lk.node_in.push_prev(&mut node.node_in);
+            self.head.node_in.push_prev(&mut node.node_in);
         }
         if events.contains(PL::POLLPRI) {
-            lk.node_pri.push_prev(&mut node.node_pri);
+            self.head.node_pri.push_prev(&mut node.node_pri);
         }
         if events.contains(PL::POLLOUT) {
-            lk.node_out.push_prev(&mut node.node_out);
+            self.head.node_out.push_prev(&mut node.node_out);
         }
     }
-    pub fn pop(&self, node: &mut SelectNode) {
-        let _lk = self.head.lock();
+    pub fn pop(&mut self, node: &mut SelectNode) {
         let events = node.events;
         if events.contains(PL::POLLIN) {
             node.node_in.pop_self();
@@ -97,21 +93,22 @@ impl SelectSet {
             node.node_out.pop_self();
         }
     }
-
     pub fn wake(&self, events: PL) {
-        let lk = self.head.lock();
         if events.contains(PL::POLLIN) {
-            lk.node_in
+            self.head
+                .node_in
                 .next_iter()
                 .for_each(|node| node.waker.as_ref().unwrap().wake_by_ref());
         }
         if events.contains(PL::POLLPRI) {
-            lk.node_pri
+            self.head
+                .node_pri
                 .next_iter()
                 .for_each(|node| node.waker.as_ref().unwrap().wake_by_ref());
         }
         if events.contains(PL::POLLOUT) {
-            lk.node_out
+            self.head
+                .node_out
                 .next_iter()
                 .for_each(|node| node.waker.as_ref().unwrap().wake_by_ref());
         }
@@ -119,16 +116,16 @@ impl SelectSet {
 }
 
 struct SelectFuture {
-    nodes: Vec<SelectNode>,
+    nodes: Vec<(usize, Arc<dyn File>, SelectNode)>,
 }
 
 impl SelectFuture {
-    pub fn new(&self, files: Vec<(Arc<dyn File>, PL)>, waker: Waker) -> Self {
-        let mut nodes = Vec::new();
-        nodes.resize_with(files.len(), || SelectNode::new(PL::empty()));
-        for ((file, events), node) in files.into_iter().zip(nodes.iter_mut()) {
-            node.events = events;
-            node.revents = file.ppoll();
+    pub fn new(&self, files: Vec<(usize, Arc<dyn File>, PL)>, waker: Waker) -> Self {
+        let mut nodes: Vec<_> = files
+            .into_iter()
+            .map(|(fd, f, pl)| (fd, f, SelectNode::new(pl)))
+            .collect();
+        for (_, file, node) in nodes.iter_mut() {
             node.waker = Some(waker.clone());
             node.init();
             file.push_select_node(node);
@@ -138,9 +135,25 @@ impl SelectFuture {
 }
 
 impl Future for SelectFuture {
-    type Output = usize;
+    type Output = Vec<(usize, PL)>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        todo!()
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let nodes = unsafe { &mut self.get_unchecked_mut().nodes };
+        let mut run = false;
+        for (_, file, node) in nodes.iter_mut() {
+            node.revents = file.ppoll() & node.events;
+            run |= !node.revents.is_empty();
+        }
+        if !run {
+            return Poll::Pending;
+        }
+        let mut ret = Vec::new();
+        for (fd, file, node) in nodes.iter_mut() {
+            file.pop_select_node(node);
+            if !node.revents.is_empty() {
+                ret.push((*fd, node.revents));
+            }
+        }
+        Poll::Ready(ret)
     }
 }
