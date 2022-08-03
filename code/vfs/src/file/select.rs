@@ -70,6 +70,9 @@ pub struct SelectSet {
     head: SelectNode,
 }
 
+unsafe impl Send for SelectSet {}
+unsafe impl Sync for SelectSet {}
+
 impl SelectSet {
     pub const fn new() -> Self {
         Self {

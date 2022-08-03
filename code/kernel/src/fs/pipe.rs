@@ -14,12 +14,15 @@ use ftl_util::{
     error::{SysError, SysRet},
     fs::Seek,
 };
-use vfs::File;
+use vfs::{
+    select::{SelectNode, SelectSet, PL},
+    File,
+};
 
 use crate::{
     config::PAGE_SIZE,
     memory::allocator::frame::{self, global::FrameTracker},
-    sync::{mutex::SpinNoIrqLock, SleepMutex},
+    sync::{mutex::SpinLock, SleepMutex},
     tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
 };
 
@@ -108,12 +111,14 @@ pub fn make_pipe() -> Result<(Arc<PipeReader>, Arc<PipeWriter>), FrameOOM> {
     let mut reader = Arc::new(PipeReader {
         pipe: SleepMutex::new(pipe.clone()),
         writer: Weak::new(),
-        waker: SpinNoIrqLock::new(None),
+        waker: SpinLock::new(None),
+        select_set: SpinLock::new(SelectSet::new()),
     });
     let writer = Arc::new(PipeWriter {
         pipe: SleepMutex::new(pipe),
         reader: Arc::downgrade(&reader),
-        waker: SpinNoIrqLock::new(None),
+        waker: SpinLock::new(None),
+        select_set: SpinLock::new(SelectSet::new()),
     });
     unsafe { Arc::get_mut_unchecked(&mut reader).writer = Arc::downgrade(&writer) };
     Ok((reader, writer))
@@ -122,7 +127,8 @@ pub fn make_pipe() -> Result<(Arc<PipeReader>, Arc<PipeWriter>), FrameOOM> {
 pub struct PipeReader {
     pipe: SleepMutex<Arc<SyncUnsafeCell<Pipe>>>,
     writer: Weak<PipeWriter>,
-    waker: SpinNoIrqLock<Option<Waker>>,
+    waker: SpinLock<Option<Waker>>,
+    select_set: SpinLock<SelectSet>,
 }
 
 impl Drop for PipeReader {
@@ -162,18 +168,38 @@ impl File for PipeReader {
     fn write<'a>(&'a self, _read_only: &'a [u8]) -> ASysRet {
         panic!("write to PipeReader");
     }
+    fn ppoll(&self) -> PL {
+        unsafe {
+            if self.pipe.unsafe_get().get().can_read() {
+                return PL::POLLIN;
+            }
+        }
+        if self.writer.strong_count() == 0 {
+            return PL::POLLPRI | PL::POLLHUP;
+        }
+        PL::empty()
+    }
+    fn push_select_node(&self, node: &mut SelectNode) {
+        self.select_set.lock().push(node)
+    }
+    fn pop_select_node(&self, node: &mut SelectNode) {
+        self.select_set.lock().pop(node)
+    }
 }
 
 pub struct PipeWriter {
     pipe: SleepMutex<Arc<SyncUnsafeCell<Pipe>>>,
     reader: Weak<PipeReader>,
-    waker: SpinNoIrqLock<Option<Waker>>,
+    waker: SpinLock<Option<Waker>>,
+    select_set: SpinLock<SelectSet>,
 }
 
 impl Drop for PipeWriter {
     fn drop(&mut self) {
-        if let Some(w) = self.reader.upgrade().and_then(|w| w.waker.lock().take()) {
-            w.wake()
+        if let Some(reader) = self.reader.upgrade() {
+            if let Some(w) = reader.waker.lock().take() {
+                w.wake();
+            }
         }
     }
 }
@@ -208,11 +234,28 @@ impl File for PipeWriter {
             future.await
         })
     }
+    fn ppoll(&self) -> PL {
+        unsafe {
+            if self.pipe.unsafe_get().get().can_write() {
+                return PL::POLLOUT;
+            }
+        }
+        if self.reader.strong_count() == 0 {
+            return PL::POLLPRI | PL::POLLERR;
+        }
+        PL::empty()
+    }
+    fn push_select_node(&self, node: &mut SelectNode) {
+        self.select_set.lock().push(node)
+    }
+    fn pop_select_node(&self, node: &mut SelectNode) {
+        self.select_set.lock().pop(node)
+    }
 }
 
 struct ReadPipeFuture<'a> {
     pipe: &'a mut Pipe,
-    waker: &'a SpinNoIrqLock<Option<Waker>>,
+    waker: &'a SpinLock<Option<Waker>>,
     writer: &'a Weak<PipeWriter>,
     buffer: &'a mut [u8],
     current: usize,
@@ -229,7 +272,9 @@ impl ReadPipeFuture<'_> {
     fn wake_writer(writer: &Weak<PipeWriter>) -> impl FnMut() + '_ {
         || {
             let _: Option<_> = try {
-                writer.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
+                let writer = writer.upgrade()?;
+                writer.select_set.lock().wake(PL::POLLOUT);
+                writer.waker.lock().as_ref()?.wake_by_ref();
                 Some(())
             };
         }
@@ -263,7 +308,7 @@ impl Future for ReadPipeFuture<'_> {
 
 struct WritePipeFuture<'a> {
     pipe: &'a mut Pipe,
-    waker: &'a SpinNoIrqLock<Option<Waker>>,
+    waker: &'a SpinLock<Option<Waker>>,
     reader: &'a Weak<PipeReader>,
     buffer: &'a [u8],
     current: usize,
@@ -279,7 +324,9 @@ impl WritePipeFuture<'_> {
     fn wake_reader(reader: &Weak<PipeReader>) -> impl FnMut() + '_ {
         || {
             let _: Option<_> = try {
-                reader.upgrade()?.waker.lock().as_ref()?.wake_by_ref();
+                let reader = reader.upgrade()?;
+                reader.select_set.lock().wake(PL::POLLIN);
+                reader.waker.lock().as_ref()?.wake_by_ref();
                 Some(()) // 为了让愚蠢的rust-analyzer不爆红
             };
         }

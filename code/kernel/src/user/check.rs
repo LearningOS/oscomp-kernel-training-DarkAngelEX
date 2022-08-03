@@ -78,6 +78,16 @@ impl<'a> UserCheck<'a> {
     pub async fn readonly_value<T: Copy, P: Read>(&self, ptr: UserPtr<T, P>) -> SysR<UserData<T>> {
         self.readonly_slice(ptr, 1).await
     }
+    pub async fn readonly_value_nullable<T: Copy, P: Read>(
+        &self,
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.readonly_slice(ptr, 1).await).transpose()
+        }
+    }
     /// return a slice witch len == 1
     pub async fn writable_value<T: Copy, P: Write>(
         &self,
@@ -123,7 +133,17 @@ impl<'a> UserCheck<'a> {
         let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
         Ok(UserData::new(unsafe { &*slice }))
     }
-
+    pub async fn readonly_slice_nullable<T: Copy, P: Read>(
+        &self,
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.readonly_slice(ptr, len).await).transpose()
+        }
+    }
     pub async fn writable_slice<T: Copy, P: Write>(
         &self,
         ptr: UserPtr<T, P>,
@@ -152,7 +172,17 @@ impl<'a> UserCheck<'a> {
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
         Ok(UserDataMut::new(slice))
     }
-
+    pub async fn writable_slice_nullable<T: Copy, P: Write>(
+        &self,
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.writable_slice(ptr, len).await).transpose()
+        }
+    }
     pub async fn atomic_u32<P: Write>(&self, ptr: UserPtr<u32, P>) -> SysR<UserDataMut<AtomicU32>> {
         if ptr.as_usize() % core::mem::align_of::<u32>() != 0 {
             println!(

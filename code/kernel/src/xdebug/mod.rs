@@ -8,10 +8,10 @@ pub const PRINT_MAP_ALL: bool = false;
 
 use riscv::register::sstatus;
 
-pub const PRINT_SYSCALL_ALL: bool = false;
+pub const PRINT_SYSCALL_ALL: bool = true;
 pub const PRINT_SYSCALL: bool = false;
 pub const PRINT_FORK: bool = false;
-pub const PRINT_SYSCALL_RW: bool = false; // 输出 read 和 write 系统调用
+pub const PRINT_SYSCALL_RW: bool = true; // 输出 read 和 write 系统调用
 pub const PRINT_SPECIAL_RETURN: bool = false; // fork return and exec return
 pub const PRINT_DROP_TCB: bool = false; // check drop when becomes zombie
 pub const PRINT_PAGE_FAULT: bool = false;

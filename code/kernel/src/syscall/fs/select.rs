@@ -37,30 +37,31 @@ impl Syscall<'_> {
         }
         let arr_n = nfds.div_ceil(usize::BITS as usize);
         let uc = UserCheck::new(self.process);
-        let r = uc.writable_slice(readfds, arr_n).await?;
-        let w = uc.writable_slice(writefds, arr_n).await?;
-        let e = uc.writable_slice(exceptfds, arr_n).await?;
+        let r = uc.writable_slice_nullable(readfds, arr_n).await?;
+        let w = uc.writable_slice_nullable(writefds, arr_n).await?;
+        let e = uc.writable_slice_nullable(exceptfds, arr_n).await?;
+        let timeout = uc
+            .readonly_value_nullable(timeout)
+            .await?
+            .map(|a| a.load().as_duration());
+
         if PRINT_SYSCALL_SELECT {
             println!(
-                "sys_pselect6 nfds: {} r: {:#x} w: {:#x} e: {:#x}",
+                "sys_pselect6 nfds: {} r: {:#x} w: {:#x} e: {:#x} timeout: {:?}",
                 nfds,
-                r.access()[0],
-                w.access()[0],
-                e.access()[0],
+                r.as_ref().map(|v| v.access()[0]).unwrap_or(0),
+                w.as_ref().map(|v| v.access()[0]).unwrap_or(0),
+                e.as_ref().map(|v| v.access()[0]).unwrap_or(0),
+                timeout.map(|a| (a.as_secs(), a.subsec_nanos()))
             );
         }
-        let _timeout = match timeout.nonnull() {
-            Some(timeout) => {
-                let ts = uc.readonly_value(timeout).await?.load();
-                Some(ts.as_duration())
-            }
-            None => None,
-        };
-        let _sigset = if let Some(sigmask) = sigmask.nonnull() {
-            uc.readonly_value(sigmask).await?.load()
-        } else {
-            *self.thread.inner().signal_manager.mask()
-        };
+
+        let _sigset = uc
+            .readonly_value_nullable(sigmask)
+            .await?
+            .map(|a| a.load())
+            .unwrap_or_else(|| *self.thread.inner().signal_manager.mask());
+
         let mut n = 0;
         let set = self.alive_then(|a| -> SysR<Vec<_>> {
             fn push_set_impl(
@@ -91,12 +92,16 @@ impl Syscall<'_> {
                 }
                 Ok(n)
             }
-
             let mut set = Vec::new();
-            n += push_set_impl(&mut set, a, &mut *r.access_mut(), PL::POLLIN)?;
-            n += push_set_impl(&mut set, a, &mut *w.access_mut(), PL::POLLOUT)?;
-            n += push_set_impl(&mut set, a, &mut *e.access_mut(), PL::POLLPRI)?;
-
+            if let Some(r) = r.as_ref() {
+                n += push_set_impl(&mut set, a, &mut *r.access_mut(), PL::POLLIN)?;
+            }
+            if let Some(w) = w.as_ref() {
+                n += push_set_impl(&mut set, a, &mut *w.access_mut(), PL::POLLOUT)?;
+            }
+            if let Some(e) = e.as_ref() {
+                n += push_set_impl(&mut set, a, &mut *e.access_mut(), PL::POLLPRI)?;
+            }
             Ok(set)
         })?;
         if n != 0 || set.is_empty() {
@@ -106,25 +111,25 @@ impl Syscall<'_> {
         let ret = SelectFuture::new(set, &mut waker).await;
         let n = ret.len();
 
-        let r = &mut *r.access_mut();
-        let w = &mut *w.access_mut();
-        let e = &mut *e.access_mut();
+        let mut r = r.as_ref().map(|v| v.access_mut());
+        let mut w = w.as_ref().map(|v| v.access_mut());
+        let mut e = e.as_ref().map(|v| v.access_mut());
 
         let ub = usize::BITS as usize;
         for (i, pl) in ret {
             let x = i / ub;
             let y = i % ub;
             if pl.contains(PL::POLLIN) {
-                r[x].set_bit(y, true);
+                r.as_mut().unwrap()[x].set_bit(y, true);
             } else if pl.contains(PL::POLLOUT) {
-                w[x].set_bit(y, true);
+                w.as_mut().unwrap()[x].set_bit(y, true);
             } else if pl.contains(PL::POLLPRI) {
-                e[x].set_bit(y, true);
+                e.as_mut().unwrap()[x].set_bit(y, true);
             }
         }
         Ok(n)
     }
-    /// 未实现功能
+
     pub async fn sys_ppoll(&mut self) -> SysRet {
         stack_trace!();
         let (fds, nfds, timeout, sigmask, s_size): (
@@ -134,25 +139,26 @@ impl Syscall<'_> {
             UserReadPtr<u8>,
             usize,
         ) = self.cx.into();
+        if PRINT_SYSCALL_SELECT {
+            println!("sys_ppoll");
+        }
         let uc = UserCheck::new(self.process);
         let fds = uc.writable_slice(fds, nfds).await?;
         if PRINT_SYSCALL_SELECT {
             let fds: Vec<_> = fds.access().iter().map(|a| a.fd).collect();
             println!("sys_ppoll fds: {:?} ..", fds);
         }
-        let _timeout = match timeout.nonnull() {
-            Some(timeout) => {
-                let ts = uc.readonly_value(timeout).await?.load();
-                Some(ts.as_duration())
-            }
-            None => None,
-        };
-        let _sigset = if let Some(sigmask) = sigmask.nonnull() {
-            let v = uc.readonly_slice(sigmask, s_size).await?;
-            SignalSet::from_bytes(&*v.access())
-        } else {
-            SignalSet::EMPTY
-        };
+        let _timeout = uc
+            .readonly_value_nullable(timeout)
+            .await?
+            .map(|a| a.load().as_duration());
+
+        let _sigset = uc
+            .readonly_slice_nullable(sigmask, s_size)
+            .await?
+            .map(|a| SignalSet::from_bytes(&*a.access()))
+            .unwrap_or_else(|| *self.thread.inner().signal_manager.mask());
+
         let mut n = 0;
         let v = self.alive_then(|a| {
             let mut v = Vec::new();

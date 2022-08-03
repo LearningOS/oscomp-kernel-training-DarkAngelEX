@@ -100,7 +100,7 @@ impl VfsManager {
     ) -> SysR<(Path, &'a str)> {
         let mut path = if is_absolute_path(path_str) {
             Path {
-                mount: None,
+                mount: None, 
                 dentry: self.root.as_ref().unwrap().clone(),
             }
         } else {
