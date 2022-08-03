@@ -5,7 +5,7 @@ use super::{access::ListAccess, ListNode};
 /// 生成一个通过成员反向获取父类的类型
 #[macro_export]
 macro_rules! inlist_access {
-    ($vis: vis $name: ident, $T: ty, $field:ident) => {
+    ($vis: vis $name: ident, $T: ty, $field: ident) => {
         $vis struct $name {}
         impl $crate::list::access::ListAccess<$T, $crate::list::intrusive::InListNode<$T, Self>>
             for $name

@@ -17,6 +17,8 @@ use crate::{
     manager::path::Path,
 };
 
+use self::select::{SelectNode, PL};
+
 pub mod select;
 
 pub trait File: Send + Sync + 'static {
@@ -29,6 +31,15 @@ pub trait File: Send + Sync + 'static {
     }
     fn into_vfs_file(self: Arc<Self>) -> SysR<Arc<VfsFile>> {
         Err(SysError::ENOENT)
+    }
+    fn ppoll(&self) -> PL {
+        unimplemented!("poll {}", core::any::type_name::<Self>())
+    }
+    fn push_select_node(&self, _node: &mut SelectNode) {
+        unimplemented!("push_select_node {}", core::any::type_name::<Self>())
+    }
+    fn pop_select_node(&self, _node: &mut SelectNode) {
+        unimplemented!("pop_select_node {}", core::any::type_name::<Self>())
     }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
