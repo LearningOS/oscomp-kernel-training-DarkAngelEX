@@ -15,8 +15,8 @@ use crate::{
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
 };
 pub mod mount;
-pub mod stat;
 mod select;
+pub mod stat;
 
 use super::{SysRet, Syscall};
 
@@ -345,6 +345,9 @@ impl Syscall<'_> {
         .await?;
         self.alive_then(|a| a.cwd = inode);
         Ok(0)
+    }
+    pub async fn sys_fchown(&mut self) -> SysRet {
+        todo!()
     }
     pub async fn sys_openat(&mut self) -> SysRet {
         stack_trace!();

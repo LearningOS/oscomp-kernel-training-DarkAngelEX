@@ -16,11 +16,12 @@ use crate::{
     process::{fd::Fd, AliveProcess},
     signal::SignalSet,
     syscall::Syscall,
+    timer,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
-const PRINT_SYSCALL_SELECT: bool = true || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
+const PRINT_SYSCALL_SELECT: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
     pub async fn sys_pselect6(&mut self) -> SysRet {
@@ -108,7 +109,20 @@ impl Syscall<'_> {
             return Ok(n);
         }
         let mut waker = async_tools::take_waker().await;
-        let ret = SelectFuture::new(set, &mut waker).await;
+        let now = timer::now();
+        let checker = match timeout {
+            None => None,
+            Some(dur) => {
+                let timeout = now + dur;
+                timer::sleep::timer_push_task(timeout, waker.clone());
+                Some(move || timer::now() >= timeout)
+            }
+        };
+        let checker: Option<&(dyn Fn() -> bool + Send + Sync)> = match &checker {
+            None => None,
+            Some(f) => Some(f),
+        };
+        let ret = SelectFuture::new(set, &mut waker, checker).await;
         let n = ret.len();
 
         let mut r = r.as_ref().map(|v| v.access_mut());
@@ -148,7 +162,7 @@ impl Syscall<'_> {
             let fds: Vec<_> = fds.access().iter().map(|a| a.fd).collect();
             println!("sys_ppoll fds: {:?} ..", fds);
         }
-        let _timeout = uc
+        let timeout = uc
             .readonly_value_nullable(timeout)
             .await?
             .map(|a| a.load().as_duration());
@@ -187,7 +201,20 @@ impl Syscall<'_> {
             return Ok(n);
         }
         let mut waker = async_tools::take_waker().await;
-        let r = SelectFuture::new(v, &mut waker).await;
+        let now = timer::now();
+        let checker = match timeout {
+            None => None,
+            Some(dur) => {
+                let timeout = now + dur;
+                timer::sleep::timer_push_task(timeout, waker.clone());
+                Some(move || timer::now() >= timeout)
+            }
+        };
+        let checker: Option<&(dyn Fn() -> bool + Send + Sync)> = match &checker {
+            None => None,
+            Some(f) => Some(f),
+        };
+        let r = SelectFuture::new(v, &mut waker, checker).await;
         let n = r.len();
         for (i, pl) in r {
             fds.access_mut()[i].revents = pl;

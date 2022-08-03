@@ -12,6 +12,7 @@
 #![feature(get_mut_unchecked)]
 #![feature(receiver_trait)]
 #![feature(array_try_map)]
+#![feature(let_chains)]
 #![allow(dead_code)]
 
 const PRINT_OP: bool = false;

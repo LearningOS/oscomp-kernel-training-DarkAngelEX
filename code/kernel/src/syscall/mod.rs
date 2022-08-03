@@ -33,6 +33,7 @@ const SYSCALL_UMOUNT2: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
 const SYSCALL_STATFS: usize = 43;
 const SYSCALL_CHDIR: usize = 49;
+const SYSCALL_FCHOWN: usize = 55;
 const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE2: usize = 59;
@@ -141,6 +142,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_MOUNT => self.sys_mount().await,
             SYSCALL_STATFS => self.sys_statfs().await,
             SYSCALL_CHDIR => self.sys_chdir().await,
+            SYSCALL_FCHOWN => self.sys_fchown().await,
             SYSCALL_OPENAT => self.sys_openat().await,
             SYSCALL_CLOSE => self.sys_close(),
             SYSCALL_PIPE2 => self.sys_pipe2().await,

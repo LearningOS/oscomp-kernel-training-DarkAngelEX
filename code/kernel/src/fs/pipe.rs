@@ -120,7 +120,12 @@ pub fn make_pipe() -> Result<(Arc<PipeReader>, Arc<PipeWriter>), FrameOOM> {
         waker: SpinLock::new(None),
         select_set: SpinLock::new(SelectSet::new()),
     });
-    unsafe { Arc::get_mut_unchecked(&mut reader).writer = Arc::downgrade(&writer) };
+
+    unsafe {
+        reader.select_set.unsafe_get_mut().init();
+        writer.select_set.unsafe_get_mut().init();
+        Arc::get_mut_unchecked(&mut reader).writer = Arc::downgrade(&writer);
+    }
     Ok((reader, writer))
 }
 
@@ -323,6 +328,7 @@ impl WritePipeFuture<'_> {
     }
     fn wake_reader(reader: &Weak<PipeReader>) -> impl FnMut() + '_ {
         || {
+            stack_trace!();
             let _: Option<_> = try {
                 let reader = reader.upgrade()?;
                 reader.select_set.lock().wake(PL::POLLIN);

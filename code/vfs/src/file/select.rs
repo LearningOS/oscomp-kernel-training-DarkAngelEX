@@ -79,6 +79,9 @@ impl SelectSet {
             head: SelectNode::new(PL::empty()),
         }
     }
+    pub fn init(&mut self) {
+        self.head.init();
+    }
     pub fn push(&mut self, node: &mut SelectNode) {
         // self.head.lock().
         debug_assert!(node.waker.is_some());
@@ -106,6 +109,7 @@ impl SelectSet {
         }
     }
     pub fn wake(&self, events: PL) {
+        stack_trace!();
         if events.intersects(PL::POLLIN | PL::POLLFAIL) {
             self.head.node_in.next_iter().for_each(|node| node.wake());
         }
@@ -118,15 +122,20 @@ impl SelectSet {
     }
 }
 
-pub struct SelectFuture {
+pub struct SelectFuture<'a> {
     nodes: Vec<(usize, Arc<dyn File>, SelectNode)>,
+    checker: Option<&'a (dyn Fn() -> bool + Send + Sync)>,
 }
 
-unsafe impl Send for SelectFuture {}
-unsafe impl Sync for SelectFuture {}
+unsafe impl Send for SelectFuture<'_> {}
+unsafe impl Sync for SelectFuture<'_> {}
 
-impl SelectFuture {
-    pub fn new(files: Vec<(usize, Arc<dyn File>, PL)>, waker: &mut Waker) -> Self {
+impl<'a> SelectFuture<'a> {
+    pub fn new(
+        files: Vec<(usize, Arc<dyn File>, PL)>,
+        waker: &mut Waker,
+        checker: Option<&'a (dyn Fn() -> bool + Send + Sync)>,
+    ) -> Self {
         debug_assert!(!files.is_empty());
         let mut nodes: Vec<_> = files
             .into_iter()
@@ -137,21 +146,27 @@ impl SelectFuture {
             node.set_waker(NonNull::new(waker).unwrap());
             file.push_select_node(node);
         }
-        Self { nodes }
+        Self { nodes, checker }
     }
 }
 
-impl Future for SelectFuture {
+impl Future for SelectFuture<'_> {
     type Output = Vec<(usize, PL)>;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let nodes = unsafe { &mut self.get_unchecked_mut().nodes };
+        let this = unsafe { &mut self.get_unchecked_mut() };
+        let nodes = &mut this.nodes;
         let mut run = false;
         for (_, file, node) in nodes.iter_mut() {
             node.revents = file.ppoll() & node.events;
             run |= !node.revents.is_empty();
         }
         if !run {
+            if let Some(checker) = this.checker.as_ref() {
+                if checker() {
+                    return Poll::Ready(Vec::new());
+                }
+            }
             return Poll::Pending;
         }
         let mut ret = Vec::new();
