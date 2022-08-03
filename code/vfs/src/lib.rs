@@ -22,8 +22,8 @@ const RRINT_ELIMINATE: bool = false;
 extern crate alloc;
 #[macro_use]
 extern crate ftl_util;
-// #[macro_use]
-// extern crate bitflags;
+#[macro_use]
+extern crate bitflags;
 
 pub use {
     file::{select, File, VfsFile},
