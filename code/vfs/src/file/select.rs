@@ -92,24 +92,24 @@ impl SelectSet {
     }
     pub fn pop(&mut self, node: &mut SelectNode) {
         let events = node.events;
-        if events.contains(PL::POLLIN) {
+        if events.intersects(PL::POLLIN) {
             node.node_in.pop_self();
         }
-        if events.contains(PL::POLLPRI) {
+        if events.intersects(PL::POLLPRI) {
             node.node_pri.pop_self();
         }
-        if events.contains(PL::POLLOUT) {
+        if events.intersects(PL::POLLOUT) {
             node.node_out.pop_self();
         }
     }
     pub fn wake(&self, events: PL) {
-        if events.contains(PL::POLLIN) {
+        if events.intersects(PL::POLLIN | PL::POLLFAIL) {
             self.head.node_in.next_iter().for_each(|node| node.wake());
         }
-        if events.contains(PL::POLLPRI) {
+        if events.intersects(PL::POLLPRI | PL::POLLFAIL) {
             self.head.node_pri.next_iter().for_each(|node| node.wake());
         }
-        if events.contains(PL::POLLOUT) {
+        if events.intersects(PL::POLLOUT | PL::POLLFAIL) {
             self.head.node_out.next_iter().for_each(|node| node.wake());
         }
     }
@@ -124,9 +124,10 @@ unsafe impl Sync for SelectFuture {}
 
 impl SelectFuture {
     pub fn new(files: Vec<(usize, Arc<dyn File>, PL)>, waker: &mut Waker) -> Self {
+        debug_assert!(!files.is_empty());
         let mut nodes: Vec<_> = files
             .into_iter()
-            .map(|(fd, f, pl)| (fd, f, SelectNode::new(pl)))
+            .map(|(fd, f, pl)| (fd, f, SelectNode::new(pl | PL::POLLFAIL)))
             .collect();
         for (_, file, node) in nodes.iter_mut() {
             node.init();

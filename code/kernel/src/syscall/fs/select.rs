@@ -48,6 +48,7 @@ impl Syscall<'_> {
         } else {
             SignalSet::EMPTY
         };
+        let mut n = 0;
         let v = self.alive_then(|a| {
             let mut v = Vec::new();
             for (i, pollfd) in fds.access_mut().iter_mut().enumerate() {
@@ -62,6 +63,7 @@ impl Syscall<'_> {
                         let cur = f.ppoll();
                         if cur.intersects(PL::POLLFAIL | events) {
                             pollfd.revents = cur & (PL::POLLFAIL | events);
+                            n += 1;
                             continue;
                         }
                         v.push((i, f.clone(), cur & PL::POLLSUCCESS));
@@ -70,6 +72,9 @@ impl Syscall<'_> {
             }
             v
         });
+        if n != 0 || v.is_empty() {
+            return Ok(n);
+        }
         let mut waker = async_tools::take_waker().await;
         let r = SelectFuture::new(v, &mut waker).await;
         let n = r.len();
