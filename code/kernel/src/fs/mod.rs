@@ -13,7 +13,7 @@ use ftl_util::{
     fs::{path, stat::Stat, DentryType, Mode, OpenFlags},
     time::Instant,
 };
-use vfs::{DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
+use vfs::{select::PL, DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
 
 use crate::{
     config::FS_CACHE_MAX_SIZE,
@@ -39,8 +39,8 @@ pub struct Iovec {
 #[derive(Clone, Copy)]
 pub struct Pollfd {
     pub fd: u32,
-    pub events: u16,
-    pub revents: u16,
+    pub events: PL,
+    pub revents: PL,
 }
 
 static mut VFS_MANAGER: Option<Box<VfsManager>> = None;

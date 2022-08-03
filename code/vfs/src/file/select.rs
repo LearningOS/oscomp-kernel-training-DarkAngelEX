@@ -1,6 +1,7 @@
 use core::{
     future::Future,
     pin::Pin,
+    ptr::NonNull,
     task::{Context, Poll, Waker},
 };
 
@@ -20,6 +21,11 @@ bitflags! {
     }
 }
 
+impl PL {
+    pub const POLLSUCCESS: Self = Self::POLLIN.union(Self::POLLPRI).union(Self::POLLOUT);
+    pub const POLLFAIL: Self = Self::POLLERR.union(Self::POLLHUP).union(Self::POLLNVAL);
+}
+
 inlist_access!(pub SelectWaiterAccessIN, SelectNode, node_in);
 inlist_access!(pub SelectWaiterAccessPRI, SelectNode, node_pri);
 inlist_access!(pub SelectWaiterAccessOUT, SelectNode, node_out);
@@ -29,7 +35,7 @@ pub struct SelectNode {
     node_in: InListNode<Self, SelectWaiterAccessIN>,
     node_pri: InListNode<Self, SelectWaiterAccessPRI>,
     node_out: InListNode<Self, SelectWaiterAccessOUT>,
-    waker: Option<Waker>,
+    waker: Option<NonNull<Waker>>,
     events: PL,
     revents: PL,
 }
@@ -50,9 +56,12 @@ impl SelectNode {
         self.node_pri.init();
         self.node_out.init();
     }
-    pub fn set_waker(&mut self, waker: Waker) {
+    pub fn set_waker(&mut self, waker: NonNull<Waker>) {
         debug_assert!(self.waker.is_none());
         self.waker = Some(waker);
+    }
+    fn wake(&self) {
+        unsafe { self.waker.unwrap().as_ref().wake_by_ref() }
     }
 }
 
@@ -95,39 +104,33 @@ impl SelectSet {
     }
     pub fn wake(&self, events: PL) {
         if events.contains(PL::POLLIN) {
-            self.head
-                .node_in
-                .next_iter()
-                .for_each(|node| node.waker.as_ref().unwrap().wake_by_ref());
+            self.head.node_in.next_iter().for_each(|node| node.wake());
         }
         if events.contains(PL::POLLPRI) {
-            self.head
-                .node_pri
-                .next_iter()
-                .for_each(|node| node.waker.as_ref().unwrap().wake_by_ref());
+            self.head.node_pri.next_iter().for_each(|node| node.wake());
         }
         if events.contains(PL::POLLOUT) {
-            self.head
-                .node_out
-                .next_iter()
-                .for_each(|node| node.waker.as_ref().unwrap().wake_by_ref());
+            self.head.node_out.next_iter().for_each(|node| node.wake());
         }
     }
 }
 
-struct SelectFuture {
+pub struct SelectFuture {
     nodes: Vec<(usize, Arc<dyn File>, SelectNode)>,
 }
 
+unsafe impl Send for SelectFuture {}
+unsafe impl Sync for SelectFuture {}
+
 impl SelectFuture {
-    pub fn new(&self, files: Vec<(usize, Arc<dyn File>, PL)>, waker: Waker) -> Self {
+    pub fn new(files: Vec<(usize, Arc<dyn File>, PL)>, waker: &mut Waker) -> Self {
         let mut nodes: Vec<_> = files
             .into_iter()
             .map(|(fd, f, pl)| (fd, f, SelectNode::new(pl)))
             .collect();
         for (_, file, node) in nodes.iter_mut() {
-            node.waker = Some(waker.clone());
             node.init();
+            node.set_waker(NonNull::new(waker).unwrap());
             file.push_select_node(node);
         }
         Self { nodes }

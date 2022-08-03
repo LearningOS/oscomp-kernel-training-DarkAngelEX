@@ -1,16 +1,18 @@
 use alloc::vec::Vec;
-use ftl_util::{error::SysRet, time::TimeSpec};
+use ftl_util::{async_tools, error::SysRet, time::TimeSpec};
+use vfs::select::{SelectFuture, PL};
 
 use crate::{
     fs::Pollfd,
     memory::user_ptr::{UserInOutPtr, UserReadPtr},
+    process::fd::Fd,
     signal::SignalSet,
     syscall::Syscall,
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
-const PRINT_SYSCALL_SELECT: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
+const PRINT_SYSCALL_SELECT: bool = true || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
     pub async fn sys_pselect6(&mut self) -> SysRet {
@@ -34,7 +36,10 @@ impl Syscall<'_> {
             println!("sys_ppoll fds: {:?} ..", fds);
         }
         let _timeout = match timeout.nonnull() {
-            Some(timeout) => Some(uc.readonly_value(timeout).await?.load()),
+            Some(timeout) => {
+                let ts = uc.readonly_value(timeout).await?.load();
+                Some(ts.as_duration())
+            }
             None => None,
         };
         let _sigset = if let Some(sigmask) = sigmask.nonnull() {
@@ -43,6 +48,34 @@ impl Syscall<'_> {
         } else {
             SignalSet::EMPTY
         };
-        Ok(nfds)
+        let v = self.alive_then(|a| {
+            let mut v = Vec::new();
+            for (i, pollfd) in fds.access_mut().iter_mut().enumerate() {
+                pollfd.revents = PL::empty();
+                if (pollfd.fd as i32) < 0 {
+                    continue;
+                }
+                match a.fd_table.get(Fd(pollfd.fd as usize)) {
+                    None => pollfd.revents = PL::POLLNVAL,
+                    Some(f) => {
+                        let events = pollfd.events;
+                        let cur = f.ppoll();
+                        if cur.intersects(PL::POLLFAIL | events) {
+                            pollfd.revents = cur & (PL::POLLFAIL | events);
+                            continue;
+                        }
+                        v.push((i, f.clone(), cur & PL::POLLSUCCESS));
+                    }
+                }
+            }
+            v
+        });
+        let mut waker = async_tools::take_waker().await;
+        let r = SelectFuture::new(v, &mut waker).await;
+        let n = r.len();
+        for (i, pl) in r {
+            fds.access_mut()[i].revents = pl;
+        }
+        Ok(n)
     }
 }
