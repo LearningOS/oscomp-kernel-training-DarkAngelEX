@@ -21,7 +21,7 @@ use crate::{
     },
 };
 
-pub struct TimerTracer(usize);
+struct TimerTracer(usize);
 impl TimerTracer {
     pub fn new() -> Self {
         Self(usize::MAX)
@@ -114,7 +114,7 @@ pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock() = Some(SleepQueue::new());
 }
 
-pub fn push_timer(timeout: Instant, waker: Waker, tracer: &mut TimerTracer) {
+fn push_timer(timeout: Instant, waker: Waker, tracer: &mut TimerTracer) {
     if SleepQueue::ignore(timeout) {
         return;
     }
@@ -125,7 +125,7 @@ pub fn push_timer(timeout: Instant, waker: Waker, tracer: &mut TimerTracer) {
         .push(timeout, waker, tracer);
 }
 
-pub fn pop_timer(tracer: &mut TimerTracer) {
+fn pop_timer(tracer: &mut TimerTracer) {
     if tracer.in_queue() {
         return;
     }

@@ -3,7 +3,7 @@ use bit_field::BitField;
 use ftl_util::{
     async_tools,
     error::{SysError, SysR, SysRet},
-    time::TimeSpec,
+    time::{Instant, TimeSpec},
 };
 use vfs::{
     select::{SelectFuture, PL},
@@ -16,7 +16,7 @@ use crate::{
     process::{fd::Fd, AliveProcess},
     signal::SignalSet,
     syscall::Syscall,
-    timer::{self, sleep::TimerTracer},
+    timer::{self, sleep::TimeoutFuture},
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
@@ -108,22 +108,16 @@ impl Syscall<'_> {
         if n != 0 || set.is_empty() {
             return Ok(n);
         }
+
+        let timeout = timeout
+            .map(|dur| timer::now() + dur)
+            .unwrap_or(Instant::MAX);
         let mut waker = async_tools::take_waker().await;
-        let now = timer::now();
-        let mut tracer = TimerTracer::new();
-        let checker = match timeout {
-            None => None,
-            Some(dur) => {
-                let timeout = now + dur;
-                timer::sleep::push_timer(timeout, waker.clone(), &mut tracer);
-                Some(move || timer::now() >= timeout)
-            }
+        let ret = TimeoutFuture::new(timeout, SelectFuture::new(set, &mut waker)).await;
+        let ret = match ret {
+            Some(r) => r,
+            None => return Ok(0),
         };
-        let checker: Option<&(dyn Fn() -> bool + Send + Sync)> = match &checker {
-            None => None,
-            Some(f) => Some(f),
-        };
-        let ret = SelectFuture::new(set, &mut waker, checker).await;
         let n = ret.len();
 
         let mut r = r.as_ref().map(|v| v.access_mut());
@@ -201,25 +195,19 @@ impl Syscall<'_> {
         if n != 0 || v.is_empty() {
             return Ok(n);
         }
+        let timeout = timeout
+            .map(|dur| timer::now() + dur)
+            .unwrap_or(Instant::MAX);
         let mut waker = async_tools::take_waker().await;
-        let now = timer::now();
-        let mut tracer = TimerTracer::new();
-        let checker = match timeout {
-            None => None,
-            Some(dur) => {
-                let timeout = now + dur;
-                timer::sleep::push_timer(timeout, waker.clone(), &mut tracer);
-                Some(move || timer::now() >= timeout)
+        let r = TimeoutFuture::new(timeout, SelectFuture::new(v, &mut waker)).await;
+        let n;
+        if let Some(r) = r {
+            n = r.len();
+            for (i, pl) in r {
+                fds.access_mut()[i].revents = pl;
             }
-        };
-        let checker: Option<&(dyn Fn() -> bool + Send + Sync)> = match &checker {
-            None => None,
-            Some(f) => Some(f),
-        };
-        let r = SelectFuture::new(v, &mut waker, checker).await;
-        let n = r.len();
-        for (i, pl) in r {
-            fds.access_mut()[i].revents = pl;
+        } else {
+            n = 0;
         }
         Ok(n)
     }

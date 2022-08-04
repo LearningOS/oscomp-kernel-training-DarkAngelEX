@@ -1,5 +1,6 @@
 use core::{
     future::Future,
+    marker::PhantomData,
     pin::Pin,
     ptr::NonNull,
     task::{Context, Poll, Waker},
@@ -124,18 +125,20 @@ impl SelectSet {
 
 pub struct SelectFuture<'a> {
     nodes: Vec<(usize, Arc<dyn File>, SelectNode)>,
-    checker: Option<&'a (dyn Fn() -> bool + Send + Sync)>,
+    _mark: PhantomData<&'a mut Waker>,
+}
+
+impl Drop for SelectFuture<'_> {
+    fn drop(&mut self) {
+        self.release();
+    }
 }
 
 unsafe impl Send for SelectFuture<'_> {}
 unsafe impl Sync for SelectFuture<'_> {}
 
 impl<'a> SelectFuture<'a> {
-    pub fn new(
-        files: Vec<(usize, Arc<dyn File>, PL)>,
-        waker: &mut Waker,
-        checker: Option<&'a (dyn Fn() -> bool + Send + Sync)>,
-    ) -> Self {
+    pub fn new(files: Vec<(usize, Arc<dyn File>, PL)>, waker: &'a mut Waker) -> Self {
         debug_assert!(!files.is_empty());
         let mut nodes: Vec<_> = files
             .into_iter()
@@ -146,15 +149,36 @@ impl<'a> SelectFuture<'a> {
             node.set_waker(NonNull::new(waker).unwrap());
             file.push_select_node(node);
         }
-        Self { nodes, checker }
+        Self {
+            nodes,
+            _mark: PhantomData,
+        }
+    }
+    fn release(&mut self) {
+        for (_, file, node) in self.nodes.iter_mut() {
+            file.pop_select_node(node);
+        }
+        self.nodes.clear();
+    }
+    fn detach(self: Pin<&mut Self>) -> Vec<(usize, PL)> {
+        let this = unsafe { self.get_unchecked_mut() };
+        let mut ret = Vec::new();
+        for (fd, file, node) in this.nodes.iter_mut() {
+            file.pop_select_node(node);
+            if !node.revents.is_empty() {
+                ret.push((*fd, node.revents));
+            }
+        }
+        this.nodes.clear();
+        ret
     }
 }
 
 impl Future for SelectFuture<'_> {
     type Output = Vec<(usize, PL)>;
 
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let this = unsafe { &mut self.get_unchecked_mut() };
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { &mut self.as_mut().get_unchecked_mut() };
         let nodes = &mut this.nodes;
         let mut run = false;
         for (_, file, node) in nodes.iter_mut() {
@@ -162,20 +186,8 @@ impl Future for SelectFuture<'_> {
             run |= !node.revents.is_empty();
         }
         if !run {
-            if let Some(checker) = this.checker.as_ref() {
-                if checker() {
-                    return Poll::Ready(Vec::new());
-                }
-            }
             return Poll::Pending;
         }
-        let mut ret = Vec::new();
-        for (fd, file, node) in nodes.iter_mut() {
-            file.pop_select_node(node);
-            if !node.revents.is_empty() {
-                ret.push((*fd, node.revents));
-            }
-        }
-        Poll::Ready(ret)
+        Poll::Ready(self.detach())
     }
 }
