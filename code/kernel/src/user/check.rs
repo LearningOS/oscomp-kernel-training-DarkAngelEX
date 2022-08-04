@@ -95,6 +95,16 @@ impl<'a> UserCheck<'a> {
     ) -> SysR<UserDataMut<T>> {
         self.writable_slice(ptr, 1).await
     }
+    pub async fn writable_value_nullable<T: Copy, P: Write>(
+        &self,
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.writable_slice(ptr, 1).await).transpose()
+        }
+    }
     pub async fn array_2d_zero_end<T: UserType>(
         &self,
         ptr: UserReadPtr<UserReadPtr<T>>,

@@ -142,7 +142,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_MOUNT => self.sys_mount().await,
             SYSCALL_STATFS => self.sys_statfs().await,
             SYSCALL_CHDIR => self.sys_chdir().await,
-            SYSCALL_FCHOWN => self.sys_fchown().await,
+            SYSCALL_FCHOWN => self.sys_fchown(),
             SYSCALL_OPENAT => self.sys_openat().await,
             SYSCALL_CLOSE => self.sys_close(),
             SYSCALL_PIPE2 => self.sys_pipe2().await,

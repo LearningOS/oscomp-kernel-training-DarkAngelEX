@@ -112,6 +112,20 @@ async fn userloop(thread: Arc<Thread>) {
                 Interrupt::UserTimer => todo!(),
                 Interrupt::VirtualSupervisorTimer => todo!(),
                 Interrupt::SupervisorTimer => {
+                    thread.timer_fence();
+                    {
+                        use crate::signal::*;
+                        let mut timer = thread.process.timer.lock();
+                        if timer.suspend_real() {
+                            thread.receive(Sig::from_user(SIGALRM as u32).unwrap());
+                        }
+                        if timer.suspend_virtual() {
+                            thread.receive(Sig::from_user(SIGVTALRM as u32).unwrap());
+                        }
+                        if timer.suspend_prof() {
+                            thread.receive(Sig::from_user(SIGPROF as u32).unwrap());
+                        }
+                    }
                     timer::tick();
                     if !do_exit {
                         // println!("yield by timer: {:?}", thread.tid());

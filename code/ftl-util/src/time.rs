@@ -166,6 +166,11 @@ impl From<Duration> for TimeVal {
         Self::from_duration(dur)
     }
 }
+impl From<TimeVal> for Duration {
+    fn from(tv: TimeVal) -> Self {
+        Duration::from_secs(tv.tv_sec as u64) + Duration::from_micros(tv.tv_usec as u64)
+    }
+}
 
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]

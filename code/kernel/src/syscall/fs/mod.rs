@@ -346,8 +346,9 @@ impl Syscall<'_> {
         self.alive_then(|a| a.cwd = inode);
         Ok(0)
     }
-    pub async fn sys_fchown(&mut self) -> SysRet {
-        todo!()
+    // changes the ownership of the file referred to by the open file descriptor fd.
+    pub fn sys_fchown(&mut self) -> SysRet {
+        Ok(0)
     }
     pub async fn sys_openat(&mut self) -> SysRet {
         stack_trace!();
