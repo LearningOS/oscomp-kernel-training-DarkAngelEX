@@ -36,6 +36,7 @@ busybox sh ./run-all.sh
 ./runtest.exe -w entry-static.exe stat
 ./runtest.exe -w entry-static.exe pthread_cancel_points
 ./runtest.exe -w entry-static.exe pthread_cancel
+./runtest.exe -w entry-static.exe pthread_once_deadlock
 
 ./runtest.exe -w entry-dynamic.exe argv
 ./runtest.exe -w entry-dynamic.exe dlopen

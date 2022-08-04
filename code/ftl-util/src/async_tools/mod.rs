@@ -17,18 +17,27 @@ pub type Async<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type ASysR<'a, T> = Async<'a, SysR<T>>;
 pub type ASysRet<'a> = Async<'a, SysRet>;
 
+#[derive(Clone, Copy)]
+pub struct WakerPtr(NonNull<Waker>);
+impl WakerPtr {
+    pub const fn dangling() -> Self {
+        Self(NonNull::dangling())
+    }
+    pub fn new(waker: &Waker) -> Self {
+        Self(NonNull::new(waker as *const _ as *mut _).unwrap())
+    }
+    pub fn wake(self) {
+        debug_assert!(self.0 != NonNull::dangling());
+        unsafe { self.0.as_ref().wake_by_ref() }
+    }
+}
+unsafe impl Send for WakerPtr {}
+unsafe impl Sync for WakerPtr {}
+
 /// 此函数保证不会阻塞, 自旋锁可以安全跨越
 #[inline(always)]
 pub async fn take_waker() -> Waker {
     TakeWakerFuture.await
-}
-
-/// 此函数保证不会阻塞, 自旋锁可以安全跨越
-///
-/// 相对take_waker可以避免一次Waker引用计数原子递增, 但需要注意生命周期
-#[inline(always)]
-pub async fn take_waker_ptr() -> NonNull<Waker> {
-    TakeWakerPtrFuture.await
 }
 
 struct TakeWakerFuture;
@@ -38,16 +47,6 @@ impl Future for TakeWakerFuture {
     #[inline(always)]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         Poll::Ready(cx.waker().clone())
-    }
-}
-
-struct TakeWakerPtrFuture;
-
-impl Future for TakeWakerPtrFuture {
-    type Output = NonNull<Waker>;
-    #[inline]
-    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Poll::Ready(cx.waker().into())
     }
 }
 

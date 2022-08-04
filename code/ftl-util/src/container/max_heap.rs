@@ -12,7 +12,19 @@ impl<V> IdxUpdater<V> for NullUpdater {
     fn update(_v: &mut V, _new: usize) {}
     fn remove(_v: &mut V) {}
 }
+pub struct TraceUpdater;
+impl IdxUpdater<*mut usize> for TraceUpdater {
+    fn update(v: &mut *mut usize, new: usize) {
+        unsafe { **v = new }
+    }
+    fn remove(v: &mut *mut usize) {
+        unsafe { **v = usize::MAX }
+    }
+}
 
+pub type TraceMaxHeap<T> = MaxHeapEx<T, *mut usize, TraceUpdater>;
+unsafe impl<T: Ord + Send> Send for TraceMaxHeap<T> {}
+unsafe impl<T: Ord + Sync> Sync for TraceMaxHeap<T> {}
 /// 能够追踪元素位置的最大堆
 ///
 /// data中每次元素的移动都会调用`IdxUpdater`中的更新函数
@@ -35,6 +47,9 @@ impl<T: Ord, V, F: IdxUpdater<V>> MaxHeapEx<T, V, F> {
     }
     pub fn is_empty(&self) -> bool {
         self.data.is_empty()
+    }
+    pub fn peek(&self) -> Option<&(T, V)> {
+        self.data.first()
     }
     pub fn push(&mut self, v: (T, V)) {
         let old_len = self.len();
