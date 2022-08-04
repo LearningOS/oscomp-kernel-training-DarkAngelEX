@@ -143,12 +143,17 @@ pub fn check_timer() -> usize {
     SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current)
 }
 
+struct AlwaysPending;
+impl Future for AlwaysPending {
+    type Output = ();
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Poll::Pending
+    }
+}
+
 /// 只能被定时器唤醒的future
 pub async fn just_wait(dur: Duration) {
-    let mut future = JustWaitFuture::new(dur);
-    let mut ptr = Pin::new(&mut future);
-    ptr.as_mut().init().await;
-    ptr.await
+    let _ = TimeoutFuture::new(super::now() + dur, AlwaysPending).await;
 }
 
 struct JustWaitFuture(Instant, TimerTracer);
