@@ -33,8 +33,8 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
                 print!("{:0>2x} ", unsafe { *(p as *const u8) });
             }
             println!();
-            println!("a0-a7: {:#x?}", thread.get_context().a0_a7());
-            println!("all: {:#x?}", thread.get_context().user_rx);
+            // println!("a0-a7: {:#x?}", thread.get_context().a0_a7());
+            // println!("all: {:#x?}", thread.get_context().user_rx);
             println!();
         }
         do_exit = true;

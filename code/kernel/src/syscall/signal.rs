@@ -38,11 +38,6 @@ impl Syscall<'_> {
             println!("sys_kill pid:{} signal:{}", pid, signal);
         }
 
-        if signal == 0 {
-            unimplemented!();
-        }
-        let signal = Sig::from_user(signal)?;
-
         enum Target {
             Pid(Pid),     // > 0
             AllInGroup,   // == 0
@@ -56,6 +51,18 @@ impl Syscall<'_> {
             p if p > 0 => Target::Pid(Pid(p as usize)),
             g => Target::Group(-g as usize),
         };
+
+        if signal == 0 {
+            match target {
+                Target::Pid(pid) => {
+                    search::find_proc(pid).ok_or(SysError::ESRCH)?;
+                    return Ok(0);
+                }
+                _ => todo!(),
+            }
+        }
+        let signal = Sig::from_user(signal)?;
+
         match target {
             Target::Pid(pid) => {
                 let proc = search::find_proc(pid).ok_or(SysError::ESRCH)?;
@@ -151,7 +158,6 @@ impl Syscall<'_> {
             return Ok(0);
         }
         let new_act = user_check.readonly_value(new_act).await?.load();
-        assert!(new_act.restorer != 0); // 目前没有映射sigreturn
         if PRINT_SYSCALL_SIGNAL {
             new_act.show();
         }

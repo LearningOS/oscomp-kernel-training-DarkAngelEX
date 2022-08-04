@@ -11,7 +11,10 @@ use alloc::{
 };
 use ftl_util::{
     error::{SysError, SysR},
-    fs::{stat::Stat, DentryType},
+    fs::{
+        stat::{Stat, S_IFDIR},
+        DentryType,
+    },
     sync::{rw_sleep_mutex::RwSleepMutex, Spin},
 };
 
@@ -109,7 +112,16 @@ impl TmpFsDir {
     pub fn writable(&self) -> bool {
         self.writable.load(Ordering::Relaxed)
     }
-    pub async fn stat(&self, _stat: &mut Stat) -> SysR<()> {
-        todo!()
+    pub async fn stat(&self, stat: &mut Stat) -> SysR<()> {
+        *stat = Stat::zeroed();
+        stat.st_dev = unsafe { (*self.fs.as_ptr()).dev as u64 };
+        stat.st_ino = self.ino as u64;
+        stat.st_mode = 0o777;
+        stat.st_mode |= S_IFDIR;
+        stat.st_nlink = 1;
+        stat.st_uid = 0;
+        stat.st_gid = 0;
+        stat.st_rdev = 0;
+        Ok(())
     }
 }

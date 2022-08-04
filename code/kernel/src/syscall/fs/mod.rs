@@ -194,10 +194,10 @@ impl Syscall<'_> {
     }
     pub async fn sys_read(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
-            println!("sys_read");
-        }
         let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_read len: {}", len);
+        }
         let buf = UserCheck::new(self.process)
             .writable_slice(buf, len)
             .await?;
@@ -211,10 +211,10 @@ impl Syscall<'_> {
     }
     pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
-            println!("sys_write");
-        }
         let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_write len: {}", len);
+        }
         let buf = UserCheck::new(self.process)
             .readonly_slice(buf, len)
             .await?;

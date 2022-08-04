@@ -92,9 +92,11 @@ pub async fn init() {
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("etc".to_string());
     vfs.set_spec_dentry("tmp".to_string());
+    vfs.set_spec_dentry("var".to_string());
     vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
     vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
+    vfs.mount((XF, ""), (XF, "/var"), "tmpfs", 0).await.unwrap();
     vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
         .await
         .unwrap();
@@ -112,6 +114,10 @@ pub async fn init() {
         .unwrap();
     // 加入dev/shm
     vfs.create((XF, "/dev/shm"), true, (true, true))
+        .await
+        .unwrap();
+    // 加入dev/shm
+    vfs.create((XF, "/var/tmp"), true, (true, true))
         .await
         .unwrap();
 
