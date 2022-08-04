@@ -2,6 +2,7 @@ use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering, time::Duration}
 
 use alloc::{string::String, vec::Vec};
 use ftl_util::{
+    async_tools,
     fs::{Mode, OpenFlags},
     time::TimeSpec,
 };
@@ -261,7 +262,8 @@ impl Syscall<'_> {
                 return Ok(process.pid().0);
             }
             let event_bus = &self.process.event_bus;
-            if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT)
+            let waker = async_tools::take_waker().await;
+            if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT, &waker)
                 .await
                 .and_then(|_x| event_bus.clear(Event::CHILD_PROCESS_QUIT))
             {

@@ -16,7 +16,7 @@ use ftl_util::{
 use crate::{
     process::thread,
     sync::{
-        even_bus::{Event, EventBus},
+        even_bus::{self, Event, EventBus},
         mutex::SpinNoIrqLock,
     },
 };
@@ -156,32 +156,6 @@ pub async fn just_wait(dur: Duration) {
     let _ = TimeoutFuture::new(super::now() + dur, AlwaysPending).await;
 }
 
-struct JustWaitFuture(Instant, TimerTracer);
-impl JustWaitFuture {
-    pub fn new(dur: Duration) -> Self {
-        Self(super::now() + dur, TimerTracer::new())
-    }
-    pub async fn init(mut self: Pin<&mut Self>) {
-        thread::yield_now().await;
-        if self.0 <= super::now() {
-            return;
-        }
-        let waker = async_tools::take_waker().await;
-        self::push_timer(self.0, waker, &mut self.1);
-    }
-}
-
-impl Future for JustWaitFuture {
-    type Output = ();
-
-    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
-        if self.0 <= super::now() {
-            return Poll::Ready(());
-        }
-        Poll::Pending
-    }
-}
-
 /// 允许线程被定时器或其他的事件唤醒
 pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
     let deadline = super::now() + dur;
@@ -192,10 +166,20 @@ pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
     if event_bus.event() != Event::empty() {
         return Err(SysError::EINTR);
     }
-    let mut future = SleepFuture::new(deadline, event_bus);
-    let mut ptr = Pin::new(&mut future);
-    ptr.as_mut().init().await;
-    ptr.await
+    let waker = async_tools::take_waker().await;
+    match TimeoutFuture::new(
+        deadline,
+        even_bus::wait_for_event(event_bus, Event::all(), &waker),
+    )
+    .await
+    {
+        None => Ok(0),
+        Some(_) => Err(SysError::EINTR),
+    }
+    // let mut future = SleepFuture::new(deadline, event_bus);
+    // let mut ptr = Pin::new(&mut future);
+    // ptr.as_mut().init().await;
+    // ptr.await
 }
 
 struct SleepFuture<'a> {
@@ -212,11 +196,11 @@ impl<'a> SleepFuture<'a> {
             tracer: TimerTracer::new(),
         }
     }
-    pub async fn init(mut self: Pin<&mut Self>) {
-        let waker = async_tools::take_waker().await;
-        self::push_timer(self.deadline, waker.clone(), &mut self.tracer);
-        self.event_bus.register(Event::all(), waker).unwrap();
-    }
+    // pub async fn init(mut self: Pin<&mut Self>) {
+    //     let waker = async_tools::take_waker().await;
+    //     self::push_timer(self.deadline, waker.clone(), &mut self.tracer);
+    //     self.event_bus.register(Event::all(), waker).unwrap();
+    // }
 }
 
 impl<'a> Future for SleepFuture<'a> {

@@ -17,7 +17,7 @@ pub type Async<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub type ASysR<'a, T> = Async<'a, SysR<T>>;
 pub type ASysRet<'a> = Async<'a, SysRet>;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct WakerPtr(NonNull<Waker>);
 impl WakerPtr {
     pub const fn dangling() -> Self {

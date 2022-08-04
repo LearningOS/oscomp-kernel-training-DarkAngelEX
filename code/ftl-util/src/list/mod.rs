@@ -91,7 +91,7 @@ impl<T> ListNode<T> {
     ///
     /// 一旦pop后禁止再次被push
     pub fn is_empty_race(&self) -> bool {
-        self.prev.as_const() == self
+        unsafe { core::ptr::read_volatile(&self.prev) }.as_const() == self
     }
     /// # Safety
     ///
@@ -231,7 +231,7 @@ impl<T> ListNode<T> {
         }
     }
     /// release_0在pop之前执行, release_1在pop之后执行
-    pub fn rcu_pop_when(
+    pub fn pop_when_race(
         &mut self,
         mut need_pop: impl FnMut(&T) -> bool,
         mut release_0: impl FnMut(&mut T),

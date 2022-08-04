@@ -2,12 +2,11 @@ use core::{
     future::Future,
     marker::PhantomData,
     pin::Pin,
-    ptr::NonNull,
     task::{Context, Poll, Waker},
 };
 
 use alloc::{sync::Arc, vec::Vec};
-use ftl_util::list::InListNode;
+use ftl_util::{async_tools::WakerPtr, list::InListNode};
 
 use crate::File;
 
@@ -36,7 +35,7 @@ pub struct SelectNode {
     node_in: InListNode<Self, SelectWaiterAccessIN>,
     node_pri: InListNode<Self, SelectWaiterAccessPRI>,
     node_out: InListNode<Self, SelectWaiterAccessOUT>,
-    waker: Option<NonNull<Waker>>,
+    waker: WakerPtr,
     events: PL,
     revents: PL,
 }
@@ -47,7 +46,7 @@ impl SelectNode {
             node_in: InListNode::new(),
             node_pri: InListNode::new(),
             node_out: InListNode::new(),
-            waker: None,
+            waker: WakerPtr::dangling(),
             events,
             revents: PL::empty(),
         }
@@ -57,12 +56,11 @@ impl SelectNode {
         self.node_pri.init();
         self.node_out.init();
     }
-    pub fn set_waker(&mut self, waker: NonNull<Waker>) {
-        debug_assert!(self.waker.is_none());
-        self.waker = Some(waker);
+    pub fn set_waker(&mut self, waker: WakerPtr) {
+        self.waker = waker;
     }
     fn wake(&self) {
-        unsafe { self.waker.unwrap().as_ref().wake_by_ref() }
+        self.waker.wake()
     }
 }
 
@@ -84,8 +82,6 @@ impl SelectSet {
         self.head.init();
     }
     pub fn push(&mut self, node: &mut SelectNode) {
-        // self.head.lock().
-        debug_assert!(node.waker.is_some());
         let events = node.events;
         if events.contains(PL::POLLIN) {
             self.head.node_in.push_prev(&mut node.node_in);
@@ -125,7 +121,7 @@ impl SelectSet {
 
 pub struct SelectFuture<'a> {
     nodes: Vec<(usize, Arc<dyn File>, SelectNode)>,
-    _mark: PhantomData<&'a mut Waker>,
+    _mark: PhantomData<&'a Waker>,
 }
 
 impl Drop for SelectFuture<'_> {
@@ -138,7 +134,7 @@ unsafe impl Send for SelectFuture<'_> {}
 unsafe impl Sync for SelectFuture<'_> {}
 
 impl<'a> SelectFuture<'a> {
-    pub fn new(files: Vec<(usize, Arc<dyn File>, PL)>, waker: &'a mut Waker) -> Self {
+    pub fn new(files: Vec<(usize, Arc<dyn File>, PL)>, waker: &'a Waker) -> Self {
         debug_assert!(!files.is_empty());
         let mut nodes: Vec<_> = files
             .into_iter()
@@ -146,7 +142,7 @@ impl<'a> SelectFuture<'a> {
             .collect();
         for (_, file, node) in nodes.iter_mut() {
             node.init();
-            node.set_waker(NonNull::new(waker).unwrap());
+            node.set_waker(WakerPtr::new(waker));
             file.push_select_node(node);
         }
         Self {

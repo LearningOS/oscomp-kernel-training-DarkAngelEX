@@ -4,18 +4,15 @@ use super::mutex::SpinNoIrqLock as Mutex;
 use core::{
     future::Future,
     pin::Pin,
+    sync::atomic::{self, Ordering},
     task::{Context, Poll, Waker},
 };
 
-use crate::{
-    process::{AliveProcess, Dead},
-    tools::container::{never_clone_linked_list::NeverCloneLinkedList, Stack},
-};
+use crate::process::{AliveProcess, Dead};
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
-use ftl_util::error::SysError;
+use ftl_util::{async_tools::WakerPtr, error::SysError, list::ListNode};
 
 bitflags! {
-    #[derive(Default)]
     pub struct Event: u32 {
         const EMPTY                  = 0;
         /// File
@@ -53,15 +50,33 @@ impl From<EvenBusClosed> for SysError {
     }
 }
 
-#[derive(Default)]
 pub struct EventBus(Mutex<EventBusInner>);
 
-#[derive(Default)]
+struct BusNode {
+    mask: Event,
+    suspend: Event,
+    waker: WakerPtr,
+}
+
+impl BusNode {
+    fn new(mask: Event, waker: WakerPtr) -> Self {
+        Self {
+            mask,
+            suspend: Event::empty(),
+            waker,
+        }
+    }
+    fn wake(&mut self) {
+        debug_assert!(self.waker != WakerPtr::dangling());
+        self.waker.wake();
+    }
+}
+
 pub struct EventBusInner {
     closed: bool,
     pub event: Event,
     suspend_event: Event,
-    wakers: NeverCloneLinkedList<(Event, Waker)>,
+    wakers: ListNode<BusNode>,
     remote: Vec<Box<dyn FnOnce(&mut AliveProcess) + Send + 'static>>,
 }
 
@@ -78,7 +93,15 @@ impl Drop for EventBusInner {
 
 impl EventBus {
     pub fn new() -> Arc<Self> {
-        Arc::new(Self(Mutex::new(EventBusInner::default())))
+        let bus = Arc::new(Self(Mutex::new(EventBusInner {
+            closed: false,
+            event: Event::empty(),
+            suspend_event: Event::empty(),
+            wakers: ListNode::new(BusNode::new(Event::empty(), WakerPtr::dangling())),
+            remote: Vec::new(),
+        })));
+        unsafe { bus.0.unsafe_get_mut().wakers.init() }
+        bus
     }
     fn close_check(&self) -> Result<(), EvenBusClosed> {
         if !unsafe { self.0.unsafe_get().closed } {
@@ -118,9 +141,15 @@ impl EventBus {
         }
         self.0.lock().clear_then_set(reset, set)
     }
-    pub fn register(&self, event: Event, waker: Waker) -> Result<(), EvenBusClosed> {
+    fn register(&self, node: &mut ListNode<BusNode>) -> Result<(), EvenBusClosed> {
         self.close_check()?;
-        self.0.lock().register(event, waker)
+        self.0.lock().register(node)
+    }
+    fn remove(&self, node: &mut ListNode<BusNode>) {
+        if node.is_empty_race() {
+            return;
+        }
+        self.0.lock().remove(node)
     }
     // pub fn remote_run(&self,)
 }
@@ -131,9 +160,7 @@ impl EventBusInner {
         // assert!(!self.closed, "event_bus double closed");
         assert!(!self.should_suspend(), "impossible status in close!");
         self.closed = true;
-        while let Some((_e, waker)) = self.wakers.pop() {
-            waker.wake();
-        }
+        self.wakers.pop_all(|node| node.wake());
     }
     pub fn set(&mut self, set: Event) -> Result<(), EvenBusClosed> {
         self.clear_then_set(Event::empty(), set)
@@ -159,49 +186,138 @@ impl EventBusInner {
         }
         let event_cur = self.event;
         let mut suspend_event = Event::empty();
-        self.wakers.retain(|(event, waker)| {
-            if *event & event_cur != Event::empty() {
-                waker.wake_by_ref();
-                false
-            } else {
-                suspend_event.insert(*event);
-                true
-            }
-        });
+        self.wakers.pop_when_race(
+            |node| {
+                if (node.mask & event_cur).is_empty() {
+                    suspend_event.insert(node.mask);
+                    false
+                } else {
+                    true
+                }
+            },
+            // release 在 pop_self之前运行, 而如果析构函数没有观测到 pop_self 则会获取锁,
+            // 因此这里的wake()函数一定是有效的
+            |node| {
+                node.suspend = event_cur;
+                atomic::fence(Ordering::Release);
+                node.wake();
+            },
+            |_| (),
+        );
+
         self.suspend_event = suspend_event;
     }
-    pub fn register(&mut self, event: Event, waker: Waker) -> Result<(), EvenBusClosed> {
+    fn register(&mut self, node: &mut ListNode<BusNode>) -> Result<(), EvenBusClosed> {
+        stack_trace!();
+        debug_assert!(node.inited());
         if self.closed {
             return Err(EvenBusClosed);
         }
-        if self.event.intersects(event) {
-            waker.wake();
+        if self.event.intersects(node.data().mask) {
+            node.data_mut().suspend = self.event;
+            node.data_mut().wake();
         } else {
-            self.suspend_event.insert(event);
-            self.wakers.push((event, waker));
+            self.suspend_event.insert(node.data().mask);
+            self.wakers.push_prev(node);
         }
         Ok(())
     }
+    fn remove(&mut self, node: &mut ListNode<BusNode>) {
+        if node.is_empty_race() {
+            return;
+        }
+        node.pop_self();
+    }
 }
 
-pub async fn wait_for_event(bus: &EventBus, mask: Event) -> Result<Event, EvenBusClosed> {
-    EventBusFuture { bus, mask }.await
+pub async fn wait_for_event(
+    bus: &EventBus,
+    mask: Event,
+    waker: &Waker,
+) -> Result<Event, EvenBusClosed> {
+    EventBusFuture {
+        bus,
+        mask,
+        node: None,
+        waker,
+    }
+    .await
 }
 
 struct EventBusFuture<'a> {
     bus: &'a EventBus,
     mask: Event,
+    node: Option<ListNode<BusNode>>,
+    waker: &'a Waker,
+}
+
+impl Drop for EventBusFuture<'_> {
+    fn drop(&mut self) {
+        if let Some(node) = self.node.as_mut() {
+            self.bus.remove(node);
+        }
+    }
 }
 
 impl Future for EventBusFuture<'_> {
     type Output = Result<Event, EvenBusClosed>;
 
-    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
-        let mut lock = self.bus.0.lock();
-        if lock.event.intersects(self.mask) {
-            return Poll::Ready(Ok(lock.event));
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+        stack_trace!();
+        if self.node.is_none() {
+            if self.bus.close_check().is_err() {
+                return Poll::Ready(Err(EvenBusClosed));
+            }
+            let event = self.bus.event();
+            if event.intersects(self.mask) {
+                return Poll::Ready(Ok(event));
+            }
+            let mut lock = self.bus.0.lock();
+            let this = unsafe { self.get_unchecked_mut() };
+            this.node = Some(ListNode::new(BusNode {
+                mask: this.mask,
+                suspend: Event::empty(),
+                waker: WakerPtr::new(this.waker),
+            }));
+            let node = this.node.as_mut().unwrap();
+            node.init();
+            match lock.register(node) {
+                Ok(()) => return Poll::Pending,
+                Err(_e) => return Poll::Ready(Err(EvenBusClosed)),
+            }
         }
-        lock.register(self.mask, cx.waker().clone())?;
+        let this = unsafe { self.get_unchecked_mut() };
+        let node = this.node.as_mut().unwrap();
+        let suspend = node.data().suspend;
+        if !suspend.is_empty() {
+            debug_assert!(suspend.intersects(node.data().mask));
+            this.bus.remove(node);
+            this.node = None;
+            return Poll::Ready(Ok(suspend));
+        }
+        if this.bus.close_check().is_err() {
+            this.bus.remove(node);
+            this.node = None;
+            return Poll::Ready(Err(EvenBusClosed));
+        }
         Poll::Pending
+    }
+}
+
+pub struct EventFuture<'a> {
+    bus: &'a EventBus,
+    mask: Event,
+}
+
+impl<'a> EventFuture<'a> {
+    pub fn new(bus: &'a EventBus, mask: Event) -> Self {
+        Self { bus, mask }
+    }
+}
+
+impl Future for EventFuture<'_> {
+    type Output = Event;
+    fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+        todo!()
     }
 }
