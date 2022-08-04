@@ -16,7 +16,7 @@ use crate::{
     process::{fd::Fd, AliveProcess},
     signal::SignalSet,
     syscall::Syscall,
-    timer,
+    timer::{self, sleep::TimerTracer},
     user::check::UserCheck,
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
@@ -110,11 +110,12 @@ impl Syscall<'_> {
         }
         let mut waker = async_tools::take_waker().await;
         let now = timer::now();
+        let mut tracer = TimerTracer::new();
         let checker = match timeout {
             None => None,
             Some(dur) => {
                 let timeout = now + dur;
-                timer::sleep::timer_push_task(timeout, waker.clone());
+                timer::sleep::push_timer(timeout, waker.clone(), &mut tracer);
                 Some(move || timer::now() >= timeout)
             }
         };
@@ -202,11 +203,12 @@ impl Syscall<'_> {
         }
         let mut waker = async_tools::take_waker().await;
         let now = timer::now();
+        let mut tracer = TimerTracer::new();
         let checker = match timeout {
             None => None,
             Some(dur) => {
                 let timeout = now + dur;
-                timer::sleep::timer_push_task(timeout, waker.clone());
+                timer::sleep::push_timer(timeout, waker.clone(), &mut tracer);
                 Some(move || timer::now() >= timeout)
             }
         };

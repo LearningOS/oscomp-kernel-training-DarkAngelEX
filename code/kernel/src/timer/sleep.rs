@@ -6,9 +6,9 @@ use core::{
     time::Duration,
 };
 
-use alloc::collections::BinaryHeap;
 use ftl_util::{
     async_tools,
+    container::max_heap::TraceMaxHeap,
     error::{SysError, SysRet},
     time::Instant,
 };
@@ -21,10 +21,33 @@ use crate::{
     },
 };
 
+pub struct TimerTracer(usize);
+impl TimerTracer {
+    pub fn new() -> Self {
+        Self(usize::MAX)
+    }
+    pub fn in_queue(&self) -> bool {
+        self.load() != usize::MAX
+    }
+    pub fn ptr(&mut self) -> *mut usize {
+        &mut self.0
+    }
+    fn load(&self) -> usize {
+        unsafe { core::ptr::read_volatile(&self.0) }
+    }
+}
+
+impl Drop for TimerTracer {
+    fn drop(&mut self) {
+        debug_assert!(self.load() == usize::MAX)
+    }
+}
+
 struct TimerCondVar {
     timeout: Instant,
     waker: Waker,
 }
+
 impl TimerCondVar {
     pub fn new(timeout: Instant, waker: Waker) -> Self {
         Self { timeout, waker }
@@ -50,30 +73,32 @@ impl Ord for TimerCondVar {
 }
 
 struct SleepQueue {
-    queue: BinaryHeap<Reverse<TimerCondVar>>,
+    queue: TraceMaxHeap<Reverse<TimerCondVar>>,
 }
+
 impl SleepQueue {
     pub fn new() -> Self {
         Self {
-            queue: BinaryHeap::new(),
+            queue: TraceMaxHeap::new(),
         }
     }
     pub fn ignore(timeout: Instant) -> bool {
         timeout.as_secs() >= i64::MAX as u64
     }
-    pub fn push(&mut self, now: Instant, waker: Waker) {
+    pub fn push(&mut self, now: Instant, waker: Waker, tracer: &mut TimerTracer) {
         if Self::ignore(now) {
             return;
         }
-        self.queue.push(Reverse(TimerCondVar::new(now, waker)))
+        self.queue
+            .push((Reverse(TimerCondVar::new(now, waker)), tracer.ptr()))
     }
     /// 返回唤醒的数量
     pub fn check_timer(&mut self, current: Instant) -> usize {
         stack_trace!();
         let mut n = 0;
-        while let Some(Reverse(v)) = self.queue.peek() {
+        while let Some((Reverse(v), _)) = self.queue.peek() {
             if v.timeout <= current {
-                self.queue.pop().unwrap().0.waker.wake();
+                self.queue.pop().unwrap().0 .0.waker.wake();
                 n += 1;
             } else {
                 break;
@@ -89,11 +114,27 @@ pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock() = Some(SleepQueue::new());
 }
 
-pub fn timer_push_task(ticks: Instant, waker: Waker) {
-    if SleepQueue::ignore(ticks) {
+pub fn push_timer(timeout: Instant, waker: Waker, tracer: &mut TimerTracer) {
+    if SleepQueue::ignore(timeout) {
         return;
     }
-    SLEEP_QUEUE.lock().as_mut().unwrap().push(ticks, waker);
+    SLEEP_QUEUE
+        .lock()
+        .as_mut()
+        .unwrap()
+        .push(timeout, waker, tracer);
+}
+
+pub fn pop_timer(tracer: &mut TimerTracer) {
+    if tracer.in_queue() {
+        return;
+    }
+    let mut lk = SLEEP_QUEUE.lock();
+    let idx = tracer.load();
+    if idx == usize::MAX {
+        return;
+    }
+    lk.as_mut().unwrap().queue.remove_idx(idx);
 }
 
 pub fn check_timer() -> usize {
@@ -110,18 +151,18 @@ pub async fn just_wait(dur: Duration) {
     ptr.await
 }
 
-struct JustWaitFuture(Instant);
+struct JustWaitFuture(Instant, TimerTracer);
 impl JustWaitFuture {
     pub fn new(dur: Duration) -> Self {
-        Self(super::now() + dur)
+        Self(super::now() + dur, TimerTracer::new())
     }
-    pub async fn init(self: Pin<&mut Self>) {
+    pub async fn init(mut self: Pin<&mut Self>) {
         thread::yield_now().await;
         if self.0 <= super::now() {
             return;
         }
         let waker = async_tools::take_waker().await;
-        self::timer_push_task(self.0, waker);
+        self::push_timer(self.0, waker, &mut self.1);
     }
 }
 
@@ -155,6 +196,7 @@ pub async fn sleep(dur: Duration, event_bus: &EventBus) -> SysRet {
 struct SleepFuture<'a> {
     deadline: Instant,
     event_bus: &'a EventBus,
+    tracer: TimerTracer,
 }
 
 impl<'a> SleepFuture<'a> {
@@ -162,11 +204,12 @@ impl<'a> SleepFuture<'a> {
         Self {
             deadline,
             event_bus,
+            tracer: TimerTracer::new(),
         }
     }
-    pub async fn init(self: Pin<&mut Self>) {
+    pub async fn init(mut self: Pin<&mut Self>) {
         let waker = async_tools::take_waker().await;
-        self::timer_push_task(self.deadline, waker.clone());
+        self::push_timer(self.deadline, waker.clone(), &mut self.tracer);
         self.event_bus.register(Event::all(), waker).unwrap();
     }
 }
@@ -180,6 +223,65 @@ impl<'a> Future for SleepFuture<'a> {
             return Poll::Ready(Ok(0));
         } else if self.event_bus.event() != Event::empty() {
             return Poll::Ready(Err(SysError::EINTR));
+        }
+        Poll::Pending
+    }
+}
+
+pub struct TimeoutFuture<T, F: Future<Output = T>> {
+    timeout: Instant,
+    tracer: Option<TimerTracer>,
+    future: F,
+}
+
+impl<T, F: Future<Output = T>> Drop for TimeoutFuture<T, F> {
+    fn drop(&mut self) {
+        self.deatch_timer();
+    }
+}
+
+impl<T, F: Future<Output = T>> TimeoutFuture<T, F> {
+    pub fn new(timeout: Instant, future: F) -> Self {
+        Self {
+            timeout,
+            tracer: None,
+            future,
+        }
+    }
+    pub fn inner(self: Pin<&mut Self>) -> Pin<&mut F> {
+        unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future) }
+    }
+    fn deatch_timer(&mut self) {
+        if let Some(tracer) = &mut self.tracer {
+            pop_timer(tracer);
+        }
+        self.tracer = None;
+    }
+}
+
+impl<T, F: Future<Output = T>> Future for TimeoutFuture<T, F> {
+    type Output = Option<T>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        match self.as_mut().inner().poll(cx) {
+            Poll::Ready(r) => {
+                unsafe { self.get_unchecked_mut().deatch_timer() }
+                return Poll::Ready(Some(r));
+            }
+            Poll::Pending => (),
+        }
+        if super::now() >= self.timeout {
+            unsafe { self.get_unchecked_mut().deatch_timer() }
+            return Poll::Ready(None);
+        }
+        if self.tracer.is_none() {
+            let this = unsafe { self.get_unchecked_mut() };
+            this.tracer = Some(TimerTracer::new()); // 不能改变地址!!!
+            push_timer(
+                this.timeout,
+                cx.waker().clone(),
+                this.tracer.as_mut().unwrap(),
+            );
         }
         Poll::Pending
     }

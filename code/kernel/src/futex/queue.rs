@@ -9,7 +9,10 @@ use core::{
 use alloc::boxed::Box;
 use ftl_util::{async_tools, list::ListNode, time::Instant};
 
-use crate::{process::Pid, timer};
+use crate::{
+    process::Pid,
+    timer::{self, sleep::TimerTracer},
+};
 
 use super::{Futex, WaitStatus, WakeStatus};
 
@@ -87,7 +90,8 @@ impl FutexQueue {
             }
             queue.push(&mut ptr.as_mut().get_unchecked_mut().node);
         }
-        timer::sleep::timer_push_task(timeout, async_tools::take_waker().await);
+        let mut tracer = TimerTracer::new();
+        timer::sleep::push_timer(timeout, async_tools::take_waker().await, &mut tracer);
         ptr.await;
         WaitStatus::Ok
     }
