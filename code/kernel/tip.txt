@@ -62,3 +62,4 @@ b *0xffffffff80241440
 b *0xffffffff80241490
 
 busybox sh ./busybox_testcode.sh
+busybox sh ./lmbench_testcode.sh

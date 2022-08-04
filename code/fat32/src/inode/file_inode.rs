@@ -40,7 +40,8 @@ impl FileInode {
         let bytes = inode.cache.inner.shared_lock().file_bytes();
         let prev_len = buffer.len();
         let end_offset = bytes.min(offset + prev_len);
-        let mut buffer = &mut buffer[..prev_len.min(bytes - offset)];
+        let buffer_end = prev_len.min(bytes - offset);
+        let mut buffer = &mut buffer[..buffer_end];
         let mut cur = offset;
         while cur < end_offset {
             let (nth, off) = manager.bpb.cluster_spilt(cur);

@@ -8,7 +8,7 @@ pub const PRINT_MAP_ALL: bool = false;
 
 use riscv::register::sstatus;
 
-pub const PRINT_SYSCALL_ALL: bool = false;
+pub const PRINT_SYSCALL_ALL: bool = true;
 pub const PRINT_SYSCALL: bool = false;
 pub const PRINT_FORK: bool = false;
 pub const PRINT_SYSCALL_RW: bool = false; // 输出 read 和 write 系统调用
