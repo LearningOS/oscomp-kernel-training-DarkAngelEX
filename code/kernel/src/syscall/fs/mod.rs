@@ -1,4 +1,4 @@
-use alloc::{string::String, sync::Arc};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     error::SysR,
     fs::{Mode, OpenFlags, Seek},
@@ -7,7 +7,7 @@ use vfs::{File, VfsFile};
 
 use crate::{
     fs::{self, pipe, Iovec},
-    memory::user_ptr::{UserReadPtr, UserWritePtr},
+    memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::fd::Fd,
     syscall::SysError,
     tools::{allocator::from_usize_allocator::FromUsize, path},
@@ -73,6 +73,9 @@ impl Syscall<'_> {
     pub async fn sys_getcwd(&mut self) -> SysRet {
         stack_trace!();
         let (buf_in, len): (UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!("sys_getcwd");
+        }
         if buf_in.is_null() {
             return Err(SysError::EINVAL);
         }
@@ -207,7 +210,8 @@ impl Syscall<'_> {
         if !file.readable() {
             return Err(SysError::EPERM);
         }
-        file.read(&mut *buf.access_mut()).await
+        let len = file.read(&mut *buf.access_mut()).await?;
+        Ok(len)
     }
     pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
@@ -286,7 +290,35 @@ impl Syscall<'_> {
         }
         file.read_at(offset, &mut *buf.access_mut()).await
     }
-
+    pub async fn sys_sendfile(&mut self) -> SysRet {
+        stack_trace!();
+        let (out_fd, in_fd, offset, count): (Fd, Fd, UserInOutPtr<usize>, usize) = self.cx.into();
+        let (out_file, in_file) = match self.alive_then(|a| {
+            (
+                a.fd_table.get(out_fd).cloned(),
+                a.fd_table.get(in_fd).cloned(),
+            )
+        }) {
+            (Some(out_file), Some(in_file)) => (out_file, in_file),
+            _ => return Err(SysError::EBADF),
+        };
+        let offset = UserCheck::new(self.process)
+            .writable_value_nullable(offset)
+            .await?;
+        let mut buf = Vec::new();
+        buf.resize(count, 0);
+        if let Some(offset) = offset {
+            let off = offset.load();
+            let n = in_file.read_at(off, &mut *buf).await?;
+            out_file.write(&mut buf[..n]);
+            offset.store(off + n);
+            Ok(n)
+        } else {
+            let n = in_file.read(&mut buf[..]).await?;
+            out_file.write(&mut buf[..n]);
+            Ok(n)
+        }
+    }
     pub async fn sys_readlinkat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, buf, size): (isize, UserReadPtr<u8>, UserWritePtr<u8>, usize) =

@@ -90,7 +90,6 @@ pub struct AliveProcess {
     pub user_space: UserSpace,
     pub cwd: Arc<VfsFile>,
     pub exec_path: String,
-    pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
@@ -138,7 +137,6 @@ impl Process {
             user_space,
             cwd: alive.cwd.clone(),
             exec_path: alive.exec_path.clone(),
-            envp: alive.envp.clone(),
             parent: Some(Arc::downgrade(self)),
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(),
@@ -199,7 +197,23 @@ pub async fn init() {
         .unwrap();
         let elf_data = inode.read_all().await.unwrap();
         let args = alloc::vec![initproc.to_string()];
-        let envp = Vec::new();
+        let envp = alloc::vec![
+            "SHELL=/user_shell".to_string(),
+            "PWD=/".to_string(),
+            "USER=root".to_string(),
+            "MOTD_SHOWN=pam".to_string(),
+            "LANG=C.UTF-8".to_string(),
+            "INVOCATION_ID=e9500a871cf044d9886a157f53826684".to_string(),
+            "TERM=vt220".to_string(),
+            "SHLVL=2".to_string(),
+            "JOURNAL_STREAM=8:9265".to_string(),
+            "OLDPWD=/root".to_string(),
+            "_=busybox".to_string(),
+            "LOGNAME=root".to_string(),
+            "HOME=/".to_string(),
+            "PATH=/".to_string(),
+            "LD_LIBRARY_PATH=/".to_string(),
+        ];
         let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
         userloop::spawn(thread);
     }

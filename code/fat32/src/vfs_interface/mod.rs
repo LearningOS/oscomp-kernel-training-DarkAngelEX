@@ -227,9 +227,11 @@ impl FsInode for Fat32InodeV {
     }
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move {
-            let _file = self.inode.file()?;
-            // file.inode.unique_lock().await.resize(manager, n, init)
-            todo!()
+            let file = self.inode.file()?;
+            let mut inner = file.inode.unique_lock().await;
+            inner.resize(self.manager(), 0, |_: &mut [u8]| {}).await?;
+            inner.update_file_bytes(0);
+            Ok(())
         })
     }
     fn delete(&self) {

@@ -1,7 +1,7 @@
 # Building
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
-MODE := release
+MODE := debug
 ADD_ARGS :=
 ARGS :=
 ARGS += $(ADD_ARGS)
@@ -16,7 +16,7 @@ FS_IMG_SRC := ../fat32-fuse/fat32.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
-SMP := 4
+SMP := 1
 MEMORY_SIZE := 128M
 
 # BOARD
@@ -166,9 +166,10 @@ drun: build
 #	-ex 'file $(KERNEL_ELF)'
 #	-ex 'file ../disk/entry-static.exe'
 #	-ex 'file ../disk/entry-dynamic.exe'
+#	-ex 'file ../init/busybox_debug'
 dgdb:
 	@riscv64-unknown-elf-gdb \
-		-ex 'file $(KERNEL_ELF)' \
+		-ex 'file ../init/busybox_debug' \
 		-ex 'set arch riscv:rv64' \
 		-ex 'target remote localhost:1234' \
 

@@ -93,12 +93,16 @@ pub async fn init() {
     vfs.set_spec_dentry("etc".to_string());
     vfs.set_spec_dentry("tmp".to_string());
     vfs.set_spec_dentry("var".to_string());
-    vfs.set_spec_dentry("sbin".to_string());
-    vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/var"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/sbin"), "tmpfs", 0).await.unwrap();
+    vfs.set_spec_dentry("usr".to_string());
+    // vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
+    // vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
+    // vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
+    // vfs.mount((XF, ""), (XF, "/var"), "tmpfs", 0).await.unwrap();
+    // vfs.mount((XF, ""), (XF, "/usr"), "tmpfs", 0).await.unwrap();
+    // vfs.mount((XF, ""), (XF, "/bin"), "tmpfs", 0).await.unwrap();
+    // vfs.mount((XF, ""), (XF, "/sbin"), "tmpfs", 0)
+    //     .await
+    //     .unwrap();
     vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
         .await
         .unwrap();
@@ -114,14 +118,9 @@ pub async fn init() {
     vfs.mount((XF, "/dev/sda1"), (XF, "/"), "vfat", 0)
         .await
         .unwrap();
-    // 加入dev/shm
-    vfs.create((XF, "/dev/shm"), true, (true, true))
-        .await
-        .unwrap();
-    // 加入dev/shm
-    vfs.create((XF, "/var/tmp"), true, (true, true))
-        .await
-        .unwrap();
+    for path in ["/dev/shm", "/var/tmp"] {
+        vfs.create((XF, path), true, (true, true)).await.unwrap();
+    }
 
     // 写入目录 /etc/ld-musl-riscv64-sf.path
     let ld = vfs

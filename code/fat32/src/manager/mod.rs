@@ -126,7 +126,7 @@ impl Fat32Manager {
         match path.split_last() {
             Some((&name, path)) => {
                 let dir = self.search_dir(path).await?;
-                Ok((name, dir))
+                return Ok((name, dir));
             }
             None => Err(SysError::ENOENT),
         }

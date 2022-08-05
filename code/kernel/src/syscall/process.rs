@@ -119,9 +119,6 @@ impl Syscall<'_> {
         let user_check = UserCheck::new(self.process);
         let path = String::from_utf8(user_check.array_zero_end(path).await?.to_vec())?;
         stack_trace!("sys_execve path: {}", path);
-        if PRINT_SYSCALL_PROCESS {
-            println!("execve path {:?}", path);
-        }
         let args: Vec<String> = user_check
             .array_2d_zero_end(args)
             .await?
@@ -134,7 +131,9 @@ impl Syscall<'_> {
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
             .collect::<Vec<String>>();
-
+        if PRINT_SYSCALL_PROCESS {
+            println!("execve path {:?} args: {:?}", path, args);
+        }
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
@@ -172,7 +171,7 @@ impl Syscall<'_> {
         }
         unsafe { user_space.using() };
         let (user_sp, argc, argv, envp) =
-            user_space.push_args(user_sp, &args, &alive.envp, &auxv, args_size);
+            user_space.push_args(user_sp, &args, &envp, &auxv, args_size);
         drop(auxv);
         drop(args);
         // reset stack_id
@@ -279,6 +278,9 @@ impl Syscall<'_> {
     pub fn sys_set_tid_address(&mut self) -> SysRet {
         stack_trace!();
         let clear_child_tid: UserInOutPtr<u32> = self.cx.para1();
+        if PRINT_SYSCALL_ALL {
+            println!("sys_set_tid_address {:#x}", clear_child_tid.as_usize());
+        }
         self.thread.inner().clear_child_tid = clear_child_tid;
         Ok(self.thread.tid().0)
     }

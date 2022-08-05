@@ -122,6 +122,7 @@ impl TmpFsDir {
         stat.st_uid = 0;
         stat.st_gid = 0;
         stat.st_rdev = 0;
+        stat.st_size = 4096;
         Ok(())
     }
 }

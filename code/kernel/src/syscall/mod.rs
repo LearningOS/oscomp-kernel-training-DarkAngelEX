@@ -6,7 +6,7 @@ use ftl_util::error::SysRet;
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
     trap::context::UKContext,
-    xdebug::PRINT_SYSCALL_ALL,
+    xdebug::{PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
 };
 
 mod fs;
@@ -44,6 +44,7 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_PREAD64: usize = 67;
+const SYSCALL_SENDFILE: usize = 71;
 const SYSCALL_PSELECT6: usize = 72;
 const SYSCALL_PPOLL: usize = 73;
 const SYSCALL_READLINKAT: usize = 78;
@@ -153,6 +154,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_READV => self.sys_readv().await,
             SYSCALL_WRITEV => self.sys_writev().await,
             SYSCALL_PREAD64 => self.sys_pread64().await,
+            SYSCALL_SENDFILE => self.sys_sendfile().await,
             SYSCALL_PSELECT6 => self.sys_pselect6().await,
             SYSCALL_PPOLL => self.sys_ppoll().await,
             SYSCALL_READLINKAT => self.sys_readlinkat().await,
@@ -221,7 +223,7 @@ impl<'a> Syscall<'a> {
         memory_trace!("syscall return");
         if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
-            if ![63, 64].contains(&self.cx.a7()) {
+            if PRINT_SYSCALL_RW || ![63, 64].contains(&self.cx.a7()) {
                 print!("{}", to_yellow!());
                 print!("{:?} syscall {} -> ", self.thread.tid(), self.cx.a7(),);
                 match result {

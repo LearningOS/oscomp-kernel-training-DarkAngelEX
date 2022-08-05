@@ -128,11 +128,9 @@ pub fn sys_fork() -> isize {
 pub fn sys_exec(path: &str, args: &[*const u8]) -> isize {
     syscall(
         SYSCALL_EXECVE,
-        [
-            path.as_ptr() as usize,
-            args.as_ptr() as usize,
-            [b"PATH=/".as_ptr(), core::ptr::null()].as_ptr() as usize,
-        ],
+        [path.as_ptr() as usize, args.as_ptr() as usize, unsafe {
+            super::ENVP as usize
+        }],
     )
 }
 

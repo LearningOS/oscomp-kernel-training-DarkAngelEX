@@ -100,7 +100,7 @@ impl VfsManager {
     ) -> SysR<(Path, &'a str)> {
         let mut path = if is_absolute_path(path_str) {
             Path {
-                mount: None, 
+                mount: None,
                 dentry: self.root.as_ref().unwrap().clone(),
             }
         } else {
@@ -121,7 +121,11 @@ impl VfsManager {
         if PRINT_WALK {
             println!("walk_name: {} -> {}", path.dentry.cache.name(), name);
         }
+        let name = name.trim();
         if path.is_vfs_root() {
+            if name == "sbin" {
+                return Ok(path);
+            }
             if let Some(dentry) = self.special_dir.get(name).cloned() {
                 path.dentry = dentry;
                 return Ok(path);

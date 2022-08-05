@@ -111,8 +111,8 @@ impl FsInode for TmpFsFile {
             stat.st_uid = 0;
             stat.st_gid = 0;
             stat.st_rdev = 0;
-            stat.st_size = self.bytes().unwrap_or(0);
-            stat.st_blksize = 1;
+            stat.st_size = self.bytes().unwrap();
+            stat.st_blksize = 512;
             stat.st_blocks = 0;
             stat.st_atime = access_time.as_secs() as usize;
             stat.st_atime_nsec = access_time.subsec_nanos() as usize;
