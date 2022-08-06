@@ -281,7 +281,7 @@ impl UKContext {
     }
     /// 由执行器调用, 进入用户态
     pub fn run_user_executor(&mut self) {
-        debug_assert!(!self.user_sstatus.sie());
+        debug_assert!(!self.user_sstatus.sie()); // 这里没有关中断
         if FLOAT_ENABLE {
             unsafe { floating::load_fx(&mut self.user_fx) };
             self.user_sstatus.set_fs(FS::Clean);

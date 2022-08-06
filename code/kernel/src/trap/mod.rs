@@ -1,6 +1,9 @@
-use crate::riscv::register::{
-    scause, sie, sstatus,
-    stvec::{self, TrapMode},
+use crate::{
+    local,
+    riscv::register::{
+        scause, sie, sstatus,
+        stvec::{self, TrapMode},
+    },
 };
 
 use self::context::UKContext;
@@ -36,6 +39,11 @@ pub fn run_user_executor(cx: &mut UKContext) {
         fn __entry_user(cx: *mut UKContext);
     }
     unsafe {
+        let local = local::hart_local();
+        local.local_rcu.critical_end_tick();
+        local.local_rcu.critical_start();
+        cx.fast_context().thread.timer_into_user();
+
         debug_assert!(sstatus::read().sie());
         sstatus::clear_sie();
         set_user_trap_entry();
@@ -73,6 +81,12 @@ pub struct Ctup2(pub *mut UKContext, pub FastStatus);
 pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
     set_kernel_default_trap();
     sstatus::set_sie();
+    let thread = (*cx).fast_context().thread;
+    thread.timer_leave_user();
+    let local = local::hart_local();
+    local.local_rcu.critical_start();
+
+    local::handle_current_local();
 
     use crate::syscall::fast;
     use scause::{Exception, Trap};
@@ -84,13 +98,19 @@ pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
         _ => (),
     }
 
-    let to_executor = (*cx).fast_status;
-    if to_executor != FastStatus::Success {
-    } else {
-        sstatus::clear_sie();
-        set_user_trap_entry();
+    if (*cx).fast_status == FastStatus::Success {
+        if thread.have_signal() {
+            (*cx).fast_status = FastStatus::SkipSyscall;
+        } else {
+            local.local_rcu.critical_end_tick();
+            local.local_rcu.critical_start();
+            thread.timer_into_user();
+
+            sstatus::clear_sie();
+            set_user_trap_entry();
+        }
     }
-    Ctup2(cx, to_executor)
+    Ctup2(cx, (*cx).fast_status)
 }
 
 /// 内核态陷阱

@@ -33,7 +33,6 @@ async fn userloop(thread: Arc<Thread>) {
     let context = thread.get_context();
     let fast_context = unsafe { FastContext::new(&thread, &thread, &thread.process) };
     context.set_fast_context(&fast_context);
-    let local = local::hart_local();
 
     loop {
         local::handle_current_local();
@@ -44,16 +43,8 @@ async fn userloop(thread: Arc<Thread>) {
         if let Err(Dead) = thread.handle_signal().await {
             break;
         }
-        local.local_rcu.critical_end_tick();
-        local.local_rcu.critical_start();
-        thread.timer_into_user();
         // 进入用户态
         context.run_user_executor();
-
-        thread.timer_leave_user();
-        local.local_rcu.critical_start();
-
-        local::handle_current_local();
 
         let fast_status = context.load_fast_status();
         match fast_status {

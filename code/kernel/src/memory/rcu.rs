@@ -51,6 +51,7 @@ impl LocalRcuManager {
     }
 
     // 进入RCU临界区
+    #[inline]
     pub fn critical_start(&mut self) {
         stack_trace!();
         if self.critical {
@@ -77,6 +78,7 @@ impl LocalRcuManager {
         self.clear_rec();
     }
     /// 当时钟中断到达了才会将tick设为true, 此时才离开临界区
+    #[inline]
     pub fn critical_end_tick(&mut self) {
         if !CRITICAL_END_FORCE && !self.tick {
             return;

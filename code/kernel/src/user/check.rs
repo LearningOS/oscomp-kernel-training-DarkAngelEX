@@ -15,7 +15,7 @@ use crate::{
     syscall::SysError,
 };
 
-use super::{check_impl::UserCheckImpl, AutoSum, UserData, UserDataMut, UserType};
+use super::{check_impl::UserCheckImpl, AutoSum, NativeAutoSum, UserData, UserDataMut, UserType};
 
 pub struct UserCheck<'a> {
     process: &'a Process,
@@ -223,6 +223,7 @@ impl<'a> UserCheck<'a> {
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(SysError::EFAULT);
         }
+        let _sum = NativeAutoSum::new();
         let mut cur = UserAddr::try_from(ptr)?.floor();
         let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
         while cur != uend4k {
@@ -263,6 +264,7 @@ impl<'a> UserCheck<'a> {
             );
             return Err(SysError::EFAULT);
         }
+        let _sum = NativeAutoSum::new();
         let mut cur = UserAddr::try_from(ptr)?.floor();
         let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
         while cur != uend4k {

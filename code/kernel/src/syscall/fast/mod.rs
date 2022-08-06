@@ -12,6 +12,8 @@ const fn fast_syscall_generate() -> [ENTRY; SYSCALL_MAX] {
     let mut table: [ENTRY; SYSCALL_MAX] = [None; SYSCALL_MAX];
     table[SYSCALL_DUP] = Some(Syscall::sys_dup);
     table[SYSCALL_CLOCK_GETTIME] = Some(Syscall::sys_clock_gettime_fast);
+    table[SYSCALL_GETRUSAGE] = Some(Syscall::sys_getrusage_fast);
+    table[SYSCALL_GETPID] = Some(Syscall::sys_getpid);
     table
 }
 
@@ -22,7 +24,6 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
         Some(None) | None => return,
     };
     let fast_context = (*cx).fast_context();
-
     let result = f(&mut Syscall::new(
         &mut *cx,
         fast_context.thread_arc,
@@ -47,6 +48,7 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
     }
     match result {
         Ok(a0) => {
+            (*cx).set_next_instruction();
             (*cx).set_user_a0(a0);
             (*cx).fast_status = FastStatus::Success;
         }

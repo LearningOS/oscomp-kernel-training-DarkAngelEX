@@ -210,6 +210,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_SIGNAL {
             println!("new: {:#x?}", sig_mask.0[0]);
         }
+        manager.mask_changed();
         Ok(0)
     }
     pub async fn sys_rt_sigpending(&mut self) -> SysRet {

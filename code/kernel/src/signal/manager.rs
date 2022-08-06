@@ -19,6 +19,16 @@ impl ProcSignalManager {
             inner: SpinNoIrqLock::new(ProcSignalManagerInner::new()),
         }
     }
+    pub fn have_signal(&self, mask: &SignalSet, recv_id: usize) -> bool {
+        let inner = unsafe { self.inner.unsafe_get() };
+        if recv_id == inner.recv_id {
+            return false;
+        }
+        inner.can_take_std_signal(mask.std_signal()) || inner.can_take_rt_signal(mask)
+    }
+    pub fn recv_id(&self) -> usize {
+        unsafe { self.inner.unsafe_get().recv_id }
+    }
     pub fn receive(&self, sig: Sig) {
         self.inner.lock().receive(sig)
     }
@@ -64,6 +74,7 @@ struct ProcSignalManagerInner {
     pending: StdSignalSet, // 等待处理的信号
     realtime: RTQueue,
     action: [SigAction; SIG_N],
+    recv_id: usize,
 }
 
 impl ProcSignalManagerInner {
@@ -73,6 +84,7 @@ impl ProcSignalManagerInner {
             pending: StdSignalSet::EMPTY,
             realtime: RTQueue::new(),
             action: SigAction::DEFAULT_SET,
+            recv_id: 0,
         }
     }
     pub fn receive(&mut self, sig: Sig) {
@@ -81,7 +93,9 @@ impl ProcSignalManagerInner {
             32..SIG_N_U32 => self.realtime.receive(sig),
             _ => (),
         }
+        self.recv_id += 1;
     }
+    #[inline]
     pub fn can_take_std_signal(&self, mask: StdSignalSet) -> bool {
         !(self.pending & !mask).is_empty()
     }
@@ -91,6 +105,7 @@ impl ProcSignalManagerInner {
             a
         })
     }
+    #[inline]
     pub fn can_take_rt_signal(&self, mask: &SignalSet) -> bool {
         self.realtime.can_fetch(mask)
     }
@@ -121,6 +136,7 @@ impl ProcSignalManagerInner {
             pending: self.pending,
             realtime: self.realtime.fork(),
             action: self.action,
+            recv_id: self.recv_id,
         }
     }
 }
@@ -131,6 +147,7 @@ pub struct ThreadSignalManager {
     std_pending: StdSignalSet,
     real_pending: RTQueue,
     signal_mask: SignalSet,
+    pub proc_recv_id: usize, // 当这个值和进程控制块上的值完全相同时说明进程没收到新信号
 }
 
 struct ThreadSignalMailbox {
@@ -182,7 +199,12 @@ impl ThreadSignalManager {
             std_pending: StdSignalSet::empty(),
             real_pending: RTQueue::new(),
             signal_mask: SignalSet::EMPTY,
+            proc_recv_id: 0,
         }
+    }
+    pub fn mask_changed(&mut self) {
+        self.recv_id = self.recv_id.wrapping_sub(1);
+        self.proc_recv_id = self.proc_recv_id.wrapping_sub(1);
     }
     #[inline(always)]
     pub fn fork(&self) -> Self {
@@ -192,6 +214,7 @@ impl ThreadSignalManager {
             std_pending: self.std_pending,
             real_pending: self.real_pending.fork(),
             signal_mask: self.signal_mask,
+            proc_recv_id: self.proc_recv_id,
         }
     }
     #[inline]
@@ -237,6 +260,17 @@ impl ThreadSignalManager {
     #[inline(always)]
     pub fn mask_mut(&mut self) -> &mut SignalSet {
         &mut self.signal_mask
+    }
+    #[inline]
+    pub fn have_signal(&self) -> bool {
+        let send_id = unsafe { self.mailbox.unsafe_get().send_id };
+        if send_id == self.recv_id {
+            return false; // 99% 的情况
+        }
+        if !(self.std_pending & !self.signal_mask.std_signal()).is_empty() {
+            return true;
+        }
+        self.real_pending.can_fetch(&self.signal_mask)
     }
     pub fn take_std_signal(&mut self) -> ControlFlow<Sig> {
         (self.std_pending & !self.signal_mask.std_signal())

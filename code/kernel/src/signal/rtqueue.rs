@@ -136,6 +136,7 @@ impl RTQueue {
         }
     }
     /// 此操作不需要锁
+    #[inline]
     pub fn can_fetch(&self, mask: &SignalSet) -> bool {
         self.exist.can_fetch(mask)
     }

@@ -15,6 +15,20 @@ use super::Syscall;
 const PRINT_SYSCALL_RESOURCE: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
+    pub fn sys_getrusage_fast(&mut self) -> SysRet {
+        let (who, usage): (u32, UserWritePtr<Rusage>) = self.cx.into();
+        if PRINT_SYSCALL_RESOURCE {
+            println!(
+                "sys_getrusage_fast who: {} usage ptr: {:#x}",
+                who as isize,
+                usage.as_usize()
+            );
+        }
+        let usage = UserCheck::writable_value_only(usage)?;
+        self.thread.timer_fence();
+        usage.access_mut()[0].write(who, self.thread)?;
+        Ok(0)
+    }
     pub async fn sys_getrusage(&mut self) -> SysRet {
         let (who, usage): (u32, UserWritePtr<Rusage>) = self.cx.into();
         if PRINT_SYSCALL_RESOURCE {

@@ -315,6 +315,36 @@ impl Drop for NativeAutoSie {
     }
 }
 
+/// 不需要全局控制器介入的sum控制器, 必须以栈的方式使用
+pub struct NativeAutoSum(bool);
+
+impl !Send for NativeAutoSum {}
+impl !Sync for NativeAutoSum {}
+
+impl NativeAutoSum {
+    #[inline(always)]
+    pub fn new() -> Self {
+        let v = sstatus::read().sum();
+        if !v {
+            unsafe {
+                sstatus::set_sum();
+            }
+        }
+        Self(v)
+    }
+}
+
+impl Drop for NativeAutoSum {
+    #[inline(always)]
+    fn drop(&mut self) {
+        if !self.0 {
+            unsafe {
+                sstatus::clear_sum();
+            }
+        }
+    }
+}
+
 /// 持有 `AutoSum` 将允许在内核态访问用户态数据, 可以嵌套或使用在异步上下文
 pub struct AutoSum;
 

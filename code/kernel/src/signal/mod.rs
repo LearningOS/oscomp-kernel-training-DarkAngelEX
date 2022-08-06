@@ -157,6 +157,7 @@ impl StdSignalSet {
             ControlFlow::CONTINUE
         }
     }
+    /// 尝试获取一个信号
     pub fn fetch(&self) -> ControlFlow<Sig> {
         if self.is_empty() {
             return ControlFlow::CONTINUE;
@@ -236,6 +237,7 @@ impl SignalSet {
         self.check_any(sig, |a, b| a | b != 0)
     }
     /// A & !B != 0
+    #[inline]
     pub fn can_fetch(&self, mask: &Self) -> bool {
         self.check_any(mask, |a, b| a & !b != 0)
     }
@@ -390,6 +392,11 @@ pub fn send_signal(process: Arc<Process>, sig: Sig) -> Result<(), Dead> {
 
 static mut HANDLE_CNT: usize = LIMIT_SIGNAL_COUNT.unwrap_or(0);
 
+pub fn have_signal(thread: &mut ThreadInner, process: &Process) -> bool {
+    let tsm = &mut thread.signal_manager;
+    let psm = &process.signal_manager;
+    tsm.have_signal() || psm.have_signal(tsm.mask(), tsm.proc_recv_id)
+}
 ///
 /// signal handler包含如下参数: (sig, si, ctx), 其中:
 ///
@@ -409,6 +416,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         tsm.take_rt_signal()?;
         psm.take_rt_signal(&mask)?;
     };
+    tsm.proc_recv_id = psm.recv_id();
     let signal = match take_sig_fn.break_value() {
         Some(s) => s,
         None => return Ok(()),
