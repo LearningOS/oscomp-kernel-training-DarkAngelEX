@@ -122,23 +122,25 @@ impl Process {
     }
     /// 只有进程自己的task可以调用此函数
     ///
-    /// 当线程数量只有一个的时候不会上锁!!!
+    /// 当线程数量只有一个的时候不会上锁
     #[inline(always)]
     pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
         debug_assert!(local::task_local().thread.process.pid() == self.pid());
         unsafe {
-            if self.thread_count.load(Ordering::Relaxed) == 1 {
+            let threads = self.thread_count.load(Ordering::Relaxed);
+            if threads == 1 {
                 f(self.alive.unsafe_get_mut().as_mut().unwrap_unchecked())
             } else {
                 f(self.alive.lock().as_mut().unwrap_unchecked())
             }
         }
     }
+    /// 此函数一定会上锁
     #[inline(always)]
     pub fn alive_then_uncheck<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
         f(self.alive.lock().as_mut().unwrap())
     }
-    // fork and release all thread except tid
+    /// fork and release all thread except tid
     pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> SysR<Arc<Self>> {
         let mut alive_guard = self.alive.lock();
         let alive = alive_guard.as_mut().unwrap();

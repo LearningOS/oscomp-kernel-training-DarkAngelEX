@@ -77,14 +77,14 @@ pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
     use crate::syscall::fast;
     use scause::{Exception, Trap};
 
-    (*cx).to_executor = FastStatus::Executor;
+    (*cx).fast_status = FastStatus::Executor;
 
     match (*cx).scause.cause() {
         Trap::Exception(Exception::UserEnvCall) => fast::running_syscall(cx),
         _ => (),
     }
 
-    let to_executor = (*cx).to_executor;
+    let to_executor = (*cx).fast_status;
     if to_executor != FastStatus::Success {
     } else {
         sstatus::clear_sie();

@@ -51,7 +51,7 @@ pub struct UKContext {
     pub user_fx: FloatContext,
     // 快速处理路径中转
     pub fast_context: usize, // 指向 FastContext
-    pub to_executor: FastStatus,
+    pub fast_status: FastStatus,
 }
 
 #[repr(C)]
@@ -177,6 +177,9 @@ impl UKContext {
     }
     pub fn fast_context(&self) -> &'static FastContext {
         unsafe { &*(self.fast_context as *const FastContext) }
+    }
+    pub fn load_fast_status(&self) -> FastStatus {
+        unsafe { core::ptr::read_volatile(&self.fast_status) }
     }
     #[inline(always)]
     pub fn a0(&self) -> usize {

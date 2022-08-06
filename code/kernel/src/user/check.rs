@@ -119,7 +119,6 @@ impl<'a> UserCheck<'a> {
         }
         Ok(ret)
     }
-
     pub async fn readonly_slice<T: Copy, P: Read>(
         &self,
         ptr: UserPtr<T, P>,
@@ -211,5 +210,78 @@ impl<'a> UserCheck<'a> {
             .await?;
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut().cast(), 1);
         Ok(UserDataMut::new(slice))
+    }
+    #[inline]
+    pub fn readonly_value_only<T: Copy, P: Read>(ptr: UserPtr<T, P>) -> SysR<UserData<T>> {
+        Self::readonly_slice_only(ptr, 1)
+    }
+    #[inline]
+    pub fn readonly_slice_only<T: Copy, P: Read>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<UserData<T>> {
+        if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
+            return Err(SysError::EFAULT);
+        }
+        let mut cur = UserAddr::try_from(ptr)?.floor();
+        let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
+        while cur != uend4k {
+            let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
+            // if error occur will change status by exception
+            UserCheckImpl::read_check_only::<u8>(cur_ptr)?;
+            cur.add_page_assign(PageCount(1));
+        }
+        let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
+        Ok(UserData::new(unsafe { &*slice }))
+    }
+    #[inline]
+    pub fn readonly_slice_only_nullable<T: Copy, P: Read>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::readonly_slice_only(ptr, len)).transpose()
+        }
+    }
+    #[inline]
+    pub fn writable_value_only<T: Copy, P: Write>(ptr: UserPtr<T, P>) -> SysR<UserDataMut<T>> {
+        Self::writable_slice_only(ptr, 1)
+    }
+    #[inline]
+    pub fn writable_slice_only<T: Copy, P: Write>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<UserDataMut<T>> {
+        // println!("tran 0");
+        if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
+            println!(
+                "[kernel]user write ptr check fail: no align. ptr: {:#x} align: {}",
+                ptr.as_usize(),
+                core::mem::align_of::<T>()
+            );
+            return Err(SysError::EFAULT);
+        }
+        let mut cur = UserAddr::try_from(ptr)?.floor();
+        let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
+        while cur != uend4k {
+            let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
+            UserCheckImpl::write_check_only::<u8>(cur_ptr)?;
+            cur.add_page_assign(PageCount(1));
+        }
+        let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
+        Ok(UserDataMut::new(slice))
+    }
+    #[inline]
+    pub fn writable_slice_only_nullable<T: Copy, P: Write>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::writable_slice_only(ptr, len)).transpose()
+        }
     }
 }

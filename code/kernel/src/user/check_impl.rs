@@ -104,6 +104,15 @@ impl<'a> UserCheckImpl<'a> {
         })?;
         Ok(())
     }
+    #[inline(always)]
+    pub fn read_check_only<T: Copy>(ptr: UserReadPtr<T>) -> SysR<()> {
+        try_read_user_u8(ptr.as_usize()).map(|_| ())
+    }
+    #[inline(always)]
+    pub fn write_check_only<T: Copy>(ptr: UserWritePtr<T>) -> SysR<()> {
+        let value = try_read_user_u8(ptr.as_usize())?;
+        try_write_user_u8(ptr.as_usize(), value).map(|_| ())
+    }
     pub fn read_check_rough<T: Copy>(
         &self,
         ptr: UserReadPtr<T>,
@@ -128,7 +137,7 @@ impl<'a> UserCheckImpl<'a> {
     }
     pub fn write_check_rough<T: Copy>(
         &self,
-        ptr: UserReadPtr<T>,
+        ptr: UserWritePtr<T>,
         allocator: &mut dyn FrameAllocator,
     ) -> SysR<()> {
         let ptr = ptr.as_usize();
