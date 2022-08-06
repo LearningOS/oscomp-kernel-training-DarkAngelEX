@@ -60,6 +60,7 @@ const SYSCALL_GET_ROBUST_LIST: usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
 const SYSCALL_SETITIMER: usize = 103;
 const SYSCALL_CLOCK_GETTIME: usize = 113;
+const SYSCALL_SYSLOG: usize = 116;
 const SYSCALL_SCHED_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_TKILL: usize = 130;
@@ -170,6 +171,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_NANOSLEEP => self.sys_nanosleep().await,
             SYSCALL_SETITIMER => self.sys_setitimer().await,
             SYSCALL_CLOCK_GETTIME => self.sys_clock_gettime().await,
+            SYSCALL_SYSLOG => self.sys_syslog().await,
             SYSCALL_SCHED_YIELD => self.sys_sched_yield().await,
             SYSCALL_KILL => self.sys_kill(),
             SYSCALL_TKILL => self.sys_tkill(),

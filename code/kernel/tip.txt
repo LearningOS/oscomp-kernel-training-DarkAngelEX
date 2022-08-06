@@ -67,3 +67,5 @@ busybox sh ./lmbench_testcode.sh
 b *0xda9c2
 
 busybox_debug sh ./busybox_testcode.sh
+busybox cat ./busybox_cmd.txt
+busybox_debug du

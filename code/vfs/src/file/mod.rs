@@ -77,7 +77,7 @@ pub trait File: Send + Sync + 'static {
 pub struct VfsFile {
     pub(crate) path: Path,
     pub(crate) inode: Arc<VfsInode>,
-    ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
+    pub ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
 }
 
 impl Debug for VfsFile {

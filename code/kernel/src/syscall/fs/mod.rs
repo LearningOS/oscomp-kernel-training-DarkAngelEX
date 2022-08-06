@@ -1,3 +1,5 @@
+use core::{ptr::addr_of_mut, sync::atomic::Ordering};
+
 use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     error::SysR,
@@ -129,7 +131,6 @@ impl Syscall<'_> {
     }
     pub async fn sys_getdents64(&mut self) -> SysRet {
         stack_trace!();
-
         #[repr(C)]
         struct Ddirent {
             d_ino: u64,    /* Inode number */
@@ -139,6 +140,14 @@ impl Syscall<'_> {
             d_name: (),
         }
         let (fd, dirp, count): (Fd, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_getdents64 fd: {:?} dirp: {:#x} count: {}",
+                fd,
+                dirp.as_usize(),
+                count
+            );
+        }
         let align = core::mem::align_of::<Ddirent>();
         if dirp.as_usize() % align != 0 {
             return Err(SysError::EFAULT);
@@ -151,36 +160,37 @@ impl Syscall<'_> {
             .ok_or(SysError::EBADF)?;
         let file = file.into_vfs_file()?;
         let list = file.list().await?;
-
+        let offset = file.ptr.load(Ordering::Relaxed);
+        if offset >= list.len() {
+            return Ok(0);
+        }
         let mut buffer = &mut *dirp.access_mut();
         let mut cnt = 0;
-        let mut d_off_ptr: *mut u64 = core::ptr::null_mut();
-        for (dt, name) in list {
+        for (dt, name) in &list[offset..] {
             let ptr = buffer.as_mut_ptr();
             debug_assert_eq!(ptr as usize % align, 0);
             unsafe {
-                let dirent_ptr: *mut Ddirent = core::mem::transmute(ptr);
-                let name_ptr = &mut (*dirent_ptr).d_name as *mut _ as *mut u8;
+                let dirent_ptr = ptr.cast::<Ddirent>();
+                let name_ptr = addr_of_mut!((*dirent_ptr).d_name).cast::<u8>();
                 let end_ptr = name_ptr.add(name.len() + 1);
                 let align_add = end_ptr.align_offset(align);
-                let len = end_ptr.add(align_add).offset_from(ptr) as usize;
-                if len > buffer.len() {
+                let this_len = end_ptr.offset_from(ptr) as usize + align_add;
+                if this_len > buffer.len() {
                     break;
                 }
                 let dirent = &mut *dirent_ptr;
-                dirent.d_ino = 0;
-                if !d_off_ptr.is_null() {
-                    *d_off_ptr = (&dirent.d_off as *const _ as usize - d_off_ptr as usize) as u64;
-                }
-                d_off_ptr = &mut dirent.d_off;
-                dirent.d_reclen = len as u16;
-                dirent.d_type = dt as u8; // <- no implement
+                dirent.d_ino = 1;
+                dirent.d_off = this_len as u64;
+                dirent.d_reclen = this_len as u16;
+                dirent.d_type = *dt as u8; // <- no implement
                 let name_buf = core::ptr::slice_from_raw_parts_mut(name_ptr, name.len() + 1);
                 (&mut *name_buf)[..name.len()].copy_from_slice(name.as_bytes());
                 (&mut *name_buf)[name.len()] = b'\0';
-                buffer = &mut buffer[len..];
+                cnt += this_len;
+                buffer = &mut buffer[this_len..];
+                file.ptr
+                    .store(file.ptr.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
             }
-            cnt += 1;
         }
         Ok(cnt)
     }
@@ -293,6 +303,15 @@ impl Syscall<'_> {
     pub async fn sys_sendfile(&mut self) -> SysRet {
         stack_trace!();
         let (out_fd, in_fd, offset, count): (Fd, Fd, UserInOutPtr<usize>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_sendfile out: {:?} in: {:?} off:{:#x} n:{}",
+                out_fd,
+                in_fd,
+                offset.as_usize(),
+                count
+            );
+        }
         let (out_file, in_file) = match self.alive_then(|a| {
             (
                 a.fd_table.get(out_fd).cloned(),
@@ -310,12 +329,12 @@ impl Syscall<'_> {
         if let Some(offset) = offset {
             let off = offset.load();
             let n = in_file.read_at(off, &mut *buf).await?;
-            out_file.write(&mut buf[..n]);
+            out_file.write(&mut buf[..n]).await?;
             offset.store(off + n);
             Ok(n)
         } else {
             let n = in_file.read(&mut buf[..]).await?;
-            out_file.write(&mut buf[..n]);
+            out_file.write(&mut buf[..n]).await?;
             Ok(n)
         }
     }
@@ -454,5 +473,18 @@ impl Syscall<'_> {
         self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())
             .ok_or(SysError::ENFILE)?
             .ioctl(cmd, arg)
+    }
+    pub async fn sys_syslog(&mut self) -> SysRet {
+        stack_trace!();
+        let (ty, buf, len): (u32, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_syslog (noimplement) ty: {} buf: {:#x} len: {}",
+                ty,
+                buf.as_usize(),
+                len
+            );
+        }
+        Ok(0)
     }
 }

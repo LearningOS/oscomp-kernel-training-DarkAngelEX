@@ -77,11 +77,11 @@ impl Fs for TmpFs {
 
 impl TmpFs {
     pub fn new(dev: usize) -> Box<Self> {
-        let root = TmpFsInode::new(true, (true, true), 0, NonNull::dangling());
+        let root = TmpFsInode::new(true, (true, true), 1, NonNull::dangling());
         let fs = Box::new(Self {
             dev,
             root,
-            inoalloc: AtomicUsize::new(1),
+            inoalloc: AtomicUsize::new(2),
         });
         unsafe { fs.root.dir().unwrap().set_fs(fs.ptr()) };
         fs

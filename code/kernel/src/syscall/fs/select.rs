@@ -195,6 +195,10 @@ impl Syscall<'_> {
         if n != 0 || v.is_empty() {
             return Ok(n);
         }
+        println!(
+            "sys_ppoll waiting, timeout: {:?} ms",
+            timeout.map(|a| a.as_millis())
+        );
         let timeout = timeout
             .map(|dur| timer::now() + dur)
             .unwrap_or(Instant::MAX);
