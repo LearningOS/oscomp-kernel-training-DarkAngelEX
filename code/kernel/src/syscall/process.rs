@@ -28,7 +28,7 @@ use crate::{
 
 use super::{SysError, SysRet, Syscall};
 
-const PRINT_SYSCALL_PROCESS: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
+const PRINT_SYSCALL_PROCESS: bool = false || true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
     pub async fn sys_clone(&mut self) -> SysRet {
@@ -215,6 +215,7 @@ impl Syscall<'_> {
             p if p > 0 => WaitFor::Pid(Pid::from_usize(p as usize)),
             p => WaitFor::PGid(p as usize),
         };
+        let mut waker = None;
         loop {
             let this_pid = self.process.pid();
             let process = {
@@ -261,10 +262,16 @@ impl Syscall<'_> {
                 return Ok(process.pid().0);
             }
             let event_bus = &self.process.event_bus;
-            let waker = async_tools::take_waker().await;
-            let _event =
-                even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT, &waker).await;
-            // continue
+            if waker.is_none() {
+                waker = Some(async_tools::take_waker().await);
+            }
+            let _event = even_bus::wait_for_event(
+                event_bus,
+                Event::CHILD_PROCESS_QUIT,
+                &waker.as_ref().unwrap(),
+            )
+            .await;
+            event_bus.clear(Event::CHILD_PROCESS_QUIT).unwrap();
         }
     }
     pub fn sys_set_tid_address(&mut self) -> SysRet {

@@ -251,6 +251,7 @@ impl TempQueue {
 ///
 struct ViewFutex(AtomicPtr<Futex>);
 
+#[derive(Debug, PartialEq, Eq)]
 enum ViewOp {
     Issued,
     Queued(*mut Futex),
@@ -275,7 +276,10 @@ impl ViewFutex {
         }
     }
     pub fn set_issued(&self) {
-        debug_assert!(!matches!(self.fetch(), ViewOp::Issued));
+        debug_assert_ne!(self.fetch(), ViewOp::Issued);
+        self.0.store(Self::ISSUED_V, Ordering::Relaxed);
+    }
+    pub unsafe fn set_issued_force(&self) {
         self.0.store(Self::ISSUED_V, Ordering::Relaxed);
     }
     pub fn set_waited(&self) {
@@ -349,10 +353,13 @@ impl FutexFuture {
     }
     /// 需要在结束后手动调用
     fn detach(self: Pin<&mut Self>) {
+        stack_trace!();
         let _ = self.node.data().futex.lock_queue_run(|_q| unsafe {
             self.node.pop_self_fast();
         });
-        self.node.data().futex.set_issued();
+        unsafe {
+            self.node.data().futex.set_issued_force();
+        }
     }
 }
 

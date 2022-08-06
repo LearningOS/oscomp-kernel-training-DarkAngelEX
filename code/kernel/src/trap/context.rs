@@ -1,6 +1,6 @@
 use ftl_util::fs::Mode;
 
-use riscv::register::{fcsr::FCSR, sstatus::FS};
+use riscv::register::{fcsr::FCSR, scause::Scause, sstatus::FS};
 
 use crate::{
     hart::floating::{self, FLOAT_ENABLE},
@@ -22,8 +22,12 @@ pub struct UKContext {
     pub kernel_sx: [usize; 12], // 34-45
     pub kernel_ra: usize,       // 46
     pub kernel_sp: usize,       // 47
-    pub kernel_tp: usize,       // 48
+    pub kernel_gp: usize,       // 48
+    pub kernel_tp: usize,       // 49
+    pub scause: Scause,         // 50
+    pub stval: usize,           // 51
     pub user_fx: FloatContext,
+    // 快速处理路径中转
 }
 
 #[repr(C)]
@@ -242,13 +246,14 @@ impl UKContext {
         }
         new
     }
-    pub fn run_user(&mut self) {
+    /// 由执行器调用, 进入用户态
+    pub fn run_user_executor(&mut self) {
         debug_assert!(!self.user_sstatus.sie());
         if FLOAT_ENABLE {
             unsafe { floating::load_fx(&mut self.user_fx) };
             self.user_sstatus.set_fs(FS::Clean);
         }
-        super::run_user(self);
+        super::run_user_executor(self);
         if FLOAT_ENABLE {
             floating::store_fx_mark(&mut self.user_fx, &mut self.user_sstatus);
         }

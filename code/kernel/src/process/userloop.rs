@@ -5,10 +5,7 @@ use core::{
 };
 
 use alloc::{boxed::Box, sync::Arc};
-use riscv::register::{
-    scause::{self, Exception, Interrupt},
-    stval,
-};
+use riscv::register::scause::{self, Exception, Interrupt};
 
 use crate::{
     executor,
@@ -18,7 +15,7 @@ use crate::{
     process::{exit, thread, Dead, Pid},
     syscall::Syscall,
     timer,
-    user::{trap_handler, AutoSie},
+    user::trap_handler,
     xdebug::PRINT_SYSCALL_ALL,
 };
 
@@ -36,33 +33,25 @@ async fn userloop(thread: Arc<Thread>) {
     loop {
         local::handle_current_local();
 
-        let auto_sie = AutoSie::new();
-
         // sfence::sfence_vma_all_global();
+        debug_assert!(thread.process.is_alive());
 
-        if !thread.process.is_alive() {
-            break;
-        }
         if let Err(Dead) = thread.handle_signal().await {
             break;
         }
-
         {
             let local = local::hart_local();
             local.local_rcu.critical_end_tick();
             local.local_rcu.critical_start();
             thread.timer_into_user();
-            context.run_user();
+            context.run_user_executor();
             thread.timer_leave_user();
             local.local_rcu.critical_start();
         }
 
-        let scause = scause::read().cause();
-        let stval = stval::read();
-
-        drop(auto_sie);
-
         local::handle_current_local();
+        let scause = context.scause.cause();
+        let stval = context.stval;
 
         let mut do_exit = false;
         let mut user_fatal_error = || {

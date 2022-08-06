@@ -9,14 +9,18 @@ pub trait IdxUpdater<V> {
 }
 pub struct NullUpdater;
 impl<V> IdxUpdater<V> for NullUpdater {
+    #[inline(always)]
     fn update(_v: &mut V, _new: usize) {}
+    #[inline(always)]
     fn remove(_v: &mut V) {}
 }
 pub struct TraceUpdater;
 impl IdxUpdater<*mut usize> for TraceUpdater {
+    #[inline(always)]
     fn update(v: &mut *mut usize, new: usize) {
         unsafe { **v = new }
     }
+    #[inline(always)]
     fn remove(v: &mut *mut usize) {
         unsafe { **v = usize::MAX }
     }
@@ -74,9 +78,8 @@ impl<T: Ord, V, F: IdxUpdater<V>> MaxHeapEx<T, V, F> {
             F::remove(&mut v.1);
             return v;
         }
-        let last = self.len() - 1;
-        unsafe { core::ptr::swap_nonoverlapping(&mut v, &mut self.data[last], 1) }
-        F::update(&mut self.data[last].1, last);
+        unsafe { core::ptr::swap_nonoverlapping(&mut v, &mut self.data[idx], 1) }
+        F::update(&mut self.data[idx].1, idx);
         if self.sift_up(0, idx) == idx {
             self.sift_down_to_bottom(idx);
         }
@@ -124,6 +127,12 @@ impl<T: Ord, V, F: IdxUpdater<V>> MaxHeapEx<T, V, F> {
         }
         F::update(&mut self.data[pos].1, pos);
     }
+    /// 出错就panic吧
+    pub fn debug_check(&self, mut check: impl FnMut(usize, &V)) {
+        for (i, (_, j)) in self.data.iter().enumerate() {
+            check(i, j);
+        }
+    }
 }
 
 fn get_parent(pos: usize) -> usize {
@@ -159,6 +168,7 @@ fn test() {
         fn remove(_v: &mut usize) {}
     }
     let mut heap = MaxHeapEx::<_, _, SetUpdater>::new();
+
     heap.push((3, 0));
     heap.push((1, 0));
     heap.push((3, 0));
@@ -201,6 +211,10 @@ fn test() {
     heap.push((4, 0));
     heap.push((6, 0));
 
+    heap.remove_idx(0);
+    for (i, &(_, j)) in heap.data.iter().enumerate() {
+        assert_eq!(i, j);
+    }
     heap.remove_idx(5);
     for (i, &(_, j)) in heap.data.iter().enumerate() {
         assert_eq!(i, j);

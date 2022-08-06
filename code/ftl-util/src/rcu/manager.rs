@@ -40,11 +40,13 @@ pub struct CP {
     rcu_current: Vec<RcuDrop>,
     rcu_pending: Vec<RcuDrop>,
 }
+
 impl CP {
     fn cp_mut(&mut self) -> (&mut Vec<RcuDrop>, &mut Vec<RcuDrop>) {
         (&mut self.rcu_current, &mut self.rcu_pending)
     }
 }
+
 impl<S: MutexSupport> RcuManager<S> {
     pub const fn new() -> Self {
         Self {

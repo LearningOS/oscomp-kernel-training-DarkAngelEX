@@ -1,9 +1,5 @@
-use core::arch::global_asm;
-
-use riscv::register::{scause, sstatus};
-
 use crate::riscv::register::{
-    sie,
+    scause, sie, sstatus,
     stvec::{self, TrapMode},
 };
 
@@ -13,7 +9,7 @@ pub mod context;
 mod kernel_exception;
 mod kernel_interrupt;
 
-global_asm!(include_str!("trap.S"));
+core::arch::global_asm!(include_str!("trap.S"));
 
 pub fn init() {
     println!("[FTL OS]trap init");
@@ -32,18 +28,49 @@ pub fn test_interrupt() {
     }
 }
 
+/// 由执行器调用, 进入用户态, 并在原地返回
 #[inline(always)]
-pub fn run_user(cx: &mut UKContext) {
+pub fn run_user_executor(cx: &mut UKContext) {
     extern "C" {
-        fn __entry_user(cx: *mut UKContext);
+        // 返回值: fast_processing_path 返回的a1
+        fn __entry_user(cx: *mut UKContext) -> usize;
     }
     unsafe {
+        debug_assert!(sstatus::read().sie());
+        sstatus::clear_sie();
         set_user_trap_entry();
-        __entry_user(cx);
-        set_kernel_default_trap();
-    };
+        let _s = __entry_user(cx);
+        // fast_processing_path 中已经恢复了内核态环境
+        debug_assert!(sstatus::read().sie());
+        // set_kernel_default_trap();
+    }
 }
 
+/// 这两个变量会放入a0和a1
+#[repr(C)]
+pub struct Ctup2(pub *mut UKContext, pub usize);
+/// 内核态同步快速处理路径
+///
+/// return:
+///
+///     (_, 0): 进入用户态
+///     (_, _): 回到executor
+///
+/// 进入__entry_user之后一定会执行一次, 因此需要在这里恢复内核态环境
+#[no_mangle]
+pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
+    set_kernel_default_trap();
+    sstatus::set_sie();
+    let to_executor = 1;
+    if to_executor != 0 {
+    } else {
+        sstatus::clear_sie();
+        set_user_trap_entry();
+    }
+    Ctup2(cx, to_executor)
+}
+
+/// 内核态陷阱
 #[no_mangle]
 pub fn kernel_default_trap(a0: usize) {
     stack_trace!();

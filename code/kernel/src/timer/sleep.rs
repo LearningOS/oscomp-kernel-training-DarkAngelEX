@@ -22,6 +22,9 @@ use crate::{
 };
 
 struct TimerTracer(usize);
+
+impl Unpin for TimerTracer {}
+
 impl TimerTracer {
     pub fn new() -> Self {
         Self(usize::MAX)
@@ -39,7 +42,7 @@ impl TimerTracer {
 
 impl Drop for TimerTracer {
     fn drop(&mut self) {
-        debug_assert!(self.load() == usize::MAX)
+        debug_assert_eq!(self.load(), usize::MAX)
     }
 }
 
@@ -126,7 +129,7 @@ fn push_timer(timeout: Instant, waker: Waker, tracer: &mut TimerTracer) {
 }
 
 fn pop_timer(tracer: &mut TimerTracer) {
-    if tracer.in_queue() {
+    if !tracer.in_queue() {
         return;
     }
     let mut lk = SLEEP_QUEUE.lock();
@@ -241,10 +244,11 @@ impl<T, F: Future<Output = T>> TimeoutFuture<T, F> {
         unsafe { Pin::new_unchecked(&mut self.get_unchecked_mut().future) }
     }
     fn deatch_timer(&mut self) {
+        stack_trace!();
         if let Some(tracer) = &mut self.tracer {
             pop_timer(tracer);
+            self.tracer = None;
         }
-        self.tracer = None;
     }
 }
 

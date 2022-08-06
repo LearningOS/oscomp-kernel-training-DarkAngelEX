@@ -4,6 +4,7 @@ use bit_field::BitField;
 use core::mem::size_of;
 
 /// scause register
+#[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Scause {
     bits: usize,
