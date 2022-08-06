@@ -262,16 +262,8 @@ impl Syscall<'_> {
             }
             let event_bus = &self.process.event_bus;
             let waker = async_tools::take_waker().await;
-            if let Err(_e) = even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT, &waker)
-                .await
-                .and_then(|_x| event_bus.clear(Event::CHILD_PROCESS_QUIT))
-            {
-                if PRINT_SYSCALL_PROCESS {
-                    println!("sys_wait4 fail by close {:?}", this_pid);
-                }
-                self.do_exit = true;
-                return Err(SysError::ESRCH);
-            }
+            let _event =
+                even_bus::wait_for_event(event_bus, Event::CHILD_PROCESS_QUIT, &waker).await;
             // continue
         }
     }

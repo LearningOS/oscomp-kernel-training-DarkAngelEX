@@ -35,6 +35,7 @@ pub async fn exit_impl(thread: &Thread) {
         if !alive.threads.is_empty() {
             return;
         }
+        // 最后一个线程退出
         asid = alive.asid();
         process.event_bus.close();
         memory::set_satp_by_global();

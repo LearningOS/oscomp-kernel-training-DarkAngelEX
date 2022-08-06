@@ -230,11 +230,9 @@ impl EventBusInner {
     }
 }
 
-pub async fn wait_for_event(
-    bus: &EventBus,
-    mask: Event,
-    waker: &Waker,
-) -> Result<Event, EvenBusClosed> {
+/// 只能本进程使用此函数
+pub async fn wait_for_event(bus: &EventBus, mask: Event, waker: &Waker) -> Event {
+    debug_assert!(bus.close_check().is_ok());
     EventBusFuture {
         bus,
         mask,
@@ -244,6 +242,7 @@ pub async fn wait_for_event(
     .await
 }
 
+/// 只能本进程使用此函数
 struct EventBusFuture<'a> {
     bus: &'a EventBus,
     mask: Event,
@@ -260,17 +259,15 @@ impl Drop for EventBusFuture<'_> {
 }
 
 impl Future for EventBusFuture<'_> {
-    type Output = Result<Event, EvenBusClosed>;
+    type Output = Event;
 
     fn poll(self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
         stack_trace!();
+        debug_assert!(self.bus.close_check().is_ok());
         if self.node.is_none() {
-            if self.bus.close_check().is_err() {
-                return Poll::Ready(Err(EvenBusClosed));
-            }
             let event = self.bus.event();
             if event.intersects(self.mask) {
-                return Poll::Ready(Ok(event));
+                return Poll::Ready(event);
             }
             let mut lock = self.bus.0.lock();
             let this = unsafe { self.get_unchecked_mut() };
@@ -281,10 +278,8 @@ impl Future for EventBusFuture<'_> {
             }));
             let node = this.node.as_mut().unwrap();
             node.init();
-            match lock.register(node) {
-                Ok(()) => return Poll::Pending,
-                Err(_e) => return Poll::Ready(Err(EvenBusClosed)),
-            }
+            lock.register(node).unwrap();
+            return Poll::Pending;
         }
         let this = unsafe { self.get_unchecked_mut() };
         let node = this.node.as_mut().unwrap();
@@ -293,12 +288,7 @@ impl Future for EventBusFuture<'_> {
             debug_assert!(suspend.intersects(node.data().mask));
             this.bus.remove(node);
             this.node = None;
-            return Poll::Ready(Ok(suspend));
-        }
-        if this.bus.close_check().is_err() {
-            this.bus.remove(node);
-            this.node = None;
-            return Poll::Ready(Err(EvenBusClosed));
+            return Poll::Ready(suspend);
         }
         Poll::Pending
     }
