@@ -7,14 +7,24 @@ use crate::{
     memory::user_ptr::{UserReadPtr, UserWritePtr},
     timer::{self, ITimerval, Tms},
     user::check::UserCheck,
+    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
 use super::{SysRet, Syscall};
 
+const PRINT_SYSCALL_TIME: bool = true && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
+
 impl Syscall<'_> {
     pub async fn sys_clock_gettime(&mut self) -> SysRet {
         stack_trace!();
-        let (_clkid, tp): (usize, UserWritePtr<TimeSpec>) = self.cx.into();
+        let (clkid, tp): (usize, UserWritePtr<TimeSpec>) = self.cx.into();
+        if PRINT_SYSCALL_TIME {
+            println!(
+                "sys_clock_gettime clkid: {} tp: {:#x}",
+                clkid,
+                tp.as_usize()
+            );
+        }
         let cur = TimeSpec::from_instant(timer::now());
         UserCheck::new(self.process)
             .writable_value(tp)

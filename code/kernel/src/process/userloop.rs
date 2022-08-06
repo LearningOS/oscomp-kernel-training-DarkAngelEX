@@ -15,6 +15,7 @@ use crate::{
     process::{exit, thread, Dead, Pid},
     syscall::Syscall,
     timer,
+    trap::context::FastContext,
     user::trap_handler,
     xdebug::PRINT_SYSCALL_ALL,
 };
@@ -30,6 +31,9 @@ async fn userloop(thread: Arc<Thread>) {
         thread.settid().await;
     }
     let context = thread.get_context();
+    let fast_context = unsafe { FastContext::new(&thread, &thread, &thread.process) };
+    context.set_fast_context(&fast_context);
+
     loop {
         local::handle_current_local();
 
@@ -154,8 +158,7 @@ impl<F: Future + Send + 'static> OutermostFuture<F> {
     pub fn new(thread: Arc<Thread>, future: F) -> Self {
         let page_table = thread
             .process
-            .alive_then(|a| a.user_space.page_table_arc())
-            .unwrap();
+            .alive_then_uncheck(|a| a.user_space.page_table_arc());
         let local_switch = LocalNow::Task(Box::new(TaskLocal {
             always_local: AlwaysLocal::new(),
             thread,

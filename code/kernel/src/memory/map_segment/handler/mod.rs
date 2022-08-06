@@ -362,7 +362,7 @@ impl AsyncHandler for FileAsyncHandler {
                         pte.alloc_by_frame(self.perm(), frame.consume());
                     }
                     Ok(a.user_space.page_table_mut().flush_asid_fn())
-                })??);
+                })?);
             }
             Ok(flush)
         })
@@ -395,7 +395,7 @@ impl AsyncHandler for FileAsyncHandler {
                     pte.alloc_by_frame(self.perm(), frame.consume());
                 }
                 Ok(a.user_space.page_table_mut().flush_va_asid_fn(addr))
-            })??;
+            })?;
             Ok(flush)
         })
     }

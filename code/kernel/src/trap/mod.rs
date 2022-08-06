@@ -33,22 +33,34 @@ pub fn test_interrupt() {
 pub fn run_user_executor(cx: &mut UKContext) {
     extern "C" {
         // 返回值: fast_processing_path 返回的a1
-        fn __entry_user(cx: *mut UKContext) -> usize;
+        fn __entry_user(cx: *mut UKContext);
     }
     unsafe {
         debug_assert!(sstatus::read().sie());
         sstatus::clear_sie();
         set_user_trap_entry();
-        let _s = __entry_user(cx);
+        // 进入用户态
+        __entry_user(cx);
+        // 过了一遍快速路径
+
         // fast_processing_path 中已经恢复了内核态环境
         debug_assert!(sstatus::read().sie());
         // set_kernel_default_trap();
     }
 }
 
+#[repr(usize)]
+#[derive(Debug, Clone, Copy, PartialEq, PartialOrd)]
+pub enum FastStatus {
+    Success = 0,     // 直接回用户态
+    Executor = 1,    // 直接回执行器, 假装什么也没发生
+    SkipSyscall = 2, // 系统调用执行成功, 但需要一些其他处理, 跳过系统调用
+    Exit = 3,        // 致命错误, 回去后直接退出
+}
+
 /// 这两个变量会放入a0和a1
 #[repr(C)]
-pub struct Ctup2(pub *mut UKContext, pub usize);
+pub struct Ctup2(pub *mut UKContext, pub FastStatus);
 /// 内核态同步快速处理路径
 ///
 /// return:
@@ -61,8 +73,19 @@ pub struct Ctup2(pub *mut UKContext, pub usize);
 pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
     set_kernel_default_trap();
     sstatus::set_sie();
-    let to_executor = 1;
-    if to_executor != 0 {
+
+    use crate::syscall::fast;
+    use scause::{Exception, Trap};
+
+    (*cx).to_executor = FastStatus::Executor;
+
+    match (*cx).scause.cause() {
+        Trap::Exception(Exception::UserEnvCall) => fast::running_syscall(cx),
+        _ => (),
+    }
+
+    let to_executor = (*cx).to_executor;
+    if to_executor != FastStatus::Success {
     } else {
         sstatus::clear_sie();
         set_user_trap_entry();

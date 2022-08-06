@@ -57,7 +57,7 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
         let allocator = &mut frame::default_allocator();
         match thread
             .process
-            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))?
+            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))
         {
             Ok(x) => Ok(Ok(x)),
             Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),

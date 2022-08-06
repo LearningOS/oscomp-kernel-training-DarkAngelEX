@@ -11,7 +11,7 @@ use ftl_util::{
 use vfs::VfsFile;
 
 use crate::{
-    fs,
+    fs, local,
     memory::{asid::Asid, UserSpace},
     signal::manager::ProcSignalManager,
     sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
@@ -78,6 +78,7 @@ pub struct Process {
     pub alive: Mutex<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
     pub timer: Mutex<ProcessTimer>,
+    pub thread_count: AtomicUsize,
 }
 
 impl Drop for Process {
@@ -119,13 +120,23 @@ impl Process {
     pub fn is_alive(&self) -> bool {
         unsafe { self.alive.unsafe_get().is_some() }
     }
-    // return Err if zombies
+    /// 只有进程自己的task可以调用此函数
+    ///
+    /// 当线程数量只有一个的时候不会上锁!!!
     #[inline(always)]
-    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, Dead> {
-        match self.alive.lock().as_mut() {
-            Some(alive) => Ok(f(alive)),
-            None => Err(Dead),
+    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
+        debug_assert!(local::task_local().thread.process.pid() == self.pid());
+        unsafe {
+            if self.thread_count.load(Ordering::Relaxed) == 1 {
+                f(self.alive.unsafe_get_mut().as_mut().unwrap_unchecked())
+            } else {
+                f(self.alive.lock().as_mut().unwrap_unchecked())
+            }
         }
+    }
+    #[inline(always)]
+    pub fn alive_then_uncheck<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
+        f(self.alive.lock().as_mut().unwrap())
     }
     // fork and release all thread except tid
     pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> SysR<Arc<Self>> {
@@ -150,6 +161,7 @@ impl Process {
             alive: Mutex::new(Some(new_alive)),
             exit_code: AtomicI32::new(i32::MIN),
             timer: Mutex::new(ProcessTimer::ZERO),
+            thread_count: AtomicUsize::new(1),
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();

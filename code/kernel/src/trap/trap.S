@@ -142,7 +142,6 @@ return_to_executor:
     ld  s9, 43*8(a0)
     ld s10, 44*8(a0)
     ld s11, 45*8(a0)
-    mv a0, a1
     ret
 
     .align 6

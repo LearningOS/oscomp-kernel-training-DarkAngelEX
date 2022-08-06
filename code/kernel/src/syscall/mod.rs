@@ -1,6 +1,5 @@
 use core::ops::{Deref, DerefMut};
 
-use alloc::sync::Arc;
 use ftl_util::error::SysRet;
 
 use crate::{
@@ -9,6 +8,7 @@ use crate::{
     xdebug::{PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
 };
 
+pub mod fast;
 mod fs;
 mod futex;
 mod mmap;
@@ -113,17 +113,11 @@ pub struct Syscall<'a> {
 }
 
 impl<'a> Syscall<'a> {
-    pub fn new(
-        cx: &'a mut UKContext,
-        thread_arc: &'a Arc<Thread>,
-        process_arc: &'a Arc<Process>,
-    ) -> Self {
+    pub fn new(cx: &'a mut UKContext, thread: &'a Thread, process: &'a Process) -> Self {
         Self {
             cx,
-            thread: thread_arc.as_ref(),
-            // thread_arc,
-            process: process_arc.as_ref(),
-            // process_arc,
+            thread,
+            process,
             do_exit: false,
         }
     }
@@ -239,11 +233,15 @@ impl<'a> Syscall<'a> {
         self.cx.set_user_a0(a0);
         self.do_exit
     }
+    /// 这个函数当进程只有一个线程的时候没有原子开销
+    ///
     /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
     pub fn alive_then<T>(&mut self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
-        self.process.alive_then(f).unwrap()
+        self.process.alive_then(f)
     }
+    /// 此函数用于更长的上下文, 且一定回加锁
+    ///
     /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
     pub fn alive_lock(&mut self) -> impl DerefMut<Target = AliveProcess> + '_ {

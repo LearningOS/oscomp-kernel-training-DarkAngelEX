@@ -283,7 +283,7 @@ impl<'a> UserCheckImpl<'a> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
         let r = self
             .0
-            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access, allocator))?;
+            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access, allocator));
         match r {
             Ok(flush) => {
                 flush.run();
@@ -304,7 +304,7 @@ impl<'a> UserCheckImpl<'a> {
         let ptr = UserAddr::try_from(ptr as *const u8)?.floor();
         let r = self
             .0
-            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access, allocator))?;
+            .alive_then(move |a| a.user_space.map_segment.page_fault(ptr, access, allocator));
         let a = match r {
             Ok(flush) => {
                 flush.run();

@@ -312,7 +312,7 @@ pub fn prlimit_impl(proc: &Process, resource: u32, new: Option<RLimit>) -> SysR<
         RLIMIT_CORE => todo!(),
         RLIMIT_RSS => todo!(),
         RLIMIT_NPROC => todo!(),
-        RLIMIT_NOFILE => Ok(proc.alive_then(|a| a.fd_table.set_limit(new))??),
+        RLIMIT_NOFILE => Ok(proc.alive_then(|a| a.fd_table.set_limit(new))?),
         RLIMIT_MEMLOCK => todo!(),
         RLIMIT_AS => todo!(),
         RLIMIT_LOCKS => todo!(),

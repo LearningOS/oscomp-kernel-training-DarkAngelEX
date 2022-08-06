@@ -1,3 +1,5 @@
+use core::sync::atomic::Ordering;
+
 use alloc::sync::Weak;
 
 use crate::{
@@ -32,6 +34,7 @@ pub async fn exit_impl(thread: &Thread) {
             None => panic!(),
         };
         alive.threads.remove(thread.tid());
+        process.thread_count.fetch_sub(1, Ordering::Relaxed);
         if !alive.threads.is_empty() {
             return;
         }

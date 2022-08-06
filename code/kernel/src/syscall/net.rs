@@ -151,10 +151,11 @@ impl Syscall<'_> {
             );
         }
         let file = SocketFile::new();
-        self.alive_lock()
-            .fd_table
-            .insert(file, true, OpenFlags::CLOEXEC | OpenFlags::NONBLOCK)
-            .map(|fd| fd.0)
+        self.alive_then(|a| {
+            a.fd_table
+                .insert(file, true, OpenFlags::CLOEXEC | OpenFlags::NONBLOCK)
+        })
+        .map(|fd| fd.0)
     }
 
     pub fn sys_bind(&mut self) -> SysRet {

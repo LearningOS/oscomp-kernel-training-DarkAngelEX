@@ -219,6 +219,7 @@ impl Syscall<'_> {
         loop {
             let this_pid = self.process.pid();
             let process = {
+                // 这里不能用alive_then, 因为children可能被子进程修改
                 let mut alive = self.alive_lock();
                 let p = match target {
                     WaitFor::AnyChild => alive.children.try_remove_zombie_any(),

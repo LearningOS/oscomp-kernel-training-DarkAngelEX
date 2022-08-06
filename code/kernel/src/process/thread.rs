@@ -2,7 +2,7 @@ use core::{
     cell::UnsafeCell,
     future::Future,
     pin::Pin,
-    sync::atomic::{AtomicI32, AtomicUsize},
+    sync::atomic::{AtomicI32, AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 
@@ -73,6 +73,9 @@ impl ThreadGroup {
         }
     }
     pub fn remove(&mut self, tid: Tid) {
+        self.threads.remove(&tid).unwrap();
+    }
+    pub fn maybe_remove(&mut self, tid: Tid) {
         let _ = self.threads.remove(&tid);
     }
     pub fn map(&self, tid: Tid) -> Option<Arc<Thread>> {
@@ -168,8 +171,6 @@ impl Thread {
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        let tid = self.tid();
-        let _ = self.process.alive_then(move |a| a.threads.remove(tid));
         search::clear_thread(self.tid());
     }
 }
@@ -232,6 +233,7 @@ impl Thread {
             })),
             exit_code: AtomicI32::new(i32::MIN),
             timer: Mutex::new(ProcessTimer::ZERO),
+            thread_count: AtomicUsize::new(1),
         });
         let mut thread = Self {
             tid,
@@ -263,9 +265,7 @@ impl Thread {
             (argc, argv, xenvp),
         );
         let thread = Arc::new(thread);
-        process
-            .alive_then(|alive| alive.threads.push(&thread))
-            .unwrap();
+        process.alive_then_uncheck(|alive| alive.threads.push(&thread));
         search::insert_proc(&process);
         search::insert_thread(&thread);
         unsafe { search::set_initproc(process) };
@@ -324,8 +324,8 @@ impl Thread {
         thread.inner().uk_context.set_user_a0(0);
         thread
             .process
-            .alive_then(|a| a.threads.push(&thread))
-            .unwrap();
+            .alive_then_uncheck(|a| a.threads.push(&thread));
+
         local::all_hart_fence_i();
         Ok(thread)
     }
@@ -366,10 +366,8 @@ impl Thread {
             thread.inner().uk_context.set_user_sp(new_sp);
         }
         thread.inner().uk_context.set_user_a0(0);
-        thread
-            .process
-            .alive_then(|a| a.threads.push(&thread))
-            .unwrap();
+        thread.process.alive_then(|a| a.threads.push(&thread));
+        self.process.thread_count.fetch_add(1, Ordering::Relaxed);
         // 不需要刷新指令缓存
         Ok(thread)
     }
@@ -381,8 +379,7 @@ impl Thread {
         }
         let fx = self
             .process
-            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc())
-            .unwrap();
+            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc());
         self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
         fx
     }
@@ -393,8 +390,7 @@ impl Thread {
         }
         let fx = self
             .process
-            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))
-            .unwrap();
+            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()));
         if let Some(fx) = fx.as_ref() {
             self.inner().futex_index.insert(ua, Arc::downgrade(fx));
         }

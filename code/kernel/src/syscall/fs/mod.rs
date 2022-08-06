@@ -84,7 +84,7 @@ impl Syscall<'_> {
         let buf = UserCheck::new(self.process)
             .writable_slice(buf_in, len)
             .await?;
-        let path = self.alive_lock().cwd.path_str();
+        let path = self.alive_then(|a| a.cwd.path_str());
         let cwd_len = path.iter().fold(0, |a, b| a + b.len() + 1) + 1;
         let cwd_len = cwd_len.max(2);
         if buf.len() <= cwd_len {
@@ -127,7 +127,7 @@ impl Syscall<'_> {
         }
         new_fd.in_range()?;
         self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, flags))?;
-        Ok(new_fd.to_usize())
+        Ok(new_fd.0)
     }
     pub async fn sys_getdents64(&mut self) -> SysRet {
         stack_trace!();
@@ -416,11 +416,8 @@ impl Syscall<'_> {
         let flags = OpenFlags::from_bits(flags).unwrap();
         let inode = self.fd_path_open(fd, path, flags, mode).await?;
         let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
-        let fd = self
-            .alive_lock()
-            .fd_table
-            .insert(inode, close_on_exec, flags)?;
-        Ok(fd.to_usize())
+        let fd = self.alive_then(|a| a.fd_table.insert(inode, close_on_exec, flags))?;
+        Ok(fd.0)
     }
     pub fn sys_close(&mut self) -> SysRet {
         stack_trace!();

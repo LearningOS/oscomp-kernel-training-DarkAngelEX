@@ -1,3 +1,4 @@
+use alloc::sync::Arc;
 use ftl_util::fs::Mode;
 
 use riscv::register::{fcsr::FCSR, scause::Scause, sstatus::FS};
@@ -8,10 +9,31 @@ use crate::{
         address::UserAddr,
         user_ptr::{Policy, UserPtr},
     },
+    process::{thread::Thread, Process},
     riscv::register::sstatus::Sstatus,
     signal::Sig,
     tools::allocator::from_usize_allocator::FromUsize,
 };
+
+use super::FastStatus;
+
+pub struct FastContext {
+    pub thread: &'static Thread,
+    pub thread_arc: &'static Arc<Thread>,
+    pub process: &'static Process,
+    pub skip_syscall: bool,
+}
+
+impl FastContext {
+    pub unsafe fn new(thread: &Thread, thread_arc: &Arc<Thread>, process: &Process) -> Self {
+        Self {
+            thread: &*(thread as *const _),
+            thread_arc: &*(thread_arc as *const _),
+            process: &*(process as *const _),
+            skip_syscall: false,
+        }
+    }
+}
 
 /// user-kernel context
 #[repr(C)]
@@ -28,6 +50,8 @@ pub struct UKContext {
     pub stval: usize,           // 51
     pub user_fx: FloatContext,
     // 快速处理路径中转
+    pub fast_context: usize, // 指向 FastContext
+    pub to_executor: FastStatus,
 }
 
 #[repr(C)]
@@ -147,6 +171,12 @@ impl Default for UKContext {
 impl UKContext {
     pub fn new() -> Self {
         unsafe { core::mem::zeroed() }
+    }
+    pub fn set_fast_context(&mut self, fc: &FastContext) {
+        self.fast_context = fc as *const _ as usize;
+    }
+    pub fn fast_context(&self) -> &'static FastContext {
+        unsafe { &*(self.fast_context as *const FastContext) }
     }
     #[inline(always)]
     pub fn a0(&self) -> usize {
