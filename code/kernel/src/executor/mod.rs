@@ -90,9 +90,13 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
     }
 }
 
-pub fn run_until_idle() {
+/// 返回执行了多少个future
+pub fn run_until_idle() -> usize {
+    let mut n = 0;
     while let Some(task) = TASK_QUEUE.fetch() {
         stack_trace!();
         task.run();
+        n += 1;
     }
+    n
 }

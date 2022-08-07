@@ -22,6 +22,7 @@
 #![feature(custom_test_frameworks)]
 #![feature(control_flow_enum)]
 #![feature(default_free_fn)]
+#![feature(duration_constants)]
 #![feature(exclusive_range_pattern)]
 #![feature(generic_arg_infer)]
 #![feature(get_mut_unchecked)]
@@ -103,7 +104,12 @@ mod timer;
 mod trap;
 mod user;
 
+use core::time::Duration;
+
+use ftl_util::time::Instant;
 use riscv::register::sstatus;
+
+use crate::config::TIME_INTERRUPT_PER_SEC;
 
 /// This function will be called by rust_main() in hart/mod.rs
 ///
@@ -120,12 +126,37 @@ pub fn kmain(_hart_id: usize) -> ! {
         sstatus::set_sie();
         sstatus::clear_sum();
     }
+    let mut spin_end: Option<Instant> = None;
+    let spin_max = Duration::from_micros(100); // 自旋 100 us, 这期间都没有新任务才会睡眠
     loop {
-        executor::run_until_idle();
-        // println!("sie {}", sstatus::read().sie());
+        if executor::run_until_idle() != 0 {
+            spin_end = None;
+        }
+        if timer::sleep::check_timer() != 0 {
+            spin_end = None;
+            continue;
+        }
+        let now = timer::now();
+        match spin_end {
+            None => {
+                spin_end = Some(now + spin_max);
+                continue;
+            }
+            Some(end) if now < end => continue,
+            Some(_) => (),
+        }
+        if let Some(end) = timer::sleep::next_instant() {
+            if end <= now {
+                spin_end = None;
+                continue;
+            }
+            let dur = end - now;
+            let tick_interval = Duration::SECOND / TIME_INTERRUPT_PER_SEC as u32;
+            if dur < tick_interval / 2 {
+                timer::set_next_trigger_ex(dur);
+            }
+        }
         hart_local.local_rcu.critical_end();
-        // stack_trace!("hart idle");
-        // println!("hart {} idle", hart_local.cpuid());
         unsafe {
             assert!(sstatus::read().sie());
             hart_local.enter_idle();

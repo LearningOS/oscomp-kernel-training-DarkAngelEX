@@ -183,7 +183,6 @@ fn get_time_ticks() -> TimeTicks {
 }
 
 fn set_time_ticks(ticks: TimeTicks) {
-    stack_trace!();
     sbi::set_timer(ticks.into_usize() as u64)
 }
 

@@ -109,6 +109,9 @@ impl SleepQueue {
         }
         n
     }
+    pub fn next_instant(&mut self) -> Option<Instant> {
+        self.queue.peek().map(|(a, _)| a.0.timeout)
+    }
 }
 
 static SLEEP_QUEUE: SpinNoIrqLock<Option<SleepQueue>> = SpinNoIrqLock::new(None);
@@ -117,33 +120,38 @@ pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock() = Some(SleepQueue::new());
 }
 
+fn sq_run<T>(f: impl FnOnce(&mut SleepQueue) -> T) -> T {
+    unsafe { f(SLEEP_QUEUE.lock().as_mut().unwrap_unchecked()) }
+}
+
 fn push_timer(timeout: Instant, waker: Waker, tracer: &mut TimerTracer) {
     if SleepQueue::ignore(timeout) {
         return;
     }
-    SLEEP_QUEUE
-        .lock()
-        .as_mut()
-        .unwrap()
-        .push(timeout, waker, tracer);
+    sq_run(|q| q.push(timeout, waker, tracer))
 }
 
 fn pop_timer(tracer: &mut TimerTracer) {
     if !tracer.in_queue() {
         return;
     }
-    let mut lk = SLEEP_QUEUE.lock();
-    let idx = tracer.load();
-    if idx == usize::MAX {
-        return;
-    }
-    lk.as_mut().unwrap().queue.remove_idx(idx);
+    sq_run(|q| {
+        let idx = tracer.load();
+        if idx == usize::MAX {
+            return;
+        }
+        q.queue.remove_idx(idx);
+    });
 }
 
+/// 返回唤醒的数量
 pub fn check_timer() -> usize {
     stack_trace!();
     let current = super::now();
-    SLEEP_QUEUE.lock().as_mut().unwrap().check_timer(current)
+    sq_run(|q| q.check_timer(current))
+}
+pub fn next_instant() -> Option<Instant> {
+    sq_run(|q| q.next_instant())
 }
 
 struct AlwaysPending;
