@@ -32,6 +32,7 @@ const SYSCALL_UNLINKAT: usize = 35;
 const SYSCALL_UMOUNT2: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
 const SYSCALL_STATFS: usize = 43;
+const SYSCALL_FACCESSAT: usize = 48;
 const SYSCALL_CHDIR: usize = 49;
 const SYSCALL_FCHOWN: usize = 55;
 const SYSCALL_OPENAT: usize = 56;
@@ -85,6 +86,7 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
+const SYSCALL_SYSINFO: usize = 179;
 const SYSCALL_SOCKET: usize = 198;
 const SYSCALL_BIND: usize = 200;
 const SYSCALL_LISTEN: usize = 201;
@@ -102,6 +104,7 @@ const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
 const SYSCALL_WAIT4: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
+const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GETRANDOM: usize = 278;
 const SYSCALL_MEMBARRIER: usize = 283;
 
@@ -110,6 +113,7 @@ pub struct Syscall<'a> {
     thread: &'a Thread,
     process: &'a Process,
     do_exit: bool,
+    err_skip: bool, // 如果它的值为true, 即使返回了Err也会回到用户态
 }
 
 impl<'a> Syscall<'a> {
@@ -119,6 +123,7 @@ impl<'a> Syscall<'a> {
             thread,
             process,
             do_exit: false,
+            err_skip: false,
         }
     }
     /// return do_exit
@@ -137,6 +142,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_UMOUNT2 => self.sys_umount2().await,
             SYSCALL_MOUNT => self.sys_mount().await,
             SYSCALL_STATFS => self.sys_statfs().await,
+            SYSCALL_FACCESSAT => self.sys_faccessat().await,
             SYSCALL_CHDIR => self.sys_chdir().await,
             SYSCALL_FCHOWN => self.sys_fchown(),
             SYSCALL_OPENAT => self.sys_openat().await,
@@ -190,6 +196,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETEUID => self.sys_geteuid(),
             SYSCALL_GETEGID => self.sys_getegid(),
             SYSCALL_GETTID => self.sys_gettid(),
+            SYSCALL_SYSINFO => self.sys_info().await,
             SYSCALL_SOCKET => self.sys_socket(),
             SYSCALL_BIND => self.sys_bind(),
             SYSCALL_LISTEN => self.sys_listen(),
@@ -207,6 +214,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_MPROTECT => self.sys_mprotect(),
             SYSCALL_WAIT4 => self.sys_wait4().await,
             SYSCALL_PRLIMIT64 => self.sys_prlimit64().await,
+            SYSCALL_RENAMEAT2 => self.sys_renameat2().await,
             SYSCALL_GETRANDOM => self.sys_getrandom().await,
             SYSCALL_MEMBARRIER => self.sys_membarrier(),
             unknown => panic!("[kernel]unsupported syscall_id: {}", unknown),

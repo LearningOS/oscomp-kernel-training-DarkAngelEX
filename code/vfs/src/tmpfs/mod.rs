@@ -211,7 +211,7 @@ impl FsInode for TmpFsInode {
             TmpFsImpl::File(f) => f.stat(stat),
         }
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         match self.0.as_ref() {
             TmpFsImpl::Dir(_d) => todo!(),
             TmpFsImpl::File(f) => f.utimensat(times, now),

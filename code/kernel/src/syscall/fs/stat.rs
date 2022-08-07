@@ -62,7 +62,8 @@ impl Syscall<'_> {
                 .await?
         }
         .utimensat(times, timer::now)
-        .await
+        .await?;
+        Ok(0)
     }
     pub async fn sys_newfstatat(&mut self) -> SysRet {
         stack_trace!();

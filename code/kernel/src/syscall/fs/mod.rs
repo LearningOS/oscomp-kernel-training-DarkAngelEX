@@ -25,6 +25,8 @@ use super::{SysRet, Syscall};
 const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 const AT_FDCWD: isize = -100;
+const AT_SYMLINK_NOFOLLOW: usize = 1 << 8;
+const AT_EACCESS: usize = 1 << 9;
 
 impl Syscall<'_> {
     pub async fn fd_path_impl(
@@ -378,6 +380,12 @@ impl Syscall<'_> {
         fs::unlink((base, &path), OpenFlags::empty()).await?;
         Ok(0)
     }
+    pub async fn sys_faccessat(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, path, mode, _flags): (isize, UserReadPtr<u8>, Mode, u32) = self.cx.into();
+        let _inode = self.fd_path_open(fd, path, OpenFlags::RDONLY, mode).await?;
+        Ok(0)
+    }
     pub async fn sys_chdir(&mut self) -> SysRet {
         stack_trace!();
         let path: UserReadPtr<u8> = self.cx.para1();
@@ -482,6 +490,31 @@ impl Syscall<'_> {
                 len
             );
         }
+        Ok(0)
+    }
+    pub async fn sys_renameat2(&mut self) -> SysRet {
+        stack_trace!();
+        let (odfd, opath, ndfd, npath, _flags): (
+            isize,
+            UserReadPtr<u8>,
+            isize,
+            UserReadPtr<u8>,
+            u32,
+        ) = self.cx.into();
+        let old = self
+            .fd_path_open(odfd, opath, OpenFlags::empty(), Mode(0o600))
+            .await?;
+        if old.is_dir() {
+            unimplemented!();
+        }
+        let new = self
+            .fd_path_create_any(ndfd, npath, OpenFlags::CREAT, Mode(0o600))
+            .await?;
+        let len = old.read_all().await?;
+        drop(old);
+        new.write(&len[..]).await?;
+        let (base, path) = self.fd_path_impl(odfd, opath).await?;
+        fs::unlink((base, &path), OpenFlags::empty()).await?;
         Ok(0)
     }
 }

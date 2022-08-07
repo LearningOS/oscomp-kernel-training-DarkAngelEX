@@ -36,7 +36,7 @@ pub struct Iovec {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Pollfd {
     pub fd: u32,
     pub events: PL,

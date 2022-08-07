@@ -148,13 +148,10 @@ impl Syscall<'_> {
             UserReadPtr<u8>,
             usize,
         ) = self.cx.into();
-        if PRINT_SYSCALL_SELECT {
-            println!("sys_ppoll");
-        }
         let uc = UserCheck::new(self.process);
         let fds = uc.writable_slice(fds, nfds).await?;
         if PRINT_SYSCALL_SELECT {
-            let fds: Vec<_> = fds.access().iter().map(|a| a.fd).collect();
+            let fds: Vec<_> = fds.access().iter().map(|fd| (fd.fd, fd.events)).collect();
             println!("sys_ppoll fds: {:?} ..", fds);
         }
         let timeout = uc
@@ -186,7 +183,7 @@ impl Syscall<'_> {
                             n += 1;
                             continue;
                         }
-                        v.push((i, f.clone(), cur & PL::POLLSUCCESS));
+                        v.push((i, f.clone(), events & PL::POLLSUCCESS));
                     }
                 }
             }
@@ -195,10 +192,12 @@ impl Syscall<'_> {
         if n != 0 || v.is_empty() {
             return Ok(n);
         }
-        println!(
-            "sys_ppoll waiting, timeout: {:?} ms",
-            timeout.map(|a| a.as_millis())
-        );
+        if PRINT_SYSCALL_SELECT {
+            println!(
+                "sys_ppoll waiting, timeout: {:?} ms",
+                timeout.map(|a| a.as_millis())
+            );
+        }
         let timeout = timeout
             .map(|dur| timer::now() + dur)
             .unwrap_or(Instant::MAX);

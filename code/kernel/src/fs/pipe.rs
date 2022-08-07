@@ -318,6 +318,7 @@ struct WritePipeFuture<'a> {
     buffer: &'a [u8],
     current: usize,
 }
+
 impl WritePipeFuture<'_> {
     async fn init(&mut self) {
         let waker = ftl_util::async_tools::take_waker().await;
@@ -338,6 +339,7 @@ impl WritePipeFuture<'_> {
         }
     }
 }
+
 impl Future for WritePipeFuture<'_> {
     type Output = SysRet;
 

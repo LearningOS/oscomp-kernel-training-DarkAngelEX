@@ -69,7 +69,7 @@ pub trait File: Send + Sync + 'static {
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move { unimplemented!("stat {}", core::any::type_name::<Self>()) })
     }
-    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysR<()> {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
 }
@@ -190,7 +190,7 @@ impl File for VfsFile {
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         self.fsinode().stat(stat)
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         self.fsinode().utimensat(times, now)
     }
 }

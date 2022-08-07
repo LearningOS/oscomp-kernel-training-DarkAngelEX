@@ -13,6 +13,9 @@ static PROC_MAP: Mutex<BTreeMap<Pid, Weak<Process>>> = Mutex::new(BTreeMap::new(
 static THREAD_MAP: Mutex<BTreeMap<Tid, Weak<Thread>>> = Mutex::new(BTreeMap::new());
 static mut INITPROC: OnceCell<Arc<Process>> = OnceCell::new();
 
+pub fn proc_count() -> usize {
+    unsafe { PROC_MAP.unsafe_get().len() }
+}
 
 /// 由于使用弱指针，智能指针开销不可忽略
 pub fn find_proc(pid: Pid) -> Option<Arc<Process>> {
@@ -42,7 +45,9 @@ pub fn find_thread(tid: Tid) -> Option<Arc<Thread>> {
 }
 
 pub fn insert_thread(thread: &Arc<Thread>) {
-    THREAD_MAP.lock().insert(thread.tid(), Arc::downgrade(thread));
+    THREAD_MAP
+        .lock()
+        .insert(thread.tid(), Arc::downgrade(thread));
 }
 
 pub fn clear_thread(tid: Tid) {

@@ -16,6 +16,7 @@ use ftl_util::{
         stat::{Stat, S_IFDIR, S_IFREG},
         DentryType,
     },
+    time::{Instant, TimeSpec},
 };
 use vfs::{File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner};
 
@@ -179,7 +180,15 @@ impl FsInode for Fat32InodeV {
             Ok(())
         })
     }
-
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
+        Box::pin(async move {
+            let [access, modify] = times
+                .try_map(|v| v.user_map(now))?
+                .map(|v| v.map(|v| v.as_instant()));
+            self.inode.update_time(access, modify).await;
+            Ok(())
+        })
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move {
             let dir = self.inode.dir()?;
@@ -209,6 +218,9 @@ impl FsInode for Fat32InodeV {
     }
     fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()> {
         Box::pin(async move {
+            if !release {
+                return Ok(());
+            }
             assert!(release); // 延迟释放尚未实现
             let dir = self.inode.dir()?;
             dir.delete_file(self.manager(), name).await?;
@@ -237,7 +249,6 @@ impl FsInode for Fat32InodeV {
     fn delete(&self) {
         // 延迟释放尚未实现
         let _file = self.inode.file().unwrap();
-        todo!()
     }
     fn read_at<'a>(
         &'a self,

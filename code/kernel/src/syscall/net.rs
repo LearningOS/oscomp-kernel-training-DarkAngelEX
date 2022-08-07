@@ -7,7 +7,6 @@ use ftl_util::{
     async_tools::ASysRet,
     error::{SysError, SysRet},
     fs::OpenFlags,
-    time::{Instant, TimeSpec},
 };
 use vfs::File;
 
@@ -121,10 +120,6 @@ impl File for SocketFile {
 
     fn stat<'a>(&'a self, _stat: &'a mut ftl_util::fs::stat::Stat) -> fat32::ASysR<()> {
         Box::pin(async move { Err(SysError::EACCES) })
-    }
-
-    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
-        unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
 
     fn vfs_file(&self) -> ftl_util::error::SysR<&vfs::VfsFile> {

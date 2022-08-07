@@ -123,7 +123,7 @@ impl FsInode for TmpFsFile {
             Ok(())
         })
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         Box::pin(async move {
             let [access, modify] = times
                 .try_map(|v| v.user_map(now))?
@@ -135,7 +135,7 @@ impl FsInode for TmpFsFile {
             if let Some(v) = modify {
                 lk.1 = v;
             }
-            Ok(0)
+            Ok(())
         })
     }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {

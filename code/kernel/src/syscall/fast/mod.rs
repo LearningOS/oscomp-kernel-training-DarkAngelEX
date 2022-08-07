@@ -24,11 +24,13 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
         Some(None) | None => return,
     };
     let fast_context = (*cx).fast_context();
-    let result = f(&mut Syscall::new(
-        &mut *cx,
-        fast_context.thread_arc,
-        fast_context.process,
-    ));
+    let mut result;
+    let err_skip;
+    {
+        let mut call = Syscall::new(&mut *cx, fast_context.thread_arc, fast_context.process);
+        result = f(&mut call);
+        err_skip = call.err_skip;
+    }
 
     if PRINT_SYSCALL_ALL {
         // println!("syscall return with {}", a0);
@@ -44,6 +46,11 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
                 Err(e) => print!("{:?} ", e),
             }
             println!("sepc:{:#x}{}", (*cx).user_sepc, reset_color!());
+        }
+    }
+    if let Err(e) = result {
+        if err_skip {
+            result = Ok(-(e as isize) as usize);
         }
     }
     match result {
