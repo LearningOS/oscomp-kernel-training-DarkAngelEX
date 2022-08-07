@@ -374,7 +374,7 @@ impl Syscall<'_> {
         stack_trace!();
         let (fd, path, flags): (isize, UserReadPtr<u8>, u32) = self.cx.into();
         if flags != 0 {
-            panic!("sys_unlinkat flags: {:#x}", flags);
+            panic!("sys_unlinkat flags: {:#o}", flags);
         }
         let (base, path) = self.fd_path_impl(fd, path).await?;
         fs::unlink((base, &path), OpenFlags::empty()).await?;

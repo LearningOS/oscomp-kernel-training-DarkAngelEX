@@ -73,3 +73,14 @@ busybox cat ./busybox_cmd.txt
 busybox_debug which ls
 
 ./runtest.exe -w entry-static.exe pthread_cancel_points
+
+busybox rmdir test
+busybox grep hello busybox_cmd.txt
+busybox cp busybox_cmd.txt busybox_cmd.bak
+busybox rm busybox_cmd.bak
+busybox find -name "busybox_cmd.txt"
+
+busybox sh
+busybox sh lua_testcode.sh
+busybox_debug sh lua_testcode.sh
+busybox sh ./test.sh date.lua

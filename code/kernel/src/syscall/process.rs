@@ -117,9 +117,9 @@ impl Syscall<'_> {
             UserReadPtr<UserReadPtr<u8>>,
         ) = self.cx.into();
         let user_check = UserCheck::new(self.process);
-        let path = String::from_utf8(user_check.array_zero_end(path).await?.to_vec())?;
+        let mut path = String::from_utf8(user_check.array_zero_end(path).await?.to_vec())?;
         stack_trace!("sys_execve path: {}", path);
-        let args: Vec<String> = user_check
+        let mut args: Vec<String> = user_check
             .array_2d_zero_end(args)
             .await?
             .into_iter()
@@ -133,6 +133,12 @@ impl Syscall<'_> {
             .collect::<Vec<String>>();
         if PRINT_SYSCALL_PROCESS {
             println!("execve path {:?} args: {:?}", path, args);
+            // println!("envp: {:?}", envp);
+        }
+        if path.ends_with(".sh") {
+            args.insert(0, String::from("/busybox"));
+            args.insert(1, String::from("sh"));
+            path = String::from("/busybox");
         }
         let args_size = UserSpace::push_args_size(&args, &envp);
         let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
