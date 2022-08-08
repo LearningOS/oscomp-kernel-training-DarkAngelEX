@@ -119,47 +119,43 @@ impl RawBPB {
 
 impl Display for RawBPB {
     fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        writeln!(f, "sector_bytes: - - - - - - {}", self.sector_bytes)?;
-        writeln!(f, "sector_per_cluster:       {}", self.sector_per_cluster)?;
-        writeln!(f, "sector_reserved:- - - - - {}", self.sector_reserved)?;
-        writeln!(f, "fat_num:                  {}", self.fat_num)?;
-        writeln!(
-            f,
-            "discard_root_entry_size:- {}",
-            self.discard_root_entry_size
-        )?;
-        writeln!(
-            f,
-            "discard_small_sector_size:{}",
-            self.discard_small_sector_size
-        )?;
-        writeln!(f, "media_descriptor: - - - - {}", self.media_descriptor)?;
-        writeln!(
-            f,
-            "discard_sector_per_fat:   {}",
-            self.discard_sector_per_fat
-        )?;
-        writeln!(f, "sertor_per_track: - - - - {}", self.sertor_per_track)?;
-        writeln!(f, "head_num:                 {}", self.head_num)?;
-        writeln!(f, "sector_hidden:- - - - - - {}", self.sector_hidden)?;
-        writeln!(f, "sector_total:             {}", self.sector_total)?;
-        writeln!(f, "sector_per_fat: - - - - - {}", self.sector_per_fat)?;
-        writeln!(f, "extended_flag:            {}", self.extended_flag)?;
-        writeln!(f, "version:- - - - - - - - - {}", self.version)?;
-        writeln!(f, "root_cluster_id:          {}", self.root_cluster_id)?;
-        writeln!(f, "info_cluster_id:- - - - - {}", self.info_cluster_id)?;
-        writeln!(f, "buckup_cluster_id:        {}", self.buckup_cluster_id)?;
-        writeln!(f, "reversed_0: - - - - - - - {:?}", self.reversed_0)?;
-        writeln!(f, "physical_drive_num:       {}", self.physical_drive_num)?;
-        writeln!(f, "reversed_1: - - - - - - - {}", self.reversed_1)?;
-        writeln!(
-            f,
-            "extended_boot_signature:  {}",
-            self.extended_boot_signature
-        )?;
-        writeln!(f, "volume_serial_number: - - {}", self.volume_serial_number)?;
-        writeln!(f, "volume_label:             {:?}", self.volume_label)?;
-        writeln!(f, "system_id:- - - - - - - - {:?}", self.system_id)?;
+        // wl: writeln
+        macro_rules! wl {
+            ($name: expr, $field: ident) => {
+                writeln!(f, concat!($name, "{}"), self.$field)?;
+            };
+        }
+        // ws: writeln special
+        macro_rules! ws {
+            ($name: expr, $field: ident) => {
+                writeln!(f, concat!($name, "{:?}"), self.$field)?;
+            };
+        }
+        wl!("sector_bytes: - - - - - - ", sector_bytes);
+        wl!("sector_per_cluster:       ", sector_per_cluster);
+        wl!("sector_reserved:- - - - - ", sector_reserved);
+        wl!("fat_num:                  ", fat_num);
+        wl!("discard_root_entry_size:- ", discard_root_entry_size);
+        wl!("discard_small_sector_size:", discard_small_sector_size);
+        wl!("media_descriptor: - - - - ", media_descriptor);
+        wl!("discard_sector_per_fat:   ", discard_sector_per_fat);
+        wl!("sertor_per_track: - - - - ", sertor_per_track);
+        wl!("head_num:                 ", head_num);
+        wl!("sector_hidden:- - - - - - ", sector_hidden);
+        wl!("sector_total:             ", sector_total);
+        wl!("sector_per_fat: - - - - - ", sector_per_fat);
+        wl!("extended_flag:            ", extended_flag);
+        wl!("version:- - - - - - - - - ", version);
+        wl!("root_cluster_id:          ", root_cluster_id);
+        wl!("info_cluster_id:- - - - - ", info_cluster_id);
+        wl!("buckup_cluster_id:        ", buckup_cluster_id);
+        ws!("reversed_0: - - - - - - - ", reversed_0);
+        wl!("physical_drive_num:       ", physical_drive_num);
+        wl!("reversed_1: - - - - - - - ", reversed_1);
+        wl!("extended_boot_signature:  ", extended_boot_signature);
+        wl!("volume_serial_number: - - ", volume_serial_number);
+        ws!("volume_label:             ", volume_label);
+        ws!("system_id:- - - - - - - - ", system_id);
         Ok(())
     }
 }

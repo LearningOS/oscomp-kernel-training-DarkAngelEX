@@ -30,7 +30,7 @@ pub use {
     file::{select, File, VfsFile},
     fssp::{Fs, FsType},
     inode::FsInode,
-    manager::{DevAlloc, VfsClock, VfsManager, VfsSpawner, ZeroClock},
+    manager::{DevAlloc, NullSpawner, VfsClock, VfsManager, VfsSpawner, ZeroClock},
 };
 
 mod dentry;

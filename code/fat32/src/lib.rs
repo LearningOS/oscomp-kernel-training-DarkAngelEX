@@ -34,6 +34,10 @@ extern crate vfs;
 extern crate bitflags;
 extern crate alloc;
 
+#[cfg(test)]
+#[macro_use]
+extern crate std;
+
 mod block;
 mod block_dev;
 mod fat_list;

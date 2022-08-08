@@ -39,6 +39,26 @@ pub trait DevAlloc: Send + Sync + 'static {
     fn alloc(&self) -> usize;
 }
 
+impl VfsSpawner for ftl_util::async_tools::tiny_env::Spawner {
+    fn box_clone(&self) -> Box<dyn VfsSpawner> {
+        Box::new(self.clone())
+    }
+    fn spawn(&self, future: Async<'static, ()>) {
+        self.spawn(future)
+    }
+}
+
+/// 用来占位的spawner
+pub struct NullSpawner;
+impl VfsSpawner for NullSpawner {
+    fn box_clone(&self) -> Box<dyn VfsSpawner> {
+        panic!()
+    }
+    fn spawn(&self, _future: Async<'static, ()>) {
+        panic!()
+    }
+}
+
 pub struct ZeroClock;
 impl VfsClock for ZeroClock {
     fn box_clone(&self) -> Box<dyn VfsClock> {

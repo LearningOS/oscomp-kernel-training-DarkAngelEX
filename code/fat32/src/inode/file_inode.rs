@@ -28,6 +28,10 @@ impl FileInode {
                 .file_bytes()
         }
     }
+    /// 这个函数会让此文件从目录树中移除, 并自己管理数据资源, 在析构时归还资源
+    pub async fn detach(&self, manager: &Arc<Fat32Manager>) {
+        self.inode.unique_lock().await.detach(manager);
+    }
     /// offset为字节偏移
     pub async fn read_at(
         &self,

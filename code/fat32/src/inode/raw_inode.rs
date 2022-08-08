@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 
-use alloc::{sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use ftl_util::{
     error::{SysR, SysRet},
     time::{Instant, UtcTime},
@@ -23,10 +23,33 @@ type LastCache = Option<(usize, (CID, Arc<Cache>))>;
 /// Inode可以直接从InodeCache产生
 pub(crate) struct RawInode {
     pub cache: Arc<InodeCache>,
-    pub parent: Arc<InodeCache>,
+    pub parent: Option<Arc<InodeCache>>,
     last_cache: RwSpinMutex<LastCache>, // 最近一次访问的块
     is_root: bool,
     _mark: Arc<InodeMark>,
+    manager: Option<Arc<Fat32Manager>>, // 只有detach以后才存在
+}
+unsafe impl Send for RawInode {}
+unsafe impl Sync for RawInode {}
+
+impl Drop for RawInode {
+    fn drop(&mut self) {
+        if !self.cache.detached {
+            return;
+        }
+        debug_assert!(Arc::strong_count(&self.cache) == 1);
+        let cid = self.cache.inner.shared_lock().cid_start;
+        if !cid.is_free() {
+            debug_assert!(cid.is_next());
+            let spawner = self.manager.as_ref().unwrap().get_spawner();
+            // 使用'static发送到另一个线程
+            let manager = self.manager.take().unwrap();
+            spawner.spawn(Box::pin(async move {
+                manager.list.free_cluster_at(cid).await.1.unwrap();
+                manager.list.free_cluster(cid).await.unwrap();
+            }))
+        }
+    }
 }
 
 impl RawInode {
@@ -37,12 +60,19 @@ impl RawInode {
         is_root: bool,
     ) -> Self {
         Self {
-            parent,
             cache,
+            parent: Some(parent),
             last_cache: RwSpinMutex::new(None),
             is_root,
             _mark: mark,
+            manager: None,
         }
+    }
+    /// 只有目录文件才可以调用此函数! 目录文件保证父目录存在
+    ///
+    /// 普通文件需要由VFS代理获取目录项
+    pub fn parent(&self) -> &InodeCache {
+        self.parent.as_ref().unwrap()
     }
     pub fn attr(&self) -> Attr {
         self.cache.inner.shared_lock().attr()
@@ -78,6 +108,13 @@ impl RawInode {
         let lock = &mut *self.cache.inner.unique_lock();
         lock.update_access_time(utc);
         lock.update_modify_time(utc);
+    }
+    /// 将此inode从目录中移除
+    pub fn detach(&mut self, manager: &Arc<Fat32Manager>) {
+        debug_assert!(self.parent.is_some()); // 禁止detach两次
+        self.parent = None;
+        self.cache = self.cache.detach();
+        self.manager = Some(manager.clone());
     }
     /// 此函数将更新缓存
     ///
@@ -268,6 +305,10 @@ impl RawInode {
             return Ok(());
         }
         let (entry, short) = self.cache.inner.shared_lock().entry();
+        // 这个文件已经detach
+        if entry.cid == CID::FREE {
+            return Ok(());
+        }
         let cache = manager.caches.get_block(entry.cid).await?;
         manager
             .caches

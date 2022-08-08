@@ -20,14 +20,13 @@ extern crate vfs;
 
 pub const BPB_CID: usize = 10274;
 
-#[derive(Clone)]
 struct BlockFile {
-    file: Arc<Mutex<File>>,
+    file: Mutex<File>,
 }
 impl BlockFile {
     pub fn new(file: File) -> Self {
         Self {
-            file: Arc::new(Mutex::new(file)),
+            file: Mutex::new(file),
         }
     }
 }
@@ -86,8 +85,8 @@ fn main() {
 
 async fn a_main(path: &str) {
     let file = File::options().read(true).write(true).open(path).unwrap();
-    let file = BlockFile::new(file);
-    fat32::xtest::test(file.clone(), Box::new(ZeroClock), Box::new(Spawner)).await;
+    let file = Arc::new(BlockFile::new(file));
+    fat32::xtest::test(file, Box::new(ZeroClock), Box::new(Spawner)).await;
     async_std::task::sleep(Duration::from_millis(100)).await;
 }
 

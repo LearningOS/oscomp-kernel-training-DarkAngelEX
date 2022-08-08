@@ -144,7 +144,7 @@ impl DirInode {
         // 寻找短文件名
         let finder = Self::short_detect(inode, manager, name).await?;
         let now = manager.now();
-        let parent_cid = inode.parent.inner.shared_lock().cid_start;
+        let parent_cid = inode.parent().inner.shared_lock().cid_start;
         let this_cid = inode.cache.inner.shared_lock().cid_start;
         debug_assert!(parent_cid.is_next());
         debug_assert!(this_cid.is_next());
@@ -248,8 +248,10 @@ impl DirInode {
         }
         Ok(())
     }
-    /// shared
-    pub async fn delete_file(&self, manager: &Fat32Manager, name: &str) -> SysR<()> {
+    /// 使用 shared inode 锁
+    ///
+    /// release: 是否释放孩子节点的数据, 但无论如何, 需要先对子节点采用detach操作
+    pub async fn delete_file(&self, manager: &Fat32Manager, name: &str, release: bool) -> SysR<()> {
         stack_trace!();
         let name = name_check(name)?;
         let mut inode = self.inode.unique_lock().await;
@@ -263,7 +265,7 @@ impl DirInode {
         let cid = Self::delete_file_impl(&mut *inode, manager, short, place).await?;
         drop(inode);
         // release list
-        if cid.is_next() {
+        if release && cid.is_next() {
             manager.list.free_cluster_at(cid).await.1?;
             manager.list.free_cluster(cid).await?;
         }
@@ -301,6 +303,7 @@ impl DirInode {
         debug_assert!(cid == short.cid());
         Ok(cid)
     }
+    /// 返回的cid是文件的数据节点, 用来释放磁盘资源
     async fn delete_file_impl(
         inode: &mut RawInode,
         manager: &Fat32Manager,

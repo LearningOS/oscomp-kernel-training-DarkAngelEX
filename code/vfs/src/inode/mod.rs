@@ -47,6 +47,7 @@ pub trait FsInode: Send + Sync + 'static {
             panic!("place_inode unsupport: {}", core::any::type_name::<Self>())
         })
     }
+    /// release: 释放资源, 当子节点为打开状态时为 false
     fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()>;
     fn rmdir_child<'a>(&'a self, name: &'a str) -> ASysR<()>;
 

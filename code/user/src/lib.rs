@@ -4,14 +4,15 @@
 #![feature(panic_info_message)]
 #![feature(alloc_error_handler)]
 
+extern crate alloc;
+#[macro_use]
+extern crate bitflags;
+
 #[macro_use]
 pub mod console;
 mod lang_items;
 pub mod syscall;
 
-extern crate alloc;
-#[macro_use]
-extern crate bitflags;
 
 use alloc::vec::Vec;
 use buddy_system_allocator::LockedHeap;

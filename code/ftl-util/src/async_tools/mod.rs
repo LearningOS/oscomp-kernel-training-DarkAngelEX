@@ -50,7 +50,7 @@ impl Future for TakeWakerFuture {
     }
 }
 
-pub struct SendWraper<T>(T);
+pub struct SendWraper<T>(pub T);
 
 impl<T> SendWraper<T> {
     /// # Safety

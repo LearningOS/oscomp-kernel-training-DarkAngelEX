@@ -12,6 +12,8 @@ create: clean
 
 init: create init_final_disk endumount
 
+init_test: create mount init_dir_0 endumount
+
 mount:
 	-sudo umount -l $(DIR_PATH)
 	sudo mount -t vfat -o user,umask=000,utf8=1 --source $(IMG_PATH) --target $(DIR_PATH)
@@ -43,7 +45,8 @@ init_dir_0:
 	touch abcde && \
 	echo "abcde" >> abcde && \
 	touch '居然是中文!' && \
-	touch touch 12345678901234567890123456 && \
+	touch 12345678901234567890123456 && \
+	touch .ab.cdef.wxyz && \
 	touch end
 
 init_dir_1:

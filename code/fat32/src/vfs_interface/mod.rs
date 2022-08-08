@@ -223,7 +223,7 @@ impl FsInode for Fat32InodeV {
             }
             assert!(release); // 延迟释放尚未实现
             let dir = self.inode.dir()?;
-            dir.delete_file(self.manager(), name).await?;
+            dir.delete_file(self.manager(), name, release).await?;
             Ok(())
         })
     }
