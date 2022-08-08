@@ -206,7 +206,7 @@ impl Dentry {
     }
     pub async fn unlink(&self, name: &str) -> SysR<()> {
         stack_trace!();
-        debug_assert!(!self.is_dir());
+        debug_assert!(self.is_dir());
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
             return Err(SysError::ENOENT);
@@ -230,6 +230,7 @@ impl Dentry {
     }
     pub async fn rmdir(&self, name: &str) -> SysR<()> {
         stack_trace!();
+        debug_assert!(self.is_dir());
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
             return Err(SysError::ENOENT);

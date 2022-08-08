@@ -246,8 +246,11 @@ impl VfsManager {
             println!("unlink: {}", path.1);
         }
         let (path, name) = self.walk_path(path).await?;
-        if path.dentry.is_dir() || path::name_invalid(name) {
-            return Err(SysError::EISDIR);
+        if !path.dentry.is_dir() {
+            return Err(SysError::ENOTDIR);
+        }
+        if path::name_invalid(name) {
+            return Err(SysError::EINVAL);
         }
         path.dentry.unlink(name).await
     }
@@ -257,8 +260,11 @@ impl VfsManager {
             println!("rmdir: {}", path.1);
         }
         let (path, name) = self.walk_path(path).await?;
-        if !path.dentry.is_dir() || path::name_invalid(name) {
+        if !path.dentry.is_dir() {
             return Err(SysError::ENOTDIR);
+        }
+        if path::name_invalid(name) {
+            return Err(SysError::EINVAL);
         }
         path.dentry.rmdir(name).await
     }

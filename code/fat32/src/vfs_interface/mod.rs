@@ -216,8 +216,8 @@ impl FsInode for Fat32InodeV {
             let parent = self.inode.dir()?;
             let m = self.manager();
             match dir {
-                true => parent.create_dir(m, name, rw.1, false).await?,
-                false => parent.create_file(m, name, rw.1, false).await?,
+                true => parent.create_dir(m, name, !rw.1, false).await?,
+                false => parent.create_file(m, name, !rw.1, false).await?,
             }
             let any = parent.search_any(m, name).await?;
             let rw = any.attr().rw();
