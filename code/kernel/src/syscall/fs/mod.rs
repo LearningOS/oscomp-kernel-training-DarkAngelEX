@@ -27,6 +27,7 @@ const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_
 const AT_FDCWD: isize = -100;
 const AT_SYMLINK_NOFOLLOW: usize = 1 << 8;
 const AT_EACCESS: usize = 1 << 9;
+const AT_REMOVEDIR: usize = 1 << 9;
 
 impl Syscall<'_> {
     pub async fn fd_path_impl(
@@ -373,11 +374,12 @@ impl Syscall<'_> {
     pub async fn sys_unlinkat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, flags): (isize, UserReadPtr<u8>, u32) = self.cx.into();
-        if flags != 0 {
-            panic!("sys_unlinkat flags: {:#o}", flags);
+        if PRINT_SYSCALL_FS {
+            println!("sys_unlinkat flags: {}", flags);
         }
         let (base, path) = self.fd_path_impl(fd, path).await?;
-        fs::unlink((base, &path), OpenFlags::empty()).await?;
+        let dir = flags & AT_REMOVEDIR as u32 != 0;
+        fs::unlinkat((base, &path), dir).await?;
         Ok(0)
     }
     pub async fn sys_faccessat(&mut self) -> SysRet {
@@ -514,7 +516,7 @@ impl Syscall<'_> {
         drop(old);
         new.write(&len[..]).await?;
         let (base, path) = self.fd_path_impl(odfd, opath).await?;
-        fs::unlink((base, &path), OpenFlags::empty()).await?;
+        fs::unlinkat((base, &path), false).await?;
         Ok(0)
     }
 }

@@ -254,10 +254,6 @@ impl FsInode for Fat32InodeV {
             Ok(())
         })
     }
-    fn delete(&self) {
-        // 延迟释放尚未实现
-        let _file = self.inode.file().unwrap();
-    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],

@@ -182,12 +182,15 @@ pub async fn open_file_abs(path: &str, flags: OpenFlags, mode: Mode) -> SysR<Arc
     open_file((Err(SysError::ENOENT), path), flags, mode).await
 }
 
-pub async fn unlink(path: (SysR<Arc<VfsFile>>, &str), flags: OpenFlags) -> SysR<()> {
+pub async fn unlinkat(path: (SysR<Arc<VfsFile>>, &str), dir: bool) -> SysR<()> {
     stack_trace!();
-    debug_assert!(!flags.dir());
     let _sie = AutoSie::new();
     let vfs = vfs_manager();
-    vfs.unlink(path).await
+    if dir {
+        vfs.rmdir(path).await
+    } else {
+        vfs.unlink(path).await
+    }
 }
 
 /// 显示根目录的东西
@@ -220,6 +223,9 @@ impl FsInode for BlockDeviceWraper {
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         todo!()
     }
+    fn detach(&self) -> ASysR<()> {
+        todo!()
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         todo!()
     }
@@ -244,9 +250,6 @@ impl FsInode for BlockDeviceWraper {
         todo!()
     }
     fn reset_data(&self) -> ASysR<()> {
-        todo!()
-    }
-    fn delete(&self) {
         todo!()
     }
     fn read_at<'a>(

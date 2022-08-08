@@ -94,10 +94,17 @@ impl Path {
 
 impl VfsManager {
     /// 返回到达最后一个文件名的路径和文件名
-    pub(crate) async fn walk_path<'a, 'b>(
-        &'b self,
+    pub(crate) async fn walk_path<'a>(
+        &self,
         (base, path_str): (SysR<Arc<VfsFile>>, &'a str),
     ) -> SysR<(Path, &'a str)> {
+        fn tmp_fn(path_str: &str) -> (&str, &str) {
+            match path_str.rsplit_once(['/', '\\']) {
+                Some((path, name)) => (path, name),
+                None => ("", path_str),
+            }
+        }
+
         let mut path = if is_absolute_path(path_str) {
             Path {
                 mount: None,
@@ -106,10 +113,7 @@ impl VfsManager {
         } else {
             base?.path.clone()
         };
-        let (path_str, name) = match path_str.rsplit_once(['/', '\\']) {
-            Some((path, name)) => (path, name),
-            None => ("", path_str),
-        };
+        let (path_str, name) = tmp_fn(path_str);
         for s in path_str.split(['/', '\\']).map(|s| s.trim()) {
             path = self.walk_name(path, s).await?;
         }

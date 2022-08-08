@@ -30,6 +30,9 @@ impl FsInode for NullInode {
             Ok(())
         })
     }
+    fn detach(&self) -> ASysR<()> {
+        todo!()
+    }
     // === 目录操作 ===
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
@@ -62,7 +65,6 @@ impl FsInode for NullInode {
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move { Ok(()) })
     }
-    fn delete(&self) {}
     fn read_at<'a>(
         &'a self,
         _buf: &'a mut [u8],
