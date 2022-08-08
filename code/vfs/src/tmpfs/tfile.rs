@@ -167,9 +167,6 @@ impl FsInode for TmpFsFile {
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move { self.reset_data().await })
     }
-    fn delete(&self) {
-        // Arc自动释放
-    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],

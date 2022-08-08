@@ -192,9 +192,6 @@ impl FsInode for TmpFsInode {
     fn reset_data(&self) -> ASysR<()> {
         self.file().unwrap().reset_data()
     }
-    fn delete(&self) {
-        self.file().unwrap().delete()
-    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],

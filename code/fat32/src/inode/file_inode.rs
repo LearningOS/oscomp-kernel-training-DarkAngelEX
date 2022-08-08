@@ -32,7 +32,9 @@ impl FileInode {
     ///
     /// 文件在任何时候都可以detach, 但只能detach一次, debug模式会检查
     pub async fn detach(&self, manager: &Fat32Manager) -> SysR<()> {
-        self.inode.unique_lock().await.detach_file(manager)
+        let mut inode = self.inode.unique_lock().await;
+        inode.detach_file(manager)?;
+        Ok(())
     }
     /// offset为字节偏移
     pub async fn read_at(

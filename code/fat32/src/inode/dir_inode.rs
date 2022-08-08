@@ -62,6 +62,8 @@ impl DirInode {
         unsafe { self.inode.unsafe_get().available() }
     }
     /// 只有空目录可以detach, 失败将返回 ENOEMTPY
+    /// 
+    /// detach目录后不会回收磁盘空间, 回收磁盘由父目录的delete完成
     pub async fn detach(&self, manager: &Fat32Manager) -> SysR<()> {
         let mut inode = self.inode.unique_lock().await;
         let r = Self::name_try_fold(&*inode, manager, (), |(), b| match b.is_dot() {

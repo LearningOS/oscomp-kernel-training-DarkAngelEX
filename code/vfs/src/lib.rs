@@ -26,6 +26,10 @@ extern crate ftl_util;
 #[macro_use]
 extern crate bitflags;
 
+#[cfg(test)]
+#[macro_use]
+extern crate std;
+
 pub use {
     file::{select, File, VfsFile},
     fssp::{Fs, FsType},

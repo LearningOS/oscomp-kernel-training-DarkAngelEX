@@ -206,7 +206,7 @@ impl Dentry {
     }
     pub async fn unlink(&self, name: &str) -> SysR<()> {
         stack_trace!();
-        debug_assert!(self.is_dir());
+        debug_assert!(!self.is_dir());
         let _lk = self.cache.dir_lock.lock().await;
         if self.cache.closed() {
             return Err(SysError::ENOENT);
@@ -222,7 +222,7 @@ impl Dentry {
             if !d.cache.closed() {
                 let inode = d.cache.inode.lock().clone().into_inode()?;
                 d.cache.close_and_detach_inode()?;
-                inode.drop_release();
+                inode.detach().await?;
                 release = false;
             }
         }
@@ -243,7 +243,9 @@ impl Dentry {
                 return Err(SysError::ENOTDIR);
             }
             if !d.cache.closed() {
-                d.cache.release_by_dentry()?;
+                let inode = d.cache.inode.lock().clone().into_inode()?;
+                d.cache.close_and_detach_inode()?;
+                inode.detach().await?;
             }
         }
         inode.rmdir_child(name).await
@@ -304,7 +306,7 @@ pub(crate) struct DentryCache {
     /// 如果未使用将处于LRU队列
     lru: NonNull<LRUQueue>,
     lru_node: InListNode<Self, DentryLruNode>, // 由LRU队列控制
-    lru_own: Option<Box<Self>>,
+    lru_own: Option<Box<Self>>, // 只有处于LRU队列时, 这里才是Some, 否则被dentry持有所有权
     /// 文件系统上的链表节点
     fssp: NonNull<Fssp>,
     fssp_node: InListNode<Self, DentryFsspNode>, // 当存在于LRU队列时才会加入节点
@@ -429,40 +431,24 @@ impl DentryCache {
         }
         *self.inode.lock() = InodeS::Closed;
     }
-    /// 在拥有dentry的情况下让cache无效并释放
-    fn release_by_dentry(&self) -> SysR<()> {
-        // 这条路径释放的cache不可能在LRU队列中
-        debug_assert!(!self.closed());
-        debug_assert!(self.lru_node.is_empty());
-        debug_assert!(self.lru_own.is_none());
-        if self.is_dir
-            && (self.mount.rcu_read().is_some() // 禁止释放挂载点
-            || self.parent.is_none() // 禁止释放根目录
-            || !self.sub_head.lock().is_empty())
-        {
-            return Err(SysError::EBUSY);
-        }
-        self.closed.store(true, Ordering::Release);
-        unsafe {
-            self.using.rcu_write(Weak::new());
-            let this = self.this_mut();
-            if this.in_index {
-                (*this.index.as_ptr()).remove(this);
-                this.in_index = false;
-            }
-            *self.inode.lock() = InodeS::Closed;
-        }
-        Ok(())
-    }
     /// 此函数将使此缓存无效, 且inode将增加析构时释放标记
     ///
     /// 并发安全保证: 必须持有父目录睡眠锁调用此函数, 这个路径的dentry不会处于LRU队列
     fn close_and_detach_inode(&self) -> SysR<()> {
-        debug_assert!(!self.is_dir);
         debug_assert!(!self.closed());
         // 这条路径释放的cache不可能在LRU队列中
         debug_assert!(self.lru_node.is_empty());
         debug_assert!(self.lru_own.is_none());
+
+        if self.is_dir {
+            // 禁止释放挂载点或根目录
+            if self.mount.rcu_read().is_some() || self.parent.is_none() {
+                return Err(SysError::EBUSY);
+            }
+            if !self.sub_head.lock().is_empty() {
+                return Err(SysError::ENOTEMPTY);
+            }
+        }
 
         self.closed.store(true, Ordering::Release);
         unsafe {

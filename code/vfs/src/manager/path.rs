@@ -123,9 +123,6 @@ impl VfsManager {
         }
         let name = name.trim();
         if path.is_vfs_root() {
-            if name == "sbin" {
-                return Ok(path);
-            }
             if let Some(dentry) = self.special_dir.get(name).cloned() {
                 path.dentry = dentry;
                 return Ok(path);
