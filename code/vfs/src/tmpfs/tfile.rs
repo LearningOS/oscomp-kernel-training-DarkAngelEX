@@ -54,6 +54,40 @@ impl TmpFsFile {
         lk.shrink_to_fit();
         Ok(())
     }
+    fn read_at_fast(&self, offset: usize, buf: &mut [u8]) -> SysRet {
+        if offset > self.bytes()? {
+            return Err(SysError::EINVAL);
+        }
+        let lk = self.subs.try_shared_lock().ok_or(SysError::EAGAIN)?;
+        if offset > self.bytes()? {
+            return Err(SysError::EINVAL);
+        }
+        let end = lk.len().min(offset + buf.len());
+        let n = end - offset;
+        buf[..n].copy_from_slice(&lk[offset..end]);
+        Ok(n)
+    }
+    fn write_at_fast(&self, offset: usize, buf: &[u8]) -> SysRet {
+        let expand = offset + buf.len() > self.bytes()?;
+        if !expand {
+            let lk = self.subs.try_shared_lock().ok_or(SysError::EAGAIN)?;
+            let end = offset + buf.len();
+            if end <= lk.len() {
+                unsafe {
+                    #[allow(clippy::cast_ref_to_mut)]
+                    (*(&lk[offset..end] as *const _ as *mut [u8])).copy_from_slice(buf);
+                }
+                return Ok(buf.len());
+            }
+        }
+        let mut lk = self.subs.try_unique_lock().ok_or(SysError::EAGAIN)?;
+        let end = offset + buf.len();
+        if end > lk.len() {
+            lk.resize(end, 0);
+        }
+        lk[offset..end].copy_from_slice(buf);
+        Ok(buf.len())
+    }
     pub async fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> SysRet {
         if offset > self.bytes()? {
             return Err(SysError::EINVAL);
@@ -166,6 +200,20 @@ impl FsInode for TmpFsFile {
     }
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move { self.reset_data().await })
+    }
+    fn read_at_fast(&self, buf: &mut [u8], (offset, ptr): (usize, Option<&AtomicUsize>)) -> SysRet {
+        let n = self.read_at_fast(offset, buf)?;
+        if let Some(ptr) = ptr {
+            ptr.store(offset + n, Ordering::Release);
+        }
+        Ok(n)
+    }
+    fn write_at_fast(&self, buf: &[u8], (offset, ptr): (usize, Option<&AtomicUsize>)) -> SysRet {
+        let n = self.write_at_fast(offset, buf)?;
+        if let Some(ptr) = ptr {
+            ptr.store(offset + n, Ordering::Release);
+        }
+        Ok(n)
     }
     fn read_at<'a>(
         &'a self,

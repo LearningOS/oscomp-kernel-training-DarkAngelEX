@@ -22,6 +22,9 @@ use self::select::{SelectNode, PL};
 pub mod select;
 
 pub trait File: Send + Sync + 'static {
+    fn type_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
     // 这个文件的工作路径
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Err(SysError::ENOENT)
@@ -60,6 +63,12 @@ pub trait File: Send + Sync + 'static {
     }
     fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
         unimplemented!("lseek {}", core::any::type_name::<Self>())
+    }
+    fn read_fast(&self, _buffer: &mut [u8]) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
+    fn write_fast(&self, _buffer: &[u8]) -> SysRet {
+        Err(SysError::EAGAIN)
     }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet;
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet;
@@ -102,6 +111,7 @@ impl VfsFile {
     pub fn is_dir(&self) -> bool {
         self.inode.is_dir()
     }
+    #[inline(always)]
     fn fsinode(&self) -> &dyn FsInode {
         self.inode.fsinode.as_ref()
     }
@@ -132,6 +142,9 @@ impl VfsFile {
 }
 
 impl File for VfsFile {
+    fn type_name(&self) -> &'static str {
+        self.inode.fsinode.type_name()
+    }
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Ok(self)
     }
@@ -171,14 +184,24 @@ impl File for VfsFile {
         ptr.store(target, Ordering::Release);
         Ok(target)
     }
+    fn read_fast(&self, buffer: &mut [u8]) -> SysRet {
+        let ptr = &self.ptr;
+        let offset = ptr.load(Ordering::Relaxed);
+        self.fsinode().read_at_fast(buffer, (offset, Some(ptr)))
+    }
+    fn write_fast(&self, buffer: &[u8]) -> SysRet {
+        let ptr = &self.ptr;
+        let offset = ptr.load(Ordering::Relaxed);
+        self.fsinode().write_at_fast(buffer, (offset, Some(ptr)))
+    }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet {
         let ptr = &self.ptr;
-        let offset = ptr.load(Ordering::Acquire);
+        let offset = ptr.load(Ordering::Relaxed);
         self.fsinode().read_at(buffer, (offset, Some(ptr)))
     }
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet {
         let ptr = &self.ptr;
-        let offset = ptr.load(Ordering::Acquire);
+        let offset = ptr.load(Ordering::Relaxed);
         self.fsinode().write_at(buffer, (offset, Some(ptr)))
     }
     fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> ASysRet {

@@ -1,6 +1,6 @@
 use core::sync::atomic::AtomicUsize;
 
-use alloc::{boxed::Box, vec::Vec, string::String};
+use alloc::{boxed::Box, string::String, vec::Vec};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     error::{SysError, SysRet},
@@ -34,7 +34,12 @@ impl FsInode for ZeroInode {
     fn search<'a>(&'a self, _name: &'a str) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }
-    fn create<'a>(&'a self, _name: &'a str, _dir: bool, _rw: (bool, bool)) -> ASysR<Box<dyn FsInode>> {
+    fn create<'a>(
+        &'a self,
+        _name: &'a str,
+        _dir: bool,
+        _rw: (bool, bool),
+    ) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }
     fn place_inode<'a>(
@@ -58,6 +63,17 @@ impl FsInode for ZeroInode {
     }
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move { Ok(()) })
+    }
+    fn read_at_fast(
+        &self,
+        buf: &mut [u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        buf.fill(0);
+        Ok(buf.len())
+    }
+    fn write_at_fast(&self, buf: &[u8], _offset_with_ptr: (usize, Option<&AtomicUsize>)) -> SysRet {
+        Ok(buf.len())
     }
     fn read_at<'a>(
         &'a self,

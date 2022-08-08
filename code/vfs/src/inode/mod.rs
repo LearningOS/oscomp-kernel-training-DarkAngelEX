@@ -18,6 +18,9 @@ pub trait FsInode: Send + Sync + 'static {
     fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
         Err(SysError::ENOTBLK)
     }
+    fn type_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
     // === 共享操作 ===
 
     fn readable(&self) -> bool;
@@ -54,6 +57,20 @@ pub trait FsInode: Send + Sync + 'static {
 
     fn bytes(&self) -> SysRet;
     fn reset_data(&self) -> ASysR<()>;
+    fn read_at_fast(
+        &self,
+        _buf: &mut [u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
+    fn write_at_fast(
+        &self,
+        _buf: &[u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],

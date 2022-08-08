@@ -129,6 +129,29 @@ pub async fn init() {
         .await
         .unwrap();
     ld.write_at(0, b"/\0").await.unwrap();
+
+    // 测试性能
+    if false {
+        let file = vfs
+            .create((XF, "/tmp/lat_test"), false, (true, true))
+            .await
+            .unwrap();
+        let start = crate::timer::now();
+        let n = 1000000;
+        for _ in 0..n {
+            file.write_at(0, &[0; 1000]).await.unwrap();
+        }
+        let end = crate::timer::now();
+        let dur = end - start;
+        println!(
+            "do {} using {} ms -> {} ns",
+            n,
+            dur.as_millis(),
+            (dur / n).as_nanos()
+        );
+        panic!();
+    }
+
     unsafe {
         VFS_MANAGER = Some(vfs);
     }

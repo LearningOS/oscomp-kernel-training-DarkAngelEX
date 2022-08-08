@@ -192,6 +192,16 @@ impl FsInode for TmpFsInode {
     fn reset_data(&self) -> ASysR<()> {
         self.file().unwrap().reset_data()
     }
+    fn read_at_fast(
+        &self,
+        buf: &mut [u8],
+        offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        self.file()?.read_at_fast(buf, offset_with_ptr)
+    }
+    fn write_at_fast(&self, buf: &[u8], offset_with_ptr: (usize, Option<&AtomicUsize>)) -> SysRet {
+        self.file()?.write_at_fast(buf, offset_with_ptr)
+    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],

@@ -11,6 +11,10 @@ pub static FAST_SYSCALL_TABLE: [ENTRY; SYSCALL_MAX] = fast_syscall_generate();
 const fn fast_syscall_generate() -> [ENTRY; SYSCALL_MAX] {
     let mut table: [ENTRY; SYSCALL_MAX] = [None; SYSCALL_MAX];
     table[SYSCALL_DUP] = Some(Syscall::sys_dup);
+    table[SYSCALL_CLOSE] = Some(Syscall::sys_close);
+    table[SYSCALL_READ] = Some(Syscall::sys_read_fast);
+    table[SYSCALL_WRITE] = Some(Syscall::sys_write_fast);
+    // table[SYSCALL_FSTAT] = Some(Syscall::sys_getpid);
     table[SYSCALL_CLOCK_GETTIME] = Some(Syscall::sys_clock_gettime_fast);
     table[SYSCALL_GETRUSAGE] = Some(Syscall::sys_getrusage_fast);
     table[SYSCALL_GETPID] = Some(Syscall::sys_getpid);

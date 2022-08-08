@@ -208,11 +208,26 @@ impl Syscall<'_> {
         let whence = Seek::from_user(whence)?;
         file.lseek(offset, whence)
     }
+    pub fn sys_read_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_read_fast fd {} len: {}", fd, len);
+        }
+        let buf = UserCheck::writable_slice_only(buf, len)?;
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
+        if !file.readable() {
+            return Err(SysError::EPERM);
+        }
+        file.read_fast(&mut *buf.access_mut())
+    }
     pub async fn sys_read(&mut self) -> SysRet {
         stack_trace!();
         let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
         if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
-            println!("sys_read len: {}", len);
+            println!("sys_read fd {} len: {}", fd, len);
         }
         let buf = UserCheck::new(self.process)
             .writable_slice(buf, len)
@@ -223,14 +238,29 @@ impl Syscall<'_> {
         if !file.readable() {
             return Err(SysError::EPERM);
         }
-        let len = file.read(&mut *buf.access_mut()).await?;
-        Ok(len)
+        file.read(&mut *buf.access_mut()).await
+    }
+    pub fn sys_write_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_write_fast fd {} len: {}", fd, len);
+        }
+        let buf = UserCheck::readonly_slice_only(buf, len)?;
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
+        if !file.readable() {
+            return Err(SysError::EPERM);
+        }
+        // println!("write_fast: {}", file.type_name());
+        file.write_fast(&*buf.access())
     }
     pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
         let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
         if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
-            println!("sys_write len: {}", len);
+            println!("sys_write fd {} len: {}", fd, len);
         }
         let buf = UserCheck::new(self.process)
             .readonly_slice(buf, len)

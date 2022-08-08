@@ -90,3 +90,7 @@ busybox touch test.txt
 busybox rm test.txt
 
 echo "ccccccc" >> test.txt
+
+lmbench_all lat_syscall -P 1 null
+lmbench_all lat_syscall -P 1 read
+lmbench_all lat_syscall -P 1 write
