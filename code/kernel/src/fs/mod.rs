@@ -18,7 +18,10 @@ use vfs::{select::PL, DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, Vf
 use crate::{
     config::FS_CACHE_MAX_SIZE,
     drivers, executor,
-    fs::dev::{null::NullInode, tty::TtyInode, zero::ZeroInode},
+    fs::{
+        dev::{null::NullInode, tty::TtyInode, zero::ZeroInode},
+        proc::ProcType,
+    },
     memory::user_ptr::UserInOutPtr,
     timer,
     user::AutoSie,
@@ -26,6 +29,7 @@ use crate::{
 
 pub mod dev;
 pub mod pipe;
+pub mod proc;
 pub mod stdio;
 
 #[repr(C)]
@@ -88,21 +92,15 @@ pub async fn init() {
     vfs.init_spawner(Box::new(SysSpawner));
     vfs.init_devalloc(Box::new(OsDevAllocator));
     vfs.import_fstype(Box::new(Fat32Type::new()));
-    // 挂载几个全局目录
+    vfs.import_fstype(Box::new(ProcType));
+    // 挂载几个全局目录, 这些会使用TmpFs常驻内存
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("etc".to_string());
     vfs.set_spec_dentry("tmp".to_string());
     vfs.set_spec_dentry("var".to_string());
     vfs.set_spec_dentry("usr".to_string());
-    // vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
-    // vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
-    // vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
-    // vfs.mount((XF, ""), (XF, "/var"), "tmpfs", 0).await.unwrap();
-    // vfs.mount((XF, ""), (XF, "/usr"), "tmpfs", 0).await.unwrap();
-    // vfs.mount((XF, ""), (XF, "/bin"), "tmpfs", 0).await.unwrap();
-    // vfs.mount((XF, ""), (XF, "/sbin"), "tmpfs", 0)
-    //     .await
-    //     .unwrap();
+    vfs.set_spec_dentry("proc".to_string());
+
     vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
         .await
         .unwrap();
@@ -118,10 +116,13 @@ pub async fn init() {
     vfs.mount((XF, "/dev/sda1"), (XF, "/"), "vfat", 0)
         .await
         .unwrap();
-    for path in ["/dev/shm", "/var/tmp"] {
+    vfs.mount((XF, ""), (XF, "/proc"), "proc", 0).await.unwrap();
+    for path in ["/dev/shm", "/var/tmp", "/dev/misc"] {
         vfs.create((XF, path), true, (true, true)).await.unwrap();
     }
-
+    vfs.create((XF, "/dev/misc/rtc"), false, (true, true))
+        .await
+        .unwrap();
     // 写入目录 /etc/ld-musl-riscv64-sf.path
     let ld = vfs
         .create((XF, "/etc/ld-musl-riscv64-sf.path"), false, (true, true))

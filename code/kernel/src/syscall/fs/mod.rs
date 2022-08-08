@@ -507,7 +507,8 @@ impl Syscall<'_> {
             .fd_path_open(odfd, opath, OpenFlags::empty(), Mode(0o600))
             .await?;
         if old.is_dir() {
-            unimplemented!();
+            // unimplemented!();
+            return Err(SysError::EINVAL);
         }
         let new = self
             .fd_path_create_any(ndfd, npath, OpenFlags::CREAT, Mode(0o600))
