@@ -1,8 +1,9 @@
-use core::ops::ControlFlow;
+use core::{ops::ControlFlow, ptr::NonNull};
 
 use alloc::{boxed::Box, sync::Arc, vec::Vec};
 use ftl_util::{
-    error::{SysR, SysRet},
+    async_tools::SendWraper,
+    error::{SysError, SysR, SysRet},
     time::{Instant, UtcTime},
 };
 
@@ -27,24 +28,26 @@ pub(crate) struct RawInode {
     last_cache: RwSpinMutex<LastCache>, // 最近一次访问的块
     is_root: bool,
     _mark: Arc<InodeMark>,
-    manager: Option<Arc<Fat32Manager>>, // 只有detach以后才存在
+    manager: Option<SendWraper<NonNull<Fat32Manager>>>, // 只有文件detach以后才存在
 }
+
 unsafe impl Send for RawInode {}
 unsafe impl Sync for RawInode {}
 
 impl Drop for RawInode {
     fn drop(&mut self) {
-        if !self.cache.detached {
+        if !self.cache.detached || self.manager.is_none() {
             return;
         }
         debug_assert!(Arc::strong_count(&self.cache) == 1);
         let cid = self.cache.inner.shared_lock().cid_start;
         if !cid.is_free() {
             debug_assert!(cid.is_next());
-            let spawner = self.manager.as_ref().unwrap().get_spawner();
-            // 使用'static发送到另一个线程
             let manager = self.manager.take().unwrap();
+            let spawner = unsafe { manager.0.as_ref().get_spawner() };
+            // 使用'static发送到另一个线程
             spawner.spawn(Box::pin(async move {
+                let manager = manager.map(|a| unsafe { &*a.as_ptr() });
                 manager.list.free_cluster_at(cid).await.1.unwrap();
                 manager.list.free_cluster(cid).await.unwrap();
             }))
@@ -75,7 +78,7 @@ impl RawInode {
         self.parent.as_ref().unwrap()
     }
     pub fn attr(&self) -> Attr {
-        self.cache.inner.shared_lock().attr()
+        unsafe { self.cache.inner.unsafe_get().attr() }
     }
     pub async fn blk_num(&self, fat_list: &FatList) -> SysRet {
         let n = match self.get_list_last(fat_list).await? {
@@ -109,12 +112,30 @@ impl RawInode {
         lock.update_access_time(utc);
         lock.update_modify_time(utc);
     }
-    /// 将此inode从目录中移除
-    pub fn detach(&mut self, manager: &Arc<Fat32Manager>) {
+    pub fn available(&self) -> SysR<()> {
+        if self.cache.detached {
+            Err(SysError::ENOENT)
+        } else {
+            Ok(())
+        }
+    }
+    /// 将此文件inode从目录中移除
+    pub fn detach_file(&mut self, manager: &Fat32Manager) -> SysR<()> {
         debug_assert!(self.parent.is_some()); // 禁止detach两次
         self.parent = None;
-        self.cache = self.cache.detach();
-        self.manager = Some(manager.clone());
+        self.cache = self.cache.detach_file();
+        self.manager = unsafe {
+            Some(SendWraper::new(
+                NonNull::new(manager as *const _ as *mut _).unwrap(),
+            ))
+        };
+        Ok(())
+    }
+    /// 将此目录inode从目录中移除
+    pub fn detach_dir(&mut self) {
+        debug_assert!(self.parent.is_some()); // 禁止detach两次
+        self.parent = None;
+        self.cache = self.cache.detach_dir();
     }
     /// 此函数将更新缓存
     ///

@@ -138,6 +138,9 @@ impl FsInode for TmpFsFile {
             Ok(())
         })
     }
+    fn detach(&self) -> ASysR<()> {
+        Box::pin(async move { Ok(()) })
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }

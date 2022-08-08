@@ -160,6 +160,10 @@ impl FsInode for TmpFsInode {
             TmpFsImpl::File(_) => false,
         }
     }
+    /// Tmpfs不需要detach操作
+    fn detach(&self) -> ASysR<()> {
+        Box::pin(async move { Ok(()) })
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { self.dir()?.list().await })
     }

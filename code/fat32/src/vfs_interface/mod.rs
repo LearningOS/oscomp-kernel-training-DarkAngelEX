@@ -189,6 +189,14 @@ impl FsInode for Fat32InodeV {
             Ok(())
         })
     }
+    fn detach(&self) -> ASysR<()> {
+        Box::pin(async move {
+            match &self.inode {
+                AnyInode::Dir(v) => v.detach(self.manager()).await,
+                AnyInode::File(v) => v.detach(self.manager()).await,
+            }
+        })
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move {
             let dir = self.inode.dir()?;

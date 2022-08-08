@@ -149,7 +149,7 @@ async fn delete_test(
 
     let write = b"123";
     dead.write_at(&manager, 0, write).await.unwrap();
-    dead.detach(&manager).await;
+    dead.detach(&manager).await.unwrap();
     root.delete_file(&manager, "dead", false).await.unwrap(); // 删除文件
     let mut buffer = Vec::<u8>::new();
     buffer.resize(1000, 0);

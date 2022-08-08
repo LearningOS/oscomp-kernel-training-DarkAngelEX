@@ -145,7 +145,7 @@ impl InodeCache {
         aid
     }
     /// 从目录树中删除这个文件
-    pub fn detach(&self) -> Arc<InodeCache> {
+    pub fn detach_file(&self) -> Arc<InodeCache> {
         debug_assert!(!self.detached);
         // 生成一个新的cache节点, 原cache的节点引用计数就不存在了
         let mut inner = self.inner.unique_lock();
@@ -164,8 +164,34 @@ impl InodeCache {
             aid: SyncUnsafeCell::new(self.aid()),
             detached: true,
         });
+        inner.inode = Weak::new();
         inner.list_truncate(0, CID::FREE);
         inner.entry = EntryPlace::ROOT;
+        new
+    }
+    /// 从目录树中删除这个目录, 这个inode就无效了
+    pub fn detach_dir(&self) -> Arc<InodeCache> {
+        debug_assert!(!self.detached);
+        // 生成一个新的cache节点, 原cache的节点引用计数就不存在了
+        let mut inner = self.inner.unique_lock();
+        inner.list_truncate(0, CID::FREE);
+        inner.entry = EntryPlace::ROOT;
+        inner.inode = Weak::new();
+        let new = Arc::new(InodeCache {
+            inner: RwSpinMutex::new(InodeCacheInner {
+                inode: Weak::new(),
+                entry: EntryPlace::ROOT,
+                cid_list: Vec::new(),
+                cid_start: CID::FREE,
+                almost_last: (0, CID::FREE),
+                len: Some(0),
+                short: inner.short,
+            }),
+            aid_alloc: self.aid_alloc.clone(),
+            alive: self.alive.clone(),
+            aid: SyncUnsafeCell::new(self.aid()),
+            detached: true,
+        });
         new
     }
 }

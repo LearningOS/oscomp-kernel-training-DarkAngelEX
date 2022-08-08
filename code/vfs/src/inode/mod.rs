@@ -30,6 +30,8 @@ pub trait FsInode: Send + Sync + 'static {
     fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysR<()> {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
+
+    fn detach(&self) -> ASysR<()>;
     // === 目录操作 ===
 
     fn list(&self) -> ASysR<Vec<(DentryType, String)>>;

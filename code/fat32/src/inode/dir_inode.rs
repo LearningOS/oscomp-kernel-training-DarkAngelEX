@@ -58,7 +58,25 @@ impl DirInode {
     pub fn attr(&self) -> Attr {
         unsafe { self.inode.unsafe_get().attr() }
     }
+    pub fn available(&self) -> SysR<()> {
+        unsafe { self.inode.unsafe_get().available() }
+    }
+    /// 只有空目录可以detach, 失败将返回 ENOEMTPY
+    pub async fn detach(&self, manager: &Fat32Manager) -> SysR<()> {
+        let mut inode = self.inode.unique_lock().await;
+        let r = Self::name_try_fold(&*inode, manager, (), |(), b| match b.is_dot() {
+            true => ControlFlow::CONTINUE,
+            false => ControlFlow::BREAK,
+        })
+        .await?;
+        if r.is_break() {
+            return Err(SysError::ENOTEMPTY);
+        }
+        inode.detach_dir();
+        Ok(())
+    }
     pub async fn list(&self, manager: &Fat32Manager) -> SysR<Vec<(DentryType, String)>> {
+        self.available()?;
         let inode = &*self.inode.shared_lock().await;
         let mut set = Vec::new();
         Self::name_try_fold(inode, manager, (), |(), dir| {
@@ -116,6 +134,7 @@ impl DirInode {
         name: &str,
     ) -> SysR<Option<Arc<InodeCache>>> {
         stack_trace!();
+        self.available()?;
         let name = name_check(name)?;
         let inode = &*self.inode.shared_lock().await;
         let (short, (_, place)) = match Self::search_impl(inode, manager, name).await? {
@@ -135,6 +154,7 @@ impl DirInode {
         hidden: bool,
     ) -> SysR<()> {
         stack_trace!();
+        self.available()?;
         let name = name_check(name)?;
         // 排他锁保证文件分配不被打乱
         let inode = &mut *self.inode.unique_lock().await;
@@ -174,6 +194,7 @@ impl DirInode {
         hidden: bool,
     ) -> SysR<()> {
         stack_trace!();
+        self.available()?;
         let name = name_check(name)?;
         // 排他锁保证文件分配不被打乱
         let inode = &mut *self.inode.unique_lock().await;
@@ -211,6 +232,7 @@ impl DirInode {
     /// 自动判断是删除目录还是文件
     pub async fn delete_any(&self, manager: &Fat32Manager, name: &str) -> SysR<()> {
         stack_trace!();
+        self.available()?;
         let name = name_check(name)?;
         let mut inode = self.inode.unique_lock().await;
         let (short, place) = match Self::search_impl(&*inode, manager, name).await? {
@@ -231,6 +253,7 @@ impl DirInode {
     /// 目录必须为空 只删除仅含有 ".." "." 的目录
     pub async fn delete_dir(&self, manager: &Fat32Manager, name: &str) -> SysR<()> {
         stack_trace!();
+        self.available()?;
         let name = name_check(name)?;
         let mut inode = self.inode.unique_lock().await;
         let (short, place) = match Self::search_impl(&*inode, manager, name).await? {
@@ -253,6 +276,7 @@ impl DirInode {
     /// release: 是否释放孩子节点的数据, 但无论如何, 需要先对子节点采用detach操作
     pub async fn delete_file(&self, manager: &Fat32Manager, name: &str, release: bool) -> SysR<()> {
         stack_trace!();
+        self.available()?;
         let name = name_check(name)?;
         let mut inode = self.inode.unique_lock().await;
         let (short, place) = match Self::search_impl(&*inode, manager, name).await? {
@@ -277,6 +301,7 @@ impl DirInode {
         short: Align8<RawShortName>,
         place: (EntryPlace, EntryPlace),
     ) -> SysR<CID> {
+        inode.available()?;
         // 文件如果处于打开状态将返回Err
         manager.inodes.unused_release(place.1.iid(manager))?;
         // 这里将持有唯一打开的引用
@@ -310,6 +335,7 @@ impl DirInode {
         short: Align8<RawShortName>,
         place: (EntryPlace, EntryPlace),
     ) -> SysR<CID> {
+        inode.available()?;
         manager.inodes.unused_release(place.1.iid(manager))?;
         let cid = Self::delete_entry(&mut *inode, manager, place).await?;
         debug_assert!(cid == short.cid());
@@ -406,6 +432,7 @@ impl DirInode {
         short: Align8<RawShortName>,
     ) -> SysR<EntryPlace> {
         stack_trace!();
+        inode.available()?;
         if Self::search_impl(inode, manager, name).await?.is_some() {
             return Err(SysError::EEXIST);
         }
@@ -496,6 +523,7 @@ impl DirInode {
         name: &str,
     ) -> SysR<Option<(Align8<RawShortName>, (EntryPlace, EntryPlace))>> {
         stack_trace!();
+        inode.available()?;
         let r = Self::name_try_fold(inode, manager, (), |(), b| {
             if b.is_same(name) {
                 return ControlFlow::Break((b.short, b.place()));

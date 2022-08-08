@@ -50,6 +50,7 @@ impl Future for TakeWakerFuture {
     }
 }
 
+#[repr(transparent)]
 pub struct SendWraper<T>(pub T);
 
 impl<T> SendWraper<T> {
@@ -59,6 +60,9 @@ impl<T> SendWraper<T> {
     #[inline(always)]
     pub unsafe fn new(v: T) -> Self {
         SendWraper(v)
+    }
+    pub fn map<R>(&self, f: impl FnOnce(&T) -> R) -> R {
+        f(&self.0)
     }
 }
 
