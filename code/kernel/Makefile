@@ -1,7 +1,7 @@
 # Building
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
-MODE := release
+MODE := debug
 ADD_ARGS :=
 ARGS :=
 ARGS += $(ADD_ARGS)
@@ -17,7 +17,7 @@ SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
 SMP := 1
-MEMORY_SIZE := 128M
+MEMORY_SIZE := 256M
 
 # BOARD
 BOARD ?= qemu
@@ -138,7 +138,7 @@ simulation: build
 	qemu-system-riscv64 \
 		-machine virt \
 		-kernel $(KERNEL_BIN) \
-		-m 256M \
+		-m $(MEMORY_SIZE) \
 		-nographic \
 		-smp 2 \
 		-bios $(BOOTLOADER_ELF) \

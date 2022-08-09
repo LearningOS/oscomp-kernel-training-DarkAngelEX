@@ -81,3 +81,26 @@ impl<T: DerefMut> DerefMut for SendWraper<T> {
         self.0.deref_mut()
     }
 }
+
+pub enum Join2R<T1, T2> {
+    First(T1),
+    Second(T2),
+}
+pub struct Join2Future<T1, T2, F1: Future<Output = T1>, F2: Future<Output = T2>>(pub F1, pub F2);
+
+impl<T1, T2, F1: Future<Output = T1>, F2: Future<Output = T2>> Future
+    for Join2Future<T1, T2, F1, F2>
+{
+    type Output = Join2R<T1, T2>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = unsafe { self.get_unchecked_mut() };
+        if let Poll::Ready(r) = unsafe { Pin::new_unchecked(&mut this.0).poll(cx) } {
+            Poll::Ready(Join2R::First(r))
+        } else if let Poll::Ready(r) = unsafe { Pin::new_unchecked(&mut this.1).poll(cx) } {
+            Poll::Ready(Join2R::Second(r))
+        } else {
+            Poll::Pending
+        }
+    }
+}

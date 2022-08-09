@@ -229,7 +229,7 @@ impl ThreadSignalManager {
         stack_trace!();
         // 无锁判断
         let send_id = unsafe { self.mailbox.unsafe_get().send_id };
-        if send_id == self.recv_id {
+        if self.recv_id == send_id {
             return;
         }
         self.recv_id = send_id;

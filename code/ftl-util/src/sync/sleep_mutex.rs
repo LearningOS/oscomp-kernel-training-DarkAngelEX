@@ -86,6 +86,7 @@ impl<T: ?Sized + Send, S: MutexSupport> SleepMutex<T, S> {
             return None;
         }
         lk.status = true;
+        lk.lazy_init();
         Some(SleepMutexGuard { mutex: self })
     }
 }
