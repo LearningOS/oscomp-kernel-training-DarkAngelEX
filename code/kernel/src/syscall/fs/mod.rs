@@ -144,6 +144,9 @@ impl Syscall<'_> {
     pub fn sys_dup(&mut self) -> SysRet {
         stack_trace!();
         let fd: usize = self.cx.para1();
+        if PRINT_SYSCALL_FS {
+            println!("sys_dup fd {}", fd);
+        }
         let fd = Fd::from_usize(fd);
         let new = self.alive_then(move |a| a.fd_table.dup(fd))?;
         Ok(new.to_usize())
@@ -280,8 +283,8 @@ impl Syscall<'_> {
         }
         let buf = UserCheck::readonly_slice_only(buf, len)?;
         let file = self
-        .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
-        .ok_or(SysError::EBADF)?;
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
         if !file.writable() {
             return Err(SysError::EPERM);
         }
@@ -472,6 +475,24 @@ impl Syscall<'_> {
     // changes the ownership of the file referred to by the open file descriptor fd.
     pub fn sys_fchown(&mut self) -> SysRet {
         Ok(0)
+    }
+    pub fn sys_openat_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#o}",
+                fd,
+                path.as_usize(),
+                flags,
+                mode.0
+            );
+        }
+        let flags = OpenFlags::from_bits(flags).unwrap();
+        let inode = self.fd_path_open_fast(fd, path, flags, mode)?;
+        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
+        let fd = self.alive_then(|a| a.fd_table.insert(inode, close_on_exec, flags))?;
+        Ok(fd.0)
     }
     pub async fn sys_openat(&mut self) -> SysRet {
         stack_trace!();

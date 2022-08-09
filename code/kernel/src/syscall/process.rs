@@ -341,7 +341,7 @@ impl Syscall<'_> {
     pub fn sys_getppid(&mut self) -> SysRet {
         stack_trace!();
         if PRINT_SYSCALL_ALL {
-            println!("sys_getpid");
+            println!("sys_getppid");
         }
         let pid = self
             .alive_then(|a| {

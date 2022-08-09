@@ -18,7 +18,7 @@ use ftl_util::{
     },
     time::{Instant, TimeSpec},
 };
-use vfs::{File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner};
+use vfs::{File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner, select::PL};
 
 use crate::{AnyInode, Fat32Manager};
 
@@ -146,6 +146,13 @@ impl FsInode for Fat32InodeV {
     }
     fn is_dir(&self) -> bool {
         self.inode.dir().is_ok()
+    }
+    fn ppoll(&self) -> PL {
+        if self.bytes().unwrap() != 0 {
+            PL::POLLIN | PL::POLLOUT
+        } else {
+            PL::POLLOUT
+        }
     }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {

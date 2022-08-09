@@ -1,3 +1,5 @@
+use core::time::Duration;
+
 use alloc::{sync::Arc, vec::Vec};
 use bit_field::BitField;
 use ftl_util::{
@@ -106,6 +108,9 @@ impl Syscall<'_> {
             Ok(set)
         })?;
         if n != 0 || set.is_empty() {
+            return Ok(n);
+        }
+        if matches!(timeout, Some(Duration::ZERO)) {
             return Ok(n);
         }
 

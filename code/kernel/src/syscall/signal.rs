@@ -123,6 +123,48 @@ impl Syscall<'_> {
     pub async fn sys_rt_sigsuspend(&mut self) -> SysRet {
         todo!()
     }
+    pub fn sys_rt_sigaction_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (sig, new_act, old_act, s_size): (
+            u32,
+            UserReadPtr<SigAction>,
+            UserWritePtr<SigAction>,
+            usize,
+        ) = self.cx.into();
+        if PRINT_SYSCALL_SIGNAL {
+            println!(
+                "sys_rt_sigaction sig:{} new_act:{:#x} old_act:{:#x} s_size:{}",
+                sig,
+                new_act.as_usize(),
+                old_act.as_usize(),
+                s_size
+            );
+        }
+        let sig = Sig::from_user(sig)?;
+        debug_assert!(s_size <= SIG_N);
+        let manager = &self.process.signal_manager;
+        if new_act
+            .as_uptr_nullable()
+            .ok_or(SysError::EINVAL)?
+            .is_null()
+        {
+            if let Some(old_act) = old_act.nonnull_mut() {
+                let old = manager.get_sig_action(sig);
+                UserCheck::writable_value_only(old_act)?.store(*old);
+            }
+            return Ok(0);
+        }
+        let new_act = UserCheck::readonly_value_only(new_act)?.load();
+        if PRINT_SYSCALL_SIGNAL {
+            new_act.show();
+        }
+        let mut old = SigAction::zeroed();
+        manager.replace_action(sig, &new_act, &mut old);
+        if let Some(old_act) = old_act.nonnull_mut() {
+            UserCheck::writable_value_only(old_act)?.store(old);
+        }
+        Ok(0)
+    }
     /// 设置信号行为
     ///
     pub async fn sys_rt_sigaction(&mut self) -> SysRet {

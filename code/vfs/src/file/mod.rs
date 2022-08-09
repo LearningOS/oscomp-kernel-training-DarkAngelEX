@@ -154,6 +154,9 @@ impl File for VfsFile {
     fn into_vfs_file(self: Arc<Self>) -> SysR<Arc<VfsFile>> {
         Ok(self)
     }
+    fn ppoll(&self) -> PL {
+        self.fsinode().ppoll()
+    }
     fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
         self.fsinode().block_device()
     }

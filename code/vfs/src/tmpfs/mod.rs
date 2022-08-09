@@ -24,6 +24,7 @@ use crate::{
     fssp::{Fs, FsType},
     inode::FsInode,
     manager::{VfsClock, VfsSpawner},
+    select::PL,
     VfsFile,
 };
 
@@ -158,6 +159,12 @@ impl FsInode for TmpFsInode {
         match self.0.as_ref() {
             TmpFsImpl::Dir(_) => true,
             TmpFsImpl::File(_) => false,
+        }
+    }
+    fn ppoll(&self) -> PL {
+        match self.0.as_ref() {
+            TmpFsImpl::File(f) => f.ppoll(),
+            TmpFsImpl::Dir(_) => unimplemented!(),
         }
     }
     /// Tmpfs不需要detach操作

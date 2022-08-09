@@ -138,7 +138,7 @@ simulation: build
 	qemu-system-riscv64 \
 		-machine virt \
 		-kernel $(KERNEL_BIN) \
-		-m 128M \
+		-m 256M \
 		-nographic \
 		-smp 2 \
 		-bios $(BOOTLOADER_ELF) \

@@ -9,8 +9,8 @@ pub const TIME_INTERRUPT_PER_SEC: usize = 10;
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
-pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(100);
-pub const FS_CACHE_MAX_SIZE: usize = 100;
+pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(200);
+pub const FS_CACHE_MAX_SIZE: usize = 200;
 /// ============================== KERNEL ==============================
 ///
 /// 0x8_0000 = 512KB
@@ -26,9 +26,13 @@ pub const TRAMPOLINE: usize = 0xffff_ffff_ffff_f000;
 pub const HARDWARD_BEGIN: usize = 0xffff_ffff_c000_0000;
 pub const HARDWARD_END: usize = 0xffff_ffff_ffff_f000;
 
-/// 8MB
 /// only used in init pagetable, then need to replace to range MEMORY, 1MB = 0x1_00000
-pub const INIT_MEMORY_SIZE: usize = 0x4000000;
+/// 
+/// 1MB = 0x1_00000
+/// 
+/// 256MB = 0x10000000
+/// 
+pub const INIT_MEMORY_SIZE: usize = 0x10000000;
 pub const INIT_MEMORY_END: usize = KERNEL_TEXT_BEGIN + INIT_MEMORY_SIZE;
 
 /// 1GB

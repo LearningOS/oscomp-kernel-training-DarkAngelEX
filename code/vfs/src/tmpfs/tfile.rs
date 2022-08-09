@@ -15,7 +15,7 @@ use ftl_util::{
     time::{Instant, TimeSpec},
 };
 
-use crate::FsInode;
+use crate::{select::PL, FsInode};
 
 use super::TmpFs;
 
@@ -132,6 +132,13 @@ impl FsInode for TmpFsFile {
     }
     fn is_dir(&self) -> bool {
         false
+    }
+    fn ppoll(&self) -> PL {
+        if self.bytes().unwrap() != 0 {
+            PL::POLLIN | PL::POLLOUT
+        } else {
+            PL::POLLOUT
+        }
     }
     fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
         let (access_time, modify_time) = *self.timer.lock();

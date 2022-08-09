@@ -10,7 +10,7 @@ use ftl_util::{
     time::{Instant, TimeSpec},
 };
 
-use crate::fssp::Fssp;
+use crate::{fssp::Fssp, select::PL};
 
 pub trait FsInode: Send + Sync + 'static {
     // 类型转换
@@ -26,6 +26,9 @@ pub trait FsInode: Send + Sync + 'static {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn is_dir(&self) -> bool;
+    fn ppoll(&self) -> PL {
+        unimplemented!("poll {}", core::any::type_name::<Self>())
+    }
     fn stat_fast(&self, _stat: &mut Stat) -> SysR<()> {
         SysR::Err(SysError::EAGAIN)
     }
