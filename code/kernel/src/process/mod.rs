@@ -1,7 +1,6 @@
 use alloc::{
     string::{String, ToString},
     sync::{Arc, Weak},
-    vec::Vec,
 };
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use ftl_util::{
@@ -185,7 +184,7 @@ impl AliveProcess {
 }
 
 #[cfg(feature = "submit")]
-static RUN_ALL_CASE: &[u8] = include_bytes!("../../run_all_case");
+static RUN_ALL_CASE: &[u8] = include_bytes!("../..//run_all_case");
 #[cfg(not(feature = "submit"))]
 static RUN_ALL_CASE: &[u8] = &[];
 
@@ -194,10 +193,28 @@ pub async fn init() {
     let cwd = fs::open_file((Err(SysError::ENOENT), "/"), OpenFlags::RDONLY, Mode(0o500))
         .await
         .unwrap();
+
+    let args = alloc::vec![initproc.to_string()];
+    let envp = alloc::vec![
+        "SHELL=/user_shell".to_string(),
+        "PWD=/".to_string(),
+        "USER=root".to_string(),
+        "MOTD_SHOWN=pam".to_string(),
+        "LANG=C.UTF-8".to_string(),
+        "INVOCATION_ID=e9500a871cf044d9886a157f53826684".to_string(),
+        "TERM=vt220".to_string(),
+        "SHLVL=2".to_string(),
+        "JOURNAL_STREAM=8:9265".to_string(),
+        "OLDPWD=/root".to_string(),
+        "_=busybox".to_string(),
+        "LOGNAME=root".to_string(),
+        "HOME=/".to_string(),
+        "PATH=/".to_string(),
+        "LD_LIBRARY_PATH=/".to_string(),
+    ];
+
     if cfg!(feature = "submit") {
         println!("running submit program!");
-        let args = alloc::vec![initproc.to_string()];
-        let envp = Vec::new();
         let thread = Thread::new_initproc(cwd, RUN_ALL_CASE, args, envp);
         userloop::spawn(thread);
     } else {
@@ -210,25 +227,7 @@ pub async fn init() {
         .await
         .unwrap();
         let elf_data = inode.read_all().await.unwrap();
-        let args = alloc::vec![initproc.to_string()];
-        let envp = alloc::vec![
-            "SHELL=/user_shell".to_string(),
-            "PWD=/".to_string(),
-            "USER=root".to_string(),
-            "MOTD_SHOWN=pam".to_string(),
-            "LANG=C.UTF-8".to_string(),
-            "INVOCATION_ID=e9500a871cf044d9886a157f53826684".to_string(),
-            "TERM=vt220".to_string(),
-            "SHLVL=2".to_string(),
-            "JOURNAL_STREAM=8:9265".to_string(),
-            "OLDPWD=/root".to_string(),
-            "_=busybox".to_string(),
-            "LOGNAME=root".to_string(),
-            "HOME=/".to_string(),
-            "PATH=/".to_string(),
-            "LD_LIBRARY_PATH=/".to_string(),
-        ];
-        let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
+        let thread = Thread::new_initproc(cwd, &elf_data[..], args, envp);
         userloop::spawn(thread);
     }
     println!("spawn initporc completed");

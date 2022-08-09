@@ -29,38 +29,7 @@ x /2xg 0x1000
 x /1xg 0x1000007760-0x40
 x /1xg 0x10000077a0+0x68
 
-busybox sh ./run-static.sh
-busybox sh ./run-dynamic.sh
-busybox sh ./run-all.sh
-
-./runtest.exe -w entry-static.exe stat
-./runtest.exe -w entry-static.exe pthread_cancel_points
-./runtest.exe -w entry-static.exe pthread_cancel
-./runtest.exe -w entry-static.exe pthread_once_deadlock
-./runtest.exe -w entry-static.exe pthread_cond_smasher
-
-./runtest.exe -w entry-dynamic.exe argv
-./runtest.exe -w entry-dynamic.exe dlopen
-./runtest.exe -w entry-dynamic.exe tls_get_new_dtv
-
 run_all_case
-
-b *0x2000000000+0x69854
-
-dlopen -> load_library
-b *0x2000000000+0x68fdc
-
-dlopen
-b *0x2000000000+0x68e48
-
-watch *0xfffffff08038e008
-
-b *0x424f0
-
-b *0x42534
-
-b *0xffffffff80241440
-b *0xffffffff80241490
 
 busybox sh ./busybox_testcode.sh
 busybox sh ./lmbench_testcode.sh

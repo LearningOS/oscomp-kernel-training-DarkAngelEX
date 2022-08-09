@@ -1,5 +1,8 @@
 #![allow(dead_code)]
 
+#[cfg(feature = "submit")]
+pub const OPEN_DEBUG: bool = false;
+#[cfg(not(feature = "submit"))]
 pub const OPEN_DEBUG: bool = true;
 
 pub const PRINT_MAP_ALL: bool = false;
