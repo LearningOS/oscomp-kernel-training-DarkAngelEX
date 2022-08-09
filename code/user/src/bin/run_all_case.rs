@@ -27,8 +27,8 @@ fn main() -> i32 {
 }
 
 fn run_all_case() {
-    // run_sh("/busybox_testcode.sh\0");
-    // run_sh("/lua_testcode.sh\0");
+    run_sh("/busybox_testcode.sh\0");
+    run_sh("/lua_testcode.sh\0");
     run_sh("/lmbench_testcode.sh\0");
 }
 
