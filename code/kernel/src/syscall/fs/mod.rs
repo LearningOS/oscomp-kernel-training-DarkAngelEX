@@ -30,6 +30,25 @@ const AT_EACCESS: usize = 1 << 9;
 const AT_REMOVEDIR: usize = 1 << 9;
 
 impl Syscall<'_> {
+    pub fn fd_path_impl_fast(
+        &mut self,
+        fd: isize,
+        path: UserReadPtr<u8>,
+    ) -> SysR<(SysR<Arc<VfsFile>>, String)> {
+        let path = UserCheck::array_zero_end_only(path)?.to_vec();
+        let path = String::from_utf8(path)?;
+        let file: SysR<Arc<dyn File>> = if !path::is_absolute_path(&path) {
+            match fd {
+                AT_FDCWD => Ok(self.alive_then(|a| a.cwd.clone())),
+                fd => self
+                    .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())
+                    .ok_or(SysError::EBADF),
+            }
+        } else {
+            Err(SysError::EBADF)
+        };
+        Ok((file.and_then(|v| v.into_vfs_file()), path))
+    }
     pub async fn fd_path_impl(
         &mut self,
         fd: isize,
@@ -51,6 +70,19 @@ impl Syscall<'_> {
             Err(SysError::EBADF)
         };
         Ok((file.and_then(|v| v.into_vfs_file()), path))
+    }
+    pub fn fd_path_open_fast(
+        &mut self,
+        fd: isize,
+        path: UserReadPtr<u8>,
+        flags: OpenFlags,
+        mode: Mode,
+    ) -> SysR<Arc<VfsFile>> {
+        let (base, path) = self.fd_path_impl_fast(fd, path)?;
+        if PRINT_SYSCALL_FS {
+            println!("fd_path_open_fast path: {}", path);
+        }
+        fs::open_file_fast((base, path.as_str()), flags, mode)
     }
     pub async fn fd_path_open(
         &mut self,
@@ -248,9 +280,9 @@ impl Syscall<'_> {
         }
         let buf = UserCheck::readonly_slice_only(buf, len)?;
         let file = self
-            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
-            .ok_or(SysError::EBADF)?;
-        if !file.readable() {
+        .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+        .ok_or(SysError::EBADF)?;
+        if !file.writable() {
             return Err(SysError::EPERM);
         }
         // println!("write_fast: {}", file.type_name());

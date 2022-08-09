@@ -1,7 +1,6 @@
 use crate::{
     console,
     hart::{cpu, sbi},
-    local,
     xdebug::trace,
 };
 use core::panic::PanicInfo;
@@ -28,6 +27,7 @@ fn panic(info: &PanicInfo) -> ! {
     println!("current hart {}", cpu::hart_id());
     #[cfg(feature = "stack_trace")]
     {
+        use crate::local;
         println!("stack_trace hart: {}", cpu::hart_id());
         local::always_local().stack_trace.print_all_stack();
         for i in cpu::hart_range() {

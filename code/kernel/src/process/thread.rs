@@ -31,7 +31,7 @@ use crate::{
         manager::{ProcSignalManager, ThreadSignalManager},
         Sig,
     },
-    sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    sync::{even_bus::EventBus, mutex::SpinLock},
     timer,
     trap::context::UKContext,
     user::check::UserCheck,
@@ -222,7 +222,7 @@ impl Thread {
             pgid,
             event_bus: EventBus::new(),
             signal_manager: ProcSignalManager::new(),
-            alive: Mutex::new(Some(AliveProcess {
+            alive: SpinLock::new(Some(AliveProcess {
                 user_space,
                 cwd,
                 exec_path: String::new(),
@@ -232,7 +232,7 @@ impl Thread {
                 fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(i32::MIN),
-            timer: Mutex::new(ProcessTimer::ZERO),
+            timer: SpinLock::new(ProcessTimer::ZERO),
             thread_count: AtomicUsize::new(1),
         });
         let mut thread = Self {

@@ -79,6 +79,7 @@ const SYSCALL_SETPGID: usize = 154;
 const SYSCALL_GETPGID: usize = 155;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GETRUSAGE: usize = 165;
+const SYSCALL_UMASK: usize = 166;
 const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
@@ -113,7 +114,6 @@ pub struct Syscall<'a> {
     thread: &'a Thread,
     process: &'a Process,
     do_exit: bool,
-    err_skip: bool, // 如果它的值为true, 即使返回了Err也会回到用户态
 }
 
 impl<'a> Syscall<'a> {
@@ -123,7 +123,6 @@ impl<'a> Syscall<'a> {
             thread,
             process,
             do_exit: false,
-            err_skip: false,
         }
     }
     /// return do_exit
@@ -189,6 +188,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETPGID => self.sys_getpgid(),
             SYSCALL_UNAME => self.sys_uname().await,
             SYSCALL_GETRUSAGE => self.sys_getrusage().await,
+            SYSCALL_UMASK => self.sys_umask(),
             SYSCALL_GETTIMEOFDAY => self.sys_gettimeofday().await,
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETPPID => self.sys_getppid(),

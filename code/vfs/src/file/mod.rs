@@ -75,6 +75,9 @@ pub trait File: Send + Sync + 'static {
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysRet {
         Ok(0)
     }
+    fn stat_fast(&self, _stat: &mut Stat) -> SysR<()> {
+        Err(SysError::EAGAIN)
+    }
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move { unimplemented!("stat {}", core::any::type_name::<Self>()) })
     }
@@ -209,6 +212,9 @@ impl File for VfsFile {
     }
     fn write_at<'a>(&'a self, offset: usize, buf: &'a [u8]) -> ASysRet {
         self.fsinode().write_at(buf, (offset, None))
+    }
+    fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
+        self.fsinode().stat_fast(stat)
     }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         self.fsinode().stat(stat)

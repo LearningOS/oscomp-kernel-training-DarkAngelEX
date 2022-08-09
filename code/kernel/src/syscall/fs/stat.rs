@@ -13,6 +13,24 @@ use crate::{
 };
 
 impl Syscall<'_> {
+    pub fn sys_fstat_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, statbuf): (isize, UserWritePtr<Stat>) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!("sys_fstat_fast fd {:?} path {:#x}", fd, statbuf.as_usize());
+        }
+        let buf = UserCheck::writable_value_only(statbuf)?;
+        if fd < 0 {
+            return Err(SysError::EINVAL);
+        }
+        let inode = self
+            .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())
+            .ok_or(SysError::EBADF)?;
+        let mut stat = Stat::zeroed();
+        inode.stat_fast(&mut stat)?;
+        buf.store(stat);
+        Ok(0)
+    }
     pub async fn sys_fstat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, statbuf): (isize, UserWritePtr<Stat>) = self.cx.into();
@@ -63,6 +81,27 @@ impl Syscall<'_> {
         }
         .utimensat(times, timer::now)
         .await?;
+        Ok(0)
+    }
+
+    pub fn sys_newfstatat_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, path, statbuf, flags): (isize, UserReadPtr<u8>, UserWritePtr<Stat>, u32) =
+            self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_newfstatat_fast fd {:?} path {:#x} buf: {:#x} flags: {:#x}",
+                fd,
+                path.as_usize(),
+                statbuf.as_usize(),
+                flags
+            );
+        }
+        let buf = UserCheck::writable_value_only(statbuf)?;
+        let inode = self.fd_path_open_fast(fd, path, OpenFlags::RDONLY, Mode(0o600))?;
+        let mut stat = Stat::zeroed();
+        inode.stat_fast(&mut stat)?;
+        buf.store(stat);
         Ok(0)
     }
     pub async fn sys_newfstatat(&mut self) -> SysRet {

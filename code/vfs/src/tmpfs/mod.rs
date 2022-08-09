@@ -216,10 +216,16 @@ impl FsInode for TmpFsInode {
     ) -> ASysRet {
         self.file().unwrap().write_at(buf, offset_with_ptr)
     }
+    fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
+        match self.0.as_ref() {
+            TmpFsImpl::File(f) => f.stat_fast(stat),
+            TmpFsImpl::Dir(d) => d.stat_fast(stat),
+        }
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         match self.0.as_ref() {
-            TmpFsImpl::Dir(d) => Box::pin(async move { d.stat(stat).await }),
             TmpFsImpl::File(f) => f.stat(stat),
+            TmpFsImpl::Dir(d) => Box::pin(async move { d.stat(stat).await }),
         }
     }
     fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {

@@ -14,6 +14,8 @@ const fn fast_syscall_generate() -> [ENTRY; SYSCALL_MAX] {
     table[SYSCALL_CLOSE] = Some(Syscall::sys_close);
     table[SYSCALL_READ] = Some(Syscall::sys_read_fast);
     table[SYSCALL_WRITE] = Some(Syscall::sys_write_fast);
+    table[SYSCALL_NEWFSTATAT] = Some(Syscall::sys_newfstatat_fast);
+    table[SYSCALL_FSTAT] = Some(Syscall::sys_fstat_fast);
     // table[SYSCALL_FSTAT] = Some(Syscall::sys_getpid);
     table[SYSCALL_CLOCK_GETTIME] = Some(Syscall::sys_clock_gettime_fast);
     table[SYSCALL_GETRUSAGE] = Some(Syscall::sys_getrusage_fast);
@@ -29,11 +31,9 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
     };
     let fast_context = (*cx).fast_context();
     let mut result;
-    let err_skip;
     {
         let mut call = Syscall::new(&mut *cx, fast_context.thread_arc, fast_context.process);
         result = f(&mut call);
-        err_skip = call.err_skip;
     }
 
     if PRINT_SYSCALL_ALL {
@@ -52,11 +52,12 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
             println!("sepc:{:#x}{}", (*cx).user_sepc, reset_color!());
         }
     }
-    if let Err(e) = result {
-        if err_skip {
-            result = Ok(-(e as isize) as usize);
-        }
+    // 快速系统调用失败的两种可能
+    match result {
+        Ok(_) | Err(SysError::EAGAIN) | Err(SysError::EFAULT) => (),
+        Err(e) => result = Ok(-(e as isize) as usize),
     }
+
     match result {
         Ok(a0) => {
             (*cx).set_next_instruction();

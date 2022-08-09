@@ -171,6 +171,15 @@ impl VfsManager {
         path.run_mount_next();
         VfsFile::from_path_arc(path).unwrap()
     }
+    pub fn open_fast(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
+        stack_trace!();
+        if PRINT_OP {
+            println!("open: {}", path.1);
+        }
+        let (path, name) = self.walk_path_fast(path)?;
+        let path = self.walk_name_fast(path, name)?;
+        VfsFile::from_path_arc(path)
+    }
     pub async fn open(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
         stack_trace!();
         if PRINT_OP {

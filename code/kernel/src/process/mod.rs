@@ -14,7 +14,7 @@ use crate::{
     fs, local,
     memory::{asid::Asid, UserSpace},
     signal::manager::ProcSignalManager,
-    sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    sync::{even_bus::EventBus, mutex::SpinLock},
     syscall::{SysError, UniqueSysError},
     xdebug::NeverFail,
 };
@@ -75,9 +75,9 @@ pub struct Process {
     pub pgid: AtomicUsize,
     pub event_bus: Arc<EventBus>,
     pub signal_manager: ProcSignalManager,
-    pub alive: Mutex<Option<AliveProcess>>,
+    pub alive: SpinLock<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
-    pub timer: Mutex<ProcessTimer>,
+    pub timer: SpinLock<ProcessTimer>,
     pub thread_count: AtomicUsize,
 }
 
@@ -160,9 +160,9 @@ impl Process {
             pgid: AtomicUsize::new(self.pgid.load(Ordering::Relaxed)),
             event_bus: EventBus::new(),
             signal_manager: self.signal_manager.fork(),
-            alive: Mutex::new(Some(new_alive)),
+            alive: SpinLock::new(Some(new_alive)),
             exit_code: AtomicI32::new(i32::MIN),
-            timer: Mutex::new(ProcessTimer::ZERO),
+            timer: SpinLock::new(ProcessTimer::ZERO),
             thread_count: AtomicUsize::new(1),
         });
         alive.children.push_child(new_process.clone());

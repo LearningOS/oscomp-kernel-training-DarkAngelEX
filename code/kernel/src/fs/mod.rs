@@ -131,15 +131,28 @@ pub async fn init() {
     ld.write_at(0, b"/\0").await.unwrap();
 
     // 测试性能
+    #[allow(unused_imports)]
     if false {
-        let file = vfs
-            .create((XF, "/tmp/lat_test"), false, (true, true))
-            .await
-            .unwrap();
+        use crate::hart::{sbi, sfence::*};
+        use crate::sync::mutex::*;
+        use crate::user::*;
+        // let file = vfs
+        //     .create((XF, "/tmp/lat_test"), false, (true, true))
+        //     .await
+        //     .unwrap();
+
+        // let mut bt = alloc::collections::BTreeMap::new();
+        // bt.try_insert(0, Arc::new(0)).unwrap();
+        // bt.try_insert(1, Arc::new(1)).unwrap();
+        // bt.try_insert(2, Arc::new(2)).unwrap();
         let start = crate::timer::now();
-        let n = 1000000;
+        let n = 3000;
         for _ in 0..n {
-            file.write_at(0, &[0; 1000]).await.unwrap();
+            let _a = NativeAutoSum::new();
+            let _a = NativeAutoSum::new();
+            // let _a = bt.get(&2).unwrap().clone();
+            // sfence_vma_all_no_global();
+            // sbi::console_putchar(1);
         }
         let end = crate::timer::now();
         let dur = end - start;
@@ -155,6 +168,25 @@ pub async fn init() {
     unsafe {
         VFS_MANAGER = Some(vfs);
     }
+}
+
+pub fn open_file_fast(
+    path: (SysR<Arc<VfsFile>>, &str),
+    flags: OpenFlags,
+    _mode: Mode,
+) -> SysR<Arc<VfsFile>> {
+    stack_trace!();
+    let _sie = AutoSie::new();
+    let rw = flags.read_write()?;
+    let vfs = vfs_manager();
+    if flags.create() {
+        return Err(SysError::EAGAIN);
+    }
+    let file = vfs.open_fast(path)?;
+    if rw.1 && !file.writable() {
+        return Err(SysError::EACCES);
+    }
+    Ok(file)
 }
 
 pub async fn open_file(

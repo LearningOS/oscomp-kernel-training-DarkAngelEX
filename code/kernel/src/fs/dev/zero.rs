@@ -78,18 +78,15 @@ impl FsInode for ZeroInode {
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
-        _offset_with_ptr: (usize, Option<&'a AtomicUsize>),
+        offset_with_ptr: (usize, Option<&'a AtomicUsize>),
     ) -> ASysRet {
-        Box::pin(async move {
-            buf.fill(0);
-            Ok(buf.len())
-        })
+        Box::pin(async move { self.read_at_fast(buf, offset_with_ptr) })
     }
     fn write_at<'a>(
         &'a self,
         buf: &'a [u8],
-        _offset_with_ptr: (usize, Option<&'a AtomicUsize>),
+        offset_with_ptr: (usize, Option<&'a AtomicUsize>),
     ) -> ASysRet {
-        Box::pin(async move { Ok(buf.len()) })
+        Box::pin(async move { self.write_at_fast(buf, offset_with_ptr) })
     }
 }

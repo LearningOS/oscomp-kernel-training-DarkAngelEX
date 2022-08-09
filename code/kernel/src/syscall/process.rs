@@ -482,4 +482,8 @@ impl Syscall<'_> {
         xwrite!(domainname, b"192.168.0.1");
         Ok(0)
     }
+    pub fn sys_umask(&mut self) -> SysRet {
+        let _umask: u32 = self.cx.para1();
+        Ok(0o777)
+    }
 }

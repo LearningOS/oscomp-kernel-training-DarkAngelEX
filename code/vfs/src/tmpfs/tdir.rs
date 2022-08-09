@@ -112,7 +112,7 @@ impl TmpFsDir {
     pub fn writable(&self) -> bool {
         self.writable.load(Ordering::Relaxed)
     }
-    pub async fn stat(&self, stat: &mut Stat) -> SysR<()> {
+    pub fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
         *stat = Stat::zeroed();
         stat.st_dev = unsafe { (*self.fs.as_ptr()).dev as u64 };
         stat.st_ino = self.ino as u64;
@@ -124,5 +124,8 @@ impl TmpFsDir {
         stat.st_rdev = 0;
         stat.st_size = 4096;
         Ok(())
+    }
+    pub async fn stat(&self, stat: &mut Stat) -> SysR<()> {
+        self.stat_fast(stat)
     }
 }

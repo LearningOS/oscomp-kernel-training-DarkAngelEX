@@ -133,29 +133,30 @@ impl FsInode for TmpFsFile {
     fn is_dir(&self) -> bool {
         false
     }
+    fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
+        let (access_time, modify_time) = *self.timer.lock();
+        *stat = Stat::zeroed();
+        stat.st_dev = unsafe { (*self.fs.as_ptr()).dev as u64 };
+        stat.st_ino = self.ino as u64;
+        stat.st_mode = 0o777;
+        stat.st_mode |= S_IFREG;
+        stat.st_nlink = 1;
+        stat.st_uid = 0;
+        stat.st_gid = 0;
+        stat.st_rdev = 0;
+        stat.st_size = self.bytes().unwrap();
+        stat.st_blksize = 512;
+        stat.st_blocks = 0;
+        stat.st_atime = access_time.as_secs() as usize;
+        stat.st_atime_nsec = access_time.subsec_nanos() as usize;
+        stat.st_mtime = modify_time.as_secs() as usize;
+        stat.st_mtime_nsec = modify_time.subsec_nanos() as usize;
+        stat.st_ctime = modify_time.as_secs() as usize;
+        stat.st_ctime_nsec = modify_time.subsec_nanos() as usize;
+        Ok(())
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
-        Box::pin(async move {
-            let (access_time, modify_time) = *self.timer.lock();
-            *stat = Stat::zeroed();
-            stat.st_dev = unsafe { (*self.fs.as_ptr()).dev as u64 };
-            stat.st_ino = self.ino as u64;
-            stat.st_mode = 0o777;
-            stat.st_mode |= S_IFREG;
-            stat.st_nlink = 1;
-            stat.st_uid = 0;
-            stat.st_gid = 0;
-            stat.st_rdev = 0;
-            stat.st_size = self.bytes().unwrap();
-            stat.st_blksize = 512;
-            stat.st_blocks = 0;
-            stat.st_atime = access_time.as_secs() as usize;
-            stat.st_atime_nsec = access_time.subsec_nanos() as usize;
-            stat.st_mtime = modify_time.as_secs() as usize;
-            stat.st_mtime_nsec = modify_time.subsec_nanos() as usize;
-            stat.st_ctime = modify_time.as_secs() as usize;
-            stat.st_ctime_nsec = modify_time.subsec_nanos() as usize;
-            Ok(())
-        })
+        Box::pin(async move { self.stat_fast(stat) })
     }
     fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         Box::pin(async move {

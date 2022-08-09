@@ -26,6 +26,9 @@ pub trait FsInode: Send + Sync + 'static {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn is_dir(&self) -> bool;
+    fn stat_fast(&self, _stat: &mut Stat) -> SysR<()> {
+        SysR::Err(SysError::EAGAIN)
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()>;
     fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysR<()> {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())

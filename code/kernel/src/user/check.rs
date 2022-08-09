@@ -33,6 +33,7 @@ impl<'a> UserCheck<'a> {
             _auto_sum: AutoSum::new(),
         }
     }
+
     pub async fn array_zero_end<T>(&self, ptr: UserReadPtr<T>) -> SysR<UserData<T>>
     where
         T: UserType,
@@ -211,6 +212,47 @@ impl<'a> UserCheck<'a> {
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut().cast(), 1);
         Ok(UserDataMut::new(slice))
     }
+
+    pub fn array_zero_end_only<T>(ptr: UserReadPtr<T>) -> SysR<UserData<T>>
+    where
+        T: UserType,
+    {
+        let _sum = NativeAutoSum::new();
+        // misalign check
+        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
+            return Err(SysError::EFAULT);
+        }
+        let mut uptr = UserAddr::try_from(ptr)?;
+
+        UserCheckImpl::read_check_only(ptr)?;
+        let mut len = 0;
+        let mut ch_is_null = move || {
+            let ch: T = unsafe { *uptr.as_ptr() }; // if access fault, return 0.
+            uptr.add_assign(core::mem::size_of::<T>());
+            ch.is_null()
+        };
+        // check first access
+        if ch_is_null() {
+            let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), 0) };
+            return Ok(UserData::new(slice));
+        } else {
+            len += 1;
+        }
+        loop {
+            let nxt_ptr = ptr.offset(len as isize);
+            if nxt_ptr.as_usize() % PAGE_SIZE == 0 {
+                UserCheckImpl::read_check_only(nxt_ptr)?;
+            }
+            if ch_is_null() {
+                break;
+            }
+            len += 1;
+            // check when first access a page.
+        }
+        let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len) };
+        Ok(UserData::new(slice))
+    }
+
     #[inline]
     pub fn readonly_value_only<T: Copy, P: Read>(ptr: UserPtr<T, P>) -> SysR<UserData<T>> {
         Self::readonly_slice_only(ptr, 1)
