@@ -28,7 +28,7 @@ use crate::{
         mutex::SpinLock,
         SleepMutex,
     },
-    tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM},
+    tools::{container::sync_unsafe_cell::SyncUnsafeCell, error::FrameOOM}, process::thread,
 };
 
 const RING_PAGE: usize = 4;
@@ -193,13 +193,20 @@ impl File for PipeReader {
                 current: 0,
             };
             future.init().await;
+            let mut future = Pin::new(future);
             // return future.await;
             let bus = &local::task_local().thread.process.event_bus;
             let waker = async_tools::take_waker().await;
-            let event_future = even_bus::wait_for_event(bus, Event::RECEIVE_SIGNAL, &waker);
-            match async_tools::Join2Future(future, event_future).await {
-                async_tools::Join2R::First(r) => r,
-                async_tools::Join2R::Second(_e) => Err(SysError::EINTR),
+            loop {
+                let event_future = even_bus::wait_for_event(bus, Event::RECEIVE_SIGNAL, &waker);
+                match async_tools::Join2Future(future.as_mut(), event_future).await {
+                    async_tools::Join2R::First(r) => return r,
+                    async_tools::Join2R::Second(_e) => (),
+                }
+                if local::task_local().thread.have_signal() {
+                    return Err(SysError::EINTR);
+                }
+                thread::yield_now().await;
             }
         })
     }
@@ -289,13 +296,20 @@ impl File for PipeWriter {
                 current: 0,
             };
             future.init().await;
+            let mut future = Pin::new(future);
             // return future.await;
             let bus = &local::task_local().thread.process.event_bus;
             let waker = async_tools::take_waker().await;
-            let event_future = even_bus::wait_for_event(bus, Event::RECEIVE_SIGNAL, &waker);
-            match async_tools::Join2Future(future, event_future).await {
-                async_tools::Join2R::First(r) => r,
-                async_tools::Join2R::Second(_e) => Err(SysError::EINTR),
+            loop {
+                let event_future = even_bus::wait_for_event(bus, Event::RECEIVE_SIGNAL, &waker);
+                match async_tools::Join2Future(future.as_mut(), event_future).await {
+                    async_tools::Join2R::First(r) => return r,
+                    async_tools::Join2R::Second(_e) => (),
+                }
+                if local::task_local().thread.have_signal() {
+                    return Err(SysError::EINTR);
+                }
+                thread::yield_now().await;
             }
         })
     }

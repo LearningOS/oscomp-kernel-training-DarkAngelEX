@@ -12,6 +12,7 @@
 #![feature(core_intrinsics)]
 #![feature(const_for)]
 #![feature(const_try)]
+#![feature(const_assume)]
 #![feature(const_option)]
 #![feature(const_convert)]
 #![feature(const_mut_refs)]

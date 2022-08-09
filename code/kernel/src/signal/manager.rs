@@ -29,6 +29,7 @@ impl ProcSignalManager {
     pub fn recv_id(&self) -> usize {
         unsafe { self.inner.unsafe_get().recv_id }
     }
+    /// 如果信号被接收了, 返回true
     pub fn receive(&self, sig: Sig) {
         self.inner.lock().receive(sig)
     }
@@ -74,6 +75,7 @@ struct ProcSignalManagerInner {
     pending: StdSignalSet, // 等待处理的信号
     realtime: RTQueue,
     action: [SigAction; SIG_N],
+    ignore: SignalSet,
     recv_id: usize,
 }
 
@@ -84,6 +86,7 @@ impl ProcSignalManagerInner {
             pending: StdSignalSet::EMPTY,
             realtime: RTQueue::new(),
             action: SigAction::DEFAULT_SET,
+            ignore: SigAction::DEFAULT_IGNORE,
             recv_id: 0,
         }
     }
@@ -97,10 +100,11 @@ impl ProcSignalManagerInner {
     }
     #[inline]
     pub fn can_take_std_signal(&self, mask: StdSignalSet) -> bool {
-        !(self.pending & !mask).is_empty()
+        !(self.pending & !mask & !self.ignore.std_signal()).is_empty()
     }
     pub fn take_std_signal(&mut self, mask: StdSignalSet) -> ControlFlow<Sig> {
-        (self.pending & !mask).fetch().map_break(|a| {
+        let can_fetch = self.pending & !mask & !self.ignore.std_signal();
+        can_fetch.fetch().map_break(|a| {
             self.pending.clear_sig(a);
             a
         })
@@ -130,12 +134,19 @@ impl ProcSignalManagerInner {
         *old = *dst;
         *dst = *new;
         dst.reset_never_capture(sig);
+        self.ignore = SignalSet::EMPTY;
+        for i in 0..SIG_N_U32 {
+            if self.action[i as usize].get_action(Sig(i)).ignore() {
+                self.ignore.insert_bit(Sig(i));
+            }
+        }
     }
     pub fn fork(&self) -> Self {
         Self {
             pending: self.pending,
             realtime: self.realtime.fork(),
             action: self.action,
+            ignore: self.ignore,
             recv_id: self.recv_id,
         }
     }

@@ -288,6 +288,7 @@ impl Syscall<'_> {
         if !file.writable() {
             return Err(SysError::EPERM);
         }
+        stack_trace!(file.type_name());
         // println!("write_fast: {}", file.type_name());
         file.write_fast(&*buf.access())
     }

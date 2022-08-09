@@ -131,7 +131,7 @@ impl Syscall<'_> {
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
             .collect::<Vec<String>>();
-        if PRINT_SYSCALL_PROCESS {
+        if PRINT_SYSCALL_PROCESS || true {
             println!("execve path {:?} args: {:?}", path, args);
             // println!("envp: {:?}", envp);
         }
