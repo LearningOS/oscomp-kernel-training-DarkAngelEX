@@ -15,6 +15,8 @@ pub const PRINT_DROP_TCB: bool = false; // check drop when becomes zombie
 pub const PRINT_PAGE_FAULT: bool = false;
 pub const PRINT_TICK: bool = false;
 
+pub const PRINT_ABNORMALLY_EXIT: bool = true; // thread Pid(x) Tid(y) terminal abnormally
+
 pub const CLOSE_FRAME_DEALLOC: bool = false;
 pub const CLOSE_HEAP_DEALLOC: bool = false;
 pub const CLOSE_LOCAL_HEAP: bool = false;

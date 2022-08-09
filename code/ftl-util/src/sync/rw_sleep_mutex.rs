@@ -116,6 +116,7 @@ impl<T: ?Sized + Send, S: MutexSupport> RwSleepMutex<T, S> {
             _ => return None,
         };
         lk.status = Status::Shared(n);
+        lk.lazy_init();
         Some(SharedSleepMutexGuard { mutex: self })
     }
     pub fn try_unique_lock(&self) -> Option<impl DerefMut<Target = T> + Send + Sync + '_> {
@@ -125,6 +126,7 @@ impl<T: ?Sized + Send, S: MutexSupport> RwSleepMutex<T, S> {
             _ => return None,
         }
         lk.status = Status::Unique;
+        lk.lazy_init();
         Some(UnqiueSleepMutexGuard { mutex: self })
     }
 }

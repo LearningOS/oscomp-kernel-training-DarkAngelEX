@@ -427,6 +427,20 @@ unsafe fn set_error_handle() {
     }
 }
 
+/// 将陷阱函数设置为用户态检测句柄
+pub(super) struct NativeErrorHandle;
+impl Drop for NativeErrorHandle {
+    fn drop(&mut self) {
+        unsafe { trap::set_kernel_default_trap() };
+    }
+}
+impl NativeErrorHandle {
+    pub unsafe fn new() -> Self {
+        set_error_handle();
+        Self
+    }
+}
+
 // 只有check_impl.S的两个函数可以进入这里, 中断会丢失寄存器信息
 #[no_mangle]
 fn try_access_user_error_debug() {

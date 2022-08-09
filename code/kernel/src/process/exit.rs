@@ -3,7 +3,11 @@ use core::sync::atomic::Ordering;
 use alloc::sync::Weak;
 
 use crate::{
-    local, memory, process::Pid, signal::Sig, sync::even_bus::Event, xdebug::PRINT_SYSCALL_ALL,
+    local, memory,
+    process::Pid,
+    signal::Sig,
+    sync::even_bus::Event,
+    xdebug::{PRINT_ABNORMALLY_EXIT, PRINT_SYSCALL_ALL},
 };
 
 use super::{children::ChildrenSet, search, thread::Thread, Process};
@@ -17,7 +21,7 @@ pub async fn exit_impl(thread: &Thread) {
         print!("thread {:?} {:?} exit", pid, thread.tid());
         println!("{}", reset_color!());
     }
-    if !thread.inner().exited {
+    if PRINT_ABNORMALLY_EXIT && !thread.inner().exited {
         print!("{}", to_red!());
         print!("thread {:?} {:?} terminal abnormally", pid, thread.tid());
         println!("{}", reset_color!());

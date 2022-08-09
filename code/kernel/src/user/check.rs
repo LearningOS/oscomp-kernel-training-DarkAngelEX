@@ -15,7 +15,10 @@ use crate::{
     syscall::SysError,
 };
 
-use super::{check_impl::UserCheckImpl, AutoSum, NativeAutoSum, UserData, UserDataMut, UserType};
+use super::{
+    check_impl::{NativeErrorHandle, UserCheckImpl},
+    AutoSum, NativeAutoSum, UserData, UserDataMut, UserType,
+};
 
 pub struct UserCheck<'a> {
     process: &'a Process,
@@ -223,7 +226,7 @@ impl<'a> UserCheck<'a> {
             return Err(SysError::EFAULT);
         }
         let mut uptr = UserAddr::try_from(ptr)?;
-
+        let _handle = unsafe { NativeErrorHandle::new() };
         UserCheckImpl::read_check_only(ptr)?;
         let mut len = 0;
         let mut ch_is_null = move || {
@@ -265,9 +268,10 @@ impl<'a> UserCheck<'a> {
         if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
             return Err(SysError::EFAULT);
         }
-        let _sum = NativeAutoSum::new();
         let mut cur = UserAddr::try_from(ptr)?.floor();
         let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
+        let _sum = NativeAutoSum::new();
+        let _handle = unsafe { NativeErrorHandle::new() };
         while cur != uend4k {
             let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
             // if error occur will change status by exception
@@ -306,9 +310,10 @@ impl<'a> UserCheck<'a> {
             );
             return Err(SysError::EFAULT);
         }
-        let _sum = NativeAutoSum::new();
         let mut cur = UserAddr::try_from(ptr)?.floor();
         let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
+        let _sum = NativeAutoSum::new();
+        let _handle = unsafe { NativeErrorHandle::new() };
         while cur != uend4k {
             let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
             UserCheckImpl::write_check_only::<u8>(cur_ptr)?;

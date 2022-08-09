@@ -138,6 +138,11 @@ impl Syscall<'_> {
         }
         Ok(0)
     }
+    pub async fn sys_msync(&mut self) -> SysRet {
+        stack_trace!();
+        let (_start, _len, _flags): (UserInOutPtr<()>, usize, u32) = self.cx.into();
+        Ok(0)
+    }
 }
 
 bitflags! {

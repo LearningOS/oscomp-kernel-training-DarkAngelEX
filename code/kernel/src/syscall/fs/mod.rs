@@ -425,7 +425,13 @@ impl Syscall<'_> {
         path::write_path_to(path.iter().map(|s| s.as_ref()), &mut *dst.access_mut());
         Ok(plen.min(size))
     }
-
+    pub fn sys_fsync(&mut self) -> SysRet {
+        let fd: Fd = self.cx.para1();
+        self.process
+            .alive_then(|a| a.fd_table.get(fd).cloned())
+            .ok_or(SysError::EBADF)?;
+        Ok(0)
+    }
     pub async fn sys_mkdirat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, mode): (isize, UserReadPtr<u8>, Mode) = self.cx.into();
