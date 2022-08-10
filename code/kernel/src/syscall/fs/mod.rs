@@ -1,4 +1,4 @@
-use core::{ptr::addr_of_mut, sync::atomic::Ordering};
+use core::sync::atomic::Ordering;
 
 use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
@@ -14,7 +14,7 @@ use crate::{
     syscall::SysError,
     tools::{allocator::from_usize_allocator::FromUsize, path},
     user::check::UserCheck,
-    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
+    xdebug::{PRINT_FS_OPEN_PATH, PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
 };
 pub mod mount;
 mod select;
@@ -47,6 +47,9 @@ impl Syscall<'_> {
         } else {
             Err(SysError::EBADF)
         };
+        if PRINT_FS_OPEN_PATH {
+            println!("fd_path_impl_fast path: {}", path);
+        }
         Ok((file.and_then(|v| v.into_vfs_file()), path))
     }
     pub async fn fd_path_impl(
@@ -69,6 +72,9 @@ impl Syscall<'_> {
         } else {
             Err(SysError::EBADF)
         };
+        if PRINT_FS_OPEN_PATH {
+            println!("fd_path_impl path: {}", path);
+        }
         Ok((file.and_then(|v| v.into_vfs_file()), path))
     }
     pub fn fd_path_open_fast(
@@ -207,9 +213,10 @@ impl Syscall<'_> {
         for (dt, name) in &list[offset..] {
             let ptr = buffer.as_mut_ptr();
             debug_assert_eq!(ptr as usize % align, 0);
+            // 全是指针操作
             unsafe {
                 let dirent_ptr = ptr.cast::<Ddirent>();
-                let name_ptr = addr_of_mut!((*dirent_ptr).d_name).cast::<u8>();
+                let name_ptr = core::ptr::addr_of_mut!((*dirent_ptr).d_name).cast::<u8>();
                 let end_ptr = name_ptr.add(name.len() + 1);
                 let align_add = end_ptr.align_offset(align);
                 let this_len = end_ptr.offset_from(ptr) as usize + align_add;

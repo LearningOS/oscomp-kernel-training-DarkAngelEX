@@ -158,7 +158,6 @@ impl VfsInode {
     }
     /// 给inode增加析构时释放标志
     pub async fn detach(&self) -> SysR<()> {
-        debug_assert!(!self.is_dir());
         self.fsinode.detach().await
     }
     /// 这条路径的子节点不在缓存, 不能unlink目录!

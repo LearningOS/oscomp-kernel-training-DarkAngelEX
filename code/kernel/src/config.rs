@@ -6,11 +6,11 @@ use crate::{memory::address::UserAddr, process::resource::RLimit, tools::range::
 /// how many time interrupt per second
 pub const TIME_INTERRUPT_PER_SEC: usize = 10;
 
-pub const USER_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 2
-pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 4096 * 1
-pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 4096 * 8
-pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(200);
-pub const FS_CACHE_MAX_SIZE: usize = 200;
+pub const USER_STACK_SIZE: usize = PAGE_SIZE * 64; // 
+pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 一开始就映射的用户栈大小
+pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 内核栈大小, 每个CPU一个
+pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(200); // 控制最大文件打开数量等的默认值
+pub const FS_CACHE_MAX_SIZE: usize = 200; // vfs中缓存的inode数量
 /// ============================== KERNEL ==============================
 ///
 /// 0x8_0000 = 512KB
@@ -27,11 +27,11 @@ pub const HARDWARD_BEGIN: usize = 0xffff_ffff_c000_0000;
 pub const HARDWARD_END: usize = 0xffff_ffff_ffff_f000;
 
 /// only used in init pagetable, then need to replace to range MEMORY, 1MB = 0x1_00000
-/// 
+///
 /// 1MB = 0x1_00000
-/// 
+///
 /// 256MB = 0x10000000
-/// 
+///
 pub const INIT_MEMORY_SIZE: usize = 0x10000000;
 pub const INIT_MEMORY_END: usize = KERNEL_TEXT_BEGIN + INIT_MEMORY_SIZE;
 
@@ -76,7 +76,6 @@ pub const USER_HEAP_END: usize = 0x10_0000_0000;
 /// 64GB
 pub const USER_STACK_BEGIN: usize = 0x10_0000_0000;
 pub const USER_STACK_END: usize = 0x20_0000_0000;
-pub const USER_MAX_THREADS: usize = (USER_STACK_END - USER_STACK_BEGIN) / USER_STACK_SIZE;
 
 pub const USER_DYN_BEGIN: usize = 0x20_0000_0000;
 pub const USER_DYN_END: usize = 0x30_0000_0000;
