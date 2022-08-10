@@ -91,6 +91,9 @@ impl ProcSignalManagerInner {
         }
     }
     pub fn receive(&mut self, sig: Sig) {
+        if self.ignore.get_bit(sig) {
+            return;
+        }
         match sig.0 {
             0..32 => self.pending.insert(StdSignalSet::from_sig(sig)),
             32..SIG_N_U32 => self.realtime.receive(sig),

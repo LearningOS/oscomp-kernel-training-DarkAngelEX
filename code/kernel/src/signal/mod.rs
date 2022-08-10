@@ -319,8 +319,8 @@ pub struct SignalStack {
     ss_flags: u32,
     ss_size: usize,
 }
-
 #[derive(Debug)]
+
 pub enum Action {
     Abort,
     Ignore,

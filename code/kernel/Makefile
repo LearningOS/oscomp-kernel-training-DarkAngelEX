@@ -167,9 +167,10 @@ drun: build
 #	-ex 'file ../disk/entry-static.exe'
 #	-ex 'file ../disk/entry-dynamic.exe'
 #	-ex 'file ../init/busybox_debug'
+#	-ex 'file ../init/lmbench_all'
 dgdb:
 	@riscv64-unknown-elf-gdb \
-		-ex 'file ../init/busybox_debug' \
+		-ex 'file ../init/lmbench_all' \
 		-ex 'set arch riscv:rv64' \
 		-ex 'target remote localhost:1234' \
 

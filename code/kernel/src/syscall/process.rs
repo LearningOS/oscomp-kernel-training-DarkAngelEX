@@ -376,10 +376,15 @@ impl Syscall<'_> {
     }
     pub fn sys_exit(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_PROCESS {
-            println!("sys_exit {:?} {:?}", self.process.pid(), self.thread.tid());
-        }
         let exit_code: i32 = self.cx.para1();
+        if PRINT_SYSCALL_PROCESS {
+            println!(
+                "sys_exit {:?} {:?} code {}",
+                self.process.pid(),
+                self.thread.tid(),
+                exit_code
+            );
+        }
         debug_assert!(self.process.pid() != Pid(0), "{}", to_red!("initproc exit"));
         self.process.exit_code.store(exit_code, Ordering::Release);
         self.do_exit = true;
