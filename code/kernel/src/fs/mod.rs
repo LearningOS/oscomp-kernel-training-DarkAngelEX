@@ -16,7 +16,7 @@ use ftl_util::{
 use vfs::{select::PL, DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
 
 use crate::{
-    config::FS_CACHE_MAX_SIZE,
+    config::{FS_CACHE_MAX_SIZE, PAGE_SIZE},
     drivers, executor,
     fs::{
         dev::{null::NullInode, tty::TtyInode, zero::ZeroInode},
@@ -83,9 +83,14 @@ impl DevAlloc for OsDevAllocator {
     }
 }
 
+const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
+
+async fn place_inode(vfs: &VfsManager, path: &str, inode: Box<dyn FsInode>) {
+    vfs.place_inode((XF, path), inode).await.unwrap();
+}
+
 pub async fn init() {
     stack_trace!();
-    const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
     let _sie = AutoSie::new();
     let mut vfs = VfsManager::new(FS_CACHE_MAX_SIZE);
     vfs.init_clock(Box::new(SysClock));
@@ -94,7 +99,7 @@ pub async fn init() {
     vfs.import_fstype(Box::new(ProcType));
     let mut fat32type = Fat32Type::new();
     fat32type.config_list(1000, 1000);
-    fat32type.config_cache(1000, 1000_000);
+    fat32type.config_cache(1000, 1_000_000);
     fat32type.config_node(100);
     vfs.import_fstype(Box::new(fat32type));
     // 挂载几个全局目录, 这些会使用TmpFs常驻内存
@@ -105,34 +110,41 @@ pub async fn init() {
     vfs.set_spec_dentry("usr".to_string());
     vfs.set_spec_dentry("proc".to_string());
 
-    vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
-        .await
-        .unwrap();
-    vfs.place_inode((XF, "/dev/tty"), Box::new(TtyInode))
-        .await
-        .unwrap();
-    vfs.place_inode((XF, "/dev/zero"), Box::new(ZeroInode))
-        .await
-        .unwrap();
-    let device = Box::new(BlockDeviceWraper(drivers::device().clone()));
-    vfs.place_inode((XF, "/dev/sda1"), device).await.unwrap();
+    place_inode(&vfs, "/dev/null", Box::new(NullInode)).await;
+    place_inode(&vfs, "/dev/tty", Box::new(TtyInode)).await;
+    place_inode(&vfs, "/dev/zero", Box::new(ZeroInode)).await;
+    let device = BlockDeviceWraper(drivers::device().clone());
+    place_inode(&vfs, "/dev/sda1", Box::new(device)).await;
     // 挂载FAT32!!!
     vfs.mount((XF, "/dev/sda1"), (XF, "/"), "vfat", 0)
         .await
         .unwrap();
     vfs.mount((XF, ""), (XF, "/proc"), "proc", 0).await.unwrap();
+    // 放置目录
     for path in ["/dev/shm", "/var/tmp", "/dev/misc"] {
         vfs.create((XF, path), true, (true, true)).await.unwrap();
     }
-    vfs.create((XF, "/dev/misc/rtc"), false, (true, true))
-        .await
-        .unwrap();
+    // 放置文件
+    {
+        let path = "/dev/misc/rtc";
+        vfs.create((XF, path), false, (true, true)).await.unwrap();
+    }
     // 写入目录 /etc/ld-musl-riscv64-sf.path
-    let ld = vfs
-        .create((XF, "/etc/ld-musl-riscv64-sf.path"), false, (true, true))
-        .await
-        .unwrap();
-    ld.write_at(0, b"/\0").await.unwrap();
+    {
+        let ld = vfs
+            .create((XF, "/etc/ld-musl-riscv64-sf.path"), false, (true, true))
+            .await
+            .unwrap();
+        ld.write_at(0, b"/\0").await.unwrap();
+
+        let lat_sig = vfs
+            .create((XF, "/lat_sig"), false, (true, true))
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        buf.resize(PAGE_SIZE, 0);
+        lat_sig.write(&buf).await.unwrap();
+    }
 
     // 测试性能
     #[allow(unused_imports)]

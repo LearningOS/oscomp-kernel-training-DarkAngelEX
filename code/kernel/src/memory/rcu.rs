@@ -41,7 +41,7 @@ impl LocalRcuManager {
         self.tick = true;
     }
     fn rec(&mut self) -> bool {
-        unsafe { core::ptr::read_volatile(&mut self.rec) }
+        unsafe { core::ptr::read_volatile(&self.rec) }
     }
     fn set_rec(&mut self) {
         unsafe { core::ptr::write_volatile(&mut self.rec, true) }

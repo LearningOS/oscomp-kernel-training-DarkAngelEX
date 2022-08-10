@@ -13,6 +13,12 @@ pub struct ProcSignalManager {
     inner: SpinNoIrqLock<ProcSignalManagerInner>,
 }
 
+impl Default for ProcSignalManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcSignalManager {
     pub fn new() -> Self {
         Self {
@@ -169,6 +175,13 @@ struct ThreadSignalMailbox {
     send_id: usize,
     realtime: VecDeque<Sig>,
 }
+
+impl Default for ThreadSignalManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreadSignalMailbox {
     pub fn new() -> Self {
         Self {

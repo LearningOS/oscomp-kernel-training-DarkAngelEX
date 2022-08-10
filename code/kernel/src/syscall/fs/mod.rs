@@ -404,13 +404,13 @@ impl Syscall<'_> {
         buf.resize(count, 0);
         if let Some(offset) = offset {
             let off = offset.load();
-            let n = in_file.read_at(off, &mut *buf).await?;
-            out_file.write(&mut buf[..n]).await?;
+            let n = in_file.read_at(off, &mut buf[..]).await?;
+            out_file.write(&buf[..n]).await?;
             offset.store(off + n);
             Ok(n)
         } else {
             let n = in_file.read(&mut buf[..]).await?;
-            out_file.write(&mut buf[..n]).await?;
+            out_file.write(&buf[..n]).await?;
             Ok(n)
         }
     }

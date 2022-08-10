@@ -93,9 +93,8 @@ pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
 
     (*cx).fast_status = FastStatus::Executor;
 
-    match (*cx).scause.cause() {
-        Trap::Exception(Exception::UserEnvCall) => fast::running_syscall(cx),
-        _ => (),
+    if let Trap::Exception(Exception::UserEnvCall) = (*cx).scause.cause() {
+        fast::running_syscall(cx)
     }
 
     if (*cx).fast_status == FastStatus::Success {

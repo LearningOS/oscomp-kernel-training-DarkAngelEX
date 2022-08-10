@@ -158,7 +158,7 @@ impl FastMap {
                 break;
             }
         }
-        return min;
+        min
     }
 }
 
@@ -167,6 +167,12 @@ pub struct FdTable {
     map: FastMap,
     search_start: Fd,
     limit: RLimit,
+}
+
+impl Default for FdTable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FdTable {
@@ -247,7 +253,6 @@ impl FdTable {
         };
         self.map
             .try_insert(fd, node)
-            .ok()
             .expect("FdTable double insert same fd");
         Ok(fd)
     }

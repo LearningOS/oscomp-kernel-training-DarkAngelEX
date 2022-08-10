@@ -44,7 +44,7 @@ impl VfsSpawner for ftl_util::async_tools::tiny_env::Spawner {
         Box::new(self.clone())
     }
     fn spawn(&self, future: Async<'static, ()>) {
-        self.spawn(future)
+        Self::spawn(self, future)
     }
 }
 

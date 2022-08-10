@@ -27,6 +27,7 @@ const PRINT_SYSCALL_SELECT: bool = false || false && PRINT_SYSCALL || PRINT_SYSC
 
 impl Syscall<'_> {
     pub fn sys_pselect6_fast(&mut self) -> SysRet {
+        #[allow(clippy::type_complexity)]
         let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
             usize,
             UserInOutPtr<usize>,
@@ -115,6 +116,7 @@ impl Syscall<'_> {
         Err(SysError::EAGAIN)
     }
     pub async fn sys_pselect6(&mut self) -> SysRet {
+        #[allow(clippy::type_complexity)]
         let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
             usize,
             UserInOutPtr<usize>,
@@ -205,8 +207,8 @@ impl Syscall<'_> {
         let timeout = timeout
             .map(|dur| timer::now() + dur)
             .unwrap_or(Instant::MAX);
-        let mut waker = async_tools::take_waker().await;
-        let ret = TimeoutFuture::new(timeout, SelectFuture::new(set, &mut waker)).await;
+        let waker = async_tools::take_waker().await;
+        let ret = TimeoutFuture::new(timeout, SelectFuture::new(set, &waker)).await;
         let ret = match ret {
             Some(r) => r,
             None => return Ok(0),
@@ -294,8 +296,8 @@ impl Syscall<'_> {
         let timeout = timeout
             .map(|dur| timer::now() + dur)
             .unwrap_or(Instant::MAX);
-        let mut waker = async_tools::take_waker().await;
-        let r = TimeoutFuture::new(timeout, SelectFuture::new(v, &mut waker)).await;
+        let waker = async_tools::take_waker().await;
+        let r = TimeoutFuture::new(timeout, SelectFuture::new(v, &waker)).await;
         let n;
         if let Some(r) = r {
             n = r.len();

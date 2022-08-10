@@ -74,6 +74,7 @@ impl TmpFsFile {
             let end = offset + buf.len();
             if end <= lk.len() {
                 unsafe {
+                    // 写入的原子性毫无意义
                     #[allow(clippy::cast_ref_to_mut)]
                     (*(&lk[offset..end] as *const _ as *mut [u8])).copy_from_slice(buf);
                 }
@@ -83,7 +84,11 @@ impl TmpFsFile {
         let mut lk = self.subs.try_unique_lock().ok_or(SysError::EAGAIN)?;
         let end = offset + buf.len();
         if end > lk.len() {
-            lk.resize(end, 0);
+            // 后面的写入会覆盖无效数据
+            #[allow(clippy::uninit_assumed_init)]
+            lk.resize(end, unsafe {
+                core::mem::MaybeUninit::uninit().assume_init()
+            });
         }
         lk[offset..end].copy_from_slice(buf);
         Ok(buf.len())
@@ -108,6 +113,7 @@ impl TmpFsFile {
             let end = offset + buf.len();
             if end <= lk.len() {
                 unsafe {
+                    // 写入的原子性毫无意义
                     #[allow(clippy::cast_ref_to_mut)]
                     (*(&lk[offset..end] as *const _ as *mut [u8])).copy_from_slice(buf);
                 }
@@ -117,7 +123,11 @@ impl TmpFsFile {
         let mut lk = self.subs.unique_lock().await;
         let end = offset + buf.len();
         if end > lk.len() {
-            lk.resize(end, 0);
+            // 后面的写入会覆盖无效数据
+            #[allow(clippy::uninit_assumed_init)]
+            lk.resize(end, unsafe {
+                core::mem::MaybeUninit::uninit().assume_init()
+            });
         }
         lk[offset..end].copy_from_slice(buf);
         Ok(buf.len())

@@ -203,6 +203,12 @@ impl Drop for TempQueue {
     }
 }
 
+impl Default for TempQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TempQueue {
     pub fn new() -> Self {
         let mut v = Box::new(ListNode::new(Node::new(0, None)));

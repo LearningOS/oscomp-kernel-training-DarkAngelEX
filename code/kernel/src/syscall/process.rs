@@ -275,7 +275,7 @@ impl Syscall<'_> {
             let _event = even_bus::wait_for_event(
                 event_bus,
                 Event::CHILD_PROCESS_QUIT,
-                &waker.as_ref().unwrap(),
+                waker.as_ref().unwrap(),
             )
             .await;
             event_bus.clear(Event::CHILD_PROCESS_QUIT).unwrap();

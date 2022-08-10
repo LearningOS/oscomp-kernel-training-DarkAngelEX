@@ -5,11 +5,11 @@ use super::*;
 const SYSCALL_MAX: usize = 400;
 
 /// 返回Err的时候进入async路径
-type ENTRY = Option<fn(&mut Syscall<'static>) -> SysRet>;
-pub static FAST_SYSCALL_TABLE: [ENTRY; SYSCALL_MAX] = fast_syscall_generate();
+type Entry = Option<fn(&mut Syscall<'static>) -> SysRet>;
+pub static FAST_SYSCALL_TABLE: [Entry; SYSCALL_MAX] = fast_syscall_generate();
 
-const fn fast_syscall_generate() -> [ENTRY; SYSCALL_MAX] {
-    let mut table: [ENTRY; SYSCALL_MAX] = [None; SYSCALL_MAX];
+const fn fast_syscall_generate() -> [Entry; SYSCALL_MAX] {
+    let mut table: [Entry; SYSCALL_MAX] = [None; SYSCALL_MAX];
     table[SYSCALL_DUP] = Some(Syscall::sys_dup);
     table[SYSCALL_OPENAT] = Some(Syscall::sys_openat_fast);
     table[SYSCALL_CLOSE] = Some(Syscall::sys_close);
@@ -77,12 +77,9 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
         Err(e) => result = Ok(-(e as isize) as usize),
     }
 
-    match result {
-        Ok(a0) => {
-            (*cx).set_next_instruction();
-            (*cx).set_user_a0(a0);
-            (*cx).fast_status = FastStatus::Success;
-        }
-        Err(_) => return,
+    if let Ok(a0) = result {
+        (*cx).set_next_instruction();
+        (*cx).set_user_a0(a0);
+        (*cx).fast_status = FastStatus::Success;
     }
 }

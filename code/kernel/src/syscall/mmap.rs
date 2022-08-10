@@ -22,7 +22,7 @@ impl Syscall<'_> {
         stack_trace!();
         let (addr, len, prot, flags, fd, offset): (UserInOutPtr<()>, usize, u32, u32, Fd, usize) =
             self.cx.into();
-        const PRINT_THIS: bool = false;
+        const PRINT_THIS: bool = true;
         let len = len.max(PAGE_SIZE);
         // TODO: other flags
         let prot = MmapProt::from_bits(prot).unwrap();

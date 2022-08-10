@@ -51,6 +51,12 @@ pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
 }
 
+impl Default for ThreadGroup {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreadGroup {
     pub fn new() -> Self {
         Self {

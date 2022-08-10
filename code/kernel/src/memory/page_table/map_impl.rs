@@ -114,7 +114,7 @@ impl PageTable {
         return_or_check!(pte, pte.is_leaf());
         pte_fn(pte);
     }
-    /// 返回的 pte 一定包含 V 标志位
+    /// 尝试获取addr对应的有效页表项(含V标志位), 如果未分配返回None
     pub fn try_get_pte_user(&mut self, addr: UserAddr4K) -> Option<&mut PageTableEntry> {
         stack_trace!();
         macro_rules! return_or_check {
@@ -135,8 +135,9 @@ impl PageTable {
         return_or_check!(pte, pte.is_directory());
         let pte = next_pte(pte.phy_addr(), x[2]);
         return_or_check!(pte, pte.is_leaf());
-        unsafe { Some(&mut *(pte as *mut _)) }
+        Some(pte)
     }
+    /// 获取addr的页表项(可能无效), 如果根页表未分配则用allocator分配
     pub fn get_pte_user(
         &mut self,
         addr: UserAddr4K,
@@ -158,9 +159,11 @@ impl PageTable {
         let pte = next_pte(pte.phy_addr(), x[2]);
         Ok(pte)
     }
-    /// if range have been map will panic.
+    /// 将map_area的内存映射进页表, 空间必须已经分配
     ///
-    /// return Err if out of memory
+    /// # panic
+    ///
+    /// 如果area已经存在了映射将panic
     pub fn map_user_range(
         &mut self,
         map_area: &UserArea,
@@ -193,9 +196,9 @@ impl PageTable {
 
         /// return value:
         ///
-        /// Ok: next ua
+        /// `Ok`: next ua
         ///
-        /// Err: err ua, There is no space assigned to this location
+        /// `Err`: err ua, There is no space assigned to this location
         #[inline(always)]
         fn map_user_range_0(
             ptes: &mut [PageTableEntry; 512],
