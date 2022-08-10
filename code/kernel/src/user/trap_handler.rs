@@ -8,6 +8,7 @@ use riscv::register::scause::Exception;
 use crate::{
     memory::{address::UserAddr, allocator::frame, AccessType},
     process::thread::Thread,
+    signal::{Action, Sig, SIGSEGV},
     tools::xasync::TryRunFail,
     xdebug::PRINT_PAGE_FAULT,
 };
@@ -64,11 +65,9 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             Err(TryRunFail::Error(e)) => Err(e),
         }
     };
+    let mut handle_fail = false;
     match rv() {
-        Err(e) => {
-            println!("page fault handle fail: {:?}", e);
-            user_fatal_error()
-        }
+        Err(_e) => handle_fail = true,
         Ok(Ok(flush)) => {
             if PRINT_PAGE_FAULT {
                 println!("{}", to_green!("success handle exception"));
@@ -84,8 +83,15 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
                         println!("{}", to_green!("success handle exception by async"));
                     }
                 }
-                Err(_e) => user_fatal_error(),
+                Err(_e) => handle_fail = true,
             }
+        }
+    }
+    if handle_fail {
+        let segv = Sig::from_user(SIGSEGV as u32).unwrap();
+        match thread.process.signal_manager.get_action(segv).0 {
+            Action::Handler(_, _) => thread.receive(segv),
+            _ => user_fatal_error(),
         }
     }
     do_exit

@@ -27,8 +27,8 @@ impl ProcSignalManager {
     }
     pub fn have_signal(&self, mask: &SignalSet, recv_id: usize) -> bool {
         let inner = unsafe { self.inner.unsafe_get() };
-        if recv_id == inner.recv_id {
-            return false;
+        if recv_id != inner.recv_id {
+            return true;
         }
         inner.can_take_std_signal(mask.std_signal()) || inner.can_take_rt_signal(mask)
     }
@@ -291,8 +291,8 @@ impl ThreadSignalManager {
     #[inline]
     pub fn have_signal(&self) -> bool {
         let send_id = unsafe { self.mailbox.unsafe_get().send_id };
-        if send_id == self.recv_id {
-            return false; // 99% 的情况
+        if send_id != self.recv_id {
+            return true;
         }
         if !(self.std_pending & !self.signal_mask.std_signal()).is_empty() {
             return true;

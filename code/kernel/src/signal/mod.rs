@@ -14,7 +14,7 @@ use crate::{
     signal::context::SignalContext,
     sync::even_bus::Event,
     user::check::UserCheck,
-    xdebug::{LIMIT_SIGNAL_COUNT, PRINT_SYSCALL_ALL},
+    xdebug::{LIMIT_SIGNAL_COUNT, PRINT_HANDLE_SIGNAL, PRINT_SYSCALL_ALL},
 };
 
 /// 为了提高效率, Sig相比信号值都减去了1
@@ -414,6 +414,7 @@ static mut HANDLE_CNT: usize = LIMIT_SIGNAL_COUNT.unwrap_or(0);
 pub fn have_signal(thread: &mut ThreadInner, process: &Process) -> bool {
     let tsm = &mut thread.signal_manager;
     let psm = &process.signal_manager;
+
     tsm.have_signal() || psm.have_signal(tsm.mask(), tsm.proc_recv_id)
 }
 ///
@@ -433,6 +434,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         tsm.take_std_signal()?;
         psm.take_std_signal(mask.std_signal())?;
         tsm.take_rt_signal()?;
+
         psm.take_rt_signal(&mask)?;
     };
     tsm.proc_recv_id = psm.recv_id();
@@ -442,7 +444,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
     };
     let (act, sig_mask) = psm.get_action(signal);
     // 找到了一个待处理信号
-    if PRINT_SYSCALL_ALL {
+    if PRINT_SYSCALL_ALL || PRINT_HANDLE_SIGNAL {
         println!(
             "handle_signal - find signal: {:?} sepc: {:#x} act: {:?}",
             signal, thread.uk_context.user_sepc, act
@@ -461,7 +463,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
             }
         }
     }
-    if PRINT_SYSCALL_ALL {
+    if PRINT_SYSCALL_ALL || PRINT_HANDLE_SIGNAL {
         println!("handle_signal - handler: {:#x} ra: {:#x}", handler, ra);
     }
     // 使用handler的信号处理

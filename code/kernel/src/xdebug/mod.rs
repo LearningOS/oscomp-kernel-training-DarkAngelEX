@@ -15,9 +15,10 @@ pub const PRINT_SYSCALL_ALL: bool = false;
 pub const PRINT_SYSCALL: bool = false;
 pub const PRINT_SYSCALL_RW: bool = false; // 输出 read 和 write 系统调用
 pub const PRINT_SYSCALL_ERR: bool = false; // 当系统调用返回Err时输出, 只在PRINT_SYSCALL_ALL=false时有效
-pub const PRINT_FS_OPEN_PATH: bool = false;
+pub const PRINT_FS_OPEN_PATH: bool = false; // 输出所有对VFS的访问路径
 pub const PRINT_DROP_TCB: bool = false; // check drop when becomes zombie
 pub const PRINT_PAGE_FAULT: bool = false;
+pub const PRINT_HANDLE_SIGNAL: bool = false;
 pub const PRINT_TICK: bool = false;
 
 pub const PRINT_ABNORMALLY_EXIT: bool = false; // thread Pid(x) Tid(y) terminal abnormally
