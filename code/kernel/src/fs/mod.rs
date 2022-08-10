@@ -91,8 +91,12 @@ pub async fn init() {
     vfs.init_clock(Box::new(SysClock));
     vfs.init_spawner(Box::new(SysSpawner));
     vfs.init_devalloc(Box::new(OsDevAllocator));
-    vfs.import_fstype(Box::new(Fat32Type::new()));
     vfs.import_fstype(Box::new(ProcType));
+    let mut fat32type = Fat32Type::new();
+    fat32type.config_list(1000, 1000);
+    fat32type.config_cache(1000, 1000_000);
+    fat32type.config_node(100);
+    vfs.import_fstype(Box::new(fat32type));
     // 挂载几个全局目录, 这些会使用TmpFs常驻内存
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("etc".to_string());

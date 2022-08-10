@@ -5,7 +5,7 @@ use ftl_util::error::SysRet;
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
     trap::context::UKContext,
-    xdebug::{PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
+    xdebug::{PRINT_SYSCALL_ALL, PRINT_SYSCALL_ERR, PRINT_SYSCALL_RW},
 };
 
 pub mod fast;
@@ -229,6 +229,19 @@ impl<'a> Syscall<'a> {
             // Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
+        if !PRINT_SYSCALL_ALL && PRINT_SYSCALL_ERR {
+            if let Err(e) = result {
+                println!(
+                    "{}{:?} syscall {} -> {:?} sepc:{:#x}{}",
+                    to_yellow!(),
+                    self.thread.tid(),
+                    self.cx.a7(),
+                    e,
+                    self.cx.user_sepc,
+                    reset_color!()
+                );
+            }
+        }
         if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
             if PRINT_SYSCALL_RW || ![63, 64].contains(&self.cx.a7()) {

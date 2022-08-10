@@ -261,6 +261,16 @@ impl<'a> UserCheck<'a> {
         Self::readonly_slice_only(ptr, 1)
     }
     #[inline]
+    pub fn readonly_value_only_nullable<T: Copy, P: Read>(
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::readonly_slice_only(ptr, 1)).transpose()
+        }
+    }
+    #[inline]
     pub fn readonly_slice_only<T: Copy, P: Read>(
         ptr: UserPtr<T, P>,
         len: usize,
@@ -295,6 +305,16 @@ impl<'a> UserCheck<'a> {
     #[inline]
     pub fn writable_value_only<T: Copy, P: Write>(ptr: UserPtr<T, P>) -> SysR<UserDataMut<T>> {
         Self::writable_slice_only(ptr, 1)
+    }
+    #[inline]
+    pub fn writable_value_only_nullable<T: Copy, P: Write>(
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::writable_slice_only(ptr, 1)).transpose()
+        }
     }
     #[inline]
     pub fn writable_slice_only<T: Copy, P: Write>(

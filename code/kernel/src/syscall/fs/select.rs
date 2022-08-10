@@ -19,13 +19,101 @@ use crate::{
     signal::SignalSet,
     syscall::Syscall,
     timer::{self, sleep::TimeoutFuture},
-    user::check::UserCheck,
+    user::{check::UserCheck, NativeAutoSum},
     xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL},
 };
 
 const PRINT_SYSCALL_SELECT: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 impl Syscall<'_> {
+    pub fn sys_pselect6_fast(&mut self) -> SysRet {
+        let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
+            usize,
+            UserInOutPtr<usize>,
+            UserInOutPtr<usize>,
+            UserInOutPtr<usize>,
+            UserReadPtr<TimeSpec>,
+            UserReadPtr<SignalSet>,
+        ) = self.cx.into();
+        if nfds == 0 {
+            return Err(SysError::EINVAL);
+        }
+        let arr_n = nfds.div_ceil(usize::BITS as usize);
+        let sum = NativeAutoSum::new();
+
+        let r = UserCheck::writable_slice_only_nullable(readfds, arr_n)?;
+        let w = UserCheck::writable_slice_only_nullable(writefds, arr_n)?;
+        let e = UserCheck::writable_slice_only_nullable(exceptfds, arr_n)?;
+        let timeout =
+            UserCheck::readonly_value_only_nullable(timeout)?.map(|a| a.load().as_duration());
+
+        let _sigset = UserCheck::readonly_value_only_nullable(sigmask)?
+            .map(|a| a.load())
+            .unwrap_or_else(|| *self.thread.inner().signal_manager.mask());
+
+        drop(sum);
+
+        if PRINT_SYSCALL_SELECT {
+            println!(
+                "sys_pselect6_fast nfds: {} r: {:#x} w: {:#x} e: {:#x} timeout: {:?}",
+                nfds,
+                r.as_ref().map(|v| v.access()[0]).unwrap_or(0),
+                w.as_ref().map(|v| v.access()[0]).unwrap_or(0),
+                e.as_ref().map(|v| v.access()[0]).unwrap_or(0),
+                timeout.map(|a| (a.as_secs(), a.subsec_nanos()))
+            );
+        }
+
+        let mut n = 0;
+        let file_n = self.alive_then(|a| -> SysR<usize> {
+            fn check_impl(
+                file_n: &mut usize,
+                a: &mut AliveProcess,
+                ran: &mut [usize],
+                events: PL,
+            ) -> SysR<usize> {
+                let mut n = 0;
+                for (i, pv) in ran.iter_mut().enumerate() {
+                    let mut v = *pv;
+                    let mut r = 0;
+                    while v != 0 {
+                        let place = v.trailing_zeros() as usize;
+                        debug_assert!(v.get_bit(place));
+                        v.set_bit(place, false);
+                        let fd = i * usize::BITS as usize + place;
+                        let f = a.fd_table.get(Fd(fd)).ok_or(SysError::EBADF)?;
+                        let cur = f.ppoll();
+                        if cur.intersects(PL::POLLFAIL | events) {
+                            n += 1;
+                            r.set_bit(place, true);
+                            continue;
+                        }
+                        *file_n += 1;
+                    }
+                    *pv = r;
+                }
+                Ok(n)
+            }
+            let mut file_n = 0;
+            if let Some(r) = r.as_ref() {
+                n += check_impl(&mut file_n, a, &mut *r.access_mut(), PL::POLLIN)?;
+            }
+            if let Some(w) = w.as_ref() {
+                n += check_impl(&mut file_n, a, &mut *w.access_mut(), PL::POLLOUT)?;
+            }
+            if let Some(e) = e.as_ref() {
+                n += check_impl(&mut file_n, a, &mut *e.access_mut(), PL::POLLPRI)?;
+            }
+            Ok(file_n)
+        })?;
+        if n != 0 || file_n == 0 {
+            return Ok(n);
+        }
+        if matches!(timeout, Some(Duration::ZERO)) {
+            return Ok(n);
+        }
+        Err(SysError::EAGAIN)
+    }
     pub async fn sys_pselect6(&mut self) -> SysRet {
         let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
             usize,
@@ -48,6 +136,12 @@ impl Syscall<'_> {
             .await?
             .map(|a| a.load().as_duration());
 
+        let _sigset = uc
+            .readonly_value_nullable(sigmask)
+            .await?
+            .map(|a| a.load())
+            .unwrap_or_else(|| *self.thread.inner().signal_manager.mask());
+
         if PRINT_SYSCALL_SELECT {
             println!(
                 "sys_pselect6 nfds: {} r: {:#x} w: {:#x} e: {:#x} timeout: {:?}",
@@ -58,12 +152,6 @@ impl Syscall<'_> {
                 timeout.map(|a| (a.as_secs(), a.subsec_nanos()))
             );
         }
-
-        let _sigset = uc
-            .readonly_value_nullable(sigmask)
-            .await?
-            .map(|a| a.load())
-            .unwrap_or_else(|| *self.thread.inner().signal_manager.mask());
 
         let mut n = 0;
         let set = self.alive_then(|a| -> SysR<Vec<_>> {

@@ -18,22 +18,51 @@ use ftl_util::{
     },
     time::{Instant, TimeSpec},
 };
-use vfs::{File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner, select::PL};
+use vfs::{select::PL, File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner};
 
 use crate::{AnyInode, Fat32Manager};
 
-pub struct Fat32Type;
+pub struct Fat32Type {
+    list_max_dirty: usize,
+    list_max_cache: usize,
+    block_max_dirty: usize,
+    block_max_cache: usize,
+    inode_target_free: usize,
+}
+
+impl Fat32Type {
+    pub const fn new() -> Self {
+        Self {
+            list_max_dirty: 100,
+            list_max_cache: 100,
+            block_max_dirty: 100,
+            block_max_cache: 100,
+            inode_target_free: 100,
+        }
+    }
+    pub fn config_list(&mut self, list_max_dirty: usize, list_max_cache: usize) {
+        self.list_max_dirty = list_max_dirty;
+        self.list_max_cache = list_max_cache;
+    }
+    pub fn config_cache(&mut self, block_max_dirty: usize, block_max_cache: usize) {
+        self.block_max_dirty = block_max_dirty;
+        self.block_max_cache = block_max_cache;
+    }
+    pub fn config_node(&mut self, inode_target_free: usize) {
+        self.inode_target_free = inode_target_free;
+    }
+}
 
 impl FsType for Fat32Type {
     fn name(&self) -> String {
         "vfat".to_string()
     }
     fn new_fs(&self, dev: usize) -> Box<dyn Fs> {
-        let list_max_dirty = 100;
-        let list_max_cache = 100;
-        let block_max_dirty = 100;
-        let block_max_cache = 100;
-        let inode_target_free = 100;
+        let list_max_dirty = self.list_max_dirty;
+        let list_max_cache = self.list_max_cache;
+        let block_max_dirty = self.block_max_dirty;
+        let block_max_cache = self.block_max_cache;
+        let inode_target_free = self.inode_target_free;
         let manager = Fat32Manager::new(
             dev,
             list_max_dirty,
@@ -43,16 +72,6 @@ impl FsType for Fat32Type {
             inode_target_free,
         );
         Box::new(Fat32 { manager })
-    }
-}
-impl const Default for Fat32Type {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-impl Fat32Type {
-    pub const fn new() -> Self {
-        Self
     }
 }
 

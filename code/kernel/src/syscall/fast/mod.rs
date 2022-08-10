@@ -15,6 +15,7 @@ const fn fast_syscall_generate() -> [ENTRY; SYSCALL_MAX] {
     table[SYSCALL_CLOSE] = Some(Syscall::sys_close);
     table[SYSCALL_READ] = Some(Syscall::sys_read_fast);
     table[SYSCALL_WRITE] = Some(Syscall::sys_write_fast);
+    table[SYSCALL_PSELECT6] = Some(Syscall::sys_pselect6_fast);
     table[SYSCALL_NEWFSTATAT] = Some(Syscall::sys_newfstatat_fast);
     table[SYSCALL_FSTAT] = Some(Syscall::sys_fstat_fast);
     table[SYSCALL_CLOCK_GETTIME] = Some(Syscall::sys_clock_gettime_fast);
@@ -37,6 +38,21 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
     {
         let mut call = Syscall::new(&mut *cx, fast_context.thread_arc, fast_context.process);
         result = f(&mut call);
+    }
+    if !PRINT_SYSCALL_ALL && PRINT_SYSCALL_ERR {
+        if let Err(e) = result {
+            if !matches!(e, SysError::EAGAIN | SysError::EFAULT) {
+                println!(
+                    "{}{:?} fast syscall {} -> {:?} sepc:{:#x}{}",
+                    to_yellow!(),
+                    fast_context.thread.tid(),
+                    (*cx).a7(),
+                    e,
+                    (*cx).user_sepc,
+                    reset_color!()
+                );
+            }
+        }
     }
 
     if PRINT_SYSCALL_ALL {
