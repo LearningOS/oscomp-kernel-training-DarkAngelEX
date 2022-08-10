@@ -47,7 +47,7 @@ pub trait File: Send + Sync + 'static {
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn can_mmap(&self) -> bool {
-        self.can_read_offset() && self.can_write_offset()
+        self.can_read_offset()
     }
     fn can_read_offset(&self) -> bool {
         false

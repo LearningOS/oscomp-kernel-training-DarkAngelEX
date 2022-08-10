@@ -2,9 +2,8 @@
 echo latency measurements
 busybox mkdir -p /var/tmp
 busybox touch /var/tmp/lmbench
-lmbench_all lat_sig -P 1 catch
 
-lmbench_all lat_sig -P 1 prot lat_sig
+lmbench_all lat_sig -P 1 prot lat_sig  # 缺少文件
 busybox cp hello /tmp
 lmbench_all lat_proc -P 1 shell
 lmbench_all lmdd label="File /var/tmp/XXX write bandwidth:" of=/var/tmp/XXX move=1m fsync=1 print=3

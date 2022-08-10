@@ -29,7 +29,7 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 
 
 [features]
-default = []
+# default = []
 # default = ["submit"]
 # default = ["stack_trace"]
 # default = ["stack_trace", "submit"]

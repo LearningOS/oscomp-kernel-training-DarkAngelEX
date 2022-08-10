@@ -568,7 +568,7 @@ impl Syscall<'_> {
             println!("sys_ioctl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
         self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())
-            .ok_or(SysError::ENFILE)?
+            .ok_or(SysError::EBADF)?
             .ioctl(cmd, arg)
     }
     pub async fn sys_syslog(&mut self) -> SysRet {

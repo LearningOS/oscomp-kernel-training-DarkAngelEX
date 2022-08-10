@@ -45,9 +45,15 @@ impl Syscall<'_> {
         };
         let mut alive = self.alive_lock();
         let file = if !flags.contains(MmapFlags::ANONYMOUS) {
-            let file = alive.fd_table.get(fd).ok_or(SysError::ENFILE)?;
+            let file = alive.fd_table.get(fd).ok_or(SysError::EBADF)?;
             if !file.can_mmap() {
-                return Err(SysError::EBADF);
+                println!(
+                    "mmap error! {} {} {}",
+                    file.type_name(),
+                    file.can_read_offset(),
+                    file.readable()
+                );
+                return Err(SysError::EPERM);
             }
             Some(file.clone())
         } else {

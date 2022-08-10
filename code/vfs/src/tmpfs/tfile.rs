@@ -32,9 +32,9 @@ unsafe impl Send for TmpFsFile {}
 unsafe impl Sync for TmpFsFile {}
 
 impl TmpFsFile {
-    pub(super) fn new((r, w): (bool, bool), ino: usize, fs: NonNull<TmpFs>) -> Self {
+    pub(super) fn new((_r, w): (bool, bool), ino: usize, fs: NonNull<TmpFs>) -> Self {
         Self {
-            readable: AtomicBool::new(r),
+            readable: AtomicBool::new(true),
             writable: AtomicBool::new(w),
             subs: RwSleepMutex::new(Vec::new()),
             timer: SpinMutex::new((Instant::BASE, Instant::BASE)),
@@ -123,6 +123,7 @@ impl TmpFsFile {
         Ok(buf.len())
     }
 }
+
 impl FsInode for TmpFsFile {
     fn readable(&self) -> bool {
         self.readable.load(Ordering::Relaxed)
