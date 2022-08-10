@@ -184,21 +184,27 @@ impl MapSegment {
             .get_mut(addr)
             .ok_or(TryRunFail::Error(SysError::EFAULT))?;
 
+
         let pt = pt!(self);
         let pte = match pt.try_get_pte_user(addr) {
+            // 这个页还没有被映射, 映射一个唯一页
             None => return h.page_fault(pt, addr, access, allocator),
             Some(a) => a,
         };
+
+        // 如果pte没有X标志位, 那一定是用户故意的, 操作失败
         if access.exec {
             debug_assert!(!h.executable());
             debug_assert!(!pte.executable());
             return Err(TryRunFail::Error(SysError::EFAULT));
         }
-        assert!(access.write);
+        debug_assert!(access.write);
         if !h.unique_writable() {
+            // 此pte禁止写入操作
             return Err(TryRunFail::Error(SysError::EFAULT));
         }
-        assert!(pte.shared());
+        // COW操作
+        debug_assert!(pte.shared());
         if self.sc_manager.try_remove_unique(addr) {
             if PRINT_PAGE_FAULT {
                 println!("this shared page is unique");
@@ -274,7 +280,7 @@ impl MapSegment {
     }
     /// 共享优化 fork
     ///
-    /// 发生错误时回退到执行前的状态
+    /// 发生错误时回退到执行前的状态, 不会让操作系统崩掉
     ///
     /// 将写标志位设置为 may_shared()
     pub fn fork(&mut self) -> SysR<Self> {
