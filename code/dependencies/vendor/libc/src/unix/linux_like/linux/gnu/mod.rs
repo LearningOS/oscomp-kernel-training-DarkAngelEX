@@ -1025,6 +1025,8 @@ pub const STATX_ATTR_NODUMP: ::c_int = 0x0040;
 pub const STATX_ATTR_ENCRYPTED: ::c_int = 0x0800;
 pub const STATX_ATTR_AUTOMOUNT: ::c_int = 0x1000;
 
+pub const SOMAXCONN: ::c_int = 4096;
+
 //sys/timex.h
 pub const ADJ_OFFSET: ::c_uint = 0x0001;
 pub const ADJ_FREQUENCY: ::c_uint = 0x0002;
@@ -1305,8 +1307,6 @@ extern "C" {
         buflen: ::size_t,
         result: *mut *mut ::group,
     ) -> ::c_int;
-    pub fn pthread_getname_np(thread: ::pthread_t, name: *mut ::c_char, len: ::size_t) -> ::c_int;
-    pub fn pthread_setname_np(thread: ::pthread_t, name: *const ::c_char) -> ::c_int;
 
     pub fn sethostid(hostid: ::c_long) -> ::c_int;
 

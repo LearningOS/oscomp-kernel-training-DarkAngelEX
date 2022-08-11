@@ -529,6 +529,8 @@ pub const MAP_ANONYMOUS: ::c_int = MAP_ANON;
 pub const SOCK_DCCP: ::c_int = 6;
 pub const SOCK_PACKET: ::c_int = 10;
 
+pub const SOMAXCONN: ::c_int = 128;
+
 #[deprecated(since = "0.2.55", note = "Use SIGSYS instead")]
 pub const SIGUNUSED: ::c_int = ::SIGSYS;
 
@@ -751,6 +753,7 @@ extern "C" {
 
     pub fn memfd_create(name: *const ::c_char, flags: ::c_uint) -> ::c_int;
     pub fn mlock2(addr: *const ::c_void, len: ::size_t, flags: ::c_uint) -> ::c_int;
+    pub fn malloc_usable_size(ptr: *mut ::c_void) -> ::size_t;
 }
 
 cfg_if! {
