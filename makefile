@@ -7,5 +7,5 @@ native:
 
 all:
 	cd $(USER_DIR) && make submit ADD_ARGS='--offline'
-	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "board_hifive submit"'
+	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "board_hifive submit"' MODE=release
 	cp $(KERNEL_DIR)/os.bin ./os.bin

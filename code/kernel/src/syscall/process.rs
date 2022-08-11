@@ -108,6 +108,7 @@ impl Syscall<'_> {
     }
     pub async fn sys_execve(&mut self) -> SysRet {
         stack_trace!();
+        const PRINT_THIS: bool = false;
         if PRINT_SYSCALL_PROCESS {
             println!("sys_execve {:?}", self.process.pid());
         }
@@ -131,7 +132,7 @@ impl Syscall<'_> {
             .into_iter()
             .map(|a| unsafe { String::from_utf8_unchecked(a.to_vec()) })
             .collect::<Vec<String>>();
-        if PRINT_SYSCALL_PROCESS {
+        if PRINT_SYSCALL_PROCESS || PRINT_THIS {
             println!("execve path {:?} args: {:?}", path, args);
             // println!("envp: {:?}", envp);
         }

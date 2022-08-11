@@ -15,7 +15,7 @@ use vfs::{
 use crate::{
     fs::Pollfd,
     memory::user_ptr::{UserInOutPtr, UserReadPtr},
-    process::{fd::Fd, AliveProcess},
+    process::{fd::Fd, thread, AliveProcess},
     signal::SignalSet,
     syscall::Syscall,
     timer::{self, sleep::TimeoutFuture},
@@ -45,6 +45,7 @@ impl Syscall<'_> {
         let r = UserCheck::writable_slice_only_nullable(readfds, arr_n)?;
         let w = UserCheck::writable_slice_only_nullable(writefds, arr_n)?;
         let e = UserCheck::writable_slice_only_nullable(exceptfds, arr_n)?;
+
         let timeout =
             UserCheck::readonly_value_only_nullable(timeout)?.map(|a| a.load().as_duration());
 
@@ -107,15 +108,13 @@ impl Syscall<'_> {
             }
             Ok(file_n)
         })?;
-        if n != 0 || file_n == 0 {
-            return Ok(n);
-        }
-        if matches!(timeout, Some(Duration::ZERO)) {
+        if n != 0 || file_n == 0 || matches!(timeout, Some(Duration::ZERO)) {
             return Ok(n);
         }
         Err(SysError::EAGAIN)
     }
     pub async fn sys_pselect6(&mut self) -> SysRet {
+        thread::yield_now().await;
         #[allow(clippy::type_complexity)]
         let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
             usize,
@@ -133,6 +132,7 @@ impl Syscall<'_> {
         let r = uc.writable_slice_nullable(readfds, arr_n).await?;
         let w = uc.writable_slice_nullable(writefds, arr_n).await?;
         let e = uc.writable_slice_nullable(exceptfds, arr_n).await?;
+
         let timeout = uc
             .readonly_value_nullable(timeout)
             .await?
@@ -197,10 +197,7 @@ impl Syscall<'_> {
             }
             Ok(set)
         })?;
-        if n != 0 || set.is_empty() {
-            return Ok(n);
-        }
-        if matches!(timeout, Some(Duration::ZERO)) {
+        if n != 0 || set.is_empty() || matches!(timeout, Some(Duration::ZERO)) {
             return Ok(n);
         }
 
