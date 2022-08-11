@@ -40,8 +40,10 @@ async fn userloop(thread: Arc<Thread>) {
         // sfence::sfence_vma_all_global();
         debug_assert!(thread.process.is_alive());
 
-        if let Err(Dead) = thread.handle_signal().await {
-            break;
+        if thread.have_signal() {
+            if let Err(Dead) = thread.handle_signal().await {
+                break;
+            }
         }
         // 进入用户态
         context.run_user_executor();

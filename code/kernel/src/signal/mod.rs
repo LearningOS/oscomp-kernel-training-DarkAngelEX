@@ -411,13 +411,14 @@ pub fn send_signal(process: Arc<Process>, sig: Sig) -> Result<(), Dead> {
 
 static mut HANDLE_CNT: usize = LIMIT_SIGNAL_COUNT.unwrap_or(0);
 
+/// 4次访存+1条分支判断信号是否存在
+#[inline(always)]
 pub fn have_signal(thread: &mut ThreadInner, process: &Process) -> bool {
     let tsm = &mut thread.signal_manager;
     let psm = &process.signal_manager;
-
-    tsm.have_signal() || psm.have_signal(tsm.mask(), tsm.proc_recv_id)
+    // 用and来干掉分支, 因为99%的情况都是0
+    tsm.have_signal() | psm.have_signal(tsm.proc_recv_id)
 }
-///
 /// signal handler包含如下参数: (sig, si, ctx), 其中:
 ///
 ///     sig: 信号ID
@@ -434,13 +435,19 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         tsm.take_std_signal()?;
         psm.take_std_signal(mask.std_signal())?;
         tsm.take_rt_signal()?;
-
         psm.take_rt_signal(&mask)?;
     };
-    tsm.proc_recv_id = psm.recv_id();
+    tsm.update_proc_recv_id(psm.recv_id());
     let signal = match take_sig_fn.break_value() {
         Some(s) => s,
-        None => return Ok(()),
+        None => {
+            if tsm.have_signal_local() || psm.have_signal_local(&mask) {
+                tsm.insert_local_flag();
+            } else {
+                tsm.clear_local_flag();
+            }
+            return Ok(());
+        }
     };
     let (act, sig_mask) = psm.get_action(signal);
     // 找到了一个待处理信号

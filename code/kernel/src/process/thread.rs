@@ -281,22 +281,24 @@ impl Thread {
     pub fn tid(&self) -> Tid {
         self.tid.tid()
     }
+    /// 只有线程自己可以调用此函数
     #[allow(clippy::mut_from_ref)]
+    #[inline(always)]
     pub fn inner(&self) -> &mut ThreadInner {
         unsafe { &mut *self.inner.get() }
     }
+    /// 只有线程自己可以调用此函数
     #[allow(clippy::mut_from_ref)]
+    #[inline(always)]
     pub fn get_context(&self) -> &mut UKContext {
         unsafe { &mut (*self.inner.get()).uk_context }
     }
+    #[inline(always)]
     pub fn have_signal(&self) -> bool {
         crate::signal::have_signal(self.inner(), &self.process)
     }
     #[inline]
     pub async fn handle_signal(&self) -> Result<(), Dead> {
-        if !self.have_signal() {
-            return Ok(());
-        }
         crate::signal::handle_signal(self.inner(), &self.process).await
     }
     pub fn fork_impl(
