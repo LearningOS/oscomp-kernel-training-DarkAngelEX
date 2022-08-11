@@ -111,7 +111,7 @@ use core::time::Duration;
 use ftl_util::time::Instant;
 use riscv::register::sstatus;
 
-use crate::config::TIME_INTERRUPT_PER_SEC;
+use crate::config::{IDIE_SPIN_TIME, TIME_INTERRUPT_PER_SEC};
 
 /// This function will be called by rust_main() in hart/mod.rs
 ///
@@ -129,7 +129,6 @@ pub fn kmain(_hart_id: usize) -> ! {
         sstatus::clear_sum();
     }
     let mut spin_end: Option<Instant> = None;
-    let spin_max = Duration::from_micros(100); // 自旋 100 us, 这期间都没有新任务才会睡眠
     loop {
         if executor::run_until_idle() != 0 {
             spin_end = None;
@@ -141,7 +140,7 @@ pub fn kmain(_hart_id: usize) -> ! {
         let now = timer::now();
         match spin_end {
             None => {
-                spin_end = Some(now + spin_max);
+                spin_end = Some(now + IDIE_SPIN_TIME);
                 continue;
             }
             Some(end) if now < end => continue,
