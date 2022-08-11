@@ -6,7 +6,7 @@ const SYSCALL_MAX: usize = 400;
 
 /// 返回Err的时候进入async路径
 type Entry = Option<fn(&mut Syscall<'static>) -> SysRet>;
-pub static FAST_SYSCALL_TABLE: [Entry; SYSCALL_MAX] = fast_syscall_generate();
+static FAST_SYSCALL_TABLE: [Entry; SYSCALL_MAX] = fast_syscall_generate();
 
 const fn fast_syscall_generate() -> [Entry; SYSCALL_MAX] {
     let mut table: [Entry; SYSCALL_MAX] = [None; SYSCALL_MAX];
@@ -74,6 +74,7 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
     // 快速系统调用失败的两种可能
     match result {
         Ok(_) | Err(SysError::EAGAIN) | Err(SysError::EFAULT) => (),
+        // 除了EAGAIN和EFAULT之外的其他错误无法被异步路径处理, 直接回用户态
         Err(e) => result = Ok(-(e as isize) as usize),
     }
 
