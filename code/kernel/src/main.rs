@@ -88,6 +88,7 @@ mod tools;
 mod xdebug;
 mod benchmark;
 mod drivers;
+mod elf;
 mod executor;
 mod fdt;
 mod fs;

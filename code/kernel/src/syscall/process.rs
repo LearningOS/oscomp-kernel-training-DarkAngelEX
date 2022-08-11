@@ -149,14 +149,18 @@ impl Syscall<'_> {
         )
         .await?;
         let dir = inode.parent()?.unwrap();
-        let elf_data = inode.read_all().await?;
+        // let elf_data = inode.read_all().await?;
+        // let (mut user_space, user_sp, mut entry_point, mut auxv) =
+        //     UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
+        //         .map_err(|_e| SysError::ENOEXEC)?;
         let (mut user_space, user_sp, mut entry_point, mut auxv) =
-            UserSpace::from_elf(elf_data.as_slice(), stack_reverse)
+            UserSpace::from_elf_lazy(&inode, stack_reverse)
+                .await
                 .map_err(|_e| SysError::ENOEXEC)?;
         if PRINT_SYSCALL_PROCESS {
             println!("entry 0: {:#x}", entry_point.into_usize());
         }
-        if let Some(dyn_entry_point) = user_space.load_linker(&elf_data).await.unwrap() {
+        if let Some(dyn_entry_point) = user_space.load_linker_lazy(&inode).await.unwrap() {
             entry_point = dyn_entry_point;
             if PRINT_SYSCALL_PROCESS {
                 println!("entry link: {:#x}", entry_point.into_usize());
@@ -166,6 +170,7 @@ impl Syscall<'_> {
                 value: USER_DYN_BEGIN,
             });
         }
+
         // TODO: kill other thread and await
         let mut alive = self.alive_lock();
         if alive.threads.len() > 1 {

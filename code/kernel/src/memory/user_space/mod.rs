@@ -11,6 +11,7 @@ use ftl_util::{
     fs::{Mode, OpenFlags},
 };
 use riscv::register::scause::Exception;
+use vfs::VfsFile;
 
 use crate::{
     config::{
@@ -21,7 +22,7 @@ use crate::{
     memory::{
         allocator::frame::{self, iter::SliceFrameDataIter},
         auxv::AT_PHDR,
-        map_segment::handler::{delay::DelayHandler, map_all::MapAllHandler},
+        map_segment::handler::{delay::DelayHandler, map_all::MapAllHandler, mmap::MmapHandler},
         page_table::PTEFlags,
     },
     syscall::SysError,
@@ -309,8 +310,6 @@ impl UserSpace {
         const PRINT_THIS: bool = false;
         stack_trace!();
 
-        let allocator = &mut frame::default_allocator();
-
         let elf_fail = |str| {
             println!("elf analysis error: {}", str);
             SysError::EFAULT
@@ -326,48 +325,52 @@ impl UserSpace {
         let mut head_va = 0;
         let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
 
+        let allocator = &mut frame::default_allocator();
+
         for i in 0..ph_count {
             stack_trace!();
             let ph = elf.program_header(i).map_err(elf_fail)?;
-            if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
-                let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
-                let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
-                if head_va == 0 {
-                    head_va = start_va.into_usize();
-                }
-                let mut perm = PTEFlags::U;
-                let ph_flags = ph.flags();
-                if ph_flags.is_read() {
-                    perm |= PTEFlags::R;
-                }
-                if ph_flags.is_write() {
-                    perm |= PTEFlags::W;
-                }
-                if ph_flags.is_execute() {
-                    perm |= PTEFlags::X;
-                }
-                if PRINT_THIS {
-                    println!(
-                        "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
-                        i,
-                        start_va,
-                        end_va,
-                        perm,
-                        ph.file_size()
-                    );
-                }
-                // assert!(start_va.is_4k_align(), "{:?}", start_va);
-                assert!(start_va.floor() >= max_end_4k);
-                let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
-                max_end_4k = map_area.end();
-                stack_trace!();
-                // 用一个小trick补全偏移量
-                let data = &elf.input[ph.offset() as usize - start_va.page_offset()
-                    ..(ph.offset() + ph.file_size()) as usize];
-                stack_trace!();
-                let slice_iter = &mut SliceFrameDataIter::new(data);
-                space.force_map_delay_write(map_area, slice_iter, allocator)?;
+            if ph.get_type().map_err(elf_fail)? != xmas_elf::program::Type::Load {
+                continue;
             }
+            let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
+            let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+            if head_va == 0 {
+                head_va = start_va.into_usize();
+            }
+            let mut perm = PTEFlags::U;
+            let ph_flags = ph.flags();
+            if ph_flags.is_read() {
+                perm |= PTEFlags::R;
+            }
+            if ph_flags.is_write() {
+                perm |= PTEFlags::W;
+            }
+            if ph_flags.is_execute() {
+                perm |= PTEFlags::X;
+            }
+            if PRINT_THIS {
+                println!(
+                    "\t{} {:?} -> {:?} \toffset:{:#x} file_size:{:#x} perm: {:?}",
+                    i,
+                    start_va,
+                    end_va,
+                    ph.offset(),
+                    ph.file_size(),
+                    perm,
+                );
+            }
+            // assert!(start_va.is_4k_align(), "{:?}", start_va);
+            assert!(start_va.floor() >= max_end_4k);
+            let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
+            max_end_4k = map_area.end();
+            stack_trace!();
+            // 用一个小trick补全偏移量
+            let data = &elf.input[ph.offset() as usize - start_va.page_offset()
+                ..(ph.offset() + ph.file_size()) as usize];
+            stack_trace!();
+            let slice_iter = &mut SliceFrameDataIter::new(data);
+            space.force_map_delay_write(map_area, slice_iter, allocator)?;
         }
         stack_trace!();
         let entry_point = elf_header.pt2.entry_point() as usize;
@@ -448,7 +451,161 @@ impl UserSpace {
 
         Ok((space, user_sp, entry_point.into(), auxv))
     }
+    /// return (space, stack_id, user_sp, entry_point)
+    ///
+    /// return err if out of memory
+    pub async fn from_elf_lazy(
+        file: &Arc<VfsFile>,
+        stack_reverse: PageCount,
+    ) -> SysR<(Self, UserAddr4K, UserAddr<u8>, Vec<AuxHeader>)> {
+        const PRINT_THIS: bool = false;
+        stack_trace!();
 
+        let elf_fail = |str: &str| {
+            println!("elf analysis error: {}", str);
+            SysError::EFAULT
+        };
+        let mut space = Self::from_global()?;
+        let elf = crate::elf::parse(&file).await?;
+        let ph_count = elf.ph_count();
+        let mut head_va = 0;
+        let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+
+        let allocator = &mut frame::default_allocator();
+
+        for i in 0..ph_count {
+            stack_trace!();
+            let ph = elf.program_header(i).await?;
+            if ph.get_type().map_err(elf_fail)? != xmas_elf::program::Type::Load {
+                continue;
+            }
+            let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
+            let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+            if head_va == 0 {
+                head_va = start_va.into_usize();
+            }
+
+            let mut perm = PTEFlags::U;
+            let ph_flags = ph.flags();
+            if ph_flags.is_read() {
+                perm |= PTEFlags::R;
+            }
+            if ph_flags.is_write() {
+                perm |= PTEFlags::W;
+            }
+            if ph_flags.is_execute() {
+                perm |= PTEFlags::X;
+            }
+            if PRINT_THIS {
+                println!(
+                    "\t{} {:?} -> {:?} \toffset:{:#x} file_size:{:#x} perm: {:?}",
+                    i,
+                    start_va,
+                    end_va,
+                    ph.offset(),
+                    ph.file_size(),
+                    perm,
+                );
+            }
+            assert!(start_va.floor() >= max_end_4k);
+            let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
+            max_end_4k = map_area.end();
+            stack_trace!();
+
+            // 将程序映射至用户地址空间
+            space.map_segment.force_push(
+                map_area.range,
+                MmapHandler::box_new(
+                    Some(file.clone()),
+                    start_va,
+                    ph.offset(),
+                    ph.file_size(),
+                    perm,
+                    false,
+                ),
+                allocator,
+            )?;
+        }
+
+        stack_trace!();
+        let entry_point = elf.pt2.entry_point;
+        if PRINT_THIS {
+            println!("\tentry_point: {:#x}", entry_point);
+        }
+        let mut auxv = AuxHeader::generate(
+            elf.pt2.ph_entry_size as usize,
+            ph_count as usize,
+            entry_point,
+        );
+
+        // Get ph_head addr for auxv
+        auxv.push(AuxHeader {
+            aux_type: AT_PHDR,
+            value: head_va + elf.pt2.ph_offset,
+        });
+        stack_trace!();
+        // map kernel_load
+        struct KRXFrameIter;
+        impl FrameDataIter for KRXFrameIter {
+            fn len(&self) -> usize {
+                PAGE_SIZE
+            }
+            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+                extern "C" {
+                    fn __kload_begin();
+                    fn __kload_end();
+                }
+                let begin = __kload_begin as *const u8;
+                let end = __kload_end as *const u8;
+                unsafe {
+                    let src = core::slice::from_ptr_range(begin..end);
+                    debug_assert!(src.len() < PAGE_SIZE);
+                    dst[..src.len()].copy_from_slice(src);
+                    dst[src.len()..].fill(0);
+                }
+                Ok(())
+            }
+        }
+        space.force_map_delay_write(
+            UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
+            &mut KRXFrameIter,
+            allocator,
+        )?;
+        struct KRWRandomIter;
+        impl FrameDataIter for KRWRandomIter {
+            fn len(&self) -> usize {
+                PAGE_SIZE
+            }
+            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+                let seed = match CLOSE_RANDOM {
+                    true => 1,
+                    false => timer::now().as_nanos() as u64 ^ 0xcdba,
+                };
+                let mut s = (0x1u64, seed);
+                for dst in dst {
+                    *dst = s.0.wrapping_add(s.1) as u8;
+                    s = tools::xor_shift_128_plus(s);
+                }
+                Ok(())
+            }
+        }
+        space.force_map_delay_write(
+            UserArea::new(
+                USER_KRW_RANDOM_RANGE,
+                PTEFlags::R | PTEFlags::W | PTEFlags::U,
+            ),
+            &mut KRWRandomIter,
+            allocator,
+        )?;
+
+        // map user stack:
+        let user_sp = space.stack_init(stack_reverse, allocator)?;
+        stack_trace!();
+        // set heap
+        space.heap_init(max_end_4k, PageCount(1), allocator);
+
+        Ok((space, user_sp, entry_point.into(), auxv))
+    }
     pub async fn load_linker(&mut self, elf_data: &[u8]) -> SysR<Option<UserAddr<u8>>> {
         const PRINT_THIS: bool = false;
         let elf = xmas_elf::ElfFile::new(elf_data).unwrap();
@@ -459,6 +616,85 @@ impl UserSpace {
         let allocator = &mut frame::default_allocator();
 
         let s = s.raw_data(&elf).to_vec();
+        let mut s = String::from_utf8(s).unwrap();
+        if PRINT_THIS {
+            println!("load_linker interp: {:?}", s);
+        }
+        if s == "/lib/ld-musl-riscv64-sf.so.1\0" {
+            s = "/libc.so".to_string();
+        }
+        let dyn_offset = UserAddr4K::from_usize_check(USER_DYN_BEGIN);
+        let inode = crate::fs::open_file_abs(&s, OpenFlags::RDONLY, Mode(0o500))
+            .await
+            .unwrap();
+        let linker = inode.read_all().await.unwrap();
+        let elf_fail = |str| {
+            println!("{}", str);
+            SysError::EFAULT
+        };
+        let elf = xmas_elf::ElfFile::new(&linker).map_err(elf_fail)?;
+        let elf_header = elf.header;
+        let magic = elf_header.pt1.magic;
+        assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
+        let ph_count = elf_header.pt2.ph_count();
+
+        let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+
+        for i in 0..ph_count {
+            stack_trace!();
+            let ph = elf.program_header(i).map_err(elf_fail)?;
+            if ph.get_type().map_err(elf_fail)? == xmas_elf::program::Type::Load {
+                let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
+                let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+                let mut perm = PTEFlags::U;
+                let ph_flags = ph.flags();
+                if ph_flags.is_read() {
+                    perm |= PTEFlags::R;
+                }
+                if ph_flags.is_write() {
+                    perm |= PTEFlags::W;
+                }
+                if ph_flags.is_execute() {
+                    perm |= PTEFlags::X;
+                }
+                if PRINT_THIS {
+                    println!(
+                        "\t{} {:?} -> {:?} \tperm: {:?} file_size:{:#x}",
+                        i,
+                        start_va,
+                        end_va,
+                        perm,
+                        ph.file_size()
+                    );
+                }
+                // assert!(start_va.is_4k_align(), "{:?}", start_va);
+                assert!(start_va.floor() >= max_end_4k);
+                let mut map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
+                max_end_4k = map_area.end();
+                map_area.offset(dyn_offset);
+                stack_trace!();
+                // 用一个小trick补全偏移量
+                let data = &elf.input[ph.offset() as usize - start_va.page_offset()
+                    ..(ph.offset() + ph.file_size()) as usize];
+                stack_trace!();
+                let slice_iter = &mut SliceFrameDataIter::new(data);
+                self.force_map_delay_write(map_area, slice_iter, allocator)?;
+            }
+        }
+        let entry_point = elf.header.pt2.entry_point() as usize + dyn_offset.into_usize();
+        Ok(Some(entry_point.into()))
+    }
+
+    pub async fn load_linker_lazy(&mut self, file: &Arc<VfsFile>) -> SysR<Option<UserAddr<u8>>> {
+        const PRINT_THIS: bool = false;
+        let elf = crate::elf::parse(&file).await?;
+        let s = match elf.find_section_by_name(".interp").await {
+            Some(s) => s,
+            None => return Ok(None),
+        };
+        let allocator = &mut frame::default_allocator();
+
+        let s = s.raw_data(&elf).await;
         let mut s = String::from_utf8(s).unwrap();
         if PRINT_THIS {
             println!("load_linker interp: {:?}", s);

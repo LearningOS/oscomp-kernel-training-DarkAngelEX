@@ -6,6 +6,7 @@ use alloc::sync::Arc;
 use riscv::register::scause::Exception;
 
 use crate::{
+    local,
     memory::{address::UserAddr, allocator::frame, AccessType},
     process::thread::Thread,
     signal::{Action, Sig, SIGSEGV},
@@ -50,10 +51,12 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             reset_color!()
         );
     }
-    let rv = || {
+    let mut exec = false;
+    let mut rv = || {
         stack_trace!();
         let addr = UserAddr::try_from(stval as *const u8)?;
         let perm = AccessType::from_exception(e).unwrap();
+        exec = perm.exec;
         let addr = addr.floor();
         let allocator = &mut frame::default_allocator();
         match thread
@@ -93,6 +96,8 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             Action::Handler(_, _) => thread.receive(segv),
             _ => user_fatal_error(),
         }
+    } else if exec {
+        local::all_hart_fence_i();
     }
     do_exit
 }

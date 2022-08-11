@@ -114,6 +114,9 @@ impl VfsFile {
     pub fn is_dir(&self) -> bool {
         self.inode.is_dir()
     }
+    pub fn bytes(&self) -> SysR<usize> {
+        self.fsinode().bytes()
+    }
     #[inline(always)]
     fn fsinode(&self) -> &dyn FsInode {
         self.inode.fsinode.as_ref()

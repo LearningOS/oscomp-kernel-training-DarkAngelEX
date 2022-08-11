@@ -16,7 +16,7 @@ FS_IMG_SRC := ../fat32-fuse/fat32.img
 SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
-SMP := 4
+SMP := 1
 MEMORY_SIZE := 256M
 
 # BOARD

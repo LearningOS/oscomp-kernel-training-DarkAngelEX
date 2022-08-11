@@ -83,10 +83,10 @@ impl Syscall<'_> {
                     .ok_or(SysError::ENOMEM)?
             }
         };
-        let addr = range.start;
+        let addr: UserAddr<u8> = range.start.into();
         let perm = prot.into_perm();
 
-        let handler = MmapHandler::box_new(file, addr, offset, perm, shared);
+        let handler = MmapHandler::box_new(file, addr, offset, usize::MAX, perm, shared);
         manager.replace(range, handler, &mut frame::default_allocator())?;
         let asid = alive.asid();
         drop(alive);
