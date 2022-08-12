@@ -36,10 +36,6 @@ impl Fd {
     }
 }
 
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct FdSet {}
-
 const F_LINUX_SPECIFIC_BASE: u32 = 1024;
 const F_DUPFD: u32 = 0;
 const F_DUPFD_CLOEXEC: u32 = F_LINUX_SPECIFIC_BASE + 6;
@@ -216,9 +212,6 @@ impl FdTable {
             }
             !n.close_on_exec
         });
-    }
-    fn alloc_fd(&mut self) -> SysR<Fd> {
-        self.alloc_fd_min(Fd(0))
     }
     /// 寻找不小于min的最小Fd
     fn alloc_fd_min(&mut self, min: Fd) -> SysR<Fd> {

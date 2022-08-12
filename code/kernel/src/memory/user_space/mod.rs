@@ -466,7 +466,7 @@ impl UserSpace {
             SysError::EFAULT
         };
         let mut space = Self::from_global()?;
-        let elf = crate::elf::parse(&file).await?;
+        let elf = crate::elf::parse(file).await?;
         let ph_count = elf.ph_count();
         let mut head_va = 0;
         let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
@@ -687,7 +687,7 @@ impl UserSpace {
 
     pub async fn load_linker_lazy(&mut self, file: &Arc<VfsFile>) -> SysR<Option<UserAddr<u8>>> {
         const PRINT_THIS: bool = false;
-        let elf = crate::elf::parse(&file).await?;
+        let elf = crate::elf::parse(file).await?;
         let s = match elf.find_section_by_name(".interp").await {
             Some(s) => s,
             None => return Ok(None),

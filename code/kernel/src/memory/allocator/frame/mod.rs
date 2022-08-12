@@ -22,6 +22,7 @@ pub fn default_allocator() -> impl FrameAllocator {
     XFrameAllocator::new()
 }
 
+/// 最原始的帧分配器, 等效直接从全局管理器分配帧
 struct GlobalRefFrameAllocator;
 
 impl GlobalRefFrameAllocator {

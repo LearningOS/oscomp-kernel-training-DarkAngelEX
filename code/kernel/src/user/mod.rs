@@ -87,15 +87,6 @@ impl<T: 'static> UserData<T> {
     }
 }
 
-impl UserData<u8> {
-    /// return an read only iterator containing a 4KB buffer.
-    ///
-    /// before each access, it will copy 4KB from user range to buffer.
-    pub fn read_only_iter(&self, buffer: FrameTracker) -> UserData4KIter {
-        UserData4KIter::new(self, buffer)
-    }
-}
-
 impl<T: Clone + 'static> UserData<T> {
     /// after to_vec the data will no longer need space_guard.
     pub fn to_vec(&self) -> Vec<T> {

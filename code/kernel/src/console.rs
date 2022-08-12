@@ -24,7 +24,7 @@ pub fn putchar(c: char) {
 
 #[inline(always)]
 pub fn getchar() -> char {
-    while ALLOW_GETCHAR.load(Ordering::SeqCst) == false {
+    while !ALLOW_GETCHAR.load(Ordering::SeqCst) {
         core::hint::spin_loop();
     }
     unsafe { char::from_u32_unchecked(sbi::console_getchar() as u32) }

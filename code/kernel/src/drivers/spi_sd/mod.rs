@@ -766,6 +766,7 @@ pub fn init_sdcard() -> SDCard<SPIImpl> {
 pub struct SDCardWrapper(SleepMutex<SDCard<SPIImpl>>);
 
 impl SDCardWrapper {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self(SleepMutex::new(init_sdcard()))
     }

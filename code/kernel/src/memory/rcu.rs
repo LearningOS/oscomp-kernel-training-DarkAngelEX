@@ -3,8 +3,6 @@ use ftl_util::rcu::{manager::RcuManager, RcuDrop};
 
 use crate::{local, sync::SpinNoIrq, xdebug::CRITICAL_END_FORCE};
 
-const NODE_PER_LIST: usize = 300; // 每个CPU的缓存中位数
-
 static GLOBAL_RCU_MANAGER: RcuManager<SpinNoIrq> = RcuManager::new();
 
 /// 为了提高效率, `LocalRcuManager`并不会每次进出用户态或切换线程都向

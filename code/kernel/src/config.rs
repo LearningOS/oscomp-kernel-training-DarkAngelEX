@@ -34,7 +34,7 @@ pub const HARDWARD_END: usize = 0xffff_ffff_ffff_f000;
 ///
 /// 256MB = 0x10_000_000
 ///
-pub const INIT_MEMORY_SIZE: usize = 0x10_000_000;
+pub const INIT_MEMORY_SIZE: usize = 0x1000_0000;
 pub const INIT_MEMORY_END: usize = KERNEL_TEXT_BEGIN + INIT_MEMORY_SIZE;
 
 /// 1GB

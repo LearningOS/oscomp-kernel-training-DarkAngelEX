@@ -16,6 +16,7 @@ pub async fn parse(file: &VfsFile) -> SysR<ElfAnalyzer<'_>> {
     const PH2_SIZE_32: usize = mem::size_of::<HeaderPt2_<u32>>();
     const PH2_SIZE_64: usize = mem::size_of::<HeaderPt2_<u64>>();
     type Ph1Arr = [u8; PH1_SIZE];
+    #[allow(clippy::uninit_assumed_init)]
     let mut pt1: HeaderPt1 = unsafe { core::mem::MaybeUninit::uninit().assume_init() };
     let ph1_arr: &mut Ph1Arr = unsafe { core::mem::transmute(&mut pt1) };
     let n = file.read_at(0, ph1_arr).await?;

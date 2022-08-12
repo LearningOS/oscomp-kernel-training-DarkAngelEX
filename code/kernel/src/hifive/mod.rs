@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub mod clock;
-pub mod spi;
 pub mod prci;
+pub mod spi;

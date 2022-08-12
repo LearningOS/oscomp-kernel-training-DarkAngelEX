@@ -30,8 +30,6 @@ static FIRST_HART: AtomicBool = AtomicBool::new(false);
 #[link_section = "data"]
 static DEVICE_TREE_PADDR: AtomicUsize = AtomicUsize::new(0);
 
-const BOOT_HART_ID: usize = 0;
-
 // pub fn device_tree_ptr() -> PhyAddr {
 //     DEVICE_TREE_PADDR.load(Ordering::Relaxed).into()
 // }

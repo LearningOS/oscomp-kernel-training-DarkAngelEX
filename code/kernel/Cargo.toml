@@ -29,6 +29,7 @@ async-task = { path = "../dependencies/async-task", default-features = false }
 # object = { "0.29.0", default-features = false, features = ["elf", "read_core"] }
 # object = { path = "../dependencies/object", default-features = false, features = ["elf", "read_core"] }
 
+# stack_trace 在评测时可能panic, 原因未知, 可能发生了嵌套
 [features]
 default = []
 # default = ["submit"]

@@ -59,8 +59,6 @@
 #![allow(clippy::assertions_on_constants)]
 #![allow(dead_code)]
 
-// #![allow(dead_code)]
-
 extern crate alloc;
 extern crate async_task;
 #[macro_use]

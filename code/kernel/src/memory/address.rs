@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use core::{
     convert::TryFrom,
     fmt::{self, Debug, Formatter},

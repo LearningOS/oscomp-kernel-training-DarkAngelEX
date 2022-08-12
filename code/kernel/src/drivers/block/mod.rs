@@ -80,6 +80,7 @@ struct MemDriver(RwSleepMutex<()>);
 const BASE_ADDR: PhyAddr<u8> = PhyAddr::from_usize(0x9000_0000);
 
 impl MemDriver {
+    #[allow(dead_code)]
     pub fn new() -> Self {
         Self(RwSleepMutex::new(()))
     }

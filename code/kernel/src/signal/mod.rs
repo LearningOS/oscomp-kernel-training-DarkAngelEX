@@ -4,7 +4,6 @@ mod rtqueue;
 
 use core::{fmt::Debug, ops::ControlFlow};
 
-use alloc::sync::Arc;
 use ftl_util::error::{SysError, SysR, SysRet};
 
 use crate::{
@@ -12,7 +11,6 @@ use crate::{
     memory::user_ptr::UserInOutPtr,
     process::{thread::ThreadInner, Dead, Process},
     signal::context::SignalContext,
-    sync::even_bus::Event,
     user::check::UserCheck,
     xdebug::{LIMIT_SIGNAL_COUNT, PRINT_HANDLE_SIGNAL, PRINT_SYSCALL_ALL},
 };
@@ -403,12 +401,7 @@ impl SigAction {
     }
 }
 
-pub fn send_signal(process: Arc<Process>, sig: Sig) -> Result<(), Dead> {
-    process.signal_manager.receive(sig);
-    process.event_bus.set(Event::RECEIVE_SIGNAL)?;
-    Ok(())
-}
-
+/// 用于debug, 当获取到设定数量的信号时panic
 static mut HANDLE_CNT: usize = LIMIT_SIGNAL_COUNT.unwrap_or(0);
 
 /// 4次访存+1条分支判断信号是否存在

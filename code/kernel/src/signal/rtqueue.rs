@@ -42,16 +42,6 @@ impl Node {
             (*last.as_ptr()).sig_next = Some(node);
         }
     }
-    pub fn remove(this: NonNull<Self>) {
-        unsafe {
-            if let Some(prev) = (*this.as_ptr()).prev {
-                (*prev.as_ptr()).next = None;
-            }
-            if let Some(next) = (*this.as_ptr()).next {
-                (*next.as_ptr()).prev = None;
-            }
-        }
-    }
     pub fn sig(&self) -> Sig {
         Sig((self.sig_union as u32) & ((1 << SIG_MAXBIT) - 1))
     }
