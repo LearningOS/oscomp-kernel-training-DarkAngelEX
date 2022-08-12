@@ -6,7 +6,7 @@ use crate::{memory::address::UserAddr, process::resource::RLimit, tools::range::
 /// how many time interrupt per second
 pub const TIME_INTERRUPT_PER_SEC: usize = 10;
 
-pub const USER_STACK_SIZE: usize = PAGE_SIZE * 64; //
+pub const USER_STACK_SIZE: usize = PAGE_SIZE * 64; // 256KB
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 一开始就映射的用户栈大小
 pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 内核栈大小, 每个CPU一个
 pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(200); // 控制最大文件打开数量等的默认值
@@ -17,7 +17,7 @@ pub const IDIE_SPIN_TIME: Duration = Duration::from_millis(1); // 没有新任�
 ///
 /// 0x8_0000 = 512KB
 /// 0x10_0000 = 1MB
-pub const KERNEL_HEAP_SIZE: usize = 0x1_0000; // 64KB
+pub const KERNEL_HEAP_SIZE: usize = 0x1_0000; // 64KB, 自动从帧分配器扩容
 
 pub const PAGE_SIZE: usize = 0x1000; // 0x1000
 pub const PAGE_SIZE_BITS: usize = 12; // 12
@@ -30,11 +30,11 @@ pub const HARDWARD_END: usize = 0xffff_ffff_ffff_f000;
 
 /// only used in init pagetable, then need to replace to range MEMORY, 1MB = 0x1_00000
 ///
-/// 1MB = 0x1_00000
+/// 1MB = 0x100_000
 ///
-/// 256MB = 0x10000000
+/// 256MB = 0x10_000_000
 ///
-pub const INIT_MEMORY_SIZE: usize = 0x10000000;
+pub const INIT_MEMORY_SIZE: usize = 0x10_000_000;
 pub const INIT_MEMORY_END: usize = KERNEL_TEXT_BEGIN + INIT_MEMORY_SIZE;
 
 /// 1GB

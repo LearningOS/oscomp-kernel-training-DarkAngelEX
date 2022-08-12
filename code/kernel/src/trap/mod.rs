@@ -112,7 +112,7 @@ pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
     Ctup2(cx, (*cx).fast_status)
 }
 
-/// 内核态陷阱
+/// 内核态陷阱, 已经弃用, 改为了中断向量直接进入下面两个分支
 #[no_mangle]
 pub fn kernel_default_trap(a0: usize) {
     stack_trace!();

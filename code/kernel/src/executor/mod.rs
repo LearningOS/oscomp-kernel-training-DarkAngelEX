@@ -29,6 +29,10 @@ impl TaskQueue {
         self.queue.lock().as_mut().unwrap().push_back(runnable);
     }
     pub fn fetch(&self) -> Option<Runnable> {
+        // 如果没有任务, 其他核不会获取锁
+        if unsafe { self.queue.unsafe_get().as_ref().unwrap().is_empty() } {
+            return None;
+        }
         self.queue.lock().as_mut().unwrap().pop_front()
     }
 }

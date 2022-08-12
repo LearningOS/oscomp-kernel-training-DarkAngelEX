@@ -136,6 +136,7 @@ pub fn next_instruction_sepc(sepc: usize, ir: u8) -> usize {
     }
 }
 
+/// 读取指令来判断它是2字节还是4字节
 pub fn next_sepc(sepc: usize) -> usize {
     let ir = unsafe { *(sepc as *const u8) };
     next_instruction_sepc(sepc, ir)

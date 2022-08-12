@@ -128,7 +128,7 @@ impl Segment {
             Segment::Ph64(ph) => ph.mem_size as usize,
         }
     }
-    /// 这个段的虚拟地址空间长度
+    /// 这个段的在文件内的数据长度, 长度不足则填0
     pub fn file_size(&self) -> usize {
         match self {
             Segment::Ph32(ph) => ph.file_size as usize,
