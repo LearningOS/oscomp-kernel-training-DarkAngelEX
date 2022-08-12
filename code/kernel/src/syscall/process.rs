@@ -1,11 +1,12 @@
 use core::{convert::TryFrom, ops::Deref, sync::atomic::Ordering, time::Duration};
 
-use alloc::{string::String, vec::Vec};
+use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     async_tools,
     fs::{Mode, OpenFlags},
     time::TimeSpec,
 };
+use vfs::VfsFile;
 
 use crate::{
     config::{PAGE_SIZE, USER_DYN_BEGIN, USER_STACK_RESERVE},
@@ -141,14 +142,29 @@ impl Syscall<'_> {
             args.insert(1, String::from("sh"));
             path = String::from("/busybox");
         }
-        let args_size = UserSpace::push_args_size(&args, &envp);
-        let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
         let inode = fs::open_file(
             (Ok(self.alive_then(|a| a.cwd.clone())), path.as_str()),
             OpenFlags::RDONLY,
             Mode(0o500),
         )
         .await?;
+
+        // TODO: kill other thread and await
+        debug_assert!(self.alive_lock().threads.len() == 1);
+
+        if self.alive_then(|a| {
+            if let Some(this) = a.program.as_ref() {
+                this.is(inode.as_ref())
+            } else {
+                false
+            }
+        }) {
+            return self.execve_same_inode(inode, path, args, envp).await;
+        }
+
+        let args_size = UserSpace::push_args_size(&args, &envp);
+        let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
+
         let dir = inode.parent()?.unwrap();
         // let elf_data = inode.read_all().await?;
         // let (mut user_space, user_sp, mut entry_point, mut auxv) =
@@ -162,6 +178,7 @@ impl Syscall<'_> {
         if PRINT_SYSCALL_PROCESS {
             println!("entry 0: {:#x}", entry_point.into_usize());
         }
+
         if let Some(dyn_entry_point) = user_space.load_linker_lazy(&inode).await.unwrap() {
             entry_point = dyn_entry_point;
             if PRINT_SYSCALL_PROCESS {
@@ -173,11 +190,7 @@ impl Syscall<'_> {
             });
         }
 
-        // TODO: kill other thread and await
         let mut alive = self.alive_lock();
-        if alive.threads.len() > 1 {
-            todo!();
-        }
         let check = NeverFail::new();
         if !USING_ASID {
             local::all_hart_sfence_vma_asid(alive.asid());
@@ -206,6 +219,81 @@ impl Syscall<'_> {
         let rtld_fini = 0;
         Ok(rtld_fini)
     }
+
+    async fn execve_same_inode(
+        &mut self,
+        inode: Arc<VfsFile>,
+        path: String,
+        args: Vec<String>,
+        envp: Vec<String>,
+    ) -> SysRet {
+        // 执行到这里时保证其他线程都已经退出, 可以无锁地操作user_space
+        let user_space = unsafe {
+            &mut self
+                .process
+                .alive
+                .unsafe_get_mut()
+                .as_mut()
+                .unwrap()
+                .user_space
+        };
+
+        let dir = inode.parent()?.unwrap();
+
+        let args_size = UserSpace::push_args_size(&args, &envp);
+        let stack_reverse = args_size + PageCount(USER_STACK_RESERVE / PAGE_SIZE);
+
+        let (user_sp, mut entry_point, mut auxv) =
+            user_space.execve_same(&inode, stack_reverse).await?;
+
+        if PRINT_SYSCALL_PROCESS {
+            println!("entry 0: {:#x}", entry_point.into_usize());
+        }
+
+        if let Some(dyn_entry_point) = user_space.load_linker_lazy(&inode).await.unwrap() {
+            entry_point = dyn_entry_point;
+            if PRINT_SYSCALL_PROCESS {
+                println!("entry link: {:#x}", entry_point.into_usize());
+            }
+            auxv.push(AuxHeader {
+                aux_type: AT_BASE,
+                value: USER_DYN_BEGIN,
+            });
+        }
+
+        // TODO: kill other thread and await
+        let mut alive = self.alive_lock();
+        if alive.threads.len() > 1 {
+            todo!();
+        }
+        let check = NeverFail::new();
+        if !USING_ASID {
+            local::all_hart_sfence_vma_asid(alive.asid());
+        }
+        unsafe { user_space.using() };
+        let (user_sp, argc, argv, envp) =
+            user_space.push_args(user_sp, &args, &envp, &auxv, args_size);
+        drop(auxv);
+        drop(args);
+        // reset stack_id
+        alive.fd_table.exec_run();
+        alive.exec_path = path;
+        alive.cwd = dir;
+        alive.program = Some(inode);
+        drop(alive);
+        self.process.signal_manager.reset();
+        let cx = self.thread.get_context();
+        let sstatus = cx.user_sstatus;
+        let fcsr = cx.user_fx.fcsr;
+        cx.exec_init(user_sp, entry_point, sstatus, fcsr, (argc, argv, envp));
+        local::all_hart_fence_i();
+        check.assume_success();
+        // rtld_fini: 动态链接器析构函数
+        // 如果这个值非零, glibc会在程序结束时把它当作函数指针并运行
+        let rtld_fini = 0;
+        Ok(rtld_fini)
+    }
+
     pub async fn sys_wait4(&mut self) -> SysRet {
         stack_trace!();
         let (pid, exit_code_ptr, _option, _rusage): (

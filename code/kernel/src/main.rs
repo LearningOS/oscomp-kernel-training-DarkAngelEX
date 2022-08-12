@@ -9,6 +9,7 @@
 #![feature(associated_type_bounds)]
 #![feature(bool_to_option)]
 #![feature(bench_black_box)]
+#![feature(btree_drain_filter)]
 #![feature(core_intrinsics)]
 #![feature(const_for)]
 #![feature(const_try)]

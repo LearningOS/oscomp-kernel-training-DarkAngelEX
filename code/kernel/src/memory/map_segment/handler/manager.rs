@@ -27,6 +27,10 @@ impl HandlerManager {
     pub fn clear(&mut self, release: impl FnMut(Box<dyn UserAreaHandler>, URange)) {
         self.map.clear(release);
     }
+    pub fn clear_except_program(&mut self, release: impl FnMut(Box<dyn UserAreaHandler>, URange)) {
+        self.map.clear_if(|h, _| !h.exec_reuse(), release);
+    }
+
     pub fn try_push(
         &mut self,
         range: URange,

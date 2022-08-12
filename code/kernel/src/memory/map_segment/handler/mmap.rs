@@ -81,10 +81,20 @@ impl UserAreaHandler for MmapHandler {
     fn base_mut(&mut self) -> &mut HandlerBase {
         &mut self.base
     }
-    fn is_init_program(&self) -> bool {
-        self.spec.init_program
+    fn exec_reuse(&self) -> bool {
+        self.spec.init_program && !self.unique_writable()
     }
     fn init(
+        &mut self,
+        id: HandlerID,
+        _pt: &mut PageTable,
+        _all: URange,
+        _allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
+        self.spec.id = Some(id);
+        Ok(())
+    }
+    fn init_no_release(
         &mut self,
         id: HandlerID,
         _pt: &mut PageTable,
@@ -111,6 +121,7 @@ impl UserAreaHandler for MmapHandler {
     }
     fn modify_perm(&mut self, perm: PTEFlags) {
         self.spec.perm = perm;
+        self.spec.init_program = false;
     }
     fn map_spec(
         &self,

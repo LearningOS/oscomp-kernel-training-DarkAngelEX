@@ -65,7 +65,7 @@ pub trait UserAreaHandler: Send + 'static {
         self.perm().contains(PTEFlags::X)
     }
     /// 这个段是程序初始化时加载的代码段/数据段
-    fn is_init_program(&self) -> bool {
+    fn exec_reuse(&self) -> bool {
         false
     }
     fn base(&self) -> &HandlerBase;
@@ -80,6 +80,18 @@ pub trait UserAreaHandler: Send + 'static {
         all: URange,
         allocator: &mut dyn FrameAllocator,
     ) -> SysR<()>;
+    /// 使用no_release接口加入管理器 原映射必须和新映射为等效映射 页表中可能存在数据
+    ///
+    /// 只有is_init_program返回true后才会调用此函数
+    fn init_no_release(
+        &mut self,
+        _id: HandlerID,
+        _pt: &mut PageTable,
+        _all: URange,
+        _allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
+        unimplemented!()
+    }
     /// 此项初始化后禁止修改
     fn max_perm(&self) -> PTEFlags {
         PTEFlags::R | PTEFlags::W | PTEFlags::X | PTEFlags::U

@@ -140,6 +140,21 @@ impl MapSegment {
         self.unmap(r.clone(), allocator);
         self.force_push(r, h, allocator)
     }
+    pub fn replace_not_release(
+        &mut self,
+        r: URange,
+        h: Box<dyn UserAreaHandler>,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
+        debug_assert!(r.start < r.end);
+        let pt = pt!(self);
+        // 不释放旧内存
+        self.handlers.remove(r.clone(), |_, _| ());
+        let h = self.handlers.try_push(r.clone(), h).ok().unwrap();
+        let id = self.id_allocator.alloc();
+        h.init_no_release(id, pt, r.clone(), allocator)
+            .inspect_err(|_e| self.unmap(r, allocator))
+    }
     /// 如果进入 async 状态将 panic
     pub fn force_map(&mut self, r: URange, allocator: &mut dyn FrameAllocator) -> SysR<()> {
         stack_trace!();
@@ -179,6 +194,7 @@ impl MapSegment {
         allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         debug_assert!(access.user);
+        // println!("page_fault {:#x}", addr.into_usize());
         let h = self
             .handlers
             .get_mut(addr)
@@ -190,7 +206,6 @@ impl MapSegment {
             None => return h.page_fault(pt, addr, access, allocator),
             Some(a) => a,
         };
-
         // 如果pte没有X标志位, 那一定是用户故意的, 操作失败
         if access.exec {
             debug_assert!(!h.executable());
@@ -394,5 +409,12 @@ impl MapSegment {
         }
         flush.run();
         Err(e)
+    }
+
+    pub fn clear_except_program(&mut self, allocator: &mut dyn FrameAllocator) {
+        let sc_manager = &mut self.sc_manager;
+        let release = Self::release_impl(pt!(self), sc_manager, allocator);
+        self.handlers.clear_except_program(release);
+        self.futexs.clear();
     }
 }

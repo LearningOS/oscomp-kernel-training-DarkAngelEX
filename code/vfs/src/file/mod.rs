@@ -111,6 +111,10 @@ impl VfsFile {
     pub(crate) fn from_path_arc(path: Path) -> SysR<Arc<Self>> {
         Ok(Arc::new(Self::from_path(path)?))
     }
+    /// 具有相同的inode
+    pub fn is(&self, other: &Self) -> bool {
+        core::ptr::eq(self.inode.as_ref(), other.inode.as_ref())
+    }
     pub fn is_dir(&self) -> bool {
         self.inode.is_dir()
     }

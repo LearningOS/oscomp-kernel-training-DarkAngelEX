@@ -58,7 +58,6 @@ async fn userloop(thread: Arc<Thread>) {
 
         let scause = context.scause.cause();
         let stval = context.stval;
-
         let mut do_exit = false;
         let mut user_fatal_error = || {
             println!(

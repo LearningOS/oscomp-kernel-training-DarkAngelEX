@@ -278,6 +278,7 @@ impl UserSpace {
         init_size: PageCount,
         allocator: &mut dyn FrameAllocator,
     ) {
+        stack_trace!();
         let map_area = self.heap.init(base, init_size);
         self.map_segment
             .force_push(
@@ -300,7 +301,7 @@ impl UserSpace {
         //     self.map_segment.unmap(free_area.range);
         // }
     }
-    /// return (space, stack_id, user_sp, entry_point)
+    /// return (space, user_sp, entry_point, auxv)
     ///
     /// return err if out of memory
     pub fn from_elf(
@@ -390,50 +391,12 @@ impl UserSpace {
         });
         stack_trace!();
         // map kernel_load
-        struct KRXFrameIter;
-        impl FrameDataIter for KRXFrameIter {
-            fn len(&self) -> usize {
-                PAGE_SIZE
-            }
-            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
-                extern "C" {
-                    fn __kload_begin();
-                    fn __kload_end();
-                }
-                let begin = __kload_begin as *const u8;
-                let end = __kload_end as *const u8;
-                unsafe {
-                    let src = core::slice::from_ptr_range(begin..end);
-                    debug_assert!(src.len() < PAGE_SIZE);
-                    dst[..src.len()].copy_from_slice(src);
-                    dst[src.len()..].fill(0);
-                }
-                Ok(())
-            }
-        }
         space.force_map_delay_write(
             UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
             &mut KRXFrameIter,
             allocator,
         )?;
-        struct KRWRandomIter;
-        impl FrameDataIter for KRWRandomIter {
-            fn len(&self) -> usize {
-                PAGE_SIZE
-            }
-            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
-                let seed = match CLOSE_RANDOM {
-                    true => 1,
-                    false => timer::now().as_nanos() as u64 ^ 0xcdba,
-                };
-                let mut s = (0x1u64, seed);
-                for dst in dst {
-                    *dst = s.0.wrapping_add(s.1) as u8;
-                    s = tools::xor_shift_128_plus(s);
-                }
-                Ok(())
-            }
-        }
+
         space.force_map_delay_write(
             UserArea::new(
                 USER_KRW_RANDOM_RANGE,
@@ -451,7 +414,7 @@ impl UserSpace {
 
         Ok((space, user_sp, entry_point.into(), auxv))
     }
-    /// return (space, stack_id, user_sp, entry_point)
+    /// return (space, user_sp, entry_point, auxv)
     ///
     /// return err if out of memory
     pub async fn from_elf_lazy(
@@ -469,7 +432,7 @@ impl UserSpace {
         let elf = crate::elf::parse(file).await?;
         let ph_count = elf.ph_count();
         let mut head_va = 0;
-        let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+        let mut max_end_4k = UserAddr4K::null();
 
         let allocator = &mut frame::default_allocator();
 
@@ -546,50 +509,12 @@ impl UserSpace {
         });
         stack_trace!();
         // map kernel_load
-        struct KRXFrameIter;
-        impl FrameDataIter for KRXFrameIter {
-            fn len(&self) -> usize {
-                PAGE_SIZE
-            }
-            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
-                extern "C" {
-                    fn __kload_begin();
-                    fn __kload_end();
-                }
-                let begin = __kload_begin as *const u8;
-                let end = __kload_end as *const u8;
-                unsafe {
-                    let src = core::slice::from_ptr_range(begin..end);
-                    debug_assert!(src.len() < PAGE_SIZE);
-                    dst[..src.len()].copy_from_slice(src);
-                    dst[src.len()..].fill(0);
-                }
-                Ok(())
-            }
-        }
         space.force_map_delay_write(
             UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
             &mut KRXFrameIter,
             allocator,
         )?;
-        struct KRWRandomIter;
-        impl FrameDataIter for KRWRandomIter {
-            fn len(&self) -> usize {
-                PAGE_SIZE
-            }
-            fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
-                let seed = match CLOSE_RANDOM {
-                    true => 1,
-                    false => timer::now().as_nanos() as u64 ^ 0xcdba,
-                };
-                let mut s = (0x1u64, seed);
-                for dst in dst {
-                    *dst = s.0.wrapping_add(s.1) as u8;
-                    s = tools::xor_shift_128_plus(s);
-                }
-                Ok(())
-            }
-        }
+
         space.force_map_delay_write(
             UserArea::new(
                 USER_KRW_RANDOM_RANGE,
@@ -639,7 +564,7 @@ impl UserSpace {
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
 
-        let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+        let mut max_end_4k = UserAddr4K::null();
 
         for i in 0..ph_count {
             stack_trace!();
@@ -718,7 +643,7 @@ impl UserSpace {
         assert_eq!(magic, [0x7f, 0x45, 0x4c, 0x46], "invalid elf!");
         let ph_count = elf_header.pt2.ph_count();
 
-        let mut max_end_4k = unsafe { UserAddr4K::from_usize(0) };
+        let mut max_end_4k = UserAddr4K::null();
 
         for i in 0..ph_count {
             stack_trace!();
@@ -763,6 +688,126 @@ impl UserSpace {
         }
         let entry_point = elf.header.pt2.entry_point() as usize + dyn_offset.into_usize();
         Ok(Some(entry_point.into()))
+    }
+
+    /// return (stack_id, user_sp, entry_point)
+    pub async fn execve_same(
+        &mut self,
+        file: &Arc<VfsFile>,
+        stack_reverse: PageCount,
+    ) -> SysR<(UserAddr4K, UserAddr<u8>, Vec<AuxHeader>)> {
+        const PRINT_THIS: bool = false;
+        let elf_fail = |str: &str| {
+            println!("elf analysis error: {}", str);
+            SysError::EFAULT
+        };
+        let elf = crate::elf::parse(file).await?;
+
+        let ph_count = elf.ph_count();
+
+        let allocator = &mut frame::default_allocator();
+
+        self.map_segment.clear_except_program(allocator);
+        self.heap = HeapManager::new();
+        self.stacks = StackSpaceManager::new(PageCount::page_floor(USER_STACK_RESERVE));
+
+        stack_trace!();
+        let entry_point = elf.pt2.entry_point;
+        if PRINT_THIS {
+            println!("\tentry_point: {:#x}", entry_point);
+        }
+        let mut auxv = AuxHeader::generate(
+            elf.pt2.ph_entry_size as usize,
+            ph_count as usize,
+            entry_point,
+        );
+
+        let mut head_va = 0;
+        let mut max_end_4k = UserAddr4K::null();
+        for i in 0..ph_count {
+            stack_trace!();
+            let ph = elf.program_header(i).await?;
+            if ph.get_type().map_err(elf_fail)? != xmas_elf::program::Type::Load {
+                continue;
+            }
+            let start_va: UserAddr<u8> = (ph.virtual_addr() as usize).into();
+            let end_va: UserAddr<u8> = ((ph.virtual_addr() + ph.mem_size()) as usize).into();
+            if head_va == 0 {
+                head_va = start_va.into_usize();
+            }
+
+            let mut perm = PTEFlags::U;
+            let ph_flags = ph.flags();
+            if ph_flags.is_read() {
+                perm |= PTEFlags::R;
+            }
+            if ph_flags.is_write() {
+                perm |= PTEFlags::W;
+            }
+            if ph_flags.is_execute() {
+                perm |= PTEFlags::X;
+            }
+            if PRINT_THIS {
+                println!(
+                    "\t{} {:?} -> {:?} \toffset:{:#x} file_size:{:#x} perm: {:?}",
+                    i,
+                    start_va,
+                    end_va,
+                    ph.offset(),
+                    ph.file_size(),
+                    perm,
+                );
+            }
+            assert!(start_va.floor() >= max_end_4k);
+            let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
+            max_end_4k = map_area.end();
+            stack_trace!();
+
+            // 将程序映射至用户地址空间
+            self.map_segment.replace_not_release(
+                map_area.range,
+                MmapHandler::box_new(
+                    Some(file.clone()),
+                    start_va,
+                    ph.offset(),
+                    ph.file_size(),
+                    perm,
+                    false,
+                    true,
+                ),
+                allocator,
+            )?;
+        }
+
+        // Get ph_head addr for auxv
+        auxv.push(AuxHeader {
+            aux_type: AT_PHDR,
+            value: head_va + elf.pt2.ph_offset,
+        });
+        stack_trace!();
+        // map kernel_load
+        self.force_map_delay_write(
+            UserArea::new(USER_KRX_RANGE, PTEFlags::R | PTEFlags::X | PTEFlags::U),
+            &mut KRXFrameIter,
+            allocator,
+        )?;
+
+        self.force_map_delay_write(
+            UserArea::new(
+                USER_KRW_RANDOM_RANGE,
+                PTEFlags::R | PTEFlags::W | PTEFlags::U,
+            ),
+            &mut KRWRandomIter,
+            allocator,
+        )?;
+
+        // map user stack:
+        let user_sp = self.stack_init(stack_reverse, allocator)?;
+        stack_trace!();
+        // set heap
+        self.heap_init(max_end_4k, PageCount(1), allocator);
+
+        Ok((user_sp, entry_point.into(), auxv))
     }
 
     pub fn fork(&mut self) -> SysR<Self> {
@@ -954,5 +999,46 @@ pub enum UserPtrTranslateErr {
 impl From<OutOfUserRange> for UserPtrTranslateErr {
     fn from(e: OutOfUserRange) -> Self {
         Self::OutOfUserRange(e)
+    }
+}
+
+struct KRXFrameIter;
+impl FrameDataIter for KRXFrameIter {
+    fn len(&self) -> usize {
+        PAGE_SIZE
+    }
+    fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+        extern "C" {
+            fn __kload_begin();
+            fn __kload_end();
+        }
+        let begin = __kload_begin as *const u8;
+        let end = __kload_end as *const u8;
+        unsafe {
+            let src = core::slice::from_ptr_range(begin..end);
+            debug_assert!(src.len() < PAGE_SIZE);
+            dst[..src.len()].copy_from_slice(src);
+            dst[src.len()..].fill(0);
+        }
+        Ok(())
+    }
+}
+
+struct KRWRandomIter;
+impl FrameDataIter for KRWRandomIter {
+    fn len(&self) -> usize {
+        PAGE_SIZE
+    }
+    fn write_to(&mut self, dst: &mut [u8; 4096]) -> Result<(), ()> {
+        let seed = match CLOSE_RANDOM {
+            true => 1,
+            false => timer::now().as_nanos() as u64 ^ 0xcdba,
+        };
+        let mut s = (0x1u64, seed);
+        for dst in dst {
+            *dst = s.0.wrapping_add(s.1) as u8;
+            s = tools::xor_shift_128_plus(s);
+        }
+        Ok(())
     }
 }

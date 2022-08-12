@@ -104,3 +104,8 @@ lmbench_all lmdd label="File /var/tmp/XXX write bandwidth:" of=/var/tmp/XXX move
 lmbench_all lat_fs /var/tmp
 
 lmbench_all lat_sig -P 1 prot lat_sig
+
+lmbench_all lat_proc -P 1 exec
+
+[kernel]user_fatal_error page_fault Pid(4) Tid(4) StorePageFault stval: 0xf7bf0 sepc: 0x6aa90 ra: 0x105fc
+error IR: 23 b0 07 01 10 61 21 05 
