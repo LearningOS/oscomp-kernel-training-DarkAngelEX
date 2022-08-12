@@ -5,7 +5,7 @@ use ftl_util::{
     time::{Instant, TimeVal},
 };
 
-use crate::config::USER_STACK_SIZE;
+use crate::{config::USER_STACK_SIZE, timer};
 
 use super::{thread::Thread, Process};
 
@@ -40,6 +40,11 @@ pub struct ProcessTimer {
     pub stime_cur: Duration,
     pub utime_children: Duration,
     pub stime_children: Duration,
+
+    // 定时信号 (时间间隔, 上次响应的时间)
+    pub itime_real: (Duration, Instant),     // 真实时间
+    pub itime_virtual: (Duration, Duration), // 用户态时间
+    pub itime_prof: (Duration, Duration),    // 用户态+内核态
 }
 
 impl ProcessTimer {
@@ -48,10 +53,82 @@ impl ProcessTimer {
         stime_cur: Duration::ZERO,
         utime_children: Duration::ZERO,
         stime_children: Duration::ZERO,
+        itime_real: (Duration::ZERO, Instant::BASE),
+        itime_virtual: (Duration::ZERO, Duration::ZERO),
+        itime_prof: (Duration::ZERO, Duration::ZERO),
     };
     pub fn append_child(&mut self, child: &Self) {
         self.utime_children += child.utime_cur + child.utime_children;
         self.stime_children += child.stime_cur + child.stime_children;
+    }
+    // (时间间隔, 距离下次响应的时间)
+    pub fn set_itime_real(&mut self, v: Option<(Duration, Duration)>) -> (Duration, Duration) {
+        let now = timer::now();
+        let old = (
+            self.itime_real.0,
+            (self.itime_real.1 + self.itime_real.0).max(now) - now,
+        );
+        if let Some((interval, diff)) = v {
+            self.itime_real.0 = interval;
+            self.itime_real.1 = now - interval + diff;
+        }
+        old
+    }
+    pub fn set_time_virtual(&mut self, v: Option<(Duration, Duration)>) -> (Duration, Duration) {
+        let now = self.utime_cur;
+        let old = (
+            self.itime_virtual.0,
+            (self.itime_virtual.1 + self.itime_virtual.0).max(now) - now,
+        );
+        if let Some((interval, diff)) = v {
+            self.itime_virtual.0 = interval;
+            self.itime_virtual.1 = now - interval + diff;
+        }
+        old
+    }
+    pub fn set_time_prof(&mut self, v: Option<(Duration, Duration)>) -> (Duration, Duration) {
+        let now = self.utime_cur + self.stime_cur;
+        let old = (
+            self.itime_prof.0,
+            (self.itime_prof.1 + self.itime_prof.0).max(now) - now,
+        );
+        if let Some((interval, diff)) = v {
+            self.itime_prof.0 = interval;
+            self.itime_prof.1 = now - interval + diff;
+        }
+        old
+    }
+    pub fn suspend_real(&mut self) -> bool {
+        if self.itime_real.0.is_zero() {
+            return false;
+        }
+        let now = timer::now();
+        if self.itime_real.1 + self.itime_real.0 > now {
+            return false;
+        }
+        self.itime_real.1 = now;
+        true
+    }
+    pub fn suspend_virtual(&mut self) -> bool {
+        if self.itime_virtual.0.is_zero() {
+            return false;
+        }
+        if self.itime_virtual.1 + self.itime_virtual.0 > self.utime_cur {
+            return false;
+        }
+        self.itime_virtual.1 = self.utime_cur;
+        true
+    }
+    pub fn suspend_prof(&mut self) -> bool {
+        if self.itime_prof.0.is_zero() {
+            return false;
+        }
+        let sum = self.utime_cur + self.stime_cur;
+        if self.itime_prof.1 + self.itime_prof.0 > sum {
+            return false;
+        }
+        self.itime_prof.1 = sum;
+        true
     }
 }
 
@@ -235,7 +312,7 @@ pub fn prlimit_impl(proc: &Process, resource: u32, new: Option<RLimit>) -> SysR<
         RLIMIT_CORE => todo!(),
         RLIMIT_RSS => todo!(),
         RLIMIT_NPROC => todo!(),
-        RLIMIT_NOFILE => Ok(proc.alive_then(|a| a.fd_table.set_limit(new))??),
+        RLIMIT_NOFILE => Ok(proc.alive_then(|a| a.fd_table.set_limit(new))?),
         RLIMIT_MEMLOCK => todo!(),
         RLIMIT_AS => todo!(),
         RLIMIT_LOCKS => todo!(),

@@ -8,8 +8,9 @@ pub fn kernel_default_interrupt() {
 
     debug_assert!(!local::hart_local().interrupt);
     local::hart_local().interrupt = true;
+    // 进入陷阱会自动关中断
     debug_assert!(!sstatus::read().sie());
-    
+
     let interrupt = match scause::read().cause() {
         scause::Trap::Interrupt(i) => i,
         scause::Trap::Exception(e) => {

@@ -8,9 +8,11 @@
     # .global __load_fx
     # .global __store_fx
 .altmacro
-// a0(user_context)
     .align 6
+// a0(*mut user_context)
 __entry_user:
+// 已经关中断
+// 已经设置stvec
     sd  s0, 34*8(a0)
     sd  s1, 35*8(a0)
     sd  s2, 36*8(a0)
@@ -23,9 +25,26 @@ __entry_user:
     sd  s9, 43*8(a0)
     sd s10, 44*8(a0)
     sd s11, 45*8(a0)
+    // 这4个寄存器离开快速处理路径后不会改变
     sd  ra, 46*8(a0)
     sd  sp, 47*8(a0)
-    sd  tp, 48*8(a0)
+    sd  gp, 48*8(a0)
+    sd  tp, 49*8(a0)
+
+    ld  s0,  8*8(a0)
+    ld  s1,  9*8(a0)
+    ld  s2, 18*8(a0)
+    ld  s3, 19*8(a0)
+    ld  s4, 20*8(a0)
+    ld  s5, 21*8(a0)
+    ld  s6, 22*8(a0)
+    ld  s7, 23*8(a0)
+    ld  s8, 24*8(a0)
+    ld  s9, 25*8(a0)
+    ld s10, 26*8(a0)
+    ld s11, 27*8(a0)
+    // 快速处理路径返回
+fast_path_enter_user:
     ld  t0, 32*8(a0)
     ld  t1, 33*8(a0)
     csrw sscratch,a0
@@ -38,8 +57,6 @@ __entry_user:
     ld  t0,  5*8(a0)
     ld  t1,  6*8(a0)
     ld  t2,  7*8(a0)
-    ld  s0,  8*8(a0)
-    ld  s1,  9*8(a0)
     // skip a0
     ld  a1, 11*8(a0)
     ld  a2, 12*8(a0)
@@ -48,16 +65,6 @@ __entry_user:
     ld  a5, 15*8(a0)
     ld  a6, 16*8(a0)
     ld  a7, 17*8(a0)
-    ld  s2, 18*8(a0)
-    ld  s3, 19*8(a0)
-    ld  s4, 20*8(a0)
-    ld  s5, 21*8(a0)
-    ld  s6, 22*8(a0)
-    ld  s7, 23*8(a0)
-    ld  s8, 24*8(a0)
-    ld  s9, 25*8(a0)
-    ld s10, 26*8(a0)
-    ld s11, 27*8(a0)
     ld  t3, 28*8(a0)
     ld  t4, 29*8(a0)
     ld  t5, 30*8(a0)
@@ -67,7 +74,7 @@ __entry_user:
     // (running in user...)
     .align 6
 __return_from_user:
-    csrrw a0, sscratch, a0
+    csrrw a0, sscratch, a0 // a0 = *mut UKContext
     sd  ra,  1*8(a0)
     sd  sp,  2*8(a0)
     sd  gp,  3*8(a0)
@@ -75,9 +82,7 @@ __return_from_user:
     sd  t0,  5*8(a0)
     sd  t1,  6*8(a0)
     sd  t2,  7*8(a0)
-    sd  s0,  8*8(a0)
-    sd  s1,  9*8(a0)
-    csrr t0, sscratch // a0
+    csrr t0, sscratch
     sd  t0, 10*8(a0)
     sd  a1, 11*8(a0)
     sd  a2, 12*8(a0)
@@ -86,6 +91,33 @@ __return_from_user:
     sd  a5, 15*8(a0)
     sd  a6, 16*8(a0)
     sd  a7, 17*8(a0)
+    sd  t3, 28*8(a0)
+    sd  t4, 29*8(a0)
+    sd  t5, 30*8(a0)
+    sd  t6, 31*8(a0)
+    csrr t0, sepc
+    csrr t1, sstatus
+    csrr t2, scause
+    csrr t3, stval
+    sd  t0, 32*8(a0)
+    sd  t1, 33*8(a0)
+    sd  t2, 50*8(a0)
+    sd  t3, 51*8(a0)
+    // ra会被覆盖, 用不上
+    ld  sp, 47*8(a0)
+    ld  gp, 48*8(a0)
+    ld  tp, 49*8(a0)
+    // a0 = *mut UKContext
+    // (*mut UKContext) -> (*mut UKContext, usize)
+    // a1: if return to executor, a1 will not zero
+    call fast_processing_path
+    bne a1, zero, return_to_executor
+    // 这里已经关中断, 设置stvec为__return_from_user
+    j fast_path_enter_user
+    // 这里依然开中断, stvec为内核陷阱向量
+return_to_executor:
+    sd  s0,  8*8(a0)
+    sd  s1,  9*8(a0)
     sd  s2, 18*8(a0)
     sd  s3, 19*8(a0)
     sd  s4, 20*8(a0)
@@ -96,14 +128,8 @@ __return_from_user:
     sd  s9, 25*8(a0)
     sd s10, 26*8(a0)
     sd s11, 27*8(a0)
-    sd  t3, 28*8(a0)
-    sd  t4, 29*8(a0)
-    sd  t5, 30*8(a0)
-    sd  t6, 31*8(a0)
-    csrr t0, sepc
-    csrr t1, sstatus
-    sd  t0, 32*8(a0)
-    sd  t1, 33*8(a0)
+
+    ld  ra, 46*8(a0)
     ld  s0, 34*8(a0)
     ld  s1, 35*8(a0)
     ld  s2, 36*8(a0)
@@ -116,9 +142,6 @@ __return_from_user:
     ld  s9, 43*8(a0)
     ld s10, 44*8(a0)
     ld s11, 45*8(a0)
-    ld  ra, 46*8(a0)
-    ld  sp, 47*8(a0)
-    ld  tp, 48*8(a0)
     ret
 
     .align 6

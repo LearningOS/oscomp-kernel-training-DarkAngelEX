@@ -1,7 +1,7 @@
 use core::time::Duration;
 
 use alloc::boxed::Box;
-use vfs::File;
+use vfs::{select::PL, File};
 
 use crate::{console, process::thread, sync::SleepMutex};
 
@@ -24,6 +24,9 @@ impl File for Stdin {
     }
     fn can_mmap(&self) -> bool {
         false
+    }
+    fn ppoll(&self) -> PL {
+        PL::POLLIN
     }
     fn read<'a>(&'a self, buf: &'a mut [u8]) -> ASysRet {
         Box::pin(async move {

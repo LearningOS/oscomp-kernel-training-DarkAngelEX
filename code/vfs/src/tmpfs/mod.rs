@@ -24,6 +24,7 @@ use crate::{
     fssp::{Fs, FsType},
     inode::FsInode,
     manager::{VfsClock, VfsSpawner},
+    select::PL,
     VfsFile,
 };
 
@@ -77,11 +78,11 @@ impl Fs for TmpFs {
 
 impl TmpFs {
     pub fn new(dev: usize) -> Box<Self> {
-        let root = TmpFsInode::new(true, (true, true), 0, NonNull::dangling());
+        let root = TmpFsInode::new(true, (true, true), 1, NonNull::dangling());
         let fs = Box::new(Self {
             dev,
             root,
-            inoalloc: AtomicUsize::new(1),
+            inoalloc: AtomicUsize::new(2),
         });
         unsafe { fs.root.dir().unwrap().set_fs(fs.ptr()) };
         fs
@@ -160,6 +161,16 @@ impl FsInode for TmpFsInode {
             TmpFsImpl::File(_) => false,
         }
     }
+    fn ppoll(&self) -> PL {
+        match self.0.as_ref() {
+            TmpFsImpl::File(f) => f.ppoll(),
+            TmpFsImpl::Dir(_) => unimplemented!(),
+        }
+    }
+    /// Tmpfs不需要detach操作
+    fn detach(&self) -> ASysR<()> {
+        Box::pin(async move { Ok(()) })
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { self.dir()?.list().await })
     }
@@ -188,8 +199,15 @@ impl FsInode for TmpFsInode {
     fn reset_data(&self) -> ASysR<()> {
         self.file().unwrap().reset_data()
     }
-    fn delete(&self) {
-        self.file().unwrap().delete()
+    fn read_at_fast(
+        &self,
+        buf: &mut [u8],
+        offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        self.file()?.read_at_fast(buf, offset_with_ptr)
+    }
+    fn write_at_fast(&self, buf: &[u8], offset_with_ptr: (usize, Option<&AtomicUsize>)) -> SysRet {
+        self.file()?.write_at_fast(buf, offset_with_ptr)
     }
     fn read_at<'a>(
         &'a self,
@@ -205,13 +223,19 @@ impl FsInode for TmpFsInode {
     ) -> ASysRet {
         self.file().unwrap().write_at(buf, offset_with_ptr)
     }
-    fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
+    fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
         match self.0.as_ref() {
-            TmpFsImpl::Dir(d) => Box::pin(async move { d.stat(stat).await }),
-            TmpFsImpl::File(f) => f.stat(stat),
+            TmpFsImpl::File(f) => f.stat_fast(stat),
+            TmpFsImpl::Dir(d) => d.stat_fast(stat),
         }
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+    fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
+        match self.0.as_ref() {
+            TmpFsImpl::File(f) => f.stat(stat),
+            TmpFsImpl::Dir(d) => Box::pin(async move { d.stat(stat).await }),
+        }
+    }
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         match self.0.as_ref() {
             TmpFsImpl::Dir(_d) => todo!(),
             TmpFsImpl::File(f) => f.utimensat(times, now),

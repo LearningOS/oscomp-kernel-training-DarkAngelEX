@@ -142,13 +142,13 @@ impl File for Fat32Inode {
             Ok(())
         })
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         Box::pin(async move {
             let [access, modify] = times
                 .try_map(|v| v.user_map(now))?
                 .map(|v| v.map(|v| v.as_instant()));
             self.inode.update_time(access, modify).await;
-            Ok(0)
+            Ok(())
         })
     }
 }

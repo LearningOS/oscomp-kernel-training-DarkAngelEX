@@ -186,19 +186,27 @@ impl MapSegment {
 
         let pt = pt!(self);
         let pte = match pt.try_get_pte_user(addr) {
+            // 这个页还没有被映射, 映射一个唯一页
             None => return h.page_fault(pt, addr, access, allocator),
             Some(a) => a,
         };
+
+        // 如果pte没有X标志位, 那一定是用户故意的, 操作失败
         if access.exec {
             debug_assert!(!h.executable());
             debug_assert!(!pte.executable());
             return Err(TryRunFail::Error(SysError::EFAULT));
         }
-        assert!(access.write);
+        debug_assert!(access.write);
         if !h.unique_writable() {
+            // 此pte禁止写入操作
             return Err(TryRunFail::Error(SysError::EFAULT));
         }
-        assert!(pte.shared());
+        // 尝试获取一个写权限的页面
+        stack_trace!();
+        // COW操作
+        debug_assert!(pte.shared());
+        // 引用计数为1时直接修改写权限
         if self.sc_manager.try_remove_unique(addr) {
             if PRINT_PAGE_FAULT {
                 println!("this shared page is unique");
@@ -210,20 +218,23 @@ impl MapSegment {
         if PRINT_PAGE_FAULT {
             println!("copy to new page");
         }
+        // 分配一个新的页, 从原页面复制数据
         let x = allocator.alloc()?;
         x.ptr()
             .as_usize_array_mut()
             .copy_from_slice(pte.phy_addr().into_ref().as_usize_array());
+        // 递减旧的页的引用计数, 如果它是最后一个说明在这期间有其他进程释放了它, 将他释放
         if self.sc_manager.remove_ua(addr) {
             if PRINT_PAGE_FAULT {
                 println!("release old shared page");
             }
             unsafe { pte.dealloc_by(allocator) };
         }
+        // 设置页面
         *pte = PageTableEntry::new(x.consume().into(), h.map_perm());
         Ok(pt!(self).flush_va_asid_fn(addr))
     }
-    /// 必须区间内全部内存页都存在, 否则操作失败
+    /// 必须区间内全部内存页都存在, 否则操作失败, 操作结束后手动在锁外刷表
     ///
     /// 唯一页 / 永久共享页: 修改页表标志位和段标志位
     ///
@@ -274,7 +285,7 @@ impl MapSegment {
     }
     /// 共享优化 fork
     ///
-    /// 发生错误时回退到执行前的状态
+    /// 发生错误时回退到执行前的状态, 不会让操作系统崩掉
     ///
     /// 将写标志位设置为 may_shared()
     pub fn fork(&mut self) -> SysR<Self> {
@@ -292,6 +303,7 @@ impl MapSegment {
                 Some(shared_writable) => {
                     let mut err_2 = Ok(());
                     for (addr, src) in src.valid_pte_iter(r.clone()) {
+                        // 在新页表中生成一个PTE
                         let dst = match dst.get_pte_user(addr, allocator) {
                             Ok(x) => x,
                             Err(e) => {
@@ -302,6 +314,7 @@ impl MapSegment {
                         };
                         stack_trace!();
                         debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
+                        // 变成共享页
                         let sc = if !src.shared() {
                             src.become_shared(shared_writable);
                             self.sc_manager.insert_clone(addr)

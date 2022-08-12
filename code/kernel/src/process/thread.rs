@@ -2,7 +2,7 @@ use core::{
     cell::UnsafeCell,
     future::Future,
     pin::Pin,
-    sync::atomic::{AtomicI32, AtomicUsize},
+    sync::atomic::{AtomicI32, AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 
@@ -31,7 +31,7 @@ use crate::{
         manager::{ProcSignalManager, ThreadSignalManager},
         Sig,
     },
-    sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    sync::{even_bus::EventBus, mutex::SpinLock},
     timer,
     trap::context::UKContext,
     user::check::UserCheck,
@@ -49,6 +49,12 @@ use super::{
 
 pub struct ThreadGroup {
     threads: BTreeMap<Tid, Weak<Thread>>,
+}
+
+impl Default for ThreadGroup {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ThreadGroup {
@@ -73,6 +79,9 @@ impl ThreadGroup {
         }
     }
     pub fn remove(&mut self, tid: Tid) {
+        self.threads.remove(&tid).unwrap();
+    }
+    pub fn maybe_remove(&mut self, tid: Tid) {
         let _ = self.threads.remove(&tid);
     }
     pub fn map(&self, tid: Tid) -> Option<Arc<Thread>> {
@@ -168,8 +177,6 @@ impl Thread {
 
 impl Drop for Thread {
     fn drop(&mut self) {
-        let tid = self.tid();
-        let _ = self.process.alive_then(move |a| a.threads.remove(tid));
         search::clear_thread(self.tid());
     }
 }
@@ -214,7 +221,6 @@ impl Thread {
         let (user_sp, argc, argv, xenvp) =
             user_space.push_args(user_sp, &args, &envp, &auxv, reverse_stack);
         memory::set_satp_by_global();
-        drop(args);
         let (tid, pid) = super::tid::alloc_tid_pid();
         let pgid = AtomicUsize::new(pid.get_usize());
         let process = Arc::new(Process {
@@ -222,18 +228,18 @@ impl Thread {
             pgid,
             event_bus: EventBus::new(),
             signal_manager: ProcSignalManager::new(),
-            alive: Mutex::new(Some(AliveProcess {
+            alive: SpinLock::new(Some(AliveProcess {
                 user_space,
                 cwd,
                 exec_path: String::new(),
-                envp,
                 parent: None,
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(),
                 fd_table: FdTable::new(),
             })),
             exit_code: AtomicI32::new(i32::MIN),
-            timer: Mutex::new(ProcessTimer::ZERO),
+            timer: SpinLock::new(ProcessTimer::ZERO),
+            thread_count: AtomicUsize::new(1),
         });
         let mut thread = Self {
             tid,
@@ -265,9 +271,7 @@ impl Thread {
             (argc, argv, xenvp),
         );
         let thread = Arc::new(thread);
-        process
-            .alive_then(|alive| alive.threads.push(&thread))
-            .unwrap();
+        process.alive_then_uncheck(|alive| alive.threads.push(&thread));
         search::insert_proc(&process);
         search::insert_thread(&thread);
         unsafe { search::set_initproc(process) };
@@ -277,13 +281,21 @@ impl Thread {
     pub fn tid(&self) -> Tid {
         self.tid.tid()
     }
+    /// 只有线程自己可以调用此函数
     #[allow(clippy::mut_from_ref)]
+    #[inline(always)]
     pub fn inner(&self) -> &mut ThreadInner {
         unsafe { &mut *self.inner.get() }
     }
+    /// 只有线程自己可以调用此函数
     #[allow(clippy::mut_from_ref)]
+    #[inline(always)]
     pub fn get_context(&self) -> &mut UKContext {
         unsafe { &mut (*self.inner.get()).uk_context }
+    }
+    #[inline(always)]
+    pub fn have_signal(&self) -> bool {
+        crate::signal::have_signal(self.inner(), &self.process)
     }
     #[inline]
     pub async fn handle_signal(&self) -> Result<(), Dead> {
@@ -326,8 +338,8 @@ impl Thread {
         thread.inner().uk_context.set_user_a0(0);
         thread
             .process
-            .alive_then(|a| a.threads.push(&thread))
-            .unwrap();
+            .alive_then_uncheck(|a| a.threads.push(&thread));
+
         local::all_hart_fence_i();
         Ok(thread)
     }
@@ -368,10 +380,8 @@ impl Thread {
             thread.inner().uk_context.set_user_sp(new_sp);
         }
         thread.inner().uk_context.set_user_a0(0);
-        thread
-            .process
-            .alive_then(|a| a.threads.push(&thread))
-            .unwrap();
+        thread.process.alive_then(|a| a.threads.push(&thread));
+        self.process.thread_count.fetch_add(1, Ordering::Relaxed);
         // 不需要刷新指令缓存
         Ok(thread)
     }
@@ -383,8 +393,7 @@ impl Thread {
         }
         let fx = self
             .process
-            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc())
-            .unwrap();
+            .alive_then(|a| a.user_space.fetch_futex(ua).take_arc());
         self.inner().futex_index.insert(ua, Arc::downgrade(&fx));
         fx
     }
@@ -395,8 +404,7 @@ impl Thread {
         }
         let fx = self
             .process
-            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()))
-            .unwrap();
+            .alive_then(|a| a.user_space.try_fetch_futex(ua).map(|p| p.take_arc()));
         if let Some(fx) = fx.as_ref() {
             self.inner().futex_index.insert(ua, Arc::downgrade(fx));
         }

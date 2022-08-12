@@ -3,9 +3,10 @@ use ftl_util::{async_tools::ASysR, error::SysR};
 use vfs::File;
 
 use crate::{
+    config::PAGE_SIZE,
     memory::{
-        address::UserAddr4K,
-        allocator::frame::{self, FrameAllocator},
+        address::{UserAddr, UserAddr4K},
+        allocator::frame::{self, global::FrameTracker, FrameAllocator},
         asid::Asid,
         page_table::{PTEFlags, PageTableEntry},
         user_space::{AccessType, UserArea},
@@ -306,8 +307,9 @@ pub trait AsyncHandler: Send + Sync {
 pub struct FileAsyncHandler {
     id: HandlerID,
     perm: PTEFlags,
-    start: UserAddr4K,
+    start: UserAddr<u8>,
     offset: usize,
+    fill_size: usize, // 文件映射的长度, 超过的填0
     file: Arc<dyn File>,
 }
 
@@ -315,8 +317,9 @@ impl FileAsyncHandler {
     pub fn new(
         id: HandlerID,
         perm: PTEFlags,
-        start: UserAddr4K,
+        start: UserAddr<u8>,
         offset: usize,
+        fill_size: usize,
         file: Arc<dyn File>,
     ) -> Self {
         Self {
@@ -324,6 +327,7 @@ impl FileAsyncHandler {
             perm,
             start,
             offset,
+            fill_size,
             file,
         }
     }
@@ -345,13 +349,30 @@ impl AsyncHandler for FileAsyncHandler {
             let mut flush = None;
             let allocator = &mut frame::default_allocator();
             for addr in tools::range::ur_iter(range) {
-                debug_assert!(addr >= self.start);
-                let offset = addr.into_usize() - self.start.into_usize() + self.offset;
-                let frame = allocator.alloc()?;
-                let n = self
-                    .file
-                    .read_at(offset, frame.data().as_bytes_array_mut())
-                    .await?;
+                debug_assert!(addr >= self.start.floor());
+                let frame: FrameTracker = allocator.alloc()?;
+
+                let frame_buf = frame.data().as_bytes_array_mut();
+                let addr_uz = addr.into_usize();
+                let start_uz = self.start.into_usize();
+                let n = if addr_uz < start_uz {
+                    let start = start_uz - addr_uz; // 未对齐偏移量
+                    debug_assert!(start < PAGE_SIZE);
+                    let read = self
+                        .file
+                        .read_at(self.offset, &mut frame_buf[start..])
+                        .await?;
+                    start + read.min(self.fill_size)
+                } else {
+                    let offset = self.offset + addr_uz - start_uz;
+                    if offset < self.offset + self.fill_size {
+                        let read = self.file.read_at(offset, frame_buf).await?;
+                        read.min(self.offset + self.fill_size - offset)
+                    } else {
+                        0 // 填充0
+                    }
+                };
+
                 frame.data().as_bytes_array_mut()[n..].fill(0);
                 flush = Some(process.alive_then(|a| -> SysR<_> {
                     let pte = a
@@ -362,7 +383,7 @@ impl AsyncHandler for FileAsyncHandler {
                         pte.alloc_by_frame(self.perm(), frame.consume());
                     }
                     Ok(a.user_space.page_table_mut().flush_asid_fn())
-                })??);
+                })?);
             }
             Ok(flush)
         })
@@ -378,13 +399,31 @@ impl AsyncHandler for FileAsyncHandler {
                 return Err(SysError::EACCES);
             }
             let allocator = &mut frame::default_allocator();
-            debug_assert!(addr >= self.start);
-            let offset = addr.into_usize() - self.start.into_usize() + self.offset;
+            debug_assert!(addr >= self.start.floor());
+            // let offset = addr.into_usize() - self.start.into_usize() + self.offset;
             let frame = allocator.alloc()?;
-            let n = self
-                .file
-                .read_at(offset, frame.data().as_bytes_array_mut())
-                .await?;
+
+            let frame_buf = frame.data().as_bytes_array_mut();
+            let addr_uz = addr.into_usize();
+            let start_uz = self.start.into_usize();
+            let n = if addr_uz < start_uz {
+                let start = start_uz - addr_uz; // 未对齐偏移量
+                debug_assert!(start < PAGE_SIZE);
+                let read = self
+                    .file
+                    .read_at(self.offset, &mut frame_buf[start..])
+                    .await?;
+                start + read.min(self.fill_size)
+            } else {
+                let offset = self.offset + addr_uz - start_uz;
+                if offset < self.offset + self.fill_size {
+                    let read = self.file.read_at(offset, frame_buf).await?;
+                    read.min(self.offset + self.fill_size - offset)
+                } else {
+                    0 // 填充0
+                }
+            };
+
             frame.data().as_bytes_array_mut()[n..].fill(0);
             let flush = process.alive_then(|a| -> SysR<_> {
                 let pte = a
@@ -395,7 +434,7 @@ impl AsyncHandler for FileAsyncHandler {
                     pte.alloc_by_frame(self.perm(), frame.consume());
                 }
                 Ok(a.user_space.page_table_mut().flush_va_asid_fn(addr))
-            })??;
+            })?;
             Ok(flush)
         })
     }

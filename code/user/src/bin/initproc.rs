@@ -9,7 +9,7 @@ use user_lib::{exec, exit, fork, println, wait, yield_};
 fn main() -> i32 {
     if fork() == 0 {
         exec("user_shell\0", &[core::ptr::null::<u8>()]);
-        println!("initproc fork fail!");
+        println!("initproc exec fail!");
         exit(-1);
     }
     loop {

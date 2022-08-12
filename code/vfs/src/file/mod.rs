@@ -17,7 +17,14 @@ use crate::{
     manager::path::Path,
 };
 
+use self::select::{SelectNode, PL};
+
+pub mod select;
+
 pub trait File: Send + Sync + 'static {
+    fn type_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
     // 这个文件的工作路径
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Err(SysError::ENOENT)
@@ -28,10 +35,19 @@ pub trait File: Send + Sync + 'static {
     fn into_vfs_file(self: Arc<Self>) -> SysR<Arc<VfsFile>> {
         Err(SysError::ENOENT)
     }
+    fn ppoll(&self) -> PL {
+        unimplemented!("poll {}", core::any::type_name::<Self>())
+    }
+    fn push_select_node(&self, _node: &mut SelectNode) {
+        unimplemented!("push_select_node {}", core::any::type_name::<Self>())
+    }
+    fn pop_select_node(&self, _node: &mut SelectNode) {
+        unimplemented!("pop_select_node {}", core::any::type_name::<Self>())
+    }
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn can_mmap(&self) -> bool {
-        self.can_read_offset() && self.can_write_offset()
+        self.can_read_offset()
     }
     fn can_read_offset(&self) -> bool {
         false
@@ -48,15 +64,24 @@ pub trait File: Send + Sync + 'static {
     fn lseek(&self, _offset: isize, _whence: Seek) -> SysRet {
         unimplemented!("lseek {}", core::any::type_name::<Self>())
     }
+    fn read_fast(&self, _buffer: &mut [u8]) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
+    fn write_fast(&self, _buffer: &[u8]) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet;
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet;
     fn ioctl(&self, _cmd: u32, _arg: usize) -> SysRet {
         Ok(0)
     }
+    fn stat_fast(&self, _stat: &mut Stat) -> SysR<()> {
+        Err(SysError::EAGAIN)
+    }
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move { unimplemented!("stat {}", core::any::type_name::<Self>()) })
     }
-    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysR<()> {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
 }
@@ -64,7 +89,7 @@ pub trait File: Send + Sync + 'static {
 pub struct VfsFile {
     pub(crate) path: Path,
     pub(crate) inode: Arc<VfsInode>,
-    ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
+    pub ptr: AtomicUsize, // 当前文件偏移量指针, 只有文件会用到
 }
 
 impl Debug for VfsFile {
@@ -89,6 +114,10 @@ impl VfsFile {
     pub fn is_dir(&self) -> bool {
         self.inode.is_dir()
     }
+    pub fn bytes(&self) -> SysR<usize> {
+        self.fsinode().bytes()
+    }
+    #[inline(always)]
     fn fsinode(&self) -> &dyn FsInode {
         self.inode.fsinode.as_ref()
     }
@@ -119,11 +148,17 @@ impl VfsFile {
 }
 
 impl File for VfsFile {
+    fn type_name(&self) -> &'static str {
+        self.inode.fsinode.type_name()
+    }
     fn vfs_file(&self) -> SysR<&VfsFile> {
         Ok(self)
     }
     fn into_vfs_file(self: Arc<Self>) -> SysR<Arc<VfsFile>> {
         Ok(self)
+    }
+    fn ppoll(&self) -> PL {
+        self.fsinode().ppoll()
     }
     fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
         self.fsinode().block_device()
@@ -158,14 +193,24 @@ impl File for VfsFile {
         ptr.store(target, Ordering::Release);
         Ok(target)
     }
+    fn read_fast(&self, buffer: &mut [u8]) -> SysRet {
+        let ptr = &self.ptr;
+        let offset = ptr.load(Ordering::Relaxed);
+        self.fsinode().read_at_fast(buffer, (offset, Some(ptr)))
+    }
+    fn write_fast(&self, buffer: &[u8]) -> SysRet {
+        let ptr = &self.ptr;
+        let offset = ptr.load(Ordering::Relaxed);
+        self.fsinode().write_at_fast(buffer, (offset, Some(ptr)))
+    }
     fn read<'a>(&'a self, buffer: &'a mut [u8]) -> ASysRet {
         let ptr = &self.ptr;
-        let offset = ptr.load(Ordering::Acquire);
+        let offset = ptr.load(Ordering::Relaxed);
         self.fsinode().read_at(buffer, (offset, Some(ptr)))
     }
     fn write<'a>(&'a self, buffer: &'a [u8]) -> ASysRet {
         let ptr = &self.ptr;
-        let offset = ptr.load(Ordering::Acquire);
+        let offset = ptr.load(Ordering::Relaxed);
         self.fsinode().write_at(buffer, (offset, Some(ptr)))
     }
     fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> ASysRet {
@@ -174,10 +219,13 @@ impl File for VfsFile {
     fn write_at<'a>(&'a self, offset: usize, buf: &'a [u8]) -> ASysRet {
         self.fsinode().write_at(buf, (offset, None))
     }
+    fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
+        self.fsinode().stat_fast(stat)
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         self.fsinode().stat(stat)
     }
-    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
         self.fsinode().utimensat(times, now)
     }
 }

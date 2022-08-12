@@ -1,7 +1,4 @@
-use core::{
-    ptr::NonNull,
-    sync::atomic::{AtomicBool, AtomicUsize, Ordering},
-};
+use core::{ptr::NonNull, sync::atomic::AtomicUsize};
 
 use alloc::{boxed::Box, string::String, sync::Arc, vec::Vec};
 use ftl_util::{
@@ -13,7 +10,7 @@ use ftl_util::{
     time::{Instant, TimeSpec},
 };
 
-use crate::fssp::Fssp;
+use crate::{fssp::Fssp, select::PL};
 
 pub trait FsInode: Send + Sync + 'static {
     // 类型转换
@@ -21,15 +18,26 @@ pub trait FsInode: Send + Sync + 'static {
     fn block_device(&self) -> SysR<Arc<dyn BlockDevice>> {
         Err(SysError::ENOTBLK)
     }
+    fn type_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
     // === 共享操作 ===
 
     fn readable(&self) -> bool;
     fn writable(&self) -> bool;
     fn is_dir(&self) -> bool;
+    fn ppoll(&self) -> PL {
+        unimplemented!("poll {}", core::any::type_name::<Self>())
+    }
+    fn stat_fast(&self, _stat: &mut Stat) -> SysR<()> {
+        SysR::Err(SysError::EAGAIN)
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()>;
-    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
+    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysR<()> {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())
     }
+
+    fn detach(&self) -> ASysR<()>;
     // === 目录操作 ===
 
     fn list(&self) -> ASysR<Vec<(DentryType, String)>>;
@@ -47,6 +55,7 @@ pub trait FsInode: Send + Sync + 'static {
             panic!("place_inode unsupport: {}", core::any::type_name::<Self>())
         })
     }
+    /// release: 释放资源, 当子节点为打开状态时为 false
     fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()>;
     fn rmdir_child<'a>(&'a self, name: &'a str) -> ASysR<()>;
 
@@ -54,8 +63,20 @@ pub trait FsInode: Send + Sync + 'static {
 
     fn bytes(&self) -> SysRet;
     fn reset_data(&self) -> ASysR<()>;
-    // 用于文件延迟删除
-    fn delete(&self);
+    fn read_at_fast(
+        &self,
+        _buf: &mut [u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
+    fn write_at_fast(
+        &self,
+        _buf: &[u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
@@ -71,7 +92,6 @@ pub trait FsInode: Send + Sync + 'static {
 inlist_access!(pub(crate) InodeFsspNode, VfsInode, fssp_node);
 
 pub(crate) struct VfsInode {
-    drop_release: AtomicBool,
     fssp: NonNull<Fssp>,
     fssp_node: InListNode<Self, InodeFsspNode>,
     pub fsinode: Box<dyn FsInode>,
@@ -80,18 +100,9 @@ pub(crate) struct VfsInode {
 unsafe impl Send for VfsInode {}
 unsafe impl Sync for VfsInode {}
 
-impl Drop for VfsInode {
-    fn drop(&mut self) {
-        if *self.drop_release.get_mut() {
-            self.fsinode.delete();
-        }
-    }
-}
-
 impl VfsInode {
     pub fn new(fssp: NonNull<Fssp>, inode: Box<dyn FsInode>) -> Arc<Self> {
         let mut ptr = Arc::new(Self {
-            drop_release: AtomicBool::new(false),
             fssp,
             fssp_node: InListNode::new(),
             fsinode: inode,
@@ -146,9 +157,8 @@ impl VfsInode {
         Ok(Self::new(self.fssp, fsinode))
     }
     /// 给inode增加析构时释放标志
-    pub fn drop_release(&self) {
-        debug_assert!(!self.is_dir());
-        self.drop_release.store(true, Ordering::Release);
+    pub async fn detach(&self) -> SysR<()> {
+        self.fsinode.detach().await
     }
     /// 这条路径的子节点不在缓存, 不能unlink目录!
     pub async fn unlink_child(&self, name: &str, release: bool) -> SysR<()> {

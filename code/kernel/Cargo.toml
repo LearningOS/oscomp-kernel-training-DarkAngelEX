@@ -26,12 +26,14 @@ bit_field = "0.10.1"
 xmas-elf = "0.8.0"
 # async-task = { version = "4.2.0", default-features = false }
 async-task = { path = "../dependencies/async-task", default-features = false }
-
+# object = { "0.29.0", default-features = false, features = ["elf", "read_core"] }
+# object = { path = "../dependencies/object", default-features = false, features = ["elf", "read_core"] }
 
 [features]
-default = ["stack_trace"]
-# default = ["stack_trace", "submit"]
+default = []
 # default = ["submit"]
+# default = ["stack_trace"]
+# default = ["stack_trace", "submit"]
 board_qemu = []
 board_hifive = []
 submit = []
@@ -52,6 +54,6 @@ opt-level = 3
 debug = false
 debug-assertions = false
 overflow-checks = false
-lto = false
+lto = true
 incremental = false
-codegen-units = 16
+codegen-units = 1

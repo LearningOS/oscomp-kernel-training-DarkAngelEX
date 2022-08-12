@@ -30,6 +30,9 @@ impl FsInode for NullInode {
             Ok(())
         })
     }
+    fn detach(&self) -> ASysR<()> {
+        todo!()
+    }
     // === 目录操作 ===
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
@@ -37,7 +40,12 @@ impl FsInode for NullInode {
     fn search<'a>(&'a self, _name: &'a str) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }
-    fn create<'a>(&'a self, _name: &'a str, _dir: bool, _rw: (bool, bool)) -> ASysR<Box<dyn FsInode>> {
+    fn create<'a>(
+        &'a self,
+        _name: &'a str,
+        _dir: bool,
+        _rw: (bool, bool),
+    ) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })
     }
     fn place_inode<'a>(
@@ -62,7 +70,20 @@ impl FsInode for NullInode {
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move { Ok(()) })
     }
-    fn delete(&self) {}
+    fn read_at_fast(
+        &self,
+        _buf: &mut [u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        Ok(0)
+    }
+    fn write_at_fast(
+        &self,
+        buf: &[u8],
+        _offset_with_ptr: (usize, Option<&AtomicUsize>),
+    ) -> SysRet {
+        Ok(buf.len())
+    }
     fn read_at<'a>(
         &'a self,
         _buf: &'a mut [u8],

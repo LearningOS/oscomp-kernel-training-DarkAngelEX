@@ -1,6 +1,7 @@
+use alloc::sync::Arc;
 use ftl_util::fs::Mode;
 
-use riscv::register::{fcsr::FCSR, sstatus::FS};
+use riscv::register::{fcsr::FCSR, scause::Scause, sstatus::FS};
 
 use crate::{
     hart::floating::{self, FLOAT_ENABLE},
@@ -8,10 +9,31 @@ use crate::{
         address::UserAddr,
         user_ptr::{Policy, UserPtr},
     },
+    process::{thread::Thread, Process},
     riscv::register::sstatus::Sstatus,
     signal::Sig,
     tools::allocator::from_usize_allocator::FromUsize,
 };
+
+use super::FastStatus;
+
+pub struct FastContext {
+    pub thread: &'static Thread,
+    pub thread_arc: &'static Arc<Thread>,
+    pub process: &'static Process,
+    pub skip_syscall: bool,
+}
+
+impl FastContext {
+    pub unsafe fn new(thread: &Thread, thread_arc: &Arc<Thread>, process: &Process) -> Self {
+        Self {
+            thread: &*(thread as *const _),
+            thread_arc: &*(thread_arc as *const _),
+            process: &*(process as *const _),
+            skip_syscall: false,
+        }
+    }
+}
 
 /// user-kernel context
 #[repr(C)]
@@ -22,8 +44,14 @@ pub struct UKContext {
     pub kernel_sx: [usize; 12], // 34-45
     pub kernel_ra: usize,       // 46
     pub kernel_sp: usize,       // 47
-    pub kernel_tp: usize,       // 48
+    pub kernel_gp: usize,       // 48
+    pub kernel_tp: usize,       // 49
+    pub scause: Scause,         // 50
+    pub stval: usize,           // 51
     pub user_fx: FloatContext,
+    // 快速处理路径中转
+    pub fast_context: usize, // 指向 FastContext
+    pub fast_status: FastStatus,
 }
 
 #[repr(C)]
@@ -144,6 +172,15 @@ impl UKContext {
     pub fn new() -> Self {
         unsafe { core::mem::zeroed() }
     }
+    pub fn set_fast_context(&mut self, fc: &FastContext) {
+        self.fast_context = fc as *const _ as usize;
+    }
+    pub fn fast_context(&self) -> &'static FastContext {
+        unsafe { &*(self.fast_context as *const FastContext) }
+    }
+    pub fn load_fast_status(&self) -> FastStatus {
+        unsafe { core::ptr::read_volatile(&self.fast_status) }
+    }
     #[inline(always)]
     pub fn a0(&self) -> usize {
         self.user_rx[10]
@@ -242,13 +279,14 @@ impl UKContext {
         }
         new
     }
-    pub fn run_user(&mut self) {
-        debug_assert!(!self.user_sstatus.sie());
+    /// 由执行器调用, 进入用户态
+    pub fn run_user_executor(&mut self) {
+        debug_assert!(!self.user_sstatus.sie()); // 这里没有关中断
         if FLOAT_ENABLE {
             unsafe { floating::load_fx(&mut self.user_fx) };
             self.user_sstatus.set_fs(FS::Clean);
         }
-        super::run_user(self);
+        super::run_user_executor(self);
         if FLOAT_ENABLE {
             floating::store_fx_mark(&mut self.user_fx, &mut self.user_sstatus);
         }

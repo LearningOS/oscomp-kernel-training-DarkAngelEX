@@ -2,12 +2,13 @@ pub mod file;
 
 use alloc::{boxed::Box, sync::Arc};
 use ftl_util::{
+    async_tools::Async,
     device::BlockDevice,
     error::{SysError, SysR},
     time::Instant,
     xdebug,
 };
-use vfs::{VfsClock, VfsSpawner};
+use vfs::{NullSpawner, VfsClock, VfsSpawner, ZeroClock};
 
 use crate::{
     block::CacheManager,
@@ -24,7 +25,8 @@ pub struct Fat32Manager {
     pub(crate) caches: CacheManager,
     pub(crate) inodes: InodeManager,
     root_dir: Option<DirInode>,
-    clock: Option<Box<dyn VfsClock>>,
+    clock: Box<dyn VfsClock>,
+    spawner: Box<dyn VfsSpawner>,
 }
 
 impl Fat32Manager {
@@ -43,7 +45,8 @@ impl Fat32Manager {
             caches: CacheManager::new(block_max_dirty, block_max_cache),
             inodes: InodeManager::new(inode_target_free),
             root_dir: None,
-            clock: None,
+            clock: Box::new(ZeroClock),
+            spawner: Box::new(NullSpawner),
         }
     }
     pub async fn init(&mut self, device: Arc<dyn BlockDevice>, clock: Box<dyn VfsClock>) {
@@ -52,12 +55,13 @@ impl Fat32Manager {
         self.list.init(&self.bpb, 0, device.clone()).await;
         self.caches.init(&self.bpb, device.clone()).await;
         self.inodes.init();
-        self.clock = Some(clock);
+        self.clock = clock;
         self.init_root();
     }
     pub(crate) fn bpb(&self) -> &RawBPB {
         &self.bpb
     }
+    /// (FAT list磁盘同步并发数, cache磁盘同步并发数)
     pub async fn spawn_sync_task(
         &mut self,
         (concurrent_list, concurrent_cache): (usize, usize),
@@ -66,7 +70,10 @@ impl Fat32Manager {
         self.list
             .sync_task(concurrent_list, spawner.box_clone())
             .await;
-        self.caches.sync_task(concurrent_cache, spawner).await;
+        self.caches
+            .sync_task(concurrent_cache, spawner.box_clone())
+            .await;
+        self.spawner = spawner;
     }
     fn init_root(&mut self) {
         let cache = self
@@ -117,16 +124,17 @@ impl Fat32Manager {
         let (name, dir) = self.split_search_path(path).await?;
         dir.delete_dir(self, name).await
     }
+    /// 此函数只能删除未打开的文件, 如果要删除打开的文件, 需要先对子节点使用detach操作
     pub async fn delete_file(&self, path: &[&str]) -> SysR<()> {
         let (name, dir) = self.split_search_path(path).await?;
-        dir.delete_file(self, name).await
+        dir.delete_file(self, name, true).await
     }
     /// 搜索路径
     async fn split_search_path<'a>(&self, path: &[&'a str]) -> SysR<(&'a str, DirInode)> {
         match path.split_last() {
             Some((&name, path)) => {
                 let dir = self.search_dir(path).await?;
-                Ok((name, dir))
+                return Ok((name, dir));
             }
             None => Err(SysError::ENOENT),
         }
@@ -138,6 +146,12 @@ impl Fat32Manager {
     ///
     /// (year, mount, day), (hour, mount, second), millisecond
     pub(crate) fn now(&self) -> Instant {
-        self.clock.as_ref().unwrap().now()
+        self.clock.now()
+    }
+    pub(crate) fn spawn(&self, future: Async<'static, ()>) {
+        self.spawner.spawn(future)
+    }
+    pub(crate) fn get_spawner(&self) -> Box<dyn VfsSpawner> {
+        self.spawner.box_clone()
     }
 }

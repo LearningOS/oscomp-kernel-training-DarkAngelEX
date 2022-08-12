@@ -1,7 +1,6 @@
 use alloc::{
     string::{String, ToString},
     sync::{Arc, Weak},
-    vec::Vec,
 };
 use core::sync::atomic::{AtomicI32, AtomicUsize, Ordering};
 use ftl_util::{
@@ -11,10 +10,10 @@ use ftl_util::{
 use vfs::VfsFile;
 
 use crate::{
-    fs,
+    fs, local,
     memory::{asid::Asid, UserSpace},
     signal::manager::ProcSignalManager,
-    sync::{even_bus::EventBus, mutex::SpinNoIrqLock as Mutex},
+    sync::{even_bus::EventBus, mutex::SpinLock},
     syscall::{SysError, UniqueSysError},
     xdebug::NeverFail,
 };
@@ -75,9 +74,10 @@ pub struct Process {
     pub pgid: AtomicUsize,
     pub event_bus: Arc<EventBus>,
     pub signal_manager: ProcSignalManager,
-    pub alive: Mutex<Option<AliveProcess>>,
+    pub alive: SpinLock<Option<AliveProcess>>,
     pub exit_code: AtomicI32,
-    pub timer: Mutex<ProcessTimer>,
+    pub timer: SpinLock<ProcessTimer>,
+    pub thread_count: AtomicUsize,
 }
 
 impl Drop for Process {
@@ -90,7 +90,6 @@ pub struct AliveProcess {
     pub user_space: UserSpace,
     pub cwd: Arc<VfsFile>,
     pub exec_path: String,
-    pub envp: Vec<String>,
     pub parent: Option<Weak<Process>>, // assume upgrade success.
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
@@ -120,15 +119,27 @@ impl Process {
     pub fn is_alive(&self) -> bool {
         unsafe { self.alive.unsafe_get().is_some() }
     }
-    // return Err if zombies
+    /// 只有进程自己的task可以调用此函数
+    ///
+    /// 当线程数量只有一个的时候不会上锁
     #[inline(always)]
-    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> Result<T, Dead> {
-        match self.alive.lock().as_mut() {
-            Some(alive) => Ok(f(alive)),
-            None => Err(Dead),
+    pub fn alive_then<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
+        debug_assert!(local::task_local().thread.process.pid() == self.pid());
+        unsafe {
+            let threads = self.thread_count.load(Ordering::Relaxed);
+            if threads == 1 {
+                f(self.alive.unsafe_get_mut().as_mut().unwrap_unchecked())
+            } else {
+                f(self.alive.lock().as_mut().unwrap_unchecked())
+            }
         }
     }
-    // fork and release all thread except tid
+    /// 此函数一定会上锁
+    #[inline(always)]
+    pub fn alive_then_uncheck<T>(&self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
+        f(self.alive.lock().as_mut().unwrap())
+    }
+    /// fork and release all thread except tid
     pub fn fork(self: &Arc<Self>, new_pid: PidHandle) -> SysR<Arc<Self>> {
         let mut alive_guard = self.alive.lock();
         let alive = alive_guard.as_mut().unwrap();
@@ -138,7 +149,6 @@ impl Process {
             user_space,
             cwd: alive.cwd.clone(),
             exec_path: alive.exec_path.clone(),
-            envp: alive.envp.clone(),
             parent: Some(Arc::downgrade(self)),
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(),
@@ -149,9 +159,10 @@ impl Process {
             pgid: AtomicUsize::new(self.pgid.load(Ordering::Relaxed)),
             event_bus: EventBus::new(),
             signal_manager: self.signal_manager.fork(),
-            alive: Mutex::new(Some(new_alive)),
+            alive: SpinLock::new(Some(new_alive)),
             exit_code: AtomicI32::new(i32::MIN),
-            timer: Mutex::new(ProcessTimer::ZERO),
+            timer: SpinLock::new(ProcessTimer::ZERO),
+            thread_count: AtomicUsize::new(1),
         });
         alive.children.push_child(new_process.clone());
         success_check.assume_success();
@@ -182,10 +193,28 @@ pub async fn init() {
     let cwd = fs::open_file((Err(SysError::ENOENT), "/"), OpenFlags::RDONLY, Mode(0o500))
         .await
         .unwrap();
+
+    let args = alloc::vec![initproc.to_string()];
+    let envp = alloc::vec![
+        "SHELL=/user_shell".to_string(),
+        "PWD=/".to_string(),
+        "USER=root".to_string(),
+        "MOTD_SHOWN=pam".to_string(),
+        "LANG=C.UTF-8".to_string(),
+        "INVOCATION_ID=e9500a871cf044d9886a157f53826684".to_string(),
+        "TERM=vt220".to_string(),
+        "SHLVL=2".to_string(),
+        "JOURNAL_STREAM=8:9265".to_string(),
+        "OLDPWD=/root".to_string(),
+        "_=busybox".to_string(),
+        "LOGNAME=root".to_string(),
+        "HOME=/".to_string(),
+        "PATH=/".to_string(),
+        "LD_LIBRARY_PATH=/".to_string(),
+    ];
+
     if cfg!(feature = "submit") {
         println!("running submit program!");
-        let args = alloc::vec![initproc.to_string()];
-        let envp = Vec::new();
         let thread = Thread::new_initproc(cwd, RUN_ALL_CASE, args, envp);
         userloop::spawn(thread);
     } else {
@@ -198,9 +227,7 @@ pub async fn init() {
         .await
         .unwrap();
         let elf_data = inode.read_all().await.unwrap();
-        let args = alloc::vec![initproc.to_string()];
-        let envp = Vec::new();
-        let thread = Thread::new_initproc(cwd, elf_data.as_slice(), args, envp);
+        let thread = Thread::new_initproc(cwd, &elf_data[..], args, envp);
         userloop::spawn(thread);
     }
     println!("spawn initporc completed");

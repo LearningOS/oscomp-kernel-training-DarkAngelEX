@@ -12,6 +12,7 @@
 #![feature(get_mut_unchecked)]
 #![feature(receiver_trait)]
 #![feature(array_try_map)]
+#![feature(let_chains)]
 #![allow(dead_code)]
 
 const PRINT_OP: bool = false;
@@ -22,14 +23,18 @@ const RRINT_ELIMINATE: bool = false;
 extern crate alloc;
 #[macro_use]
 extern crate ftl_util;
-// #[macro_use]
-// extern crate bitflags;
+#[macro_use]
+extern crate bitflags;
+
+#[cfg(test)]
+#[macro_use]
+extern crate std;
 
 pub use {
-    file::{File, VfsFile},
+    file::{select, File, VfsFile},
     fssp::{Fs, FsType},
     inode::FsInode,
-    manager::{DevAlloc, VfsClock, VfsManager, VfsSpawner, ZeroClock},
+    manager::{DevAlloc, NullSpawner, VfsClock, VfsManager, VfsSpawner, ZeroClock},
 };
 
 mod dentry;

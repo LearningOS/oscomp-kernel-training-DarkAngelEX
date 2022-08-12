@@ -1,22 +1,23 @@
+use core::sync::atomic::Ordering;
+
 use alloc::{string::String, sync::Arc, vec::Vec};
 use ftl_util::{
     error::SysR,
     fs::{Mode, OpenFlags, Seek},
-    time::TimeSpec,
 };
 use vfs::{File, VfsFile};
 
 use crate::{
-    fs::{self, pipe, Iovec, Pollfd},
+    fs::{self, pipe, Iovec},
     memory::user_ptr::{UserInOutPtr, UserReadPtr, UserWritePtr},
     process::fd::Fd,
-    signal::SignalSet,
     syscall::SysError,
     tools::{allocator::from_usize_allocator::FromUsize, path},
     user::check::UserCheck,
-    xdebug::{PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
+    xdebug::{PRINT_FS_OPEN_PATH, PRINT_SYSCALL, PRINT_SYSCALL_ALL, PRINT_SYSCALL_RW},
 };
 pub mod mount;
+mod select;
 pub mod stat;
 
 use super::{SysRet, Syscall};
@@ -24,8 +25,33 @@ use super::{SysRet, Syscall};
 const PRINT_SYSCALL_FS: bool = false || false && PRINT_SYSCALL || PRINT_SYSCALL_ALL;
 
 const AT_FDCWD: isize = -100;
+const AT_SYMLINK_NOFOLLOW: usize = 1 << 8;
+const AT_EACCESS: usize = 1 << 9;
+const AT_REMOVEDIR: usize = 1 << 9;
 
 impl Syscall<'_> {
+    pub fn fd_path_impl_fast(
+        &mut self,
+        fd: isize,
+        path: UserReadPtr<u8>,
+    ) -> SysR<(SysR<Arc<VfsFile>>, String)> {
+        let path = UserCheck::array_zero_end_only(path)?.to_vec();
+        let path = String::from_utf8(path)?;
+        let file: SysR<Arc<dyn File>> = if !path::is_absolute_path(&path) {
+            match fd {
+                AT_FDCWD => Ok(self.alive_then(|a| a.cwd.clone())),
+                fd => self
+                    .alive_then(|a| a.fd_table.get(Fd(fd as usize)).cloned())
+                    .ok_or(SysError::EBADF),
+            }
+        } else {
+            Err(SysError::EBADF)
+        };
+        if PRINT_FS_OPEN_PATH {
+            println!("fd_path_impl_fast path: {}", path);
+        }
+        Ok((file.and_then(|v| v.into_vfs_file()), path))
+    }
     pub async fn fd_path_impl(
         &mut self,
         fd: isize,
@@ -46,7 +72,23 @@ impl Syscall<'_> {
         } else {
             Err(SysError::EBADF)
         };
+        if PRINT_FS_OPEN_PATH {
+            println!("fd_path_impl path: {}", path);
+        }
         Ok((file.and_then(|v| v.into_vfs_file()), path))
+    }
+    pub fn fd_path_open_fast(
+        &mut self,
+        fd: isize,
+        path: UserReadPtr<u8>,
+        flags: OpenFlags,
+        mode: Mode,
+    ) -> SysR<Arc<VfsFile>> {
+        let (base, path) = self.fd_path_impl_fast(fd, path)?;
+        if PRINT_SYSCALL_FS {
+            println!("fd_path_open_fast path: {}", path);
+        }
+        fs::open_file_fast((base, path.as_str()), flags, mode)
     }
     pub async fn fd_path_open(
         &mut self,
@@ -74,13 +116,16 @@ impl Syscall<'_> {
     pub async fn sys_getcwd(&mut self) -> SysRet {
         stack_trace!();
         let (buf_in, len): (UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!("sys_getcwd");
+        }
         if buf_in.is_null() {
             return Err(SysError::EINVAL);
         }
         let buf = UserCheck::new(self.process)
             .writable_slice(buf_in, len)
             .await?;
-        let path = self.alive_lock().cwd.path_str();
+        let path = self.alive_then(|a| a.cwd.path_str());
         let cwd_len = path.iter().fold(0, |a, b| a + b.len() + 1) + 1;
         let cwd_len = cwd_len.max(2);
         if buf.len() <= cwd_len {
@@ -105,6 +150,9 @@ impl Syscall<'_> {
     pub fn sys_dup(&mut self) -> SysRet {
         stack_trace!();
         let fd: usize = self.cx.para1();
+        if PRINT_SYSCALL_FS {
+            println!("sys_dup fd {}", fd);
+        }
         let fd = Fd::from_usize(fd);
         let new = self.alive_then(move |a| a.fd_table.dup(fd))?;
         Ok(new.to_usize())
@@ -123,11 +171,10 @@ impl Syscall<'_> {
         }
         new_fd.in_range()?;
         self.alive_then(move |a| a.fd_table.replace_dup(old_fd, new_fd, flags))?;
-        Ok(new_fd.to_usize())
+        Ok(new_fd.0)
     }
     pub async fn sys_getdents64(&mut self) -> SysRet {
         stack_trace!();
-
         #[repr(C)]
         struct Ddirent {
             d_ino: u64,    /* Inode number */
@@ -137,6 +184,14 @@ impl Syscall<'_> {
             d_name: (),
         }
         let (fd, dirp, count): (Fd, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_getdents64 fd: {:?} dirp: {:#x} count: {}",
+                fd,
+                dirp.as_usize(),
+                count
+            );
+        }
         let align = core::mem::align_of::<Ddirent>();
         if dirp.as_usize() % align != 0 {
             return Err(SysError::EFAULT);
@@ -149,36 +204,38 @@ impl Syscall<'_> {
             .ok_or(SysError::EBADF)?;
         let file = file.into_vfs_file()?;
         let list = file.list().await?;
-
+        let offset = file.ptr.load(Ordering::Relaxed);
+        if offset >= list.len() {
+            return Ok(0);
+        }
         let mut buffer = &mut *dirp.access_mut();
         let mut cnt = 0;
-        let mut d_off_ptr: *mut u64 = core::ptr::null_mut();
-        for (dt, name) in list {
+        for (dt, name) in &list[offset..] {
             let ptr = buffer.as_mut_ptr();
             debug_assert_eq!(ptr as usize % align, 0);
+            // 全是指针操作
             unsafe {
-                let dirent_ptr: *mut Ddirent = core::mem::transmute(ptr);
-                let name_ptr = &mut (*dirent_ptr).d_name as *mut _ as *mut u8;
+                let dirent_ptr = ptr.cast::<Ddirent>();
+                let name_ptr = core::ptr::addr_of_mut!((*dirent_ptr).d_name).cast::<u8>();
                 let end_ptr = name_ptr.add(name.len() + 1);
                 let align_add = end_ptr.align_offset(align);
-                let len = end_ptr.add(align_add).offset_from(ptr) as usize;
-                if len > buffer.len() {
+                let this_len = end_ptr.offset_from(ptr) as usize + align_add;
+                if this_len > buffer.len() {
                     break;
                 }
                 let dirent = &mut *dirent_ptr;
-                dirent.d_ino = 0;
-                if !d_off_ptr.is_null() {
-                    *d_off_ptr = (&dirent.d_off as *const _ as usize - d_off_ptr as usize) as u64;
-                }
-                d_off_ptr = &mut dirent.d_off;
-                dirent.d_reclen = len as u16;
-                dirent.d_type = dt as u8; // <- no implement
+                dirent.d_ino = 1;
+                dirent.d_off = this_len as u64;
+                dirent.d_reclen = this_len as u16;
+                dirent.d_type = *dt as u8; // <- no implement
                 let name_buf = core::ptr::slice_from_raw_parts_mut(name_ptr, name.len() + 1);
                 (&mut *name_buf)[..name.len()].copy_from_slice(name.as_bytes());
                 (&mut *name_buf)[name.len()] = b'\0';
-                buffer = &mut buffer[len..];
+                cnt += this_len;
+                buffer = &mut buffer[this_len..];
+                file.ptr
+                    .store(file.ptr.load(Ordering::Relaxed) + 1, Ordering::Relaxed);
             }
-            cnt += 1;
         }
         Ok(cnt)
     }
@@ -193,12 +250,27 @@ impl Syscall<'_> {
         let whence = Seek::from_user(whence)?;
         file.lseek(offset, whence)
     }
+    pub fn sys_read_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_read_fast fd {} len: {}", fd, len);
+        }
+        let buf = UserCheck::writable_slice_only(buf, len)?;
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
+        if !file.readable() {
+            return Err(SysError::EPERM);
+        }
+        file.read_fast(&mut *buf.access_mut())
+    }
     pub async fn sys_read(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
-            println!("sys_read");
-        }
         let (fd, buf, len): (usize, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_read fd {} len: {}", fd, len);
+        }
         let buf = UserCheck::new(self.process)
             .writable_slice(buf, len)
             .await?;
@@ -210,12 +282,29 @@ impl Syscall<'_> {
         }
         file.read(&mut *buf.access_mut()).await
     }
+    pub fn sys_write_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_write_fast fd {} len: {}", fd, len);
+        }
+        let buf = UserCheck::readonly_slice_only(buf, len)?;
+        let file = self
+            .alive_then(move |a| a.fd_table.get(Fd::new(fd)).cloned())
+            .ok_or(SysError::EBADF)?;
+        if !file.writable() {
+            return Err(SysError::EPERM);
+        }
+        stack_trace!(file.type_name());
+        // println!("write_fast: {}", file.type_name());
+        file.write_fast(&*buf.access())
+    }
     pub async fn sys_write(&mut self) -> SysRet {
         stack_trace!();
-        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
-            println!("sys_write");
-        }
         let (fd, buf, len): (usize, UserReadPtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS && PRINT_SYSCALL_RW {
+            println!("sys_write fd {} len: {}", fd, len);
+        }
         let buf = UserCheck::new(self.process)
             .readonly_slice(buf, len)
             .await?;
@@ -287,37 +376,43 @@ impl Syscall<'_> {
         }
         file.read_at(offset, &mut *buf.access_mut()).await
     }
-    pub async fn sys_pselect6(&mut self) -> SysRet {
-        // let (nfds, readfds, writefds, exceptfds, timeout, sigmask): () = self.cx.into();
-        todo!()
-    }
-    /// 未实现功能
-    pub async fn sys_ppoll(&mut self) -> SysRet {
+    pub async fn sys_sendfile(&mut self) -> SysRet {
         stack_trace!();
-        let (fds, nfds, timeout, sigmask, s_size): (
-            UserInOutPtr<Pollfd>,
-            usize,
-            UserReadPtr<TimeSpec>,
-            UserReadPtr<u8>,
-            usize,
-        ) = self.cx.into();
-        let uc = UserCheck::new(self.process);
-        let fds = uc.writable_slice(fds, nfds).await?;
+        let (out_fd, in_fd, offset, count): (Fd, Fd, UserInOutPtr<usize>, usize) = self.cx.into();
         if PRINT_SYSCALL_FS {
-            let fds: Vec<_> = fds.access().iter().map(|a| a.fd).collect();
-            println!("sys_ppoll fds: {:?} ..", fds);
+            println!(
+                "sys_sendfile out: {:?} in: {:?} off:{:#x} n:{}",
+                out_fd,
+                in_fd,
+                offset.as_usize(),
+                count
+            );
         }
-        let _timeout = match timeout.nonnull() {
-            Some(timeout) => Some(uc.readonly_value(timeout).await?.load()),
-            None => None,
+        let (out_file, in_file) = match self.alive_then(|a| {
+            (
+                a.fd_table.get(out_fd).cloned(),
+                a.fd_table.get(in_fd).cloned(),
+            )
+        }) {
+            (Some(out_file), Some(in_file)) => (out_file, in_file),
+            _ => return Err(SysError::EBADF),
         };
-        let _sigset = if let Some(sigmask) = sigmask.nonnull() {
-            let v = uc.readonly_slice(sigmask, s_size).await?;
-            SignalSet::from_bytes(&*v.access())
+        let offset = UserCheck::new(self.process)
+            .writable_value_nullable(offset)
+            .await?;
+        let mut buf = Vec::new();
+        buf.resize(count, 0);
+        if let Some(offset) = offset {
+            let off = offset.load();
+            let n = in_file.read_at(off, &mut buf[..]).await?;
+            out_file.write(&buf[..n]).await?;
+            offset.store(off + n);
+            Ok(n)
         } else {
-            SignalSet::EMPTY
-        };
-        Ok(nfds)
+            let n = in_file.read(&mut buf[..]).await?;
+            out_file.write(&buf[..n]).await?;
+            Ok(n)
+        }
     }
     pub async fn sys_readlinkat(&mut self) -> SysRet {
         stack_trace!();
@@ -337,7 +432,13 @@ impl Syscall<'_> {
         path::write_path_to(path.iter().map(|s| s.as_ref()), &mut *dst.access_mut());
         Ok(plen.min(size))
     }
-
+    pub fn sys_fsync(&mut self) -> SysRet {
+        let fd: Fd = self.cx.para1();
+        self.process
+            .alive_then(|a| a.fd_table.get(fd).cloned())
+            .ok_or(SysError::EBADF)?;
+        Ok(0)
+    }
     pub async fn sys_mkdirat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, mode): (isize, UserReadPtr<u8>, Mode) = self.cx.into();
@@ -352,11 +453,18 @@ impl Syscall<'_> {
     pub async fn sys_unlinkat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, flags): (isize, UserReadPtr<u8>, u32) = self.cx.into();
-        if flags != 0 {
-            panic!("sys_unlinkat flags: {:#x}", flags);
+        if PRINT_SYSCALL_FS {
+            println!("sys_unlinkat flags: {}", flags);
         }
         let (base, path) = self.fd_path_impl(fd, path).await?;
-        fs::unlink((base, &path), OpenFlags::empty()).await?;
+        let dir = flags & AT_REMOVEDIR as u32 != 0;
+        fs::unlinkat((base, &path), dir).await?;
+        Ok(0)
+    }
+    pub async fn sys_faccessat(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, path, mode, _flags): (isize, UserReadPtr<u8>, Mode, u32) = self.cx.into();
+        let _inode = self.fd_path_open(fd, path, OpenFlags::RDONLY, mode).await?;
         Ok(0)
     }
     pub async fn sys_chdir(&mut self) -> SysRet {
@@ -378,6 +486,28 @@ impl Syscall<'_> {
         self.alive_then(|a| a.cwd = inode);
         Ok(0)
     }
+    // changes the ownership of the file referred to by the open file descriptor fd.
+    pub fn sys_fchown(&mut self) -> SysRet {
+        Ok(0)
+    }
+    pub fn sys_openat_fast(&mut self) -> SysRet {
+        stack_trace!();
+        let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_openat fd: {} path: {:#x} flags: {:#x} mode: {:#o}",
+                fd,
+                path.as_usize(),
+                flags,
+                mode.0
+            );
+        }
+        let flags = OpenFlags::from_bits(flags).unwrap();
+        let inode = self.fd_path_open_fast(fd, path, flags, mode)?;
+        let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
+        let fd = self.alive_then(|a| a.fd_table.insert(inode, close_on_exec, flags))?;
+        Ok(fd.0)
+    }
     pub async fn sys_openat(&mut self) -> SysRet {
         stack_trace!();
         let (fd, path, flags, mode): (isize, UserReadPtr<u8>, u32, Mode) = self.cx.into();
@@ -393,11 +523,8 @@ impl Syscall<'_> {
         let flags = OpenFlags::from_bits(flags).unwrap();
         let inode = self.fd_path_open(fd, path, flags, mode).await?;
         let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
-        let fd = self
-            .alive_lock()
-            .fd_table
-            .insert(inode, close_on_exec, flags)?;
-        Ok(fd.to_usize())
+        let fd = self.alive_then(|a| a.fd_table.insert(inode, close_on_exec, flags))?;
+        Ok(fd.0)
     }
     pub fn sys_close(&mut self) -> SysRet {
         stack_trace!();
@@ -448,7 +575,46 @@ impl Syscall<'_> {
             println!("sys_ioctl fd: {} cmd: {} arg: {}", fd, cmd, arg);
         }
         self.alive_then(|a| a.fd_table.get(Fd(fd)).cloned())
-            .ok_or(SysError::ENFILE)?
+            .ok_or(SysError::EBADF)?
             .ioctl(cmd, arg)
+    }
+    pub async fn sys_syslog(&mut self) -> SysRet {
+        stack_trace!();
+        let (ty, buf, len): (u32, UserWritePtr<u8>, usize) = self.cx.into();
+        if PRINT_SYSCALL_FS {
+            println!(
+                "sys_syslog (noimplement) ty: {} buf: {:#x} len: {}",
+                ty,
+                buf.as_usize(),
+                len
+            );
+        }
+        Ok(0)
+    }
+    pub async fn sys_renameat2(&mut self) -> SysRet {
+        stack_trace!();
+        let (odfd, opath, ndfd, npath, _flags): (
+            isize,
+            UserReadPtr<u8>,
+            isize,
+            UserReadPtr<u8>,
+            u32,
+        ) = self.cx.into();
+        let old = self
+            .fd_path_open(odfd, opath, OpenFlags::empty(), Mode(0o600))
+            .await?;
+        if old.is_dir() {
+            // unimplemented!();
+            return Err(SysError::EINVAL);
+        }
+        let new = self
+            .fd_path_create_any(ndfd, npath, OpenFlags::CREAT, Mode(0o600))
+            .await?;
+        let len = old.read_all().await?;
+        drop(old);
+        new.write(&len[..]).await?;
+        let (base, path) = self.fd_path_impl(odfd, opath).await?;
+        fs::unlinkat((base, &path), false).await?;
+        Ok(0)
     }
 }

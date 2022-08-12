@@ -14,7 +14,7 @@ use crate::{
     signal::context::SignalContext,
     sync::even_bus::Event,
     user::check::UserCheck,
-    xdebug::{LIMIT_SIGNAL_COUNT, PRINT_SYSCALL_ALL},
+    xdebug::{LIMIT_SIGNAL_COUNT, PRINT_HANDLE_SIGNAL, PRINT_SYSCALL_ALL},
 };
 
 /// 为了提高效率, Sig相比信号值都减去了1
@@ -32,12 +32,12 @@ impl Sig {
         }
     }
     #[inline(always)]
-    pub fn to_user(self) -> u32 {
+    pub const fn to_user(self) -> u32 {
         self.0 + 1
     }
     /// 使用 assume 在 release 模式下为编译器提供更强的优化能力
     #[inline(always)]
-    pub fn check(self) {
+    pub const fn check(self) {
         debug_assert!(self.0 < SIG_N_U32);
         unsafe { core::intrinsics::assume(self.0 < SIG_N_U32) }
     }
@@ -157,6 +157,7 @@ impl StdSignalSet {
             ControlFlow::CONTINUE
         }
     }
+    /// 尝试获取一个信号
     pub fn fetch(&self) -> ControlFlow<Sig> {
         if self.is_empty() {
             return ControlFlow::CONTINUE;
@@ -236,6 +237,7 @@ impl SignalSet {
         self.check_any(sig, |a, b| a | b != 0)
     }
     /// A & !B != 0
+    #[inline]
     pub fn can_fetch(&self, mask: &Self) -> bool {
         self.check_any(mask, |a, b| a & !b != 0)
     }
@@ -244,7 +246,7 @@ impl SignalSet {
         self.apply_all(sigs, |a, b| a | b);
     }
     /// 将第place个bit置为1
-    pub fn insert_bit(&mut self, sig: Sig) {
+    pub const fn insert_bit(&mut self, sig: Sig) {
         sig.check();
         let sig = sig.0 as usize;
         self.0[sig / usize::BITS as usize] |= 1 << (sig % usize::BITS as usize);
@@ -317,11 +319,18 @@ pub struct SignalStack {
     ss_flags: u32,
     ss_size: usize,
 }
+#[derive(Debug)]
 
 pub enum Action {
     Abort,
     Ignore,
     Handler(usize, usize),
+}
+
+impl Action {
+    pub const fn ignore(&self) -> bool {
+        matches!(self, Self::Ignore)
+    }
 }
 
 impl SigAction {
@@ -331,7 +340,20 @@ impl SigAction {
         restorer: 0,
         mask: SignalSet::EMPTY,
     };
-    pub const DEFAULT_SET: [Self; 64] = [Self::DEFAULT; 64];
+    pub const DEFAULT_SET: [Self; SIG_N] = [Self::DEFAULT; _];
+    pub const DEFAULT_IGNORE: SignalSet = Self::get_default_ignore();
+    const fn get_default_ignore() -> SignalSet {
+        let mut set = SignalSet::EMPTY;
+        let mut i = 0;
+        while i < SIG_N_U32 {
+            if Self::defalut_action(Sig(i)).ignore() {
+                set.insert_bit(Sig(i))
+            }
+            i += 1;
+        }
+        set
+    }
+
     pub fn default_restorer() -> usize {
         extern "C" {
             fn __kload_begin();
@@ -341,15 +363,17 @@ impl SigAction {
         USER_KRX_BEGIN + offset
     }
     #[inline(always)]
-    pub fn defalut_action(sig: u32) -> Action {
-        match sig as usize {
-            SIGCHLD | SIGCONT | SIGURG => Action::Ignore,
-            0..32 => Action::Abort,
+    pub const fn defalut_action(sig: Sig) -> Action {
+        match sig.0 as usize {
+            0..32 => match sig.to_user() as usize {
+                SIGCHLD | SIGCONT | SIGURG => Action::Ignore,
+                _ => Action::Abort,
+            },
             32..SIG_N => Action::Ignore,
-            e => panic!("error sig: {}", e),
+            _e => panic!(),
         }
     }
-    pub fn get_action(&self, sig: u32) -> Action {
+    pub fn get_action(&self, sig: Sig) -> Action {
         match self.handler {
             SIG_DFL => Self::defalut_action(sig),
             SIG_IGN => Action::Ignore,
@@ -387,7 +411,14 @@ pub fn send_signal(process: Arc<Process>, sig: Sig) -> Result<(), Dead> {
 
 static mut HANDLE_CNT: usize = LIMIT_SIGNAL_COUNT.unwrap_or(0);
 
-///
+/// 4次访存+1条分支判断信号是否存在
+#[inline(always)]
+pub fn have_signal(thread: &mut ThreadInner, process: &Process) -> bool {
+    let tsm = &mut thread.signal_manager;
+    let psm = &process.signal_manager;
+    // 用and来干掉分支, 因为99%的情况都是0
+    tsm.have_signal() | psm.have_signal(tsm.proc_recv_id)
+}
 /// signal handler包含如下参数: (sig, si, ctx), 其中:
 ///
 ///     sig: 信号ID
@@ -406,18 +437,26 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
         tsm.take_rt_signal()?;
         psm.take_rt_signal(&mask)?;
     };
+    tsm.update_proc_recv_id(psm.recv_id());
     let signal = match take_sig_fn.break_value() {
         Some(s) => s,
-        None => return Ok(()),
+        None => {
+            if tsm.have_signal_local() || psm.have_signal_local(&mask) {
+                tsm.insert_local_flag();
+            } else {
+                tsm.clear_local_flag();
+            }
+            return Ok(());
+        }
     };
+    let (act, sig_mask) = psm.get_action(signal);
     // 找到了一个待处理信号
-    if PRINT_SYSCALL_ALL {
+    if PRINT_SYSCALL_ALL || PRINT_HANDLE_SIGNAL {
         println!(
-            "handle_signal - find signal: {:?} sepc: {:#x}",
-            signal, thread.uk_context.user_sepc
+            "handle_signal - find signal: {:?} sepc: {:#x} act: {:?}",
+            signal, thread.uk_context.user_sepc, act
         );
     }
-    let (act, sig_mask) = psm.get_action(signal);
     let (handler, ra) = match act {
         Action::Abort => return Err(Dead),
         Action::Ignore => return Ok(()),
@@ -431,7 +470,7 @@ pub async fn handle_signal(thread: &mut ThreadInner, process: &Process) -> Resul
             }
         }
     }
-    if PRINT_SYSCALL_ALL {
+    if PRINT_SYSCALL_ALL || PRINT_HANDLE_SIGNAL {
         println!("handle_signal - handler: {:#x} ra: {:#x}", handler, ra);
     }
     // 使用handler的信号处理

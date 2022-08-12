@@ -80,6 +80,15 @@ impl<T: ?Sized + Send, S: MutexSupport> SleepMutex<T, S> {
         let future = &mut SleepLockFuture::new(self);
         unsafe { Pin::new_unchecked(future).init().await.await }
     }
+    pub fn try_lock(&self) -> Option<impl DerefMut<Target = T> + Send + Sync + '_> {
+        let mut lk = self.lock.lock();
+        if lk.status {
+            return None;
+        }
+        lk.status = true;
+        lk.lazy_init();
+        Some(SleepMutexGuard { mutex: self })
+    }
 }
 
 struct SleepLockFuture<'a, T: ?Sized, S: MutexSupport> {

@@ -494,7 +494,7 @@ fn direct_map_test() {
         let ptr = a as *mut usize;
         let xptr = PhyAddrRef::from(ptr as usize - KERNEL_OFFSET_FROM_DIRECT_MAP);
         *xptr.get_mut() = 1234usize;
-        assert_eq!(*ptr, 1234);
+        assert_eq!(ptr.read_volatile(), 1234);
     };
 }
 

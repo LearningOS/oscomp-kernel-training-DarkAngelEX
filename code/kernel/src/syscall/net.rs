@@ -7,7 +7,6 @@ use ftl_util::{
     async_tools::ASysRet,
     error::{SysError, SysRet},
     fs::OpenFlags,
-    time::{Instant, TimeSpec},
 };
 use vfs::File;
 
@@ -123,10 +122,6 @@ impl File for SocketFile {
         Box::pin(async move { Err(SysError::EACCES) })
     }
 
-    fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysRet {
-        unimplemented!("utimensat {}", core::any::type_name::<Self>())
-    }
-
     fn vfs_file(&self) -> ftl_util::error::SysR<&vfs::VfsFile> {
         Err(SysError::ENOENT)
     }
@@ -151,10 +146,11 @@ impl Syscall<'_> {
             );
         }
         let file = SocketFile::new();
-        self.alive_lock()
-            .fd_table
-            .insert(file, true, OpenFlags::CLOEXEC | OpenFlags::NONBLOCK)
-            .map(|fd| fd.0)
+        self.alive_then(|a| {
+            a.fd_table
+                .insert(file, true, OpenFlags::CLOEXEC | OpenFlags::NONBLOCK)
+        })
+        .map(|fd| fd.0)
     }
 
     pub fn sys_bind(&mut self) -> SysRet {

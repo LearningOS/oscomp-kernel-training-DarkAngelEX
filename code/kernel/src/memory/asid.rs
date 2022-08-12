@@ -210,10 +210,10 @@ pub fn asid_test() {
     use crate::memory::{address::VirAddr4K, allocator::frame, page_table::PTEFlags};
 
     fn va_set(va: VirAddr<usize>, value: usize) {
-        unsafe { core::ptr::write_volatile(va.as_mut(), value) }
+        unsafe { va.as_ptr_mut().write_volatile(value) }
     }
     fn va_get(va: VirAddr<usize>) -> usize {
-        unsafe { core::ptr::read_volatile(va.as_ref()) }
+        unsafe { va.as_ptr_mut().read_volatile() }
     }
 
     println!("[FTL OS]asid test");

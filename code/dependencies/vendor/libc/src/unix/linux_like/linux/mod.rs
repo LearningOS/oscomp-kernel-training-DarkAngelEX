@@ -685,16 +685,12 @@ s_no_extra_traits! {
     }
 }
 
-cfg_if! {
-    if #[cfg(not(all(target_env = "musl", target_arch = "mips")))] {
-        s_no_extra_traits! {
-            // linux/net_tstamp.h
-            #[allow(missing_debug_implementations)]
-            pub struct sock_txtime {
-                pub clockid: ::clockid_t,
-                pub flags: ::__u32,
-            }
-        }
+s_no_extra_traits! {
+    // linux/net_tstamp.h
+    #[allow(missing_debug_implementations)]
+    pub struct sock_txtime {
+        pub clockid: ::clockid_t,
+        pub flags: ::__u32,
     }
 }
 
@@ -1569,6 +1565,7 @@ pub const MSG_INFO: ::c_int = 12;
 
 pub const MSG_NOERROR: ::c_int = 0o10000;
 pub const MSG_EXCEPT: ::c_int = 0o20000;
+pub const MSG_ZEROCOPY: ::c_int = 0x4000000;
 
 pub const SHM_R: ::c_int = 0o400;
 pub const SHM_W: ::c_int = 0o200;
@@ -1784,6 +1781,7 @@ pub const PR_SET_VMA_ANON_NAME: ::c_int = 0;
 
 pub const GRND_NONBLOCK: ::c_uint = 0x0001;
 pub const GRND_RANDOM: ::c_uint = 0x0002;
+pub const GRND_INSECURE: ::c_uint = 0x0004;
 
 pub const SECCOMP_MODE_DISABLED: ::c_uint = 0;
 pub const SECCOMP_MODE_STRICT: ::c_uint = 1;
@@ -1813,6 +1811,7 @@ pub const ITIMER_PROF: ::c_int = 2;
 pub const TFD_CLOEXEC: ::c_int = O_CLOEXEC;
 pub const TFD_NONBLOCK: ::c_int = O_NONBLOCK;
 pub const TFD_TIMER_ABSTIME: ::c_int = 1;
+pub const TFD_TIMER_CANCEL_ON_SET: ::c_int = 2;
 
 pub const _POSIX_VDISABLE: ::cc_t = 0;
 
@@ -1843,6 +1842,17 @@ pub const IPV6_FLOWINFO_PRIORITY: ::c_int = 0x0ff00000;
 
 pub const IPV6_RTHDR_LOOSE: ::c_int = 0;
 pub const IPV6_RTHDR_STRICT: ::c_int = 1;
+
+// SO_MEMINFO offsets
+pub const SK_MEMINFO_RMEM_ALLOC: ::c_int = 0;
+pub const SK_MEMINFO_RCVBUF: ::c_int = 1;
+pub const SK_MEMINFO_WMEM_ALLOC: ::c_int = 2;
+pub const SK_MEMINFO_SNDBUF: ::c_int = 3;
+pub const SK_MEMINFO_FWD_ALLOC: ::c_int = 4;
+pub const SK_MEMINFO_WMEM_QUEUED: ::c_int = 5;
+pub const SK_MEMINFO_OPTMEM: ::c_int = 6;
+pub const SK_MEMINFO_BACKLOG: ::c_int = 7;
+pub const SK_MEMINFO_DROPS: ::c_int = 8;
 
 pub const IUTF8: ::tcflag_t = 0x00004000;
 #[cfg(not(all(target_env = "uclibc", target_arch = "mips")))]
@@ -2663,12 +2673,8 @@ pub const SOF_TIMESTAMPING_RX_SOFTWARE: ::c_uint = 1 << 3;
 pub const SOF_TIMESTAMPING_SOFTWARE: ::c_uint = 1 << 4;
 pub const SOF_TIMESTAMPING_SYS_HARDWARE: ::c_uint = 1 << 5;
 pub const SOF_TIMESTAMPING_RAW_HARDWARE: ::c_uint = 1 << 6;
-cfg_if! {
-    if #[cfg(not(all(target_env = "musl", target_arch = "mips")))] {
-        pub const SOF_TXTIME_DEADLINE_MODE: u32 = 1 << 0;
-        pub const SOF_TXTIME_REPORT_ERRORS: u32 = 1 << 1;
-    }
-}
+pub const SOF_TXTIME_DEADLINE_MODE: u32 = 1 << 0;
+pub const SOF_TXTIME_REPORT_ERRORS: u32 = 1 << 1;
 
 // linux/if_alg.h
 pub const ALG_SET_KEY: ::c_int = 1;
@@ -4097,6 +4103,9 @@ extern "C" {
         needlelen: ::size_t,
     ) -> *mut ::c_void;
     pub fn sched_getcpu() -> ::c_int;
+
+    pub fn pthread_getname_np(thread: ::pthread_t, name: *mut ::c_char, len: ::size_t) -> ::c_int;
+    pub fn pthread_setname_np(thread: ::pthread_t, name: *const ::c_char) -> ::c_int;
 }
 
 cfg_if! {

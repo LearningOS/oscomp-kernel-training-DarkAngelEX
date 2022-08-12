@@ -57,6 +57,12 @@ pub struct Futex {
     queue: SpinNoIrqLock<FutexQueue>,
 }
 
+impl Default for Futex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Futex {
     #[inline]
     pub fn new() -> Self {
@@ -226,6 +232,12 @@ impl FutexSet {
 }
 
 pub struct FutexIndex(BTreeMap<UserAddr<u32>, Weak<Futex>>);
+
+impl Default for FutexIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl FutexIndex {
     pub fn new() -> Self {

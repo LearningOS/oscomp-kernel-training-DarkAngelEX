@@ -127,6 +127,7 @@ impl HartLocal {
         }
     }
     /// 处理其他CPU发送到这个CPU的信息, 例如fence.i, sfence.vma等
+    #[inline]
     pub fn handle(&mut self) {
         debug_assert!(self.local_mail.is_empty());
         // use swap instead of take bucause it can keep reverse space.
@@ -258,6 +259,7 @@ pub fn stack_size() -> usize {
     hart_local().kstack_bottom - sp
 }
 
+#[inline]
 pub fn handle_current_local() {
     hart_local().handle()
 }

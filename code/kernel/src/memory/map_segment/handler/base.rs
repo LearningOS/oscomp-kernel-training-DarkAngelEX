@@ -3,7 +3,13 @@
 pub struct HandlerBase {}
 
 impl HandlerBase {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {}
+    }
+}
+
+impl const Default for HandlerBase {
+    fn default() -> Self {
+        Self::new()
     }
 }

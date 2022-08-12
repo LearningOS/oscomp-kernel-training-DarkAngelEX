@@ -86,7 +86,7 @@ impl Drop for RTQueue {
 
 impl RTQueue {
     #[inline]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             head: None,
             tail: None,
@@ -136,6 +136,7 @@ impl RTQueue {
         }
     }
     /// 此操作不需要锁
+    #[inline]
     pub fn can_fetch(&self, mask: &SignalSet) -> bool {
         self.exist.can_fetch(mask)
     }

@@ -13,12 +13,15 @@ use ftl_util::{
     fs::{path, stat::Stat, DentryType, Mode, OpenFlags},
     time::Instant,
 };
-use vfs::{DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
+use vfs::{select::PL, DevAlloc, File, FsInode, VfsClock, VfsFile, VfsManager, VfsSpawner};
 
 use crate::{
-    config::FS_CACHE_MAX_SIZE,
+    config::{FS_CACHE_MAX_SIZE, PAGE_SIZE},
     drivers, executor,
-    fs::dev::{null::NullInode, tty::TtyInode, zero::ZeroInode},
+    fs::{
+        dev::{null::NullInode, tty::TtyInode, zero::ZeroInode},
+        proc::ProcType,
+    },
     memory::user_ptr::UserInOutPtr,
     timer,
     user::AutoSie,
@@ -26,6 +29,7 @@ use crate::{
 
 pub mod dev;
 pub mod pipe;
+pub mod proc;
 pub mod stdio;
 
 #[repr(C)]
@@ -36,11 +40,11 @@ pub struct Iovec {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub struct Pollfd {
     pub fd: u32,
-    pub events: u16,
-    pub revents: u16,
+    pub events: PL,
+    pub revents: PL,
 }
 
 static mut VFS_MANAGER: Option<Box<VfsManager>> = None;
@@ -79,51 +83,126 @@ impl DevAlloc for OsDevAllocator {
     }
 }
 
+const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
+
+async fn place_inode(vfs: &VfsManager, path: &str, inode: Box<dyn FsInode>) {
+    vfs.place_inode((XF, path), inode).await.unwrap();
+}
+
 pub async fn init() {
     stack_trace!();
-    const XF: SysR<Arc<VfsFile>> = Err(SysError::ENOENT);
     let _sie = AutoSie::new();
     let mut vfs = VfsManager::new(FS_CACHE_MAX_SIZE);
     vfs.init_clock(Box::new(SysClock));
     vfs.init_spawner(Box::new(SysSpawner));
     vfs.init_devalloc(Box::new(OsDevAllocator));
-    vfs.import_fstype(Box::new(Fat32Type::new()));
-    // 挂载几个全局目录
+    vfs.import_fstype(Box::new(ProcType));
+    let mut fat32type = Fat32Type::new();
+    fat32type.config_list(1000, 1000);
+    fat32type.config_cache(1000, 1_000_000);
+    fat32type.config_node(100);
+    vfs.import_fstype(Box::new(fat32type));
+    // 挂载几个全局目录, 这些会使用TmpFs常驻内存
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("etc".to_string());
     vfs.set_spec_dentry("tmp".to_string());
-    vfs.mount((XF, ""), (XF, "/dev"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/etc"), "tmpfs", 0).await.unwrap();
-    vfs.mount((XF, ""), (XF, "/tmp"), "tmpfs", 0).await.unwrap();
-    vfs.place_inode((XF, "/dev/null"), Box::new(NullInode))
-        .await
-        .unwrap();
-    vfs.place_inode((XF, "/dev/tty"), Box::new(TtyInode))
-        .await
-        .unwrap();
-    vfs.place_inode((XF, "/dev/zero"), Box::new(ZeroInode))
-        .await
-        .unwrap();
-    let device = Box::new(BlockDeviceWraper(drivers::device().clone()));
-    vfs.place_inode((XF, "/dev/sda1"), device).await.unwrap();
+    vfs.set_spec_dentry("var".to_string());
+    vfs.set_spec_dentry("usr".to_string());
+    vfs.set_spec_dentry("proc".to_string());
+
+    place_inode(&vfs, "/dev/null", Box::new(NullInode)).await;
+    place_inode(&vfs, "/dev/tty", Box::new(TtyInode)).await;
+    place_inode(&vfs, "/dev/zero", Box::new(ZeroInode)).await;
+    let device = BlockDeviceWraper(drivers::device().clone());
+    place_inode(&vfs, "/dev/sda1", Box::new(device)).await;
     // 挂载FAT32!!!
     vfs.mount((XF, "/dev/sda1"), (XF, "/"), "vfat", 0)
         .await
         .unwrap();
-    // 加入dev/shm
-    vfs.create((XF, "/dev/shm"), true, (true, true))
-        .await
-        .unwrap();
-
+    vfs.mount((XF, ""), (XF, "/proc"), "proc", 0).await.unwrap();
+    // 放置目录
+    for path in ["/dev/shm", "/var/tmp", "/dev/misc"] {
+        vfs.create((XF, path), true, (true, true)).await.unwrap();
+    }
+    // 放置文件
+    {
+        let path = "/dev/misc/rtc";
+        vfs.create((XF, path), false, (true, true)).await.unwrap();
+    }
     // 写入目录 /etc/ld-musl-riscv64-sf.path
-    let ld = vfs
-        .create((XF, "/etc/ld-musl-riscv64-sf.path"), false, (true, true))
-        .await
-        .unwrap();
-    ld.write_at(0, b"/\0").await.unwrap();
+    {
+        let ld = vfs
+            .create((XF, "/etc/ld-musl-riscv64-sf.path"), false, (true, true))
+            .await
+            .unwrap();
+        ld.write_at(0, b"/\0").await.unwrap();
+
+        let lat_sig = vfs
+            .create((XF, "/lat_sig"), false, (true, true))
+            .await
+            .unwrap();
+        let mut buf = Vec::new();
+        buf.resize(PAGE_SIZE, 0);
+        lat_sig.write(&buf).await.unwrap();
+    }
+
+    // 测试性能
+    #[allow(unused_imports)]
+    if false {
+        use crate::hart::{sbi, sfence::*};
+        use crate::sync::mutex::*;
+        use crate::user::*;
+        // let file = vfs
+        //     .create((XF, "/tmp/lat_test"), false, (true, true))
+        //     .await
+        //     .unwrap();
+
+        // let mut bt = alloc::collections::BTreeMap::new();
+        // bt.try_insert(0, Arc::new(0)).unwrap();
+        // bt.try_insert(1, Arc::new(1)).unwrap();
+        // bt.try_insert(2, Arc::new(2)).unwrap();
+        let start = crate::timer::now();
+        let n = 3000;
+        for _ in 0..n {
+            let _a = NativeAutoSum::new();
+            let _a = NativeAutoSum::new();
+            // let _a = bt.get(&2).unwrap().clone();
+            // sfence_vma_all_no_global();
+            // sbi::console_putchar(1);
+        }
+        let end = crate::timer::now();
+        let dur = end - start;
+        println!(
+            "do {} using {} ms -> {} ns",
+            n,
+            dur.as_millis(),
+            (dur / n).as_nanos()
+        );
+        panic!();
+    }
+
     unsafe {
         VFS_MANAGER = Some(vfs);
     }
+}
+
+pub fn open_file_fast(
+    path: (SysR<Arc<VfsFile>>, &str),
+    flags: OpenFlags,
+    _mode: Mode,
+) -> SysR<Arc<VfsFile>> {
+    stack_trace!();
+    let _sie = AutoSie::new();
+    let rw = flags.read_write()?;
+    let vfs = vfs_manager();
+    if flags.create() {
+        return Err(SysError::EAGAIN);
+    }
+    let file = vfs.open_fast(path)?;
+    if rw.1 && !file.writable() {
+        return Err(SysError::EACCES);
+    }
+    Ok(file)
 }
 
 pub async fn open_file(
@@ -175,12 +254,15 @@ pub async fn open_file_abs(path: &str, flags: OpenFlags, mode: Mode) -> SysR<Arc
     open_file((Err(SysError::ENOENT), path), flags, mode).await
 }
 
-pub async fn unlink(path: (SysR<Arc<VfsFile>>, &str), flags: OpenFlags) -> SysR<()> {
+pub async fn unlinkat(path: (SysR<Arc<VfsFile>>, &str), dir: bool) -> SysR<()> {
     stack_trace!();
-    debug_assert!(!flags.dir());
     let _sie = AutoSie::new();
     let vfs = vfs_manager();
-    vfs.unlink(path).await
+    if dir {
+        vfs.rmdir(path).await
+    } else {
+        vfs.unlink(path).await
+    }
 }
 
 /// 显示根目录的东西
@@ -213,6 +295,9 @@ impl FsInode for BlockDeviceWraper {
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         todo!()
     }
+    fn detach(&self) -> ASysR<()> {
+        todo!()
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         todo!()
     }
@@ -237,9 +322,6 @@ impl FsInode for BlockDeviceWraper {
         todo!()
     }
     fn reset_data(&self) -> ASysR<()> {
-        todo!()
-    }
-    fn delete(&self) {
         todo!()
     }
     fn read_at<'a>(

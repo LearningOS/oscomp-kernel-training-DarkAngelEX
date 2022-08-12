@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use clap::{App, Arg};
 use easy_fs::{BlockDevice, EasyFileSystem};
 use std::fs::{read_dir, File, OpenOptions};

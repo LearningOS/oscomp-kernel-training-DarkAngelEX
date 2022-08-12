@@ -45,9 +45,15 @@ impl Syscall<'_> {
         };
         let mut alive = self.alive_lock();
         let file = if !flags.contains(MmapFlags::ANONYMOUS) {
-            let file = alive.fd_table.get(fd).ok_or(SysError::ENFILE)?;
+            let file = alive.fd_table.get(fd).ok_or(SysError::EBADF)?;
             if !file.can_mmap() {
-                return Err(SysError::EBADF);
+                println!(
+                    "mmap error! {} {} {}",
+                    file.type_name(),
+                    file.can_read_offset(),
+                    file.readable()
+                );
+                return Err(SysError::EPERM);
             }
             Some(file.clone())
         } else {
@@ -77,10 +83,10 @@ impl Syscall<'_> {
                     .ok_or(SysError::ENOMEM)?
             }
         };
-        let addr = range.start;
+        let addr: UserAddr<u8> = range.start.into();
         let perm = prot.into_perm();
 
-        let handler = MmapHandler::box_new(file, addr, offset, perm, shared);
+        let handler = MmapHandler::box_new(file, addr, offset, usize::MAX, perm, shared);
         manager.replace(range, handler, &mut frame::default_allocator())?;
         let asid = alive.asid();
         drop(alive);
@@ -136,6 +142,11 @@ impl Syscall<'_> {
         if perm.executable() {
             local::all_hart_fence_i();
         }
+        Ok(0)
+    }
+    pub async fn sys_msync(&mut self) -> SysRet {
+        stack_trace!();
+        let (_start, _len, _flags): (UserInOutPtr<()>, usize, u32) = self.cx.into();
         Ok(0)
     }
 }

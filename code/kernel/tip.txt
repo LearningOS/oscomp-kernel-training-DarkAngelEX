@@ -29,33 +29,78 @@ x /2xg 0x1000
 x /1xg 0x1000007760-0x40
 x /1xg 0x10000077a0+0x68
 
-busybox sh ./run-static.sh
-busybox sh ./run-dynamic.sh
-busybox sh ./run-all.sh
-
-./runtest.exe -w entry-static.exe stat
-./runtest.exe -w entry-static.exe pthread_cancel_points
-./runtest.exe -w entry-static.exe pthread_cancel
-
-./runtest.exe -w entry-dynamic.exe argv
-./runtest.exe -w entry-dynamic.exe dlopen
-./runtest.exe -w entry-dynamic.exe tls_get_new_dtv
-
 run_all_case
 
-b *0x2000000000+0x69854
+busybox sh ./busybox_testcode.sh
+busybox sh ./lmbench_testcode.sh
 
-dlopen -> load_library
-b *0x2000000000+0x68fdc
+b *0xda9c2
 
-dlopen
-b *0x2000000000+0x68e48
+busybox_debug sh ./busybox_testcode.sh
+busybox cat ./busybox_cmd.txt
 
-watch *0xfffffff08038e008
+busybox_debug which ls
 
-b *0x424f0
+./runtest.exe -w entry-static.exe pthread_cancel_points
 
-b *0x42534
+busybox rmdir test
+busybox grep hello busybox_cmd.txt
+busybox cp busybox_cmd.txt busybox_cmd.bak
+busybox rm busybox_cmd.bak
+busybox find -name "busybox_cmd.txt"
 
-b *0xffffffff80241440
-b *0xffffffff80241490
+busybox sh busybox_testcode.sh
+
+busybox sh busybox_testcode_tmp.sh
+busybox sh lua_testcode.sh
+busybox sh lmbench_testcode.sh
+
+busybox touch test.txt
+busybox rm test.txt
+
+echo "ccccccc" >> test.txt
+
+lmbench_all lat_syscall -P 1 null
+lmbench_all lat_syscall -P 1 read
+lmbench_all lat_syscall -P 1 write
+
+busybox mkdir -p /var/tmp
+busybox touch /var/tmp/lmbench
+lmbench_all lat_syscall -P 1 stat /var/tmp/lmbench
+lmbench_all lat_syscall -P 1 fstat /var/tmp/lmbench
+lmbench_all lat_syscall -P 1 open /var/tmp/lmbench
+lmbench_all lat_select -n 100 -P 1 file
+lmbench_all lat_sig -P 1 install
+lmbench_all lat_sig -P 1 catch
+lmbench_all lat_sig -P 1 prot lat_sig  # 缺少文件
+
+lmbench_all lat_pipe -P 1
+lmbench_all lat_proc -P 1 fork
+lmbench_all lat_proc -P 1 exec
+
+busybox cp hello /tmp
+lmbench_all lat_proc -P 1 shell
+lmbench_all lmdd label="File /var/tmp/XXX write bandwidth:" of=/var/tmp/XXX move=1m fsync=1 print=3
+lmbench_all lat_pagefault -P 1 /var/tmp/XXX
+lmbench_all lat_mmap -P 1 512k /var/tmp/XXX
+busybox echo file system latency
+lmbench_all lat_fs /var/tmp
+busybox echo Bandwidth measurements
+lmbench_all bw_pipe -P 1
+
+busybox sh
+
+lmbench_all bw_file_rd -P 1 512k io_only /var/tmp/XXX
+lmbench_all bw_file_rd -P 1 512k open2close /var/tmp/XXX
+lmbench_all bw_mmap_rd -P 1 512k mmap_only /var/tmp/XXX
+lmbench_all bw_mmap_rd -P 1 512k open2close /var/tmp/XXX
+busybox echo context switch overhead
+lmbench_all lat_ctx -P 1 -s 32 2 4 8 16 24 32 64 96
+lmbench_all lat_ctx -P 1 -s 32 16 32 64 96
+
+
+busybox echo file system latency
+lmbench_all lmdd label="File /var/tmp/XXX write bandwidth:" of=/var/tmp/XXX move=1m fsync=1 print=3
+lmbench_all lat_fs /var/tmp
+
+lmbench_all lat_sig -P 1 prot lat_sig

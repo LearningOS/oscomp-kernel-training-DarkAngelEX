@@ -87,6 +87,12 @@ impl<T> ListNode<T> {
             false
         }
     }
+    /// 无锁竞争状态下使用的判断方法, 不检测next
+    ///
+    /// 一旦pop后禁止再次被push
+    pub fn is_empty_race(&self) -> bool {
+        unsafe { core::ptr::read_volatile(&self.prev) }.as_const() == self
+    }
     /// # Safety
     ///
     /// 自行保证指针的安全
@@ -211,6 +217,59 @@ impl<T> ListNode<T> {
             (*r).init();
         }
         NonNull::new(r)
+    }
+    pub fn pop_all(&mut self, mut release: impl FnMut(&mut T)) {
+        unsafe {
+            let head = self as *mut Self;
+            let mut cur = (*head).next;
+            while cur != head {
+                let next = (*cur).next;
+                (*cur).pop_self();
+                release((*cur).data_mut());
+                cur = next;
+            }
+        }
+    }
+    /// release_0在pop之前执行, release_1在pop之后执行
+    pub fn pop_when_race(
+        &mut self,
+        mut need_pop: impl FnMut(&T) -> bool,
+        mut release_0: impl FnMut(&mut T),
+        mut release_1: impl FnMut(&mut T),
+    ) {
+        unsafe {
+            let head = self as *mut Self;
+            let mut cur = (*head).next;
+            while cur != head {
+                let next = (*cur).next;
+                if need_pop(&(*cur).data) {
+                    release_0((*cur).data_mut());
+                    atomic::fence(Ordering::Release);
+                    (*cur).pop_self();
+                    atomic::fence(Ordering::Release);
+                    release_1((*cur).data_mut());
+                }
+                cur = next;
+            }
+        }
+    }
+    pub fn pop_when(
+        &mut self,
+        mut need_pop: impl FnMut(&T) -> bool,
+        mut release: impl FnMut(&mut T),
+    ) {
+        unsafe {
+            let head = self as *mut Self;
+            let mut cur = (*head).next;
+            while cur != head {
+                let next = (*cur).next;
+                if need_pop(&(*cur).data) {
+                    (*cur).pop_self();
+                    release((*cur).data_mut());
+                }
+                cur = next;
+            }
+        }
     }
     /// 详细介绍见 pop_many_ex
     #[inline]

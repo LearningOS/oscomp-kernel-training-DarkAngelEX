@@ -62,6 +62,20 @@ impl Path {
             }
         }
     }
+    fn search_child_fast(&mut self, s: &str) -> SysR<()> {
+        if name_invalid(s) || self.dentry.cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        if !self.dentry.is_dir() {
+            return Err(SysError::ENOTDIR);
+        }
+        let name_hash = HashName::hash_name(s);
+        if let Some(next) = self.dentry.search_child_in_cache(s, name_hash) {
+            self.dentry = next;
+            return Ok(());
+        }
+        Err(SysError::EAGAIN)
+    }
     async fn search_child(&mut self, s: &str) -> SysR<()> {
         if name_invalid(s) || self.dentry.cache.closed() {
             return Err(SysError::ENOENT);
@@ -93,11 +107,17 @@ impl Path {
 }
 
 impl VfsManager {
-    /// 返回到达最后一个文件名的路径和文件名
-    pub(crate) async fn walk_path<'a>(
+    pub(crate) fn walk_path_fast<'a>(
         &self,
         (base, path_str): (SysR<Arc<VfsFile>>, &'a str),
     ) -> SysR<(Path, &'a str)> {
+        fn tmp_fn(path_str: &str) -> (&str, &str) {
+            match path_str.rsplit_once(['/', '\\']) {
+                Some((path, name)) => (path, name),
+                None => ("", path_str),
+            }
+        }
+
         let mut path = if is_absolute_path(path_str) {
             Path {
                 mount: None,
@@ -106,21 +126,71 @@ impl VfsManager {
         } else {
             base?.path.clone()
         };
-        let (path_str, name) = match path_str.rsplit_once(['/', '\\']) {
-            Some((path, name)) => (path, name),
-            None => ("", path_str),
+        let (path_str, name) = tmp_fn(path_str);
+        for s in path_str.split(['/', '\\']).map(|s| s.trim()) {
+            path = self.walk_name_fast(path, s)?;
+        }
+        path.run_mount_next();
+        Ok((path, name))
+    }
+    /// 返回到达最后一个文件名的路径和文件名
+    pub(crate) async fn walk_path<'a>(
+        &self,
+        (base, path_str): (SysR<Arc<VfsFile>>, &'a str),
+    ) -> SysR<(Path, &'a str)> {
+        fn tmp_fn(path_str: &str) -> (&str, &str) {
+            match path_str.rsplit_once(['/', '\\']) {
+                Some((path, name)) => (path, name),
+                None => ("", path_str),
+            }
+        }
+
+        let mut path = if is_absolute_path(path_str) {
+            Path {
+                mount: None,
+                dentry: self.root.as_ref().unwrap().clone(),
+            }
+        } else {
+            base?.path.clone()
         };
+        let (path_str, name) = tmp_fn(path_str);
         for s in path_str.split(['/', '\\']).map(|s| s.trim()) {
             path = self.walk_name(path, s).await?;
         }
         path.run_mount_next();
         Ok((path, name))
     }
+    pub(crate) fn walk_name_fast(&self, mut path: Path, name: &str) -> SysR<Path> {
+        // 当前目录为根目录
+        if PRINT_WALK {
+            println!("walk_name_fast: {} -> {}", path.dentry.cache.name(), name);
+        }
+        let name = name.trim();
+        if path.is_vfs_root() {
+            if let Some(dentry) = self.special_dir.get(name).cloned() {
+                path.dentry = dentry;
+                return Ok(path);
+            }
+        }
+        path.run_mount_next();
+        match name {
+            "" | "." => (),
+            ".." => {
+                path.run_mount_prev();
+                if let Some(dentry) = path.dentry.cache.parent() {
+                    path.dentry = dentry;
+                }
+            }
+            s => path.search_child_fast(s)?,
+        }
+        Ok(path)
+    }
     pub(crate) async fn walk_name(&self, mut path: Path, name: &str) -> SysR<Path> {
         // 当前目录为根目录
         if PRINT_WALK {
             println!("walk_name: {} -> {}", path.dentry.cache.name(), name);
         }
+        let name = name.trim();
         if path.is_vfs_root() {
             if let Some(dentry) = self.special_dir.get(name).cloned() {
                 path.dentry = dentry;

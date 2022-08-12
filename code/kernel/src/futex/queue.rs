@@ -9,7 +9,7 @@ use core::{
 use alloc::boxed::Box;
 use ftl_util::{async_tools, list::ListNode, time::Instant};
 
-use crate::{process::Pid, timer};
+use crate::{process::Pid, timer::sleep::TimeoutFuture};
 
 use super::{Futex, WaitStatus, WakeStatus};
 
@@ -60,6 +60,7 @@ impl FutexQueue {
         stack_trace!();
         self.list.push_prev(node);
     }
+    /// 等待被另一个线程唤醒, 它会将当前线程在futex上的节点设为Issued
     #[inline]
     pub async fn wait(
         futex: &Futex,
@@ -70,13 +71,10 @@ impl FutexQueue {
     ) -> WaitStatus {
         stack_trace!();
         debug_assert!(mask != 0);
-        let mut future = FutexFuture {
-            node: ListNode::new(Node::new(mask, pid)),
-            timeout,
-        };
-        let mut ptr = unsafe { Pin::new_unchecked(&mut future) };
-        ptr.as_mut().init(futex).await;
-        unsafe {
+        let mut future;
+        let mut ptr;
+        let waker = async_tools::take_waker().await;
+        {
             let mut queue = futex.queue.lock();
             if queue.closed {
                 return WaitStatus::Closed;
@@ -85,10 +83,14 @@ impl FutexQueue {
             if fail() {
                 return WaitStatus::Fail;
             }
-            queue.push(&mut ptr.as_mut().get_unchecked_mut().node);
+            future = FutexFuture {
+                node: ListNode::new(Node::new(mask, pid)),
+            };
+            ptr = unsafe { Pin::new_unchecked(&mut future) };
+            ptr.as_mut().init(futex, &mut *queue, waker.clone());
         }
-        timer::sleep::timer_push_task(timeout, async_tools::take_waker().await);
-        ptr.await;
+        TimeoutFuture::new(timeout, ptr.as_mut()).await;
+        ptr.detach();
         WaitStatus::Ok
     }
     #[inline]
@@ -201,6 +203,12 @@ impl Drop for TempQueue {
     }
 }
 
+impl Default for TempQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl TempQueue {
     pub fn new() -> Self {
         let mut v = Box::new(ListNode::new(Node::new(0, None)));
@@ -249,6 +257,7 @@ impl TempQueue {
 ///
 struct ViewFutex(AtomicPtr<Futex>);
 
+#[derive(Debug, PartialEq, Eq)]
 enum ViewOp {
     Issued,
     Queued(*mut Futex),
@@ -273,7 +282,10 @@ impl ViewFutex {
         }
     }
     pub fn set_issued(&self) {
-        debug_assert!(!matches!(self.fetch(), ViewOp::Issued));
+        debug_assert_ne!(self.fetch(), ViewOp::Issued);
+        self.0.store(Self::ISSUED_V, Ordering::Relaxed);
+    }
+    pub unsafe fn set_issued_force(&self) {
         self.0.store(Self::ISSUED_V, Ordering::Relaxed);
     }
     pub fn set_waited(&self) {
@@ -330,18 +342,29 @@ impl ViewFutex {
 
 struct FutexFuture {
     node: ListNode<Node>,
-    timeout: Instant,
 }
 
 impl FutexFuture {
     #[inline]
-    async fn init(mut self: Pin<&mut Self>, futex: &Futex) {
+    fn init(mut self: Pin<&mut Self>, futex: &Futex, queue: &mut FutexQueue, waker: Waker) {
         stack_trace!();
         unsafe {
-            let queue = self.as_mut().get_unchecked_mut();
-            queue.node.init();
-            queue.node.data_mut().waker = Some(async_tools::take_waker().await);
-            queue.node.data_mut().futex.set_queued(futex);
+            let this = self.as_mut().get_unchecked_mut();
+            this.node.init();
+            this.node.data_mut().waker = Some(waker);
+            this.node.data_mut().futex.set_queued(futex);
+
+            queue.push(&mut this.node);
+        }
+    }
+    /// 需要在结束后手动调用
+    fn detach(self: Pin<&mut Self>) {
+        stack_trace!();
+        let _ = self.node.data().futex.lock_queue_run(|_q| unsafe {
+            self.node.pop_self_fast();
+        });
+        unsafe {
+            self.node.data().futex.set_issued_force();
         }
     }
 }
@@ -353,13 +376,6 @@ impl Future for FutexFuture {
         if let ViewOp::Issued = self.node.data().futex.fetch() {
             return Poll::Ready(());
         }
-        if self.timeout > timer::now() {
-            return Poll::Pending;
-        }
-        // remove self
-        let _ = self.node.data().futex.lock_queue_run(|_q| unsafe {
-            self.node.pop_self_fast();
-        });
-        Poll::Ready(())
+        Poll::Pending
     }
 }

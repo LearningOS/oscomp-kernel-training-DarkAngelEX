@@ -39,6 +39,26 @@ pub trait DevAlloc: Send + Sync + 'static {
     fn alloc(&self) -> usize;
 }
 
+impl VfsSpawner for ftl_util::async_tools::tiny_env::Spawner {
+    fn box_clone(&self) -> Box<dyn VfsSpawner> {
+        Box::new(self.clone())
+    }
+    fn spawn(&self, future: Async<'static, ()>) {
+        Self::spawn(self, future)
+    }
+}
+
+/// 用来占位的spawner
+pub struct NullSpawner;
+impl VfsSpawner for NullSpawner {
+    fn box_clone(&self) -> Box<dyn VfsSpawner> {
+        panic!()
+    }
+    fn spawn(&self, _future: Async<'static, ()>) {
+        panic!()
+    }
+}
+
 pub struct ZeroClock;
 impl VfsClock for ZeroClock {
     fn box_clone(&self) -> Box<dyn VfsClock> {
@@ -151,6 +171,15 @@ impl VfsManager {
         path.run_mount_next();
         VfsFile::from_path_arc(path).unwrap()
     }
+    pub fn open_fast(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
+        stack_trace!();
+        if PRINT_OP {
+            println!("open: {}", path.1);
+        }
+        let (path, name) = self.walk_path_fast(path)?;
+        let path = self.walk_name_fast(path, name)?;
+        VfsFile::from_path_arc(path)
+    }
     pub async fn open(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
         stack_trace!();
         if PRINT_OP {
@@ -226,8 +255,11 @@ impl VfsManager {
             println!("unlink: {}", path.1);
         }
         let (path, name) = self.walk_path(path).await?;
-        if !path.dentry.is_dir() || path::name_invalid(name) {
+        if !path.dentry.is_dir() {
             return Err(SysError::ENOTDIR);
+        }
+        if path::name_invalid(name) {
+            return Err(SysError::EINVAL);
         }
         path.dentry.unlink(name).await
     }
@@ -237,8 +269,11 @@ impl VfsManager {
             println!("rmdir: {}", path.1);
         }
         let (path, name) = self.walk_path(path).await?;
-        if !path.dentry.is_dir() || path::name_invalid(name) {
+        if !path.dentry.is_dir() {
             return Err(SysError::ENOTDIR);
+        }
+        if path::name_invalid(name) {
+            return Err(SysError::EINVAL);
         }
         path.dentry.rmdir(name).await
     }

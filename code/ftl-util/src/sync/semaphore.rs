@@ -154,8 +154,8 @@ impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
             node: ListNodeImpl::new((false, val, None)),
         }
     }
-    async fn init(self: Pin<&mut Self>) -> Pin<&mut SemaphoreFuture<'a, S>> {
-        let this = unsafe { Pin::get_unchecked_mut(self) };
+    async fn init(mut self: Pin<&mut Self>) -> Pin<&mut SemaphoreFuture<'a, S>> {
+        let this = unsafe { self.as_mut().get_unchecked_mut() };
         this.node.init();
         let mut sem = unsafe { this.sem.inner.send_lock() };
         sem.queue.lazy_init();
@@ -167,7 +167,7 @@ impl<'a, S: MutexSupport> SemaphoreFuture<'a, S> {
             data.2 = Some(async_tools::take_waker().await);
             sem.queue.push_prev(&mut this.node);
         }
-        unsafe { Pin::new_unchecked(this) }
+        self
     }
 }
 

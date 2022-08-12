@@ -4,7 +4,7 @@ use vfs::File;
 
 use crate::{
     memory::{
-        address::UserAddr4K,
+        address::{UserAddr, UserAddr4K},
         allocator::frame::FrameAllocator,
         asid::Asid,
         map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler},
@@ -25,8 +25,9 @@ use super::base::HandlerBase;
 struct MmapHandlerSpec {
     id: Option<HandlerID>,
     file: Option<Arc<dyn File>>,
-    addr: UserAddr4K, // MMAP开始地址
-    offset: usize,    // 文件偏移量
+    addr: UserAddr<u8>, // 文件MMAP开始地址, 未对齐则在前面填充0
+    offset: usize,      // 文件偏移量
+    fill_size: usize,   // 文件长度, 超过的填0, 全部映射则填usize::MAX
     perm: PTEFlags,
     shared: bool,
 }
@@ -39,8 +40,9 @@ pub struct MmapHandler {
 impl MmapHandler {
     pub fn box_new(
         file: Option<Arc<dyn File>>,
-        addr: UserAddr4K,
+        addr: UserAddr<u8>,
         offset: usize,
+        fill_size: usize,
         perm: PTEFlags,
         shared: bool,
     ) -> Box<dyn UserAreaHandler> {
@@ -50,6 +52,7 @@ impl MmapHandler {
                 file,
                 addr,
                 offset,
+                fill_size,
                 perm,
                 shared,
             },
@@ -121,6 +124,7 @@ impl UserAreaHandler for MmapHandler {
             self.perm(),
             self.spec.addr,
             self.spec.offset,
+            self.spec.fill_size,
             file,
         ))))
     }
@@ -152,6 +156,7 @@ impl UserAreaHandler for MmapHandler {
             self.perm(),
             self.spec.addr,
             self.spec.offset,
+            self.spec.fill_size,
             file,
         ))))
     }

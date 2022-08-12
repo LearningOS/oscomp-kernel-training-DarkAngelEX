@@ -16,23 +16,53 @@ use ftl_util::{
         stat::{Stat, S_IFDIR, S_IFREG},
         DentryType,
     },
+    time::{Instant, TimeSpec},
 };
-use vfs::{File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner};
+use vfs::{select::PL, File, Fs, FsInode, FsType, VfsClock, VfsFile, VfsSpawner};
 
 use crate::{AnyInode, Fat32Manager};
 
-pub struct Fat32Type;
+pub struct Fat32Type {
+    list_max_dirty: usize,
+    list_max_cache: usize,
+    block_max_dirty: usize,
+    block_max_cache: usize,
+    inode_target_free: usize,
+}
+
+impl Fat32Type {
+    pub const fn new() -> Self {
+        Self {
+            list_max_dirty: 100,
+            list_max_cache: 100,
+            block_max_dirty: 100,
+            block_max_cache: 100,
+            inode_target_free: 100,
+        }
+    }
+    pub fn config_list(&mut self, list_max_dirty: usize, list_max_cache: usize) {
+        self.list_max_dirty = list_max_dirty;
+        self.list_max_cache = list_max_cache;
+    }
+    pub fn config_cache(&mut self, block_max_dirty: usize, block_max_cache: usize) {
+        self.block_max_dirty = block_max_dirty;
+        self.block_max_cache = block_max_cache;
+    }
+    pub fn config_node(&mut self, inode_target_free: usize) {
+        self.inode_target_free = inode_target_free;
+    }
+}
 
 impl FsType for Fat32Type {
     fn name(&self) -> String {
         "vfat".to_string()
     }
     fn new_fs(&self, dev: usize) -> Box<dyn Fs> {
-        let list_max_dirty = 100;
-        let list_max_cache = 100;
-        let block_max_dirty = 100;
-        let block_max_cache = 100;
-        let inode_target_free = 100;
+        let list_max_dirty = self.list_max_dirty;
+        let list_max_cache = self.list_max_cache;
+        let block_max_dirty = self.block_max_dirty;
+        let block_max_cache = self.block_max_cache;
+        let inode_target_free = self.inode_target_free;
         let manager = Fat32Manager::new(
             dev,
             list_max_dirty,
@@ -42,16 +72,6 @@ impl FsType for Fat32Type {
             inode_target_free,
         );
         Box::new(Fat32 { manager })
-    }
-}
-impl const Default for Fat32Type {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-impl Fat32Type {
-    pub const fn new() -> Self {
-        Self
     }
 }
 
@@ -146,6 +166,13 @@ impl FsInode for Fat32InodeV {
     fn is_dir(&self) -> bool {
         self.inode.dir().is_ok()
     }
+    fn ppoll(&self) -> PL {
+        if self.bytes().unwrap() != 0 {
+            PL::POLLIN | PL::POLLOUT
+        } else {
+            PL::POLLOUT
+        }
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {
             let dev = self.manager().dev;
@@ -179,7 +206,23 @@ impl FsInode for Fat32InodeV {
             Ok(())
         })
     }
-
+    fn utimensat(&self, times: [TimeSpec; 2], now: fn() -> Instant) -> ASysR<()> {
+        Box::pin(async move {
+            let [access, modify] = times
+                .try_map(|v| v.user_map(now))?
+                .map(|v| v.map(|v| v.as_instant()));
+            self.inode.update_time(access, modify).await;
+            Ok(())
+        })
+    }
+    fn detach(&self) -> ASysR<()> {
+        Box::pin(async move {
+            match &self.inode {
+                AnyInode::Dir(v) => v.detach(self.manager()).await,
+                AnyInode::File(v) => v.detach(self.manager()).await,
+            }
+        })
+    }
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move {
             let dir = self.inode.dir()?;
@@ -199,8 +242,8 @@ impl FsInode for Fat32InodeV {
             let parent = self.inode.dir()?;
             let m = self.manager();
             match dir {
-                true => parent.create_dir(m, name, rw.1, false).await?,
-                false => parent.create_file(m, name, rw.1, false).await?,
+                true => parent.create_dir(m, name, !rw.1, false).await?,
+                false => parent.create_file(m, name, !rw.1, false).await?,
             }
             let any = parent.search_any(m, name).await?;
             let rw = any.attr().rw();
@@ -209,9 +252,12 @@ impl FsInode for Fat32InodeV {
     }
     fn unlink_child<'a>(&'a self, name: &'a str, release: bool) -> ASysR<()> {
         Box::pin(async move {
+            if !release {
+                return Ok(());
+            }
             assert!(release); // 延迟释放尚未实现
             let dir = self.inode.dir()?;
-            dir.delete_file(self.manager(), name).await?;
+            dir.delete_file(self.manager(), name, release).await?;
             Ok(())
         })
     }
@@ -227,15 +273,12 @@ impl FsInode for Fat32InodeV {
     }
     fn reset_data(&self) -> ASysR<()> {
         Box::pin(async move {
-            let _file = self.inode.file()?;
-            // file.inode.unique_lock().await.resize(manager, n, init)
-            todo!()
+            let file = self.inode.file()?;
+            let mut inner = file.inode.unique_lock().await;
+            inner.resize(self.manager(), 0, |_: &mut [u8]| {}).await?;
+            inner.update_file_bytes(0);
+            Ok(())
         })
-    }
-    fn delete(&self) {
-        // 延迟释放尚未实现
-        let _file = self.inode.file().unwrap();
-        todo!()
     }
     fn read_at<'a>(
         &'a self,

@@ -6,8 +6,10 @@ use alloc::sync::Arc;
 use riscv::register::scause::Exception;
 
 use crate::{
+    local,
     memory::{address::UserAddr, allocator::frame, AccessType},
     process::thread::Thread,
+    signal::{Action, Sig, SIGSEGV},
     tools::xasync::TryRunFail,
     xdebug::PRINT_PAGE_FAULT,
 };
@@ -33,8 +35,8 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
                 print!("{:0>2x} ", unsafe { *(p as *const u8) });
             }
             println!();
-            println!("a0-a7: {:#x?}", thread.get_context().a0_a7());
-            println!("all: {:#x?}", thread.get_context().user_rx);
+            // println!("a0-a7: {:#x?}", thread.get_context().a0_a7());
+            // println!("all: {:#x?}", thread.get_context().user_rx);
             println!();
         }
         do_exit = true;
@@ -49,26 +51,26 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
             reset_color!()
         );
     }
-    let rv = || {
+    let mut exec = false;
+    let mut rv = || {
         stack_trace!();
         let addr = UserAddr::try_from(stval as *const u8)?;
         let perm = AccessType::from_exception(e).unwrap();
+        exec = perm.exec;
         let addr = addr.floor();
         let allocator = &mut frame::default_allocator();
         match thread
             .process
-            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))?
+            .alive_then(|a| a.user_space.page_fault(addr, perm, allocator))
         {
             Ok(x) => Ok(Ok(x)),
             Err(TryRunFail::Async(a)) => Ok(Err((addr, a))),
             Err(TryRunFail::Error(e)) => Err(e),
         }
     };
+    let mut handle_fail = false;
     match rv() {
-        Err(e) => {
-            println!("page fault handle fail: {:?}", e);
-            user_fatal_error()
-        }
+        Err(_e) => handle_fail = true,
         Ok(Ok(flush)) => {
             if PRINT_PAGE_FAULT {
                 println!("{}", to_green!("success handle exception"));
@@ -84,9 +86,18 @@ pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: 
                         println!("{}", to_green!("success handle exception by async"));
                     }
                 }
-                Err(_e) => user_fatal_error(),
+                Err(_e) => handle_fail = true,
             }
         }
+    }
+    if handle_fail {
+        let segv = Sig::from_user(SIGSEGV as u32).unwrap();
+        match thread.process.signal_manager.get_action(segv).0 {
+            Action::Handler(_, _) => thread.receive(segv),
+            _ => user_fatal_error(),
+        }
+    } else if exec {
+        local::all_hart_fence_i();
     }
     do_exit
 }

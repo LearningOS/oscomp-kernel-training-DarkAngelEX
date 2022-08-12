@@ -1,7 +1,7 @@
 # Building
 ARCH ?= riscv64
 TARGET := riscv64imac-unknown-none-elf
-MODE := release
+MODE := debug
 ADD_ARGS :=
 ARGS :=
 ARGS += $(ADD_ARGS)
@@ -17,7 +17,7 @@ SDCARD := /dev/sdb
 APPS := ../user/src/bin/*
 
 SMP := 4
-MEMORY_SIZE := 128M
+MEMORY_SIZE := 256M
 
 # BOARD
 BOARD ?= qemu
@@ -138,7 +138,7 @@ simulation: build
 	qemu-system-riscv64 \
 		-machine virt \
 		-kernel $(KERNEL_BIN) \
-		-m 128M \
+		-m $(MEMORY_SIZE) \
 		-nographic \
 		-smp 2 \
 		-bios $(BOOTLOADER_ELF) \
@@ -166,9 +166,11 @@ drun: build
 #	-ex 'file $(KERNEL_ELF)'
 #	-ex 'file ../disk/entry-static.exe'
 #	-ex 'file ../disk/entry-dynamic.exe'
+#	-ex 'file ../init/busybox_debug'
+#	-ex 'file ../init/lmbench_all'
 dgdb:
 	@riscv64-unknown-elf-gdb \
-		-ex 'file $(KERNEL_ELF)' \
+		-ex 'file ../init/lmbench_all' \
 		-ex 'set arch riscv:rv64' \
 		-ex 'target remote localhost:1234' \
 

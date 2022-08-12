@@ -4,13 +4,12 @@ use core::{
     ptr,
 };
 
-use alloc::vec::Vec;
+use alloc::{boxed::Box, vec::Vec};
 use riscv::register::{scause::Exception, sstatus};
 
 use crate::{
-    local,
+    local::{self, always_local::AlwaysLocal, task_local::TaskLocal, LocalNow},
     memory::{
-        self,
         address::{OutOfUserRange, UserAddr},
         allocator::frame::{self, global::FrameTracker},
         user_ptr::{Policy, UserPtr},
@@ -160,7 +159,7 @@ impl UserDataMut<u8> {
 }
 
 #[allow(dead_code)]
-impl<T: Clone + 'static> UserDataMut<T> {
+impl<T: Copy + 'static> UserDataMut<T> {
     /// after to_vec the data will no longer need space_guard.
     pub fn to_vec(&self) -> Vec<T> {
         self.access().to_vec()
@@ -168,7 +167,7 @@ impl<T: Clone + 'static> UserDataMut<T> {
     pub fn load(&self) -> T {
         debug_assert_eq!(self.data.len(), 1);
         let _sum = AutoSum::new();
-        unsafe { (*self.data)[0].clone() }
+        unsafe { (*self.data)[0] }
     }
     pub fn store(&self, v: T) {
         debug_assert_eq!(self.data.len(), 1);
@@ -316,6 +315,36 @@ impl Drop for NativeAutoSie {
     }
 }
 
+/// 不需要全局控制器介入的sum控制器, 必须以栈的方式使用
+pub struct NativeAutoSum(bool);
+
+impl !Send for NativeAutoSum {}
+impl !Sync for NativeAutoSum {}
+
+impl NativeAutoSum {
+    #[inline(always)]
+    pub fn new() -> Self {
+        let v = sstatus::read().sum();
+        if !v {
+            unsafe {
+                sstatus::set_sum();
+            }
+        }
+        Self(v)
+    }
+}
+
+impl Drop for NativeAutoSum {
+    #[inline(always)]
+    fn drop(&mut self) {
+        if !self.0 {
+            unsafe {
+                sstatus::clear_sum();
+            }
+        }
+    }
+}
+
 /// 持有 `AutoSum` 将允许在内核态访问用户态数据, 可以嵌套或使用在异步上下文
 pub struct AutoSum;
 
@@ -354,10 +383,19 @@ impl From<UserAccessError> for UserAccessU8Error {
 }
 
 pub async fn test() {
-    let _auto_sum = AutoSum::new();
     stack_trace!();
     println!("[FTL OS]user_check test begin");
     let initproc = search::get_initproc();
+    let mut local_now;
+    {
+        local_now = LocalNow::Task(Box::new(TaskLocal {
+            always_local: AlwaysLocal::new(),
+            thread: initproc.alive_then_uncheck(|a| a.threads.get_first().unwrap()),
+            page_table: initproc.alive_then_uncheck(|a| a.user_space.page_table_arc()),
+        }));
+    }
+    local::hart_local().enter_task_switch(&mut local_now);
+    let auto_sum = AutoSum::new();
     let check = UserCheckImpl::new(&initproc);
     let mut array = 123usize;
     let rw = &mut array as *mut _ as usize;
@@ -382,6 +420,10 @@ pub async fn test() {
     un = 0x1000 as *const u8 as usize;
     check.read_check_rough::<u8>(un.into(), alloc).unwrap_err();
     check.write_check_rough::<u8>(un.into(), alloc).unwrap_err();
-    memory::set_satp_by_global();
+    local::always_local().user_access_status.set_access();
+    drop(check);
+    drop(auto_sum);
+
+    local::hart_local().leave_task_switch(&mut local_now);
     println!("[FTL OS]user_check test pass");
 }

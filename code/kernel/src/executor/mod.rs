@@ -29,6 +29,10 @@ impl TaskQueue {
         self.queue.lock().as_mut().unwrap().push_back(runnable);
     }
     pub fn fetch(&self) -> Option<Runnable> {
+        // 如果没有任务, 其他核不会获取锁
+        if unsafe { self.queue.unsafe_get().as_ref().unwrap().is_empty() } {
+            return None;
+        }
         self.queue.lock().as_mut().unwrap().pop_front()
     }
 }
@@ -90,9 +94,13 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
     }
 }
 
-pub fn run_until_idle() {
+/// 返回执行了多少个future
+pub fn run_until_idle() -> usize {
+    let mut n = 0;
     while let Some(task) = TASK_QUEUE.fetch() {
         stack_trace!();
         task.run();
+        n += 1;
     }
+    n
 }

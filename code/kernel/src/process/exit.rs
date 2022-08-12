@@ -1,7 +1,13 @@
+use core::sync::atomic::Ordering;
+
 use alloc::sync::Weak;
 
 use crate::{
-    local, memory, process::Pid, signal::Sig, sync::even_bus::Event, xdebug::PRINT_SYSCALL_ALL,
+    local, memory,
+    process::Pid,
+    signal::Sig,
+    sync::even_bus::Event,
+    xdebug::{PRINT_ABNORMALLY_EXIT, PRINT_SYSCALL_ALL},
 };
 
 use super::{children::ChildrenSet, search, thread::Thread, Process};
@@ -15,7 +21,7 @@ pub async fn exit_impl(thread: &Thread) {
         print!("thread {:?} {:?} exit", pid, thread.tid());
         println!("{}", reset_color!());
     }
-    if !thread.inner().exited {
+    if PRINT_ABNORMALLY_EXIT && !thread.inner().exited {
         print!("{}", to_red!());
         print!("thread {:?} {:?} terminal abnormally", pid, thread.tid());
         println!("{}", reset_color!());
@@ -32,9 +38,11 @@ pub async fn exit_impl(thread: &Thread) {
             None => panic!(),
         };
         alive.threads.remove(thread.tid());
+        process.thread_count.fetch_sub(1, Ordering::Relaxed);
         if !alive.threads.is_empty() {
             return;
         }
+        // 最后一个线程退出
         asid = alive.asid();
         process.event_bus.close();
         memory::set_satp_by_global();
@@ -64,7 +72,7 @@ fn become_zomble(parent: Option<Weak<Process>>, pid: Pid, sig: Option<Sig>) {
         Some((p, alive)) => {
             alive.children.become_zombie(pid);
             if let Some(s) = sig {
-                p.signal_manager.receive(s)
+                p.signal_manager.receive(s);
             }
             let _ = p.event_bus.set(evnet);
         }
@@ -73,7 +81,7 @@ fn become_zomble(parent: Option<Weak<Process>>, pid: Pid, sig: Option<Sig>) {
             let mut alive = p.alive.lock();
             alive.as_mut().unwrap().children.become_zombie(pid);
             if let Some(s) = sig {
-                p.signal_manager.receive(s)
+                p.signal_manager.receive(s);
             }
             let _ = p.event_bus.set(evnet);
         }

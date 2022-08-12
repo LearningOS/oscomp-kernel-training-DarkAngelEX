@@ -97,14 +97,37 @@ impl<T: ?Sized, S: MutexSupport> RwSleepMutex<T, S> {
     pub unsafe fn unsafe_get_mut(&self) -> &mut T {
         &mut *self.data.get()
     }
-    pub async fn shared_lock(&self) -> impl Deref<Target = T> + '_ {
+}
+impl<T: ?Sized + Send, S: MutexSupport> RwSleepMutex<T, S> {
+    pub async fn shared_lock(&self) -> impl Deref<Target = T> + Send + Sync + '_ {
         let future = &mut SharedSleepLockFuture::new(self);
         unsafe { Pin::new_unchecked(future).init().await.await }
     }
     #[inline(always)]
-    pub async fn unique_lock(&self) -> impl DerefMut<Target = T> + '_ {
+    pub async fn unique_lock(&self) -> impl DerefMut<Target = T> + Send + Sync + '_ {
         let future = &mut UniqueSleepLockFuture::new(self);
         unsafe { Pin::new_unchecked(future).init().await.await }
+    }
+    pub fn try_shared_lock(&self) -> Option<impl Deref<Target = T> + Send + Sync + '_> {
+        let mut lk = self.lock.lock();
+        let n = match lk.status {
+            Status::Unlock => 1,
+            Status::Shared(n) if lk.unique.is_empty() => n + 1,
+            _ => return None,
+        };
+        lk.status = Status::Shared(n);
+        lk.lazy_init();
+        Some(SharedSleepMutexGuard { mutex: self })
+    }
+    pub fn try_unique_lock(&self) -> Option<impl DerefMut<Target = T> + Send + Sync + '_> {
+        let mut lk = self.lock.lock();
+        match lk.status {
+            Status::Unlock => (),
+            _ => return None,
+        }
+        lk.status = Status::Unique;
+        lk.lazy_init();
+        Some(UnqiueSleepMutexGuard { mutex: self })
     }
 }
 

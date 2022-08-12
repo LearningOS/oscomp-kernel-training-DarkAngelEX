@@ -1,0 +1,56 @@
+(run-all)
+
+Simple syscall: 8.5493 microseconds
+Simple read: 49.0608 microseconds
+Simple write: 46.8912 microseconds
+Simple stat: 127.5200 microseconds
+Simple fstat: 46.2348 microseconds
+Simple open/close: 104.2933 microseconds
+Select on 100 fd's: 117.8079 microseconds
+Signal handler installation: 71.2395 microseconds
+mmap: Too many open files in system
+thread Pid(7) Tid(7) terminal abnormally
+Pipe latency: 351.7370 microseconds
+Process fork+exit: 4005.4651 microseconds
+Process fork+execve: 181491.0000 microseconds
+cp: can't stat 'hello': No such file or directory
+Process fork+/bin/sh -c: 440882.6667 microseconds
+File /var/tmp/XXX write bandwidth:26262 KB/sec
+page fault handle fail: EFAULT
+[kernel]user_fatal_error page_fault Pid(5) Tid(5) InstructionPageFault stval: 0x17ea0 sepc: 0x17ea0 ra: 0x17ea0
+thread Pid(5) Tid(5) terminal abnormally
+mmap: Bad file descriptor
+file system latency
+0kpage fault handle fail: EFAULT
+[kernel]user_fatal_error page_fault Pid(5) Tid(5) StorePageFault stval: 0x1ffffdf928 sepc: 0x8fbca ra: 0x186f4
+error IR: 26 f4 97 b4 06 00 83 b4 
+
+thread Pid(5) Tid(5) terminal abnormally
+        -1      -1page fault handle fail: EFAULT
+[kernel]user_fatal_error page_fault Pid(5) Tid(5) StorePageFault stval: 0x1ffffdf828 sepc: 0x8fbca ra: 0x186f4
+error IR: 26 f4 97 b4 06 00 83 b4 
+...
+thread Pid(5) Tid(5) terminal abnormally
+        -1      -1page fault handle fail: EFAULT
+[kernel]user_fatal_error page_fault Pid(5) Tid(5) StorePageFault stval: 0x1ffffdf828 sepc: 0x8fbca ra: 0x186f4
+error IR: 26 f4 97 b4 06 00 83 b4 
+
+thread Pid(5) Tid(5) terminal abnormally
+
+Bandwidth measurements
+thread Pid(7) Tid(7) terminal abnormally
+Pipe bandwidth: 50.80 MB/sec
+0.524288 7011.45
+0.524288 2915.30
+x: Bad file descriptor
+0.524288 inf
+context switch overhead
+"size=32k ovr=124.02
+page fault handle fail: EFAULT
+[kernel]user_fatal_error page_fault Pid(5) Tid(5) LoadPageFault stval: 0x400000000 sepc: 0x19586 ra: 0x195d6
+error IR: 9c 63 88 43 ef 60 b7 11 
+
+thread Pid(5) Tid(5) terminal abnormally
+...
+(end)
+

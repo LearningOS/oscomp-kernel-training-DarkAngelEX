@@ -15,7 +15,10 @@ use crate::{
     syscall::SysError,
 };
 
-use super::{check_impl::UserCheckImpl, AutoSum, UserData, UserDataMut, UserType};
+use super::{
+    check_impl::{NativeErrorHandle, UserCheckImpl},
+    AutoSum, NativeAutoSum, UserData, UserDataMut, UserType,
+};
 
 pub struct UserCheck<'a> {
     process: &'a Process,
@@ -33,6 +36,7 @@ impl<'a> UserCheck<'a> {
             _auto_sum: AutoSum::new(),
         }
     }
+
     pub async fn array_zero_end<T>(&self, ptr: UserReadPtr<T>) -> SysR<UserData<T>>
     where
         T: UserType,
@@ -78,12 +82,32 @@ impl<'a> UserCheck<'a> {
     pub async fn readonly_value<T: Copy, P: Read>(&self, ptr: UserPtr<T, P>) -> SysR<UserData<T>> {
         self.readonly_slice(ptr, 1).await
     }
+    pub async fn readonly_value_nullable<T: Copy, P: Read>(
+        &self,
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.readonly_slice(ptr, 1).await).transpose()
+        }
+    }
     /// return a slice witch len == 1
     pub async fn writable_value<T: Copy, P: Write>(
         &self,
         ptr: UserPtr<T, P>,
     ) -> SysR<UserDataMut<T>> {
         self.writable_slice(ptr, 1).await
+    }
+    pub async fn writable_value_nullable<T: Copy, P: Write>(
+        &self,
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.writable_slice(ptr, 1).await).transpose()
+        }
     }
     pub async fn array_2d_zero_end<T: UserType>(
         &self,
@@ -99,7 +123,6 @@ impl<'a> UserCheck<'a> {
         }
         Ok(ret)
     }
-
     pub async fn readonly_slice<T: Copy, P: Read>(
         &self,
         ptr: UserPtr<T, P>,
@@ -123,7 +146,17 @@ impl<'a> UserCheck<'a> {
         let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
         Ok(UserData::new(unsafe { &*slice }))
     }
-
+    pub async fn readonly_slice_nullable<T: Copy, P: Read>(
+        &self,
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.readonly_slice(ptr, len).await).transpose()
+        }
+    }
     pub async fn writable_slice<T: Copy, P: Write>(
         &self,
         ptr: UserPtr<T, P>,
@@ -152,7 +185,17 @@ impl<'a> UserCheck<'a> {
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
         Ok(UserDataMut::new(slice))
     }
-
+    pub async fn writable_slice_nullable<T: Copy, P: Write>(
+        &self,
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(self.writable_slice(ptr, len).await).transpose()
+        }
+    }
     pub async fn atomic_u32<P: Write>(&self, ptr: UserPtr<u32, P>) -> SysR<UserDataMut<AtomicU32>> {
         if ptr.as_usize() % core::mem::align_of::<u32>() != 0 {
             println!(
@@ -171,5 +214,143 @@ impl<'a> UserCheck<'a> {
             .await?;
         let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut().cast(), 1);
         Ok(UserDataMut::new(slice))
+    }
+
+    pub fn array_zero_end_only<T>(ptr: UserReadPtr<T>) -> SysR<UserData<T>>
+    where
+        T: UserType,
+    {
+        let _sum = NativeAutoSum::new();
+        // misalign check
+        if ptr.as_usize() % core::mem::size_of::<T>() != 0 {
+            return Err(SysError::EFAULT);
+        }
+        let mut uptr = UserAddr::try_from(ptr)?;
+        let _handle = unsafe { NativeErrorHandle::new() };
+        UserCheckImpl::read_check_only(ptr)?;
+        let mut len = 0;
+        let mut ch_is_null = move || {
+            let ch: T = unsafe { *uptr.as_ptr() }; // if access fault, return 0.
+            uptr.add_assign(core::mem::size_of::<T>());
+            ch.is_null()
+        };
+        // check first access
+        if ch_is_null() {
+            let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), 0) };
+            return Ok(UserData::new(slice));
+        } else {
+            len += 1;
+        }
+        loop {
+            let nxt_ptr = ptr.offset(len as isize);
+            if nxt_ptr.as_usize() % PAGE_SIZE == 0 {
+                UserCheckImpl::read_check_only(nxt_ptr)?;
+            }
+            if ch_is_null() {
+                break;
+            }
+            len += 1;
+            // check when first access a page.
+        }
+        let slice = unsafe { &*core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len) };
+        Ok(UserData::new(slice))
+    }
+
+    #[inline]
+    pub fn readonly_value_only<T: Copy, P: Read>(ptr: UserPtr<T, P>) -> SysR<UserData<T>> {
+        Self::readonly_slice_only(ptr, 1)
+    }
+    #[inline]
+    pub fn readonly_value_only_nullable<T: Copy, P: Read>(
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::readonly_slice_only(ptr, 1)).transpose()
+        }
+    }
+    #[inline]
+    pub fn readonly_slice_only<T: Copy, P: Read>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<UserData<T>> {
+        if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
+            return Err(SysError::EFAULT);
+        }
+        let mut cur = UserAddr::try_from(ptr)?.floor();
+        let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
+        let _sum = NativeAutoSum::new();
+        let _handle = unsafe { NativeErrorHandle::new() };
+        while cur != uend4k {
+            let cur_ptr = UserReadPtr::from_usize(cur.into_usize());
+            // if error occur will change status by exception
+            UserCheckImpl::read_check_only::<u8>(cur_ptr)?;
+            cur.add_page_assign(PageCount(1));
+        }
+        let slice = core::ptr::slice_from_raw_parts(ptr.raw_ptr(), len);
+        Ok(UserData::new(unsafe { &*slice }))
+    }
+    #[inline]
+    pub fn readonly_slice_only_nullable<T: Copy, P: Read>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserData<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::readonly_slice_only(ptr, len)).transpose()
+        }
+    }
+    #[inline]
+    pub fn writable_value_only<T: Copy, P: Write>(ptr: UserPtr<T, P>) -> SysR<UserDataMut<T>> {
+        Self::writable_slice_only(ptr, 1)
+    }
+    #[inline]
+    pub fn writable_value_only_nullable<T: Copy, P: Write>(
+        ptr: UserPtr<T, P>,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::writable_slice_only(ptr, 1)).transpose()
+        }
+    }
+    #[inline]
+    pub fn writable_slice_only<T: Copy, P: Write>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<UserDataMut<T>> {
+        // println!("tran 0");
+        if ptr.as_usize() % core::mem::align_of::<T>() != 0 {
+            println!(
+                "[kernel]user write ptr check fail: no align. ptr: {:#x} align: {}",
+                ptr.as_usize(),
+                core::mem::align_of::<T>()
+            );
+            return Err(SysError::EFAULT);
+        }
+        let mut cur = UserAddr::try_from(ptr)?.floor();
+        let uend4k = UserAddr::try_from(ptr.offset(len as isize))?.ceil();
+        let _sum = NativeAutoSum::new();
+        let _handle = unsafe { NativeErrorHandle::new() };
+        while cur != uend4k {
+            let cur_ptr = UserWritePtr::from_usize(cur.into_usize());
+            UserCheckImpl::write_check_only::<u8>(cur_ptr)?;
+            cur.add_page_assign(PageCount(1));
+        }
+        let slice = core::ptr::slice_from_raw_parts_mut(ptr.raw_ptr_mut(), len);
+        Ok(UserDataMut::new(slice))
+    }
+    #[inline]
+    pub fn writable_slice_only_nullable<T: Copy, P: Write>(
+        ptr: UserPtr<T, P>,
+        len: usize,
+    ) -> SysR<Option<UserDataMut<T>>> {
+        if ptr.is_null() {
+            Ok(None)
+        } else {
+            Some(Self::writable_slice_only(ptr, len)).transpose()
+        }
     }
 }

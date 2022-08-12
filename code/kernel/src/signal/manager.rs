@@ -1,6 +1,6 @@
 use core::ops::ControlFlow;
 
-use alloc::collections::VecDeque;
+use alloc::vec::Vec;
 
 use crate::{
     signal::{Action, SigAction, SignalSet, StdSignalSet, SIG_N, SIG_N_U32},
@@ -9,8 +9,20 @@ use crate::{
 
 use super::{rtqueue::RTQueue, Sig};
 
+const SEQ_MASK: usize = -2isize as usize;
+/// 信箱序列号掩码, 只有最低位是0
+
+const QUE_MASK: usize = 1;
+/// 信号处理掩码, 只有最低位是1
+
 pub struct ProcSignalManager {
     inner: SpinNoIrqLock<ProcSignalManagerInner>,
+}
+
+impl Default for ProcSignalManager {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl ProcSignalManager {
@@ -19,6 +31,21 @@ impl ProcSignalManager {
             inner: SpinNoIrqLock::new(ProcSignalManagerInner::new()),
         }
     }
+    /// 粗略判断是否存在信号
+    #[inline(always)]
+    pub fn have_signal(&self, recv_id: usize) -> bool {
+        let inner = unsafe { self.inner.unsafe_get() };
+        recv_id != inner.recv_id
+    }
+    /// 确定地判断是否存在信号
+    pub fn have_signal_local(&self, mask: &SignalSet) -> bool {
+        let inner = unsafe { self.inner.unsafe_get() };
+        inner.can_take_std_signal(mask.std_signal()) || inner.can_take_rt_signal(mask)
+    }
+    pub fn recv_id(&self) -> usize {
+        unsafe { self.inner.unsafe_get().recv_id }
+    }
+    /// 如果信号被接收了, 返回true
     pub fn receive(&self, sig: Sig) {
         self.inner.lock().receive(sig)
     }
@@ -64,6 +91,8 @@ struct ProcSignalManagerInner {
     pending: StdSignalSet, // 等待处理的信号
     realtime: RTQueue,
     action: [SigAction; SIG_N],
+    ignore: SignalSet,
+    recv_id: usize, // 每次增加2, 最低位一定是0
 }
 
 impl ProcSignalManagerInner {
@@ -73,24 +102,33 @@ impl ProcSignalManagerInner {
             pending: StdSignalSet::EMPTY,
             realtime: RTQueue::new(),
             action: SigAction::DEFAULT_SET,
+            ignore: SigAction::DEFAULT_IGNORE,
+            recv_id: 0,
         }
     }
     pub fn receive(&mut self, sig: Sig) {
+        if self.ignore.get_bit(sig) {
+            return;
+        }
         match sig.0 {
             0..32 => self.pending.insert(StdSignalSet::from_sig(sig)),
             32..SIG_N_U32 => self.realtime.receive(sig),
             _ => (),
         }
+        self.recv_id = self.recv_id.wrapping_add(2);
     }
+    #[inline]
     pub fn can_take_std_signal(&self, mask: StdSignalSet) -> bool {
-        !(self.pending & !mask).is_empty()
+        !(self.pending & !mask & !self.ignore.std_signal()).is_empty()
     }
     pub fn take_std_signal(&mut self, mask: StdSignalSet) -> ControlFlow<Sig> {
-        (self.pending & !mask).fetch().map_break(|a| {
+        let can_fetch = self.pending & !mask & !self.ignore.std_signal();
+        can_fetch.fetch().map_break(|a| {
             self.pending.clear_sig(a);
             a
         })
     }
+    #[inline]
     pub fn can_take_rt_signal(&self, mask: &SignalSet) -> bool {
         self.realtime.can_fetch(mask)
     }
@@ -107,7 +145,7 @@ impl ProcSignalManagerInner {
     pub fn get_action(&self, sig: Sig) -> (Action, &SignalSet) {
         sig.check();
         let act = &self.action[sig.0 as usize];
-        (act.get_action(sig.0), &act.mask)
+        (act.get_action(sig), &act.mask)
     }
     pub fn replace_action(&mut self, sig: Sig, new: &SigAction, old: &mut SigAction) {
         sig.check();
@@ -115,35 +153,55 @@ impl ProcSignalManagerInner {
         *old = *dst;
         *dst = *new;
         dst.reset_never_capture(sig);
+        self.ignore = SignalSet::EMPTY;
+        for i in 0..SIG_N_U32 {
+            if self.action[i as usize].get_action(Sig(i)).ignore() {
+                self.ignore.insert_bit(Sig(i));
+            }
+        }
     }
     pub fn fork(&self) -> Self {
         Self {
             pending: self.pending,
             realtime: self.realtime.fork(),
             action: self.action,
+            ignore: self.ignore,
+            recv_id: self.recv_id,
         }
     }
 }
 
 pub struct ThreadSignalManager {
     mailbox: SpinNoIrqLock<ThreadSignalMailbox>,
-    recv_id: usize, // 当 recv_id == send_id 时没有收到任何新信号，不需要锁。
+    /// 高63位 == send_id 时没有收到任何新信号，不需要锁。
+    ///
+    /// 最低位为1时
+    recv_id: usize,
     std_pending: StdSignalSet,
     real_pending: RTQueue,
     signal_mask: SignalSet,
+    /// 和进程控制块上的值完全相同时说明进程没收到新信号
+    pub proc_recv_id: usize,
 }
 
 struct ThreadSignalMailbox {
     std: StdSignalSet,
     send_id: usize,
-    realtime: VecDeque<Sig>,
+    realtime: Vec<Sig>,
 }
+
+impl Default for ThreadSignalManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ThreadSignalMailbox {
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             std: StdSignalSet::empty(),
             send_id: 0,
-            realtime: VecDeque::new(),
+            realtime: Vec::new(),
         }
     }
     pub fn fork(&self) -> Self {
@@ -155,6 +213,7 @@ impl ThreadSignalMailbox {
     }
     pub fn receive(&mut self, sig: Sig) {
         sig.check();
+        debug_assert!(self.send_id & 1 == 0);
         match sig.0 {
             0..32 => {
                 let mask = StdSignalSet::from_sig(sig);
@@ -162,11 +221,11 @@ impl ThreadSignalMailbox {
                     return;
                 }
                 self.std.insert(mask);
-                self.send_id += 1;
+                self.send_id = self.send_id.wrapping_add(2);
             }
             32..SIG_N_U32 => {
-                self.realtime.push_back(sig);
-                self.send_id += 1;
+                self.realtime.push(sig);
+                self.send_id = self.send_id.wrapping_add(2);
             }
             _ => (),
         }
@@ -175,14 +234,18 @@ impl ThreadSignalMailbox {
 
 impl ThreadSignalManager {
     #[inline(always)]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             mailbox: SpinNoIrqLock::new(ThreadSignalMailbox::new()),
             recv_id: 0,
             std_pending: StdSignalSet::empty(),
             real_pending: RTQueue::new(),
             signal_mask: SignalSet::EMPTY,
+            proc_recv_id: 0,
         }
+    }
+    pub fn mask_changed(&mut self) {
+        self.recv_id |= QUE_MASK;
     }
     #[inline(always)]
     pub fn fork(&self) -> Self {
@@ -192,6 +255,7 @@ impl ThreadSignalManager {
             std_pending: self.std_pending,
             real_pending: self.real_pending.fork(),
             signal_mask: self.signal_mask,
+            proc_recv_id: self.proc_recv_id,
         }
     }
     #[inline]
@@ -206,10 +270,11 @@ impl ThreadSignalManager {
         stack_trace!();
         // 无锁判断
         let send_id = unsafe { self.mailbox.unsafe_get().send_id };
-        if send_id == self.recv_id {
+        debug_assert!(send_id & 1 == 0);
+        if self.recv_id & SEQ_MASK == send_id {
             return;
         }
-        self.recv_id = send_id;
+        self.recv_id = send_id | (self.recv_id & QUE_MASK);
 
         let add = {
             let mut mailbox = self.mailbox.lock();
@@ -225,6 +290,15 @@ impl ThreadSignalManager {
             }
         }
     }
+    pub fn insert_local_flag(&mut self) {
+        self.recv_id |= QUE_MASK
+    }
+    pub fn clear_local_flag(&mut self) {
+        self.recv_id &= SEQ_MASK
+    }
+    pub fn update_proc_recv_id(&mut self, id: usize) {
+        self.proc_recv_id = id;
+    }
     #[inline(always)]
     pub fn set_mask(&mut self, mask: &SignalSet) {
         self.signal_mask = *mask;
@@ -237,6 +311,18 @@ impl ThreadSignalManager {
     #[inline(always)]
     pub fn mask_mut(&mut self) -> &mut SignalSet {
         &mut self.signal_mask
+    }
+    /// 是否应该处理信号
+    #[inline(always)]
+    pub fn have_signal(&self) -> bool {
+        self.recv_id != unsafe { self.mailbox.unsafe_get().send_id }
+    }
+    /// 判断是否有未处理的本地信号
+    pub fn have_signal_local(&self) -> bool {
+        if !(self.std_pending & !self.signal_mask.std_signal()).is_empty() {
+            return true;
+        }
+        self.real_pending.can_fetch(&self.signal_mask)
     }
     pub fn take_std_signal(&mut self) -> ControlFlow<Sig> {
         (self.std_pending & !self.signal_mask.std_signal())

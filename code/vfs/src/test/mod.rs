@@ -9,8 +9,15 @@ use crate::{
     File, VfsFile, VfsManager,
 };
 
+#[cfg(test)]
+fn init_console() {
+    use std::io::Write;
+    ftl_util::console::init(|a| std::io::stdout().write_fmt(a).unwrap());
+}
+
 #[test]
 pub fn test_run() {
+    init_console();
     let (executor, spawner) = tiny_env::new_executor_and_spawner();
     spawner.spawn(test_special());
     executor.run_debug();

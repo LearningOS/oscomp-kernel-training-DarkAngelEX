@@ -21,6 +21,10 @@ impl Fd {
     pub fn new(x: usize) -> Self {
         Self(x)
     }
+    pub const INVALID: Self = Self(usize::MAX);
+    pub fn is_invalid(self) -> bool {
+        self == Self::INVALID
+    }
     pub fn assert_eq(self, x: usize) {
         assert_eq!(self.0, x)
     }
@@ -56,17 +60,125 @@ pub struct FdNode {
     op: OpenFlags,
 }
 
+const RESERVE: usize = 20;
+
+#[derive(Clone)]
+struct FastMap {
+    reserve: [Option<FdNode>; RESERVE],
+    reserve_len: usize,
+    map: BTreeMap<Fd, FdNode>,
+}
+impl FastMap {
+    pub const fn new() -> Self {
+        const DEFAULT: Option<FdNode> = None;
+        Self {
+            reserve: [DEFAULT; _],
+            reserve_len: 0,
+            map: BTreeMap::new(),
+        }
+    }
+    #[inline(always)]
+    pub fn len(&self) -> usize {
+        self.reserve_len + self.map.len()
+    }
+    #[inline(always)]
+    pub fn get(&self, k: Fd) -> Option<&FdNode> {
+        if k.0 < RESERVE {
+            self.reserve[k.0].as_ref()
+        } else {
+            self.map.get(&k)
+        }
+    }
+    #[inline(always)]
+    pub fn get_mut(&mut self, k: Fd) -> Option<&mut FdNode> {
+        if k.0 < RESERVE {
+            self.reserve[k.0].as_mut()
+        } else {
+            self.map.get_mut(&k)
+        }
+    }
+    pub fn remove(&mut self, k: Fd) -> Option<FdNode> {
+        if k.0 < RESERVE {
+            if self.reserve[k.0].is_some() {
+                self.reserve_len -= 1;
+            }
+            self.reserve[k.0].take()
+        } else {
+            self.map.remove(&k)
+        }
+    }
+    pub fn retain(&mut self, mut f: impl FnMut(&Fd, &mut FdNode) -> bool) {
+        for (fd, ov) in self.reserve.iter_mut().enumerate() {
+            if let Some(v) = ov {
+                if !f(&Fd(fd), v) {
+                    *ov = None;
+                    self.reserve_len -= 1;
+                }
+            }
+        }
+        self.map.retain(f)
+    }
+    pub fn insert(&mut self, k: Fd, v: FdNode) -> Option<FdNode> {
+        if k.0 < RESERVE {
+            if self.reserve[k.0].is_none() {
+                self.reserve_len += 1;
+            }
+            self.reserve[k.0].replace(v)
+        } else {
+            self.map.insert(k, v)
+        }
+    }
+    pub fn try_insert(&mut self, k: Fd, v: FdNode) -> Result<&mut FdNode, ()> {
+        if k.0 < RESERVE {
+            if self.reserve[k.0].is_none() {
+                self.reserve_len += 1;
+                self.reserve[k.0] = Some(v);
+                Ok(self.reserve[k.0].as_mut().unwrap())
+            } else {
+                Err(())
+            }
+        } else {
+            self.map.try_insert(k, v).ok().ok_or(())
+        }
+    }
+    /// 找到不小于min的最小空位
+    pub fn find_space(&self, mut min: Fd) -> Fd {
+        if min.0 < RESERVE {
+            for (i, v) in self.reserve[min.0..].iter().enumerate() {
+                if v.is_none() {
+                    return Fd(min.0 + i);
+                }
+            }
+            min.0 = RESERVE;
+        }
+        for fd in self.map.range(min..).map(|(&fd, _b)| fd) {
+            if fd == min {
+                min.0 += 1;
+            } else {
+                break;
+            }
+        }
+        min
+    }
+}
+
 #[derive(Clone)]
 pub struct FdTable {
-    map: BTreeMap<Fd, FdNode>,
+    map: FastMap,
     search_start: Fd,
     limit: RLimit,
+}
+
+impl Default for FdTable {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl FdTable {
     pub fn new() -> Self {
         let mut ret = Self {
-            map: BTreeMap::new(),
+            map: FastMap::new(),
             search_start: Fd(0),
             limit: USER_FNO_DEFAULT,
         };
@@ -113,19 +225,13 @@ impl FdTable {
         if self.map.len() >= self.limit.rlim_max {
             return Err(SysError::EMFILE);
         }
-        let Fd(mut min) = min.max(self.search_start);
-        let search_from_start = Fd(min) == self.search_start;
-        for fd in self.map.range(Fd(min)..).map(|(&Fd(fd), _b)| fd) {
-            if fd == min {
-                min += 1;
-            } else {
-                break;
-            }
-        }
+        let mut min = min.max(self.search_start);
+        let search_from_start = min == self.search_start;
+        min = self.map.find_space(min);
         if search_from_start {
-            self.search_start = Fd(min);
+            self.search_start = min;
         }
-        Ok(Fd(min))
+        Ok(min)
     }
     /// 自动选择
     pub fn insert(&mut self, file: Arc<dyn File>, close_on_exec: bool, op: OpenFlags) -> SysR<Fd> {
@@ -147,7 +253,6 @@ impl FdTable {
         };
         self.map
             .try_insert(fd, node)
-            .ok()
             .expect("FdTable double insert same fd");
         Ok(fd)
     }
@@ -162,14 +267,14 @@ impl FdTable {
         self.search_start = self.search_start.min(fd.next());
     }
     pub fn get(&self, fd: Fd) -> Option<&Arc<dyn File>> {
-        self.map.get(&fd).map(|n| &n.file)
+        self.map.get(fd).map(|n| &n.file)
     }
     pub fn get_node(&self, fd: Fd) -> Option<&FdNode> {
-        self.map.get(&fd)
+        self.map.get(fd)
     }
     pub fn fcntl(&mut self, fd: Fd, cmd: u32, arg: usize) -> SysRet {
         const FD_CLOEXEC: usize = 1;
-        let node = self.map.get_mut(&fd).ok_or(SysError::EBADF)?;
+        let node = self.map.get_mut(fd).ok_or(SysError::EBADF)?;
         match cmd {
             // 复制文件描述符
             F_DUPFD | F_DUPFD_CLOEXEC => {
@@ -201,7 +306,7 @@ impl FdTable {
     }
     pub fn remove(&mut self, fd: Fd) -> Option<Arc<dyn File>> {
         self.search_start = self.search_start.min(fd);
-        let file = self.map.remove(&fd);
+        let file = self.map.remove(fd);
         file.map(|n| n.file)
     }
     pub fn dup(&mut self, fd: Fd) -> SysR<Fd> {

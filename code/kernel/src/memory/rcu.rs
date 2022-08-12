@@ -11,20 +11,26 @@ static GLOBAL_RCU_MANAGER: RcuManager<SpinNoIrq> = RcuManager::new();
 /// 全局RCU控制器提交释放队列, 而是等待时钟中断到达后再提交, 彻底删除锁竞争
 ///
 /// 但时钟中断并不会在我们预期的时刻发生. 因此需要等待临界区结束时再关闭临界区
+///
+/// 此管理器允许中断时使用, FTL OS最大嵌套次数为2
 pub struct LocalRcuManager {
-    pending: Vec<RcuDrop>, // 此CPU提交的释放队列
-    id: usize,             // CPU编号, 保证唯一性即可
-    critical: bool,        // 仅用于 debug_assert
-    tick: bool,            // 时钟中断到达标志
+    pending: Vec<RcuDrop>,     // 此CPU提交的释放队列
+    pending_rec: Vec<RcuDrop>, // 发生嵌套时提交的队列
+    id: usize,                 // CPU编号, 保证唯一性即可
+    critical: bool,            // 仅用于 debug_assert
+    tick: bool,                // 时钟中断到达标志
+    rec: bool,                 // 嵌套标志
 }
 
 impl LocalRcuManager {
     pub const fn new() -> Self {
         Self {
             pending: Vec::new(),
+            pending_rec: Vec::new(),
             id: usize::MAX,
             critical: false,
             tick: false,
+            rec: false,
         }
     }
     pub fn init_id(&mut self, id: usize) {
@@ -34,7 +40,18 @@ impl LocalRcuManager {
     pub fn tick(&mut self) {
         self.tick = true;
     }
+    fn rec(&mut self) -> bool {
+        unsafe { core::ptr::read_volatile(&self.rec) }
+    }
+    fn set_rec(&mut self) {
+        unsafe { core::ptr::write_volatile(&mut self.rec, true) }
+    }
+    fn clear_rec(&mut self) {
+        unsafe { core::ptr::write_volatile(&mut self.rec, false) }
+    }
+
     // 进入RCU临界区
+    #[inline]
     pub fn critical_start(&mut self) {
         stack_trace!();
         if self.critical {
@@ -44,16 +61,24 @@ impl LocalRcuManager {
         self.tick = false;
         GLOBAL_RCU_MANAGER.critical_start(self.id)
     }
-    // 强制结束RCU临界区并刷入缓存的释放队列
+    /// 强制结束RCU临界区并刷入缓存的释放队列
+    ///
+    /// 允许开中断, 因为 pending 只会在锁内被修改
     pub fn critical_end(&mut self) {
         stack_trace!();
         if !self.critical && self.pending.is_empty() {
             return;
         }
         self.critical = false;
+        self.set_rec();
+        if !self.pending_rec.is_empty() {
+            self.pending.append(&mut self.pending_rec);
+        }
         GLOBAL_RCU_MANAGER.critical_end(self.id, &mut self.pending);
+        self.clear_rec();
     }
     /// 当时钟中断到达了才会将tick设为true, 此时才离开临界区
+    #[inline]
     pub fn critical_end_tick(&mut self) {
         if !CRITICAL_END_FORCE && !self.tick {
             return;
@@ -63,11 +88,17 @@ impl LocalRcuManager {
     }
     pub fn push(&mut self, v: RcuDrop) {
         debug_assert!(self.critical);
-        self.pending.push(v);
+        self.special_push(v);
     }
     /// special_push 允许在临界区之外运行, 作用是提交未释放内存
     pub fn special_push(&mut self, v: RcuDrop) {
-        self.pending.push(v);
+        if self.rec() {
+            self.pending_rec.push(v);
+        } else {
+            self.set_rec();
+            self.pending.push(v);
+            self.clear_rec();
+        }
     }
 }
 

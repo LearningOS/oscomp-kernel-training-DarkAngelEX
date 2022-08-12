@@ -288,7 +288,7 @@ impl ShortFinder {
             match n as u8 & 0xF {
                 n @ 0..10 => b'0' + n,
                 n @ 10..16 => b'A' + (n - 10),
-                _ => unsafe { core::hint::unreachable_unchecked() },
+                _ => unreachable!(),
             }
         }
         fn u16_ascii(n: u16, dst: &mut [u8; 4]) {
@@ -298,7 +298,7 @@ impl ShortFinder {
         }
         dst.name[0] = self.name[0];
         dst.name[1] = match self.name_len {
-            0 => panic!(),
+            0 => self.name[0],
             1 => self.name[0],
             _ => self.name[1],
         };

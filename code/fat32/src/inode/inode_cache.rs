@@ -23,11 +23,12 @@ pub(crate) struct InodeCache {
     aid_alloc: Arc<AIDAllocator>,
     alive: Weak<InodeMark>,
     pub aid: SyncUnsafeCell<AID>,
+    pub detached: bool,
 }
 
 pub(crate) struct InodeCacheInner {
     pub inode: Weak<RwSleepMutex<RawInode>>, // 自身inode
-    pub entry: EntryPlace,                   // 文件目录项地址 父目录移动时必须更新
+    pub entry: EntryPlace,                   // 文件目录项地址
     pub cid_list: Vec<CID>,                  // FAT链表缓存 所有CID都是有效的
     pub cid_start: CID,                      // short中的首簇号 空文件是CID::FREE
     pub almost_last: (usize, CID), // 缓存访问到的最后一个有效块和簇偏移 空文件为0 CID::FREE
@@ -74,6 +75,7 @@ impl InodeCache {
             aid_alloc,
             alive,
             aid: SyncUnsafeCell::new(AID(0)),
+            detached: false,
         }
     }
     /// will shared lock inode.cache.inner
@@ -141,6 +143,56 @@ impl InodeCache {
         let aid = self.aid_alloc.alloc();
         unsafe { *self.aid.get() = aid };
         aid
+    }
+    /// 从目录树中删除这个文件
+    pub fn detach_file(&self) -> Arc<InodeCache> {
+        debug_assert!(!self.detached);
+        // 生成一个新的cache节点, 原cache的节点引用计数就不存在了
+        let mut inner = self.inner.unique_lock();
+        let new = Arc::new(InodeCache {
+            inner: RwSpinMutex::new(InodeCacheInner {
+                inode: inner.inode.clone(),
+                entry: EntryPlace::ROOT,
+                cid_list: core::mem::take(&mut inner.cid_list),
+                cid_start: inner.cid_start,
+                almost_last: inner.almost_last,
+                len: inner.len,
+                short: inner.short,
+            }),
+            aid_alloc: self.aid_alloc.clone(),
+            alive: self.alive.clone(),
+            aid: SyncUnsafeCell::new(self.aid()),
+            detached: true,
+        });
+        inner.inode = Weak::new();
+        inner.list_truncate(0, CID::FREE);
+        inner.entry = EntryPlace::ROOT;
+        new
+    }
+    /// 从目录树中删除这个目录, 这个inode就无效了
+    pub fn detach_dir(&self) -> Arc<InodeCache> {
+        debug_assert!(!self.detached);
+        // 生成一个新的cache节点, 原cache的节点引用计数就不存在了
+        let mut inner = self.inner.unique_lock();
+        inner.list_truncate(0, CID::FREE);
+        inner.entry = EntryPlace::ROOT;
+        inner.inode = Weak::new();
+        let new = Arc::new(InodeCache {
+            inner: RwSpinMutex::new(InodeCacheInner {
+                inode: Weak::new(),
+                entry: EntryPlace::ROOT,
+                cid_list: Vec::new(),
+                cid_start: CID::FREE,
+                almost_last: (0, CID::FREE),
+                len: Some(0),
+                short: inner.short,
+            }),
+            aid_alloc: self.aid_alloc.clone(),
+            alive: self.alive.clone(),
+            aid: SyncUnsafeCell::new(self.aid()),
+            detached: true,
+        });
+        new
     }
 }
 

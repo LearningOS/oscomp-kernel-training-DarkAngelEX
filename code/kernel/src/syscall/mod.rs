@@ -1,14 +1,14 @@
 use core::ops::{Deref, DerefMut};
 
-use alloc::sync::Arc;
 use ftl_util::error::SysRet;
 
 use crate::{
     process::{thread::Thread, AliveProcess, Process},
     trap::context::UKContext,
-    xdebug::PRINT_SYSCALL_ALL,
+    xdebug::{PRINT_SYSCALL_ALL, PRINT_SYSCALL_ERR, PRINT_SYSCALL_RW},
 };
 
+pub mod fast;
 mod fs;
 mod futex;
 mod mmap;
@@ -32,7 +32,9 @@ const SYSCALL_UNLINKAT: usize = 35;
 const SYSCALL_UMOUNT2: usize = 39;
 const SYSCALL_MOUNT: usize = 40;
 const SYSCALL_STATFS: usize = 43;
+const SYSCALL_FACCESSAT: usize = 48;
 const SYSCALL_CHDIR: usize = 49;
+const SYSCALL_FCHOWN: usize = 55;
 const SYSCALL_OPENAT: usize = 56;
 const SYSCALL_CLOSE: usize = 57;
 const SYSCALL_PIPE2: usize = 59;
@@ -43,11 +45,13 @@ const SYSCALL_WRITE: usize = 64;
 const SYSCALL_READV: usize = 65;
 const SYSCALL_WRITEV: usize = 66;
 const SYSCALL_PREAD64: usize = 67;
+const SYSCALL_SENDFILE: usize = 71;
 const SYSCALL_PSELECT6: usize = 72;
 const SYSCALL_PPOLL: usize = 73;
 const SYSCALL_READLINKAT: usize = 78;
 const SYSCALL_NEWFSTATAT: usize = 79;
 const SYSCALL_FSTAT: usize = 80;
+const SYSCALL_FSYNC: usize = 82;
 const SYSCALL_UTIMENSAT: usize = 88;
 const SYSCALL_EXIT: usize = 93;
 const SYSCALL_EXIT_GROUP: usize = 94;
@@ -56,7 +60,9 @@ const SYSCALL_FUTEX: usize = 98;
 const SYSCALL_SET_ROBUST_LIST: usize = 99;
 const SYSCALL_GET_ROBUST_LIST: usize = 100;
 const SYSCALL_NANOSLEEP: usize = 101;
+const SYSCALL_SETITIMER: usize = 103;
 const SYSCALL_CLOCK_GETTIME: usize = 113;
+const SYSCALL_SYSLOG: usize = 116;
 const SYSCALL_SCHED_YIELD: usize = 124;
 const SYSCALL_KILL: usize = 129;
 const SYSCALL_TKILL: usize = 130;
@@ -74,6 +80,7 @@ const SYSCALL_SETPGID: usize = 154;
 const SYSCALL_GETPGID: usize = 155;
 const SYSCALL_UNAME: usize = 160;
 const SYSCALL_GETRUSAGE: usize = 165;
+const SYSCALL_UMASK: usize = 166;
 const SYSCALL_GETTIMEOFDAY: usize = 169;
 const SYSCALL_GETPID: usize = 172;
 const SYSCALL_GETPPID: usize = 173;
@@ -81,6 +88,7 @@ const SYSCALL_GETUID: usize = 174;
 const SYSCALL_GETEUID: usize = 175;
 const SYSCALL_GETEGID: usize = 177;
 const SYSCALL_GETTID: usize = 178;
+const SYSCALL_SYSINFO: usize = 179;
 const SYSCALL_SOCKET: usize = 198;
 const SYSCALL_BIND: usize = 200;
 const SYSCALL_LISTEN: usize = 201;
@@ -96,8 +104,10 @@ const SYSCALL_CLONE: usize = 220;
 const SYSCALL_EXECVE: usize = 221;
 const SYSCALL_MMAP: usize = 222;
 const SYSCALL_MPROTECT: usize = 226;
+const SYSCALL_MSYNC: usize = 227;
 const SYSCALL_WAIT4: usize = 260;
 const SYSCALL_PRLIMIT64: usize = 261;
+const SYSCALL_RENAMEAT2: usize = 276;
 const SYSCALL_GETRANDOM: usize = 278;
 const SYSCALL_MEMBARRIER: usize = 283;
 
@@ -109,17 +119,11 @@ pub struct Syscall<'a> {
 }
 
 impl<'a> Syscall<'a> {
-    pub fn new(
-        cx: &'a mut UKContext,
-        thread_arc: &'a Arc<Thread>,
-        process_arc: &'a Arc<Process>,
-    ) -> Self {
+    pub fn new(cx: &'a mut UKContext, thread: &'a Thread, process: &'a Process) -> Self {
         Self {
             cx,
-            thread: thread_arc.as_ref(),
-            // thread_arc,
-            process: process_arc.as_ref(),
-            // process_arc,
+            thread,
+            process,
             do_exit: false,
         }
     }
@@ -139,7 +143,9 @@ impl<'a> Syscall<'a> {
             SYSCALL_UMOUNT2 => self.sys_umount2().await,
             SYSCALL_MOUNT => self.sys_mount().await,
             SYSCALL_STATFS => self.sys_statfs().await,
+            SYSCALL_FACCESSAT => self.sys_faccessat().await,
             SYSCALL_CHDIR => self.sys_chdir().await,
+            SYSCALL_FCHOWN => self.sys_fchown(),
             SYSCALL_OPENAT => self.sys_openat().await,
             SYSCALL_CLOSE => self.sys_close(),
             SYSCALL_PIPE2 => self.sys_pipe2().await,
@@ -150,11 +156,13 @@ impl<'a> Syscall<'a> {
             SYSCALL_READV => self.sys_readv().await,
             SYSCALL_WRITEV => self.sys_writev().await,
             SYSCALL_PREAD64 => self.sys_pread64().await,
+            SYSCALL_SENDFILE => self.sys_sendfile().await,
             SYSCALL_PSELECT6 => self.sys_pselect6().await,
             SYSCALL_PPOLL => self.sys_ppoll().await,
             SYSCALL_READLINKAT => self.sys_readlinkat().await,
             SYSCALL_NEWFSTATAT => self.sys_newfstatat().await,
             SYSCALL_FSTAT => self.sys_fstat().await,
+            SYSCALL_FSYNC => self.sys_fsync(),
             SYSCALL_UTIMENSAT => self.sys_utimensat().await,
             SYSCALL_EXIT => self.sys_exit(),
             SYSCALL_EXIT_GROUP => self.sys_exit_group(),
@@ -163,7 +171,9 @@ impl<'a> Syscall<'a> {
             SYSCALL_SET_ROBUST_LIST => self.sys_set_robust_list().await,
             SYSCALL_GET_ROBUST_LIST => self.sys_get_robust_list().await,
             SYSCALL_NANOSLEEP => self.sys_nanosleep().await,
+            SYSCALL_SETITIMER => self.sys_setitimer().await,
             SYSCALL_CLOCK_GETTIME => self.sys_clock_gettime().await,
+            SYSCALL_SYSLOG => self.sys_syslog().await,
             SYSCALL_SCHED_YIELD => self.sys_sched_yield().await,
             SYSCALL_KILL => self.sys_kill(),
             SYSCALL_TKILL => self.sys_tkill(),
@@ -181,6 +191,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETPGID => self.sys_getpgid(),
             SYSCALL_UNAME => self.sys_uname().await,
             SYSCALL_GETRUSAGE => self.sys_getrusage().await,
+            SYSCALL_UMASK => self.sys_umask(),
             SYSCALL_GETTIMEOFDAY => self.sys_gettimeofday().await,
             SYSCALL_GETPID => self.sys_getpid(),
             SYSCALL_GETPPID => self.sys_getppid(),
@@ -188,6 +199,7 @@ impl<'a> Syscall<'a> {
             SYSCALL_GETEUID => self.sys_geteuid(),
             SYSCALL_GETEGID => self.sys_getegid(),
             SYSCALL_GETTID => self.sys_gettid(),
+            SYSCALL_SYSINFO => self.sys_info().await,
             SYSCALL_SOCKET => self.sys_socket(),
             SYSCALL_BIND => self.sys_bind(),
             SYSCALL_LISTEN => self.sys_listen(),
@@ -203,8 +215,10 @@ impl<'a> Syscall<'a> {
             SYSCALL_EXECVE => self.sys_execve().await,
             SYSCALL_MMAP => self.sys_mmap(),
             SYSCALL_MPROTECT => self.sys_mprotect(),
+            SYSCALL_MSYNC => self.sys_msync().await,
             SYSCALL_WAIT4 => self.sys_wait4().await,
             SYSCALL_PRLIMIT64 => self.sys_prlimit64().await,
+            SYSCALL_RENAMEAT2 => self.sys_renameat2().await,
             SYSCALL_GETRANDOM => self.sys_getrandom().await,
             SYSCALL_MEMBARRIER => self.sys_membarrier(),
             unknown => panic!("[kernel]unsupported syscall_id: {}", unknown),
@@ -215,9 +229,22 @@ impl<'a> Syscall<'a> {
             // Err(_e) => -1isize as usize,
         };
         memory_trace!("syscall return");
+        if !PRINT_SYSCALL_ALL && PRINT_SYSCALL_ERR {
+            if let Err(e) = result {
+                println!(
+                    "{}{:?} syscall {} -> {:?} sepc:{:#x}{}",
+                    to_yellow!(),
+                    self.thread.tid(),
+                    self.cx.a7(),
+                    e,
+                    self.cx.user_sepc,
+                    reset_color!()
+                );
+            }
+        }
         if PRINT_SYSCALL_ALL {
             // println!("syscall return with {}", a0);
-            if ![63, 64].contains(&self.cx.a7()) {
+            if PRINT_SYSCALL_RW || ![63, 64].contains(&self.cx.a7()) {
                 print!("{}", to_yellow!());
                 print!("{:?} syscall {} -> ", self.thread.tid(), self.cx.a7(),);
                 match result {
@@ -231,11 +258,15 @@ impl<'a> Syscall<'a> {
         self.cx.set_user_a0(a0);
         self.do_exit
     }
+    /// 这个函数当进程只有一个线程的时候没有原子开销
+    ///
     /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
     pub fn alive_then<T>(&mut self, f: impl FnOnce(&mut AliveProcess) -> T) -> T {
-        self.process.alive_then(f).unwrap()
+        self.process.alive_then(f)
     }
+    /// 此函数用于更长的上下文, 且一定回加锁
+    ///
     /// 线程自己的进程一定不会是退出的状态, 因为进程只有最后一个线程退出后才会析构
     #[inline(always)]
     pub fn alive_lock(&mut self) -> impl DerefMut<Target = AliveProcess> + '_ {

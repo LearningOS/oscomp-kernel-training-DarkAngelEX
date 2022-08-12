@@ -37,7 +37,6 @@ pub trait Fs: Send + Sync + 'static {
     fn set_spawner(&mut self, spawner: Box<dyn VfsSpawner>) -> ASysR<()>;
     fn root(&self) -> Box<dyn FsInode>;
 }
-
 pub(crate) struct FsspOwn(Option<NonNull<Fssp>>);
 
 impl FsspOwn {

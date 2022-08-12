@@ -16,6 +16,24 @@ pub fn init() {
     sleep::sleep_queue_init();
 }
 
+#[derive(Clone, Copy)]
+pub struct ITimerval {
+    it_interval: TimeVal, // Interval for periodic timer
+    it_value: TimeVal,    // Time until next expiration
+}
+
+impl ITimerval {
+    pub fn into_duration(self) -> (Duration, Duration) {
+        (self.it_interval.into(), self.it_value.into())
+    }
+    pub fn from_duration(durs: (Duration, Duration)) -> Self {
+        Self {
+            it_interval: durs.0.into(),
+            it_value: durs.1.into(),
+        }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct Tms {
@@ -165,7 +183,6 @@ fn get_time_ticks() -> TimeTicks {
 }
 
 fn set_time_ticks(ticks: TimeTicks) {
-    stack_trace!();
     sbi::set_timer(ticks.into_usize() as u64)
 }
 
