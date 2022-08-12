@@ -114,6 +114,15 @@ impl Syscall<'_> {
         Err(SysError::EAGAIN)
     }
     pub async fn sys_pselect6(&mut self) -> SysRet {
+        for _ in 0..2 {
+            thread::yield_now().await;
+            match self.sys_pselect6_fast() {
+                Ok(a) => return Ok(a),
+                Err(SysError::EAGAIN) => continue,
+                Err(SysError::EFAULT) => break,
+                Err(e) => return Err(e),
+            }
+        }
         thread::yield_now().await;
         #[allow(clippy::type_complexity)]
         let (nfds, readfds, writefds, exceptfds, timeout, sigmask): (
