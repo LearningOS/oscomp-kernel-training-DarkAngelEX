@@ -30,7 +30,9 @@ struct MmapHandlerSpec {
     fill_size: usize,   // 文件长度, 超过的填0, 全部映射则填usize::MAX
     perm: PTEFlags,
     shared: bool,
+    init_program: bool,
 }
+
 #[derive(Clone)]
 pub struct MmapHandler {
     spec: MmapHandlerSpec,
@@ -45,6 +47,7 @@ impl MmapHandler {
         fill_size: usize,
         perm: PTEFlags,
         shared: bool,
+        init_program: bool,
     ) -> Box<dyn UserAreaHandler> {
         Box::new(MmapHandler {
             spec: MmapHandlerSpec {
@@ -55,6 +58,7 @@ impl MmapHandler {
                 fill_size,
                 perm,
                 shared,
+                init_program,
             },
             base: HandlerBase::new(),
         })
@@ -76,6 +80,9 @@ impl UserAreaHandler for MmapHandler {
     }
     fn base_mut(&mut self) -> &mut HandlerBase {
         &mut self.base
+    }
+    fn is_init_program(&self) -> bool {
+        self.spec.init_program
     }
     fn init(
         &mut self,

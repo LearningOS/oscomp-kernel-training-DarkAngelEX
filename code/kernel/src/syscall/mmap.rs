@@ -86,7 +86,7 @@ impl Syscall<'_> {
         let addr: UserAddr<u8> = range.start.into();
         let perm = prot.into_perm();
 
-        let handler = MmapHandler::box_new(file, addr, offset, usize::MAX, perm, shared);
+        let handler = MmapHandler::box_new(file, addr, offset, usize::MAX, perm, shared, false);
         manager.replace(range, handler, &mut frame::default_allocator())?;
         let asid = alive.asid();
         drop(alive);

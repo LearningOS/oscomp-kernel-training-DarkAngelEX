@@ -94,6 +94,7 @@ pub struct AliveProcess {
     pub children: ChildrenSet,
     pub threads: ThreadGroup,
     pub fd_table: FdTable,
+    pub program: Option<Arc<VfsFile>>,
 }
 
 #[derive(Debug)]
@@ -153,6 +154,7 @@ impl Process {
             children: ChildrenSet::new(),
             threads: ThreadGroup::new(),
             fd_table: alive.fd_table.clone(),
+            program: alive.program.clone(),
         };
         let new_process = Arc::new(Process {
             pid: new_pid,

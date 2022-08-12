@@ -522,6 +522,7 @@ impl UserSpace {
                     ph.file_size(),
                     perm,
                     false,
+                    true,
                 ),
                 allocator,
             )?;

@@ -46,6 +46,7 @@ pub trait UserAreaHandler: Send + 'static {
     fn using_cow(&self) -> bool {
         true
     }
+    /// 即使页面为写权限也会共享
     fn shared_always(&self) -> bool {
         false
     }
@@ -59,12 +60,17 @@ pub trait UserAreaHandler: Send + 'static {
             None
         }
     }
+    /// 具有可执行权限
     fn executable(&self) -> bool {
         self.perm().contains(PTEFlags::X)
     }
+    /// 这个段是程序初始化时加载的代码段/数据段
+    fn is_init_program(&self) -> bool {
+        false
+    }
     fn base(&self) -> &HandlerBase;
     fn base_mut(&mut self) -> &mut HandlerBase;
-    /// 新加入管理器时将调用此函数 保证范围内无映射 此函数是唯一标记 &mut 的函数
+    /// 新加入管理器时将调用此函数 保证范围内无映射
     ///
     /// 必须设置正确的id
     fn init(

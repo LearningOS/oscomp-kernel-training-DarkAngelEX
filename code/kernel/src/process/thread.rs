@@ -236,6 +236,7 @@ impl Thread {
                 children: ChildrenSet::new(),
                 threads: ThreadGroup::new(),
                 fd_table: FdTable::new(),
+                program: None,
             })),
             exit_code: AtomicI32::new(i32::MIN),
             timer: SpinLock::new(ProcessTimer::ZERO),

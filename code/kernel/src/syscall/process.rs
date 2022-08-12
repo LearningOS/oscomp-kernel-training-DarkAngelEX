@@ -158,6 +158,7 @@ impl Syscall<'_> {
             UserSpace::from_elf_lazy(&inode, stack_reverse)
                 .await
                 .map_err(|_e| SysError::ENOEXEC)?;
+
         if PRINT_SYSCALL_PROCESS {
             println!("entry 0: {:#x}", entry_point.into_usize());
         }
@@ -191,6 +192,7 @@ impl Syscall<'_> {
         alive.exec_path = path;
         alive.user_space = user_space;
         alive.cwd = dir;
+        alive.program = Some(inode);
         drop(alive);
         self.process.signal_manager.reset();
         let cx = self.thread.get_context();
