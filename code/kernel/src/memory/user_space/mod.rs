@@ -766,7 +766,6 @@ impl UserSpace {
 
     pub fn fork(&mut self) -> SysR<Self> {
         memory_trace!("UserSpace::fork");
-        // let page_table = self.page_table_mut().fork(allocator)?;
         let map_segment = self.map_segment.fork()?;
         let stacks = self.stacks.clone();
         let heap = self.heap.clone();

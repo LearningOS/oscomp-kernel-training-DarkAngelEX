@@ -24,10 +24,9 @@ pub fn putchar(c: char) {
 
 #[inline(always)]
 pub fn getchar() -> char {
-    while ALLOW_GETCHAR
-        .compare_exchange(true, true, Ordering::SeqCst, Ordering::SeqCst)
-        .is_err()
-    {}
+    while ALLOW_GETCHAR.load(Ordering::SeqCst) == false {
+        core::hint::spin_loop();
+    }
     unsafe { char::from_u32_unchecked(sbi::console_getchar() as u32) }
 }
 pub fn disable_getchar() {
@@ -45,8 +44,8 @@ impl Write for Stdout {
         self.write_str(c.encode_utf8(&mut [0; 4]))
     }
 
-    fn write_fmt(mut self: &mut Self, args: fmt::Arguments<'_>) -> fmt::Result {
-        fmt::write(&mut self, args)
+    fn write_fmt(&mut self, args: fmt::Arguments<'_>) -> fmt::Result {
+        fmt::write(self, args)
     }
 }
 

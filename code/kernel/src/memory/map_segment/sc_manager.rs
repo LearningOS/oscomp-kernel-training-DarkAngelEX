@@ -1,30 +1,15 @@
-use core::sync::atomic::{AtomicUsize, Ordering};
-
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::collections::BTreeMap;
+use ftl_util::sync::shared_count::SharedCounter;
 
 use crate::{
     memory::address::UserAddr4K,
     tools::{self, range::URange},
 };
 
-pub struct SharedCounter(Arc<AtomicUsize>);
-impl Drop for SharedCounter {
-    fn drop(&mut self) {
-        panic!("SharedCounter must consume by SharedManager")
-    }
-}
-
-impl SharedCounter {
-    /// only available in this module
-    fn consume(self) -> Arc<AtomicUsize> {
-        unsafe { core::mem::transmute(self) }
-    }
-}
-
 /// 管理共享页的引用计数, 原子计数实现
 ///
 /// 此管理器的全部操作默认map中一定可以找到参数地址, 否则panic
-pub struct SCManager(BTreeMap<UserAddr4K, Arc<AtomicUsize>>);
+pub struct SCManager(BTreeMap<UserAddr4K, SharedCounter>);
 
 impl Drop for SCManager {
     fn drop(&mut self) {
@@ -39,32 +24,26 @@ impl SCManager {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
-    /// 初始化引用计数为 2
+    /// 初始化引用计数为 2, 返回的会传给目标空间的insert_by
+    ///
+    /// 如果已经存在了将panic
     pub fn insert_clone(&mut self, ua: UserAddr4K) -> SharedCounter {
         stack_trace!();
-        let p = self
-            .0
-            .try_insert(ua, Arc::new(AtomicUsize::new(2)))
-            .ok()
-            .unwrap()
-            .clone();
-        SharedCounter(p)
+        let (a, b) = SharedCounter::new_dup();
+        self.0.try_insert(ua, a).ok().unwrap();
+        b
     }
+    /// 将 SharedCounter 加入共享管理器
     pub fn insert_by(&mut self, ua: UserAddr4K, x: SharedCounter) {
-        self.0.try_insert(ua, x.consume()).ok().unwrap();
+        self.0.try_insert(ua, x).ok().unwrap();
     }
     pub fn clone_ua(&mut self, ua: UserAddr4K) -> SharedCounter {
         stack_trace!();
-        let x = self.0.get(&ua).unwrap().clone();
-        let pre = x.fetch_add(1, Ordering::Relaxed);
-        debug_assert_ne!(pre, 0);
-        SharedCounter(x)
+        self.0.get(&ua).unwrap().clone()
     }
-    /// 移除映射地址 并返回此地址引用计数是否为 1
+    /// 移除映射地址 并返回这是不是最后一个引用
     pub fn remove_ua(&mut self, ua: UserAddr4K) -> bool {
-        let x = self.0.remove(&ua).unwrap().fetch_sub(1, Ordering::Relaxed);
-        debug_assert_ne!(x, 0);
-        x == 1
+        self.0.remove(&ua).unwrap().consume()
     }
     /// 移除映射地址 并当此地址引用计数为 1 时返回 Ok(())
     pub fn remove_ua_result(&mut self, ua: UserAddr4K) -> Result<(), ()> {
@@ -74,14 +53,16 @@ impl SCManager {
     ///
     /// 移除成功时返回 true
     pub fn try_remove_unique(&mut self, ua: UserAddr4K) -> bool {
+        stack_trace!();
         let a = self.0.get(&ua).unwrap();
         // 观测到引用计数为 1 时一定是拥有所有权的, 不需要原子操作
-        if a.load(Ordering::Relaxed) == 1 {
-            a.store(0, Ordering::Relaxed);
-            self.0.remove(&ua).unwrap();
-            return true;
+        if a.unique() {
+            let r = self.0.remove(&ua).unwrap().consume();
+            debug_assert!(r);
+            true
+        } else {
+            false
         }
-        false
     }
     /// 移除范围内存在的每一个计数器, 并调用对应释放函数
     pub fn remove_release(
@@ -91,15 +72,13 @@ impl SCManager {
         mut unique_release: impl FnMut(UserAddr4K),
     ) {
         stack_trace!();
-        for (&addr, a) in self.0.range_mut(range.clone()) {
-            match a.fetch_sub(1, Ordering::Relaxed) {
-                0 => panic!(),
-                1 => unique_release(addr),
-                _ => shared_release(addr),
-            }
-        }
         while let Some((&addr, _)) = self.0.range(range.clone()).next() {
-            self.0.remove(&addr).unwrap();
+            let rc = self.0.remove(&addr).unwrap();
+            if rc.consume() {
+                unique_release(addr)
+            } else {
+                shared_release(addr)
+            }
         }
     }
     /// 无所有权释放全部的计数器
@@ -108,10 +87,9 @@ impl SCManager {
     ///
     /// 此函数只在错误回退时使用
     pub fn check_remove_all(&mut self) {
-        self.0.iter().for_each(|(ua, sc)| {
-            let a = sc.fetch_sub(1, Ordering::Relaxed);
-            debug_assert!(a > 1, "a:{} > 1 ua:{:?}", a, ua);
-        });
-        self.0.clear();
+        for (ua, sc) in core::mem::take(&mut self.0) {
+            let r = sc.consume();
+            debug_assert!(!r, "ua:{:?}", ua);
+        }
     }
 }

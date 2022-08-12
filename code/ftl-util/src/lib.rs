@@ -1,16 +1,17 @@
 #![no_std]
 #![feature(allocator_api)]
-#![feature(assert_matches)]
-#![feature(const_trait_impl)]
 #![feature(atomic_mut_ptr)]
+#![feature(assert_matches)]
+#![feature(box_into_inner)]
+#![feature(core_intrinsics)]
+#![feature(const_trait_impl)]
 #![feature(if_let_guard)]
 #![feature(int_roundings)]
 #![feature(negative_impls)]
 #![feature(ptr_const_cast)]
-#![feature(unboxed_closures)]
 #![feature(sync_unsafe_cell)]
-#![feature(core_intrinsics)]
 #![feature(untagged_unions)]
+#![feature(unboxed_closures)]
 
 use crate::rcu::RcuDrop;
 use xdebug::stack::XInfo;
