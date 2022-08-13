@@ -42,7 +42,7 @@ impl File for Stdin {
                     if [0, u32::MAX as usize].contains(&c) {
                         if !crate::xdebug::CLOSE_TIME_INTERRUPT {
                             use crate::timer::sleep;
-                            sleep::just_wait(Duration::from_millis(5)).await;
+                            sleep::just_wait(Duration::from_millis(10)).await;
                         } else {
                             thread::yield_now().await;
                         }

@@ -457,7 +457,7 @@ impl PageTable {
                     dst_pte.alloc_by(perm, allocator).map_err(|_| ua)?;
                     let src = src_pte.phy_addr().into_ref().as_usize_array();
                     let dst = dst_pte.phy_addr().into_ref().as_usize_array_mut();
-                    dst[0..512].copy_from_slice(&src[0..512]);
+                    dst.copy_from_slice(src);
                     memory_trace!("copy_user_range_lazy_2");
                 }
                 ua = ua.add_one_page();

@@ -21,7 +21,10 @@ pub fn kernel_default_interrupt() {
     match interrupt {
         scause::Interrupt::UserSoft => todo!(),
         scause::Interrupt::VirtualSupervisorSoft => todo!(),
-        scause::Interrupt::SupervisorSoft => todo!(),
+        scause::Interrupt::SupervisorSoft => {
+            // print!("<{}>", local::hart_local().cpuid());
+            local::handle_current_local();
+        }
         scause::Interrupt::UserTimer => todo!(),
         scause::Interrupt::VirtualSupervisorTimer => todo!(),
         scause::Interrupt::SupervisorTimer => timer::tick(),

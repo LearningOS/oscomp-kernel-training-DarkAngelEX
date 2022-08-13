@@ -9,10 +9,12 @@ struct SharedBuffer(AtomicUsize);
 
 impl SharedBuffer {
     /// 返回旧的值
+    #[inline(always)]
     pub fn increase(&self) -> usize {
         self.0.fetch_add(1, Ordering::Relaxed)
     }
     /// 返回旧的值
+    #[inline(always)]
     pub fn decrease(&self) -> usize {
         let v = self.0.load(Ordering::Relaxed);
         debug_assert!(v != 0);
@@ -38,20 +40,24 @@ unsafe impl Send for SharedCounter {}
 unsafe impl Sync for SharedCounter {}
 
 impl SharedCounter {
+    #[inline(always)]
     pub fn new() -> Self {
         let ptr = Box::into_raw(Box::new(SharedBuffer(AtomicUsize::new(1))));
         unsafe { Self(NonNull::new_unchecked(ptr)) }
     }
+    #[inline(always)]
     pub fn new_dup() -> (Self, Self) {
         let ptr = Box::into_raw(Box::new(SharedBuffer(AtomicUsize::new(2))));
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
         (Self(ptr), Self(ptr))
     }
+    #[inline(always)]
     fn buffer(&self) -> &SharedBuffer {
         unsafe { self.0.as_ref() }
     }
     /// 递减引用计数, 如果这是最后一个, 返回true
     #[must_use]
+    #[inline(always)]
     pub fn consume(self) -> bool {
         let n = self.buffer().decrease();
         debug_assert_ne!(n, 0);
@@ -62,12 +68,14 @@ impl SharedCounter {
         core::mem::forget(self);
         release
     }
+    #[inline(always)]
     pub fn unique(&self) -> bool {
         self.buffer().0.load(Ordering::Relaxed) == 1
     }
 }
 
 impl Clone for SharedCounter {
+    #[inline(always)]
     fn clone(&self) -> Self {
         self.buffer().increase();
         Self(self.0)

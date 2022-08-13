@@ -1,9 +1,10 @@
 #![allow(dead_code)]
-
+// 评测机使用
 #[cfg(feature = "submit")]
 pub const OPEN_DEBUG: bool = false;
+// 本地测试使用
 #[cfg(not(feature = "submit"))]
-pub const OPEN_DEBUG: bool = true;
+pub const OPEN_DEBUG: bool = false;
 
 pub const PRINT_MAP_ALL: bool = false;
 

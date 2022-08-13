@@ -237,6 +237,7 @@ pub trait UserAreaHandler: Send + 'static {
                 continue;
             }
             pte.alloc_by(perm, alloc_same)?;
+            pte.phy_addr().into_ref().as_usize_array_mut().fill(0);
         }
         Ok(())
     }
@@ -257,10 +258,8 @@ pub trait UserAreaHandler: Send + 'static {
             let dst = dst.get_pte_user(a, allocator)?;
             debug_assert!(!dst.is_valid());
             dst.alloc_by(self.map_perm(), allocator)?;
-            dst.phy_addr()
-                .into_ref()
-                .as_usize_array_mut()
-                .copy_from_slice(src);
+            let dst_array = dst.phy_addr().into_ref().as_usize_array_mut();
+            dst_array.copy_from_slice(src);
         }
         Ok(())
     }

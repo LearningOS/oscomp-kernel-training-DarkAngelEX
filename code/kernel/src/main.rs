@@ -28,6 +28,7 @@
 #![feature(exclusive_range_pattern)]
 #![feature(generic_arg_infer)]
 #![feature(get_mut_unchecked)]
+#![feature(generic_associated_types)]
 #![feature(half_open_range_patterns)]
 #![feature(int_roundings)]
 #![feature(let_chains)]
@@ -108,7 +109,7 @@ mod user;
 use core::time::Duration;
 
 use ftl_util::time::Instant;
-use riscv::register::sstatus;
+use riscv::register::{sie, sstatus};
 
 use crate::config::{IDIE_SPIN_TIME, TIME_INTERRUPT_PER_SEC};
 
@@ -123,6 +124,10 @@ pub fn kmain(_hart_id: usize) -> ! {
     assert!(always_local.sum_cur() == 0);
 
     unsafe {
+        // 软件中断
+        if false {
+            sie::set_ssoft();
+        }
         // 启用中断并关闭用户访问标志, 使它和always_local中的值对应
         sstatus::set_sie();
         sstatus::clear_sum();

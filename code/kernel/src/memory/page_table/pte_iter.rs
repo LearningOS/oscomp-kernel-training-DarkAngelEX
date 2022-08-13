@@ -76,8 +76,8 @@ impl<'a> Iterator for VaildPteIter<'a> {
                 }
             };
             debug_assert!(pte.is_leaf());
-            self.cur = cur.add_one_page();
             debug_assert!(cur < self.end);
+            self.cur = cur.add_one_page();
             return Some((cur, pte));
         }
         self.cur = cur;

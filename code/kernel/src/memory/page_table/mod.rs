@@ -146,7 +146,7 @@ impl PageTableEntry {
         perm: PTEFlags,
         allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
-        assert!(!self.is_valid(), "try alloc to a valid pte");
+        debug_assert!(!self.is_valid(), "try alloc to a valid pte");
         debug_assert!(!perm.intersects(PTEFlags::U | PTEFlags::R | PTEFlags::W));
         let pa = allocator.alloc()?.consume();
         pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
@@ -154,14 +154,15 @@ impl PageTableEntry {
         Ok(())
     }
 
+    /// 为这个页节点分配实际物理页, 不会填充任何数据!
     pub fn alloc_by(
         &mut self,
         perm: PTEFlags,
         allocator: &mut dyn FrameAllocator,
     ) -> Result<(), FrameOOM> {
-        assert!(!self.is_valid(), "try alloc to a valid pte");
+        debug_assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
-        pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
+        // pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
         *self = Self::new(
             PhyAddr4K::from(pa),
             perm | PTEFlags::D | PTEFlags::A | PTEFlags::V,
@@ -169,7 +170,7 @@ impl PageTableEntry {
         Ok(())
     }
     pub fn alloc_by_frame(&mut self, perm: PTEFlags, pa: PhyAddrRef4K) {
-        assert!(!self.is_valid(), "try alloc to a valid pte");
+        debug_assert!(!self.is_valid(), "try alloc to a valid pte");
         *self = Self::new(
             PhyAddr4K::from(pa),
             perm | PTEFlags::D | PTEFlags::A | PTEFlags::V,
@@ -177,7 +178,7 @@ impl PageTableEntry {
     }
     /// this function will clear V flag.
     pub unsafe fn dealloc_by(&mut self, allocator: &mut dyn FrameAllocator) {
-        assert!(self.is_valid());
+        debug_assert!(self.is_valid());
         allocator.dealloc(self.phy_addr().into());
         *self = Self::EMPTY;
     }
