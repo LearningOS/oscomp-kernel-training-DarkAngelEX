@@ -1,9 +1,11 @@
 use alloc::collections::BTreeMap;
 
 use crate::{
-    memory::{address::UserAddr4K, shared::SharedCounter},
+    memory::address::UserAddr4K,
     tools::{self, range::URange},
 };
+
+use super::shared::SharedCounter;
 
 /// 管理共享页的引用计数, 原子计数实现
 ///

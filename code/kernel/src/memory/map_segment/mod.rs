@@ -30,6 +30,7 @@ use super::{
 
 pub mod handler;
 mod sc_manager;
+mod shared;
 
 type HandlerIDAllocator = LeakFromUsizeAllocator<HandlerID, ForwardWrapper>;
 

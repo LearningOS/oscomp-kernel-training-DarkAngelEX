@@ -102,10 +102,11 @@ impl<T> Wrapper<T> for ForwardWrapper {
     }
 }
 
+/// 防止false shared
 #[repr(align(64))]
 pub struct AlignCacheWrapper<T>(T);
 impl<T> AlignCacheWrapper<T> {
-    pub fn new(v: T) -> Self {
+    pub const fn new(v: T) -> Self {
         Self(v)
     }
 }
