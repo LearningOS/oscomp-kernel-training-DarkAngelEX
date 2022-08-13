@@ -258,13 +258,10 @@ impl PageTable {
             mut ua: UserAddr4K,
         ) -> Result<UserAddr4K, UserAddr4K> {
             for pte in &mut ptes[l[0]..=r[0]] {
-                assert!(!pte.is_valid(), "remap of {:?}", ua);
-                memory_trace!("PageTable::map_user_range_2-0");
+                debug_assert!(!pte.is_valid(), "remap of {:?}", ua);
                 let par = allocator.alloc().map_err(|_| ua)?.consume();
-                memory_trace!("PageTable::map_user_range_2-1");
                 // fill zero if return Error
                 let _ = data_iter.write_to(par.as_bytes_array_mut());
-                memory_trace!("PageTable::map_user_range_2-2");
                 *pte = PageTableEntry::new(
                     par.into(),
                     flags | PTEFlags::D | PTEFlags::A | PTEFlags::V,
@@ -301,11 +298,11 @@ impl PageTable {
             let xend = &[511, 511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
-                assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                debug_assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
                 let ptes = PageTable::ptes_from_pte(pte);
                 ua = unmap_user_range_1(ptes, l, r, allocator, ua);
                 if full {
-                    unsafe { pte.dealloc_by(allocator) };
+                    unsafe { pte.dealloc_by_non_leaf(allocator) };
                 }
             }
             ua
@@ -322,11 +319,11 @@ impl PageTable {
             let xend = &[511];
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
-                assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                debug_assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
                 let ptes = PageTable::ptes_from_pte(pte);
                 ua = unmap_user_range_2(ptes, l, r, allocator, ua);
                 if full {
-                    unsafe { pte.dealloc_by(allocator) };
+                    unsafe { pte.dealloc_by_non_leaf(allocator) };
                 }
             }
             ua
@@ -340,7 +337,7 @@ impl PageTable {
             mut ua: UserAddr4K,
         ) -> UserAddr4K {
             for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
-                assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
+                debug_assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
                 unsafe { pte.dealloc_by(allocator) };
                 ua = ua.add_one_page();
             }
@@ -505,7 +502,7 @@ impl PageTable {
                     (page_count, ua) =
                         unmap_user_range_lazy_1(ptes, l, r, page_count, allocator, ua);
                     if full {
-                        unsafe { pte.dealloc_by(allocator) };
+                        unsafe { pte.dealloc_by_non_leaf(allocator) };
                     }
                 } else {
                     ua.add_page_assign(PageTable::indexes_diff(l, r));
@@ -527,12 +524,12 @@ impl PageTable {
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if pte.is_valid() {
-                    assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                    debug_assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
                     let ptes = PageTable::ptes_from_pte(pte);
                     (page_count, ua) =
                         unmap_user_range_lazy_2(ptes, l, r, page_count, allocator, ua);
                     if full {
-                        unsafe { pte.dealloc_by(allocator) };
+                        unsafe { pte.dealloc_by_non_leaf(allocator) };
                     }
                 } else {
                     ua.add_page_assign(PageTable::indexes_diff(l, r));
@@ -551,7 +548,7 @@ impl PageTable {
         ) -> (PageCount, UserAddr4K) {
             for pte in &mut ptes[l[0]..=r[0]].iter_mut() {
                 if pte.is_valid() {
-                    assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
+                    debug_assert!(pte.is_leaf(), "unmap invalid leaf: {:?}", ua);
                     unsafe { pte.dealloc_by(allocator) };
                     page_count += PageCount(1);
                 }
@@ -771,7 +768,7 @@ impl PageTable {
                     );
                     let ptes = PageTable::ptes_from_pte(pte);
                     ua = free_user_directory_all_1(ptes, l, r, ua, allocator);
-                    unsafe { pte.dealloc_by(allocator) }
+                    unsafe { pte.dealloc_by_non_leaf(allocator) }
                 } else {
                     ua.add_page_assign(PageTable::indexes_diff(l, r))
                 }
@@ -797,7 +794,7 @@ impl PageTable {
                     );
                     let ptes = PageTable::ptes_from_pte(pte);
                     ua = free_user_directory_all_2(ptes, l, r, ua, allocator);
-                    unsafe { pte.dealloc_by(allocator) }
+                    unsafe { pte.dealloc_by_non_leaf(allocator) }
                 } else {
                     ua.add_page_assign(PageTable::indexes_diff(l, r))
                 }
@@ -813,7 +810,7 @@ impl PageTable {
             _allocator: &mut dyn FrameAllocator,
         ) -> UserAddr4K {
             for pte in &mut ptes[l[0]..=r[0]] {
-                assert!(
+                debug_assert!(
                     !pte.is_valid(),
                     "free_user_directory_all: exist valid leaf: {:?}",
                     ua

@@ -216,7 +216,7 @@ pub trait UserAreaHandler: Send + 'static {
     fn box_clone(&self) -> Box<dyn UserAreaHandler>;
     /// 只复制base数据
     fn box_clone_spec(&self) -> Box<dyn UserAreaHandler>;
-    /// 进行映射, 跳过已经分配空间的区域
+    /// 进行映射, 跳过已经分配空间的区域, 新分配的空间将填充0
     ///
     /// 默认实现不返回 TryRunFail
     fn default_map_spec(

@@ -148,13 +148,12 @@ impl PageTableEntry {
     ) -> Result<(), FrameOOM> {
         debug_assert!(!self.is_valid(), "try alloc to a valid pte");
         debug_assert!(!perm.intersects(PTEFlags::U | PTEFlags::R | PTEFlags::W));
-        let pa = allocator.alloc()?.consume();
-        pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
+        let pa = allocator.alloc_directory()?.consume();
         *self = Self::new(PhyAddr4K::from(pa), perm | PTEFlags::V);
         Ok(())
     }
 
-    /// 为这个页节点分配实际物理页, 不会填充任何数据!
+    /// 为这个页节点分配实际物理页, 不会填充任何数据! 需要手动初始化内存
     pub fn alloc_by(
         &mut self,
         perm: PTEFlags,
@@ -162,7 +161,6 @@ impl PageTableEntry {
     ) -> Result<(), FrameOOM> {
         debug_assert!(!self.is_valid(), "try alloc to a valid pte");
         let pa = allocator.alloc()?.consume();
-        // pa.as_pte_array_mut().fill(PageTableEntry::EMPTY);
         *self = Self::new(
             PhyAddr4K::from(pa),
             perm | PTEFlags::D | PTEFlags::A | PTEFlags::V,
@@ -178,8 +176,14 @@ impl PageTableEntry {
     }
     /// this function will clear V flag.
     pub unsafe fn dealloc_by(&mut self, allocator: &mut dyn FrameAllocator) {
-        debug_assert!(self.is_valid());
+        debug_assert!(self.is_valid() && self.is_leaf());
         allocator.dealloc(self.phy_addr().into());
+        *self = Self::EMPTY;
+    }
+    /// this function will clear V flag.
+    pub unsafe fn dealloc_by_non_leaf(&mut self, allocator: &mut dyn FrameAllocator) {
+        debug_assert!(self.is_valid() && self.is_directory());
+        allocator.dealloc_directory(self.phy_addr().into());
         *self = Self::EMPTY;
     }
 }

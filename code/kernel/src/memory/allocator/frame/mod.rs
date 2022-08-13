@@ -38,6 +38,12 @@ impl TrackerAllocator<PhyAddrRef4K, FrameTracker> for GlobalRefFrameAllocator {
     unsafe fn dealloc(&mut self, value: PhyAddrRef4K) {
         global::dealloc(value)
     }
+    fn alloc_directory(&mut self) -> Result<FrameTracker, FrameOOM> {
+        global::alloc_directory()
+    }
+    unsafe fn dealloc_directory(&mut self, value: PhyAddrRef4K) {
+        global::dealloc_directory(value)
+    }
 }
 
 const CACHE_FRAME: usize = 10;
@@ -80,6 +86,12 @@ impl TrackerAllocator<PhyAddrRef4K, FrameTracker> for XFrameAllocator {
     }
     unsafe fn dealloc(&mut self, value: PhyAddrRef4K) {
         self.release.push(value)
+    }
+    fn alloc_directory(&mut self) -> Result<FrameTracker, FrameOOM> {
+        global::alloc_directory()
+    }
+    unsafe fn dealloc_directory(&mut self, value: PhyAddrRef4K) {
+        global::dealloc_directory(value)
     }
 }
 

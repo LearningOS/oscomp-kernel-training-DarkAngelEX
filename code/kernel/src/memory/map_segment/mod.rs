@@ -312,12 +312,6 @@ impl MapSegment {
         // flush 析构时将刷表
         let flush = src.flush_asid_fn();
         let mut err_1 = Ok(());
-        // use crate::timer;
-        // use core::time::Duration;
-        // let tp_start = timer::now();
-        // let mut sum0 = Duration::ZERO;
-        // let mut sum1 = Duration::ZERO;
-        // let mut cnt = 0;
 
         for (r, h) in self.handlers.iter_mut() {
             stack_trace!();
@@ -325,9 +319,6 @@ impl MapSegment {
                 Some(shared_writable) => {
                     let mut err_2 = Ok(());
                     for (addr, src) in src.valid_pte_iter(r.clone()) {
-                        // cnt += 1;
-                        // let a0 = timer::now();
-
                         // 在新页表中生成一个PTE
                         let dst = match dst.get_pte_user(addr, allocator) {
                             Ok(x) => x,
@@ -337,8 +328,6 @@ impl MapSegment {
                                 break;
                             }
                         };
-                        // let a1 = timer::now();
-                        // sum0 += a1 - a0;
                         stack_trace!();
                         debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
                         // 变成共享页
@@ -350,8 +339,6 @@ impl MapSegment {
                             self.sc_manager.clone_ua(addr)
                         };
                         new_sm.insert_by(addr, sc);
-                        // let a2 = timer::now();
-                        // sum1 += a2 - a1;
                         *dst = *src;
                     }
                     // roll back inner
@@ -384,15 +371,6 @@ impl MapSegment {
                 },
             }
         }
-
-        // let tp_all = timer::now() - tp_start;
-        // println!(
-        //     "fork all: {}us sum0: {}us sum1: {}us cnt: {}",
-        //     tp_all.as_micros(),
-        //     sum0.as_micros(),
-        //     sum1.as_micros(),
-        //     cnt
-        // );
 
         stack_trace!();
         if err_1.is_ok() {

@@ -1,6 +1,8 @@
 //! Implementation of global allocator
 //!
 //! this module will alloc frame(4KB)
+use alloc::vec::Vec;
+
 use crate::{
     config::{
         DIRECT_MAP_BEGIN, DIRECT_MAP_END, KERNEL_OFFSET_FROM_DIRECT_MAP, MEMORY_INIT_KERNEL_END,
@@ -10,11 +12,11 @@ use crate::{
         address::{PageCount, PhyAddr4K, PhyAddrRef, PhyAddrRef4K, StepByOne},
         allocator::frame::list::FrameList,
     },
-    sync::mutex::SpinNoIrqLock,
+    sync::mutex::{SpinLock, SpinNoIrqLock},
     tools::{allocator::Own, error::FrameOOM},
     xdebug::{
         trace::{self, OPEN_MEMORY_TRACE, TRACE_ADDR},
-        CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE,
+        CLOSE_FRAME_DEALLOC, FRAME_DEALLOC_OVERWRITE, FRAME_RELEASE_CHECK,
     },
 };
 use core::fmt::Debug;
@@ -250,4 +252,28 @@ pub unsafe fn dealloc(par: PhyAddrRef4K) {
 
 pub unsafe fn dealloc_iter<'a>(range: impl Iterator<Item = &'a PhyAddrRef4K>) {
     FRAME_ALLOCATOR.lock().dealloc_iter(range);
+}
+
+/// 缓存了所有全是无效目录项的页面
+static DIRECTORY_CACHE: SpinLock<Vec<PhyAddrRef4K>> = SpinLock::new(Vec::new());
+
+#[inline]
+pub fn alloc_directory() -> Result<FrameTracker, FrameOOM> {
+    if unsafe { !DIRECTORY_CACHE.unsafe_get().is_empty() } {
+        if let Some(pa) = DIRECTORY_CACHE.lock().pop() {
+            return Ok(unsafe { FrameTracker::new(pa) });
+        }
+    }
+    let pa = FRAME_ALLOCATOR.lock().alloc()?;
+    pa.as_usize_array_mut().fill(0); // 从全局帧分配器分配的帧无法保证数据
+    Ok(unsafe { FrameTracker::new(pa) })
+}
+
+#[inline]
+pub unsafe fn dealloc_directory(par: PhyAddrRef4K) {
+    if FRAME_RELEASE_CHECK {
+        // 所有项都必须是无效的
+        assert!(par.as_pte_array().iter().all(|pte| !pte.is_valid()));
+    }
+    DIRECTORY_CACHE.lock().push(par);
 }
