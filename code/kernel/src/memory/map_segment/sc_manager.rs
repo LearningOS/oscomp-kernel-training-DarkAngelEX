@@ -1,8 +1,7 @@
 use alloc::collections::BTreeMap;
-use ftl_util::sync::shared_count::SharedCounter;
 
 use crate::{
-    memory::address::UserAddr4K,
+    memory::{address::UserAddr4K, shared::SharedCounter},
     tools::{self, range::URange},
 };
 

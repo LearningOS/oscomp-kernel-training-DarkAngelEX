@@ -1,3 +1,5 @@
+//! 此模块用来处理共享映射页
+
 use core::{
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
@@ -5,9 +7,22 @@ use core::{
 
 use alloc::boxed::Box;
 
+/// 包含原子计数的共享内存
 struct SharedBuffer(AtomicUsize);
 
 impl SharedBuffer {
+    #[inline(always)]
+    pub unsafe fn increase_single_thread(&self) -> usize {
+        let old = self.0.load(Ordering::Relaxed);
+        self.0.store(old + 1, Ordering::Relaxed);
+        old
+    }
+    #[inline(always)]
+    pub unsafe fn decrease_single_thread(&self) -> usize {
+        let old = self.0.load(Ordering::Relaxed);
+        self.0.store(old - 1, Ordering::Relaxed);
+        old
+    }
     /// 返回旧的值
     #[inline(always)]
     pub fn increase(&self) -> usize {
@@ -27,7 +42,7 @@ impl SharedBuffer {
     }
 }
 
-/// 一个多线程共享计数器, 只能手动释放
+/// 计数器共享所有权句柄, 只能手动释放
 pub struct SharedCounter(NonNull<SharedBuffer>);
 
 impl Drop for SharedCounter {
