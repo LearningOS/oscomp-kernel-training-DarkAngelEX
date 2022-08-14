@@ -1,18 +1,15 @@
 //! 此模块用来处理共享映射页
 
 use core::{
-    cell::SyncUnsafeCell,
+    marker::PhantomData,
+    ops::DerefMut,
     ptr::NonNull,
     sync::atomic::{AtomicUsize, Ordering},
 };
 
 use alloc::{boxed::Box, vec::Vec};
 
-use crate::{
-    memory::{address::PhyAddrRef4K, allocator::frame},
-    sync::mutex::{SpinLock, SpinNoIrqLock},
-    tools::AlignCacheWrapper,
-};
+use crate::{memory::address::PhyAddrRef4K, sync::mutex::SpinLock};
 
 /// 包含原子计数的共享内存
 struct SharedBuffer(AtomicUsize);
@@ -131,6 +128,12 @@ impl IncreaseCache {
     pub fn append(&mut self, src: &mut Self) {
         self.0.append(&mut src.0)
     }
+    pub fn flush(&mut self, _guard: &mut SharedGuard) {
+        for page in self.0.drain(..) {
+            let old = unsafe { page.sc.buffer().increase_single_thread() };
+            debug_assert!(old != 0);
+        }
+    }
 }
 
 /// 递减原子计数
@@ -149,87 +152,34 @@ impl DecreaseCache {
     pub fn append(&mut self, src: &mut Self) {
         self.0.append(&mut src.0)
     }
-}
-
-/// 全局原子计数更新队列, 按序处理
-///
-/// 总是先递增原子计数, 再递减原子计数
-struct UpdateQueue {
-    pending: AlignCacheWrapper<SpinLock<(IncreaseCache, DecreaseCache)>>, // 线程提交的申请
-    handle: AlignCacheWrapper<SpinNoIrqLock<(IncreaseCache, DecreaseCache)>>, // 处理线程的缓冲, 关中断
-    release: SyncUnsafeCell<Vec<PhyAddrRef4K>>, // 释放缓冲, 由handle锁保护
-}
-
-impl UpdateQueue {
-    pub const fn new() -> Self {
-        Self {
-            pending: AlignCacheWrapper::new(SpinLock::new((
-                IncreaseCache::new(),
-                DecreaseCache::new(),
-            ))),
-            handle: AlignCacheWrapper::new(SpinNoIrqLock::new((
-                IncreaseCache::new(),
-                DecreaseCache::new(),
-            ))),
-            release: SyncUnsafeCell::new(Vec::new()),
-        }
-    }
-    pub fn append_increase_one(&self, page: SharedPage) {
-        self.pending.lock().0.push(page)
-    }
-    pub fn append_decrease_one(&self, page: SharedPage) {
-        self.pending.lock().1.push(page)
-    }
-    pub fn append_increase(&self, cache: &mut IncreaseCache) {
-        if cache.is_empty() {
-            return;
-        }
-        self.pending.lock().0.append(cache);
-    }
-    pub fn append_decrease(&self, cache: &mut DecreaseCache) {
-        if cache.is_empty() {
-            return;
-        }
-        self.pending.lock().1.append(cache);
-    }
-    /// 释放提交的共享页
-    pub fn handle(&self) {
-        unsafe {
-            let pending = self.pending.unsafe_get();
-            if pending.0.is_empty() && pending.1.is_empty() {
-                return;
-            }
-        }
-        // 关中断
-        let mut handle = match self.handle.try_lock() {
-            Some(lk) => lk,
-            None => return,
-        };
-        debug_assert!(handle.0.is_empty() && handle.1.is_empty());
-        if let Some(mut pending) = self.handle.try_lock() {
-            unsafe { core::ptr::swap_nonoverlapping(&mut *handle, &mut *pending, 1) }
-        } else {
-            // 可能因为中断而长时间占有锁导致性能下降, 等到下一次处理
-            return;
-        }
-        // 必须先递增引用计数, 再递减原子计数
-        for page in handle.0 .0.drain(..) {
-            let old = unsafe { page.sc.buffer().increase_single_thread() };
-            debug_assert!(old != 0);
-        }
-        let release = unsafe { &mut *self.release.get() };
-        debug_assert!(release.is_empty());
-        for page in handle.1 .0.drain(..) {
+    pub fn flush(&mut self, _guard: &mut SharedGuard, mut release: impl FnMut(PhyAddrRef4K)) {
+        for page in self.0.drain(..) {
             let old = unsafe { page.sc.buffer().decrease_single_thread() };
             debug_assert!(old != 0);
             if old == 1 {
-                release.push(page.page);
+                release(page.page);
             }
         }
-        drop(handle);
-        if !release.is_empty() {
-            unsafe { frame::global::dealloc_iter(release.iter()) }
-            release.clear();
-        }
     }
+}
+
+pub struct SharedGuard {
+    _inner: PhantomData<()>, // 用来防止被外界创建
+}
+
+static SHARED_UPDATER: SpinLock<SharedGuard> = SpinLock::new(SharedGuard {
+    _inner: PhantomData,
+});
+
+/// 全局原子计数更新队列, 按序处理
+///
+/// 对值不为1的引用计数必须持有`SharedGuard`才能释放
+///
+/// 总是先递增原子计数, 再递减原子计数
+pub fn lock_updater() -> impl DerefMut<Target = SharedGuard> {
+    SHARED_UPDATER.lock()
+}
+
+pub fn try_lock_updater() -> Option<impl DerefMut<Target = SharedGuard>> {
+    SHARED_UPDATER.try_lock()
 }
