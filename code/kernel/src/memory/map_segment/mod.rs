@@ -1,4 +1,7 @@
-use alloc::{boxed::Box, sync::Arc};
+use alloc::{
+    boxed::Box,
+    sync::{Arc, Weak},
+};
 use ftl_util::error::SysR;
 
 use crate::{
@@ -18,6 +21,7 @@ use crate::{
 
 use self::{
     handler::{manager::HandlerManager, AsyncHandler, UserAreaHandler},
+    prediect::Predicter,
     sc_manager::SCManager,
 };
 
@@ -29,6 +33,7 @@ use super::{
 };
 
 pub mod handler;
+pub mod prediect;
 mod sc_manager;
 mod shared;
 
@@ -46,16 +51,20 @@ pub struct MapSegment {
     sc_manager: SCManager,
     futexs: FutexSet,
     id_allocator: HandlerIDAllocator,
+    parent: Weak<Predicter>,
+    predict: Arc<Predicter>,
 }
 
 impl MapSegment {
-    pub const fn new(page_table: Arc<SyncUnsafeCell<PageTable>>) -> Self {
+    pub fn new(page_table: Arc<SyncUnsafeCell<PageTable>>) -> Self {
         Self {
             page_table,
             handlers: HandlerManager::new(),
             sc_manager: SCManager::new(),
             futexs: FutexSet::new(),
             id_allocator: HandlerIDAllocator::default(),
+            parent: Weak::new(),
+            predict: Arc::new(Predicter::new()),
         }
     }
     pub fn fetch_futex(&mut self, ua: UserAddr<u32>) -> &mut OwnFutex {
@@ -222,6 +231,10 @@ impl MapSegment {
         stack_trace!();
         // COW操作
         debug_assert!(pte.shared());
+        self.predict.insert(addr);
+        if let Some(predictor) = self.parent.upgrade() {
+            predictor.insert(addr);
+        }
         // 引用计数为1时直接修改写权限
         if self.sc_manager.try_remove_unique(addr) {
             if PRINT_PAGE_FAULT {
@@ -314,10 +327,13 @@ impl MapSegment {
         let flush = src.flush_asid_fn();
         let mut err_1 = Ok(());
 
+        let mut predict = self.predict.take_in_order().into_iter().peekable();
+
         for (r, h) in self.handlers.iter_mut() {
             stack_trace!();
             match h.may_shared() {
                 Some(shared_writable) => {
+                    // 用来错误回退段
                     let mut err_2 = Ok(());
                     for (addr, src) in src.valid_pte_iter(r.clone()) {
                         // 在新页表中生成一个PTE
@@ -329,18 +345,47 @@ impl MapSegment {
                                 break;
                             }
                         };
-                        stack_trace!();
-                        debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
-                        // 变成共享页
-                        let sc = if !src.shared() {
-                            src.become_shared(shared_writable);
-                            self.sc_manager.insert_clone(addr)
+
+                        let mut cow_hit = false;
+                        while let Some(&ua) = predict.peek() {
+                            if ua > addr {
+                                break;
+                            }
+                            predict.next();
+                            if ua < addr {
+                                continue;
+                            }
+                            cow_hit = true;
+                            break;
+                        }
+                        if cow_hit && !shared_writable && h.unique_writable() {
+                            // 这里是COW预测器预测的会缺页的位置, 提前映射
+                            match dst.alloc_by(h.perm(), allocator) {
+                                Ok(()) => (),
+                                Err(e) => {
+                                    err_1 = Err((r.clone(), e.into()));
+                                    err_2 = Err(addr);
+                                    break;
+                                }
+                            }
+                            dst.phy_addr()
+                                .into_ref()
+                                .as_usize_array_mut()
+                                .copy_from_slice(src.phy_addr().into_ref().as_usize_array());
                         } else {
-                            debug_assert_eq!(src.writable(), shared_writable);
-                            self.sc_manager.clone_ua(addr)
-                        };
-                        new_sm.insert_by(addr, sc);
-                        *dst = *src;
+                            stack_trace!();
+                            debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
+                            // 变成共享页
+                            let sc = if !src.shared() {
+                                src.become_shared(shared_writable);
+                                self.sc_manager.insert_clone(addr)
+                            } else {
+                                debug_assert_eq!(src.writable(), shared_writable);
+                                self.sc_manager.clone_ua(addr)
+                            };
+                            new_sm.insert_by(addr, sc);
+                            *dst = *src;
+                        }
                     }
                     // roll back inner
                     let e_addr = match err_2 {
@@ -349,6 +394,7 @@ impl MapSegment {
                     };
                     stack_trace!();
                     // error happen
+                    // todo 没有处理预测页
                     for (addr, dst) in dst.valid_pte_iter(r) {
                         if addr == e_addr {
                             break;
@@ -381,6 +427,8 @@ impl MapSegment {
                 sc_manager: new_sm,
                 futexs: self.futexs.fork(),
                 id_allocator: self.id_allocator.clone(),
+                parent: Arc::downgrade(&self.predict),
+                predict: Arc::new(Predicter::new()),
             };
             stack_trace!();
             return Ok(new_ms);
