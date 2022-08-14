@@ -328,6 +328,7 @@ pub struct FileAsyncHandler {
     offset: usize,
     fill_size: usize, // 文件映射的长度, 超过的填0
     file: Arc<dyn File>,
+    cur: UserAddr4K,
 }
 
 impl FileAsyncHandler {
@@ -338,6 +339,7 @@ impl FileAsyncHandler {
         offset: usize,
         fill_size: usize,
         file: Arc<dyn File>,
+        cur: UserAddr4K,
     ) -> Self {
         Self {
             id,
@@ -346,6 +348,7 @@ impl FileAsyncHandler {
             offset,
             fill_size,
             file,
+            cur,
         }
     }
 }
@@ -357,7 +360,11 @@ impl AsyncHandler for FileAsyncHandler {
     fn perm(&self) -> PTEFlags {
         self.perm | PTEFlags::U | PTEFlags::D | PTEFlags::A | PTEFlags::V
     }
-    fn a_map<'a>(&'a self, process: &'a Process, range: URange) -> ASysR<Option<DynDropRun<Asid>>> {
+    fn a_map<'a>(
+        &'a self,
+        process: &'a Process,
+        mut range: URange,
+    ) -> ASysR<Option<DynDropRun<Asid>>> {
         Box::pin(async move {
             stack_trace!();
             if !self.file.can_read_offset() {
@@ -365,6 +372,7 @@ impl AsyncHandler for FileAsyncHandler {
             }
             let mut flush = None;
             let allocator = &mut frame::default_allocator();
+            range.start = range.start.max(self.cur);
             for addr in tools::range::ur_iter(range) {
                 debug_assert!(addr >= self.start.floor());
                 let frame: FrameTracker = allocator.alloc()?;
@@ -417,8 +425,7 @@ impl AsyncHandler for FileAsyncHandler {
             }
             let allocator = &mut frame::default_allocator();
             debug_assert!(addr >= self.start.floor());
-            // let offset = addr.into_usize() - self.start.into_usize() + self.offset;
-            let frame = allocator.alloc()?;
+            let frame: FrameTracker = allocator.alloc()?;
 
             let frame_buf = frame.data().as_bytes_array_mut();
             let addr_uz = addr.into_usize();

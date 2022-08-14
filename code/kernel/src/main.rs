@@ -125,7 +125,7 @@ pub fn kmain(_hart_id: usize) -> ! {
     assert!(always_local.sum_cur() == 0);
 
     unsafe {
-        // 软件中断
+        // 软件中断, 打开它会降低性能
         if false {
             sie::set_ssoft();
         }

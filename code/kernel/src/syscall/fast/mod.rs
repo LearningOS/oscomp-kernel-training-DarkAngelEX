@@ -36,7 +36,7 @@ pub unsafe fn running_syscall(cx: *mut UKContext) {
     let fast_context = (*cx).fast_context();
     let mut result;
     {
-        let mut call = Syscall::new(&mut *cx, fast_context.thread_arc, fast_context.process);
+        let mut call = Syscall::new(&mut *cx, fast_context.thread, fast_context.process);
         result = f(&mut call);
     }
     if !PRINT_SYSCALL_ALL && PRINT_SYSCALL_ERR {

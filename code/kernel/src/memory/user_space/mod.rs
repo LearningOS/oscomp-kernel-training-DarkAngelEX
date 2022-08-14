@@ -806,7 +806,6 @@ impl UserSpace {
         stack_trace!();
         // set heap
         self.heap_init(max_end_4k, PageCount(1), allocator);
-
         Ok((user_sp, entry_point.into(), auxv))
     }
 

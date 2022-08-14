@@ -55,6 +55,12 @@ pub trait File: Send + Sync + 'static {
     fn can_write_offset(&self) -> bool {
         false
     }
+    fn read_at_fast(&self, _offset: usize, _buffer: &mut [u8]) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
+    fn write_at_fast(&self, _offset: usize, _buffer: &[u8]) -> SysRet {
+        Err(SysError::EAGAIN)
+    }
     fn read_at<'a>(&'a self, _offset: usize, _buf: &'a mut [u8]) -> ASysRet {
         unimplemented!("read_at {}", core::any::type_name::<Self>())
     }
@@ -216,6 +222,12 @@ impl File for VfsFile {
         let ptr = &self.ptr;
         let offset = ptr.load(Ordering::Relaxed);
         self.fsinode().write_at(buffer, (offset, Some(ptr)))
+    }
+    fn read_at_fast(&self, offset: usize, buf: &mut [u8]) -> SysRet {
+        self.fsinode().read_at_fast(buf, (offset, None))
+    }
+    fn write_at_fast(&self, offset: usize, buf: &[u8]) -> SysRet {
+        self.fsinode().write_at_fast(buf, (offset, None))
     }
     fn read_at<'a>(&'a self, offset: usize, buf: &'a mut [u8]) -> ASysRet {
         self.fsinode().read_at(buf, (offset, None))

@@ -1,6 +1,6 @@
 use core::cell::UnsafeCell;
 
-use ftl_util::error::SysR;
+use ftl_util::error::{SysError, SysR};
 
 use crate::{mutex::RwSleepMutex, tools::AID};
 
@@ -22,10 +22,26 @@ impl Cache {
             buffer: RwSleepMutex::new(buffer),
         }
     }
+    pub fn access_ro_fast<T: Copy, V>(&self, op: impl FnOnce(&[T]) -> V) -> SysR<V> {
+        stack_trace!();
+        Ok(op(self
+            .buffer
+            .try_shared_lock()
+            .ok_or(SysError::EAGAIN)?
+            .access_ro()))
+    }
     /// 以只读打开一个缓存块 允许多个进程同时访问
     pub async fn access_ro<T: Copy, V>(&self, op: impl FnOnce(&[T]) -> V) -> V {
         stack_trace!();
         op(self.buffer.shared_lock().await.access_ro())
+    }
+    pub(super) fn access_rw_fast<T: Copy, V>(&self, op: impl FnOnce(&mut [T]) -> V) -> SysR<V> {
+        stack_trace!();
+        Ok(op(self
+            .buffer
+            .try_unique_lock()
+            .ok_or(SysError::EAGAIN)?
+            .access_rw()?))
     }
     /// 以读写模式打开一个缓存块
     ///

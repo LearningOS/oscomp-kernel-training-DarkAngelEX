@@ -3,9 +3,10 @@ use ftl_util::error::SysR;
 use vfs::File;
 
 use crate::{
+    config::PAGE_SIZE,
     memory::{
         address::{UserAddr, UserAddr4K},
-        allocator::frame::FrameAllocator,
+        allocator::frame::{global::FrameTracker, FrameAllocator},
         asid::Asid,
         map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler},
         page_table::PTEFlags,
@@ -62,6 +63,90 @@ impl MmapHandler {
             },
             base: HandlerBase::new(),
         })
+    }
+
+    fn map_fast(
+        &self,
+        file: &dyn File,
+        pt: &mut PageTable,
+        range: URange,
+        allocator: &mut dyn FrameAllocator,
+        cur: &mut UserAddr4K, // 慢速路径直接从这个地址开始
+    ) -> SysR<()> {
+        if !file.can_read_offset() {
+            return Err(SysError::EACCES);
+        }
+        let alloc = unsafe { &mut *(allocator as *mut _) };
+        for r in pt.each_pte_iter(range, alloc) {
+            let (addr, pte) = r?;
+            *cur = addr;
+            if pte.is_valid() {
+                continue;
+            }
+            debug_assert!(addr >= self.spec.addr.floor());
+            let frame: FrameTracker = allocator.alloc()?;
+
+            let frame_buf = frame.data().as_bytes_array_mut();
+            let addr_uz = addr.into_usize();
+            let start_uz = self.spec.addr.into_usize();
+            let n = if addr_uz < start_uz {
+                let start = start_uz - addr_uz; // 未对齐偏移量
+                debug_assert!(start < PAGE_SIZE);
+                let read = file.read_at_fast(self.spec.offset, &mut frame_buf[start..])?;
+                start + read.min(self.spec.fill_size)
+            } else {
+                let offset = self.spec.offset + addr_uz - start_uz;
+                if offset < self.spec.offset + self.spec.fill_size {
+                    let read = file.read_at_fast(offset, frame_buf)?;
+                    read.min(self.spec.offset + self.spec.fill_size - offset)
+                } else {
+                    0 // 填充0
+                }
+            };
+            frame.data().as_bytes_array_mut()[n..].fill(0);
+            pte.alloc_by_frame(self.perm(), frame.consume());
+        }
+        Ok(())
+    }
+
+    fn page_fault_fast(
+        &self,
+        file: &dyn File,
+        pt: &mut PageTable,
+        addr: UserAddr4K,
+        allocator: &mut dyn FrameAllocator,
+    ) -> SysR<()> {
+        stack_trace!();
+        if !file.can_read_offset() {
+            return Err(SysError::EACCES);
+        }
+        let pte = pt.get_pte_user(addr, allocator)?;
+        if pte.is_valid() {
+            return Ok(());
+        }
+        debug_assert!(addr >= self.spec.addr.floor());
+        let frame: FrameTracker = allocator.alloc()?;
+
+        let frame_buf = frame.data().as_bytes_array_mut();
+        let addr_uz = addr.into_usize();
+        let start_uz = self.spec.addr.into_usize();
+        let n = if addr_uz < start_uz {
+            let start = start_uz - addr_uz; // 未对齐偏移量
+            debug_assert!(start < PAGE_SIZE);
+            let read = file.read_at_fast(self.spec.offset, &mut frame_buf[start..])?;
+            start + read.min(self.spec.fill_size)
+        } else {
+            let offset = self.spec.offset + addr_uz - start_uz;
+            if offset < self.spec.offset + self.spec.fill_size {
+                let read = file.read_at_fast(offset, frame_buf)?;
+                read.min(self.spec.offset + self.spec.fill_size - offset)
+            } else {
+                0 // 填充0
+            }
+        };
+        frame.data().as_bytes_array_mut()[n..].fill(0);
+        pte.alloc_by_frame(self.perm(), frame.consume());
+        Ok(())
     }
 }
 
@@ -137,6 +222,17 @@ impl UserAreaHandler for MmapHandler {
             None => return self.default_map_spec(pt, range, allocator),
             Some(file) => file.clone(),
         };
+
+        // =================
+        let mut cur = range.start;
+        match self.map_fast(&*file, pt, range, allocator, &mut cur) {
+            Ok(()) => return Ok(()),
+            Err(SysError::EAGAIN) => (),
+            Err(e) => return Err(TryRunFail::Error(e)),
+        }
+
+        // =================
+
         Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
             self.id(),
             self.perm(),
@@ -144,6 +240,7 @@ impl UserAreaHandler for MmapHandler {
             self.spec.offset,
             self.spec.fill_size,
             file,
+            cur,
         ))))
     }
     fn copy_map_spec(
@@ -169,6 +266,13 @@ impl UserAreaHandler for MmapHandler {
             None => return self.default_page_fault_spec(pt, addr, access, allocator),
             Some(file) => file.clone(),
         };
+
+        match self.page_fault_fast(&*file, pt, addr, allocator) {
+            Ok(()) => return Ok(pt.flush_va_asid_fn(addr)),
+            Err(SysError::EAGAIN) => (),
+            Err(e) => return Err(TryRunFail::Error(e)),
+        }
+
         Err(TryRunFail::Async(Box::new(FileAsyncHandler::new(
             self.id(),
             self.perm(),
@@ -176,6 +280,7 @@ impl UserAreaHandler for MmapHandler {
             self.spec.offset,
             self.spec.fill_size,
             file,
+            addr,
         ))))
     }
     fn unmap_spec(&self, pt: &mut PageTable, range: URange, allocator: &mut dyn FrameAllocator) {

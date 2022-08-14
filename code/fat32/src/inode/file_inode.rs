@@ -1,5 +1,5 @@
 use alloc::sync::Arc;
-use ftl_util::error::{SysR, SysRet};
+use ftl_util::error::{SysError, SysR, SysRet};
 
 use crate::{layout::name::Attr, mutex::RwSleepMutex, Fat32Manager};
 
@@ -36,6 +36,34 @@ impl FileInode {
         inode.detach_file(manager)?;
         Ok(())
     }
+    pub fn read_at_fast(&self, manager: &Fat32Manager, offset: usize, buffer: &mut [u8]) -> SysRet {
+        stack_trace!();
+        let inode = &*self.inode.try_shared_lock().ok_or(SysError::EAGAIN)?;
+        let bytes = inode.cache.inner.shared_lock().file_bytes();
+        let prev_len = buffer.len();
+        let end_offset = bytes.min(offset + prev_len);
+        let buffer_end = prev_len.min(bytes - offset);
+        let mut buffer = &mut buffer[..buffer_end];
+        let mut cur = offset;
+        while cur < end_offset {
+            let (nth, off) = manager.bpb.cluster_spilt(cur);
+            let cache = match inode.get_nth_block_fast(manager, nth)? {
+                Ok((_cid, cache)) => cache,
+                Err(_) => return Ok(cur - offset),
+            };
+            let n = cache.access_ro_fast(|s: &[u8]| {
+                let n = buffer.len().min(s.len() - off);
+                buffer[..n].copy_from_slice(&s[off..off + n]);
+                n
+            })?;
+            cur += n;
+            buffer = &mut buffer[n..];
+        }
+        inode.update_access_time(manager.now());
+        inode.short_entry_sync_fast(manager)?;
+        Ok(cur - offset)
+    }
+
     /// offset为字节偏移
     pub async fn read_at(
         &self,
@@ -70,6 +98,37 @@ impl FileInode {
         inode.update_access_time(manager.now());
         inode.short_entry_sync(manager).await?;
         Ok(cur - offset)
+    }
+    pub fn write_at_fast(&self, manager: &Fat32Manager, offset: usize, buffer: &[u8]) -> SysRet {
+        stack_trace!();
+        let mut cur = offset;
+        let inode = self.inode.try_shared_lock().ok_or(SysError::EAGAIN)?;
+        let bytes = inode.cache.inner.shared_lock().file_bytes();
+        let end_offset = offset + buffer.len();
+        if end_offset > bytes {
+            return Err(SysError::EAGAIN);
+        }
+        let mut buffer_0 = &buffer[..buffer.len().min(bytes.saturating_sub(offset))];
+        while cur < end_offset {
+            let (nth, off) = manager.bpb.cluster_spilt(cur);
+            let (cid, cache) = match inode.get_nth_block_fast(manager, nth)? {
+                Ok(tup) => tup,
+                Err(_) => return Ok(cur - offset),
+            };
+            let n = manager
+                .caches
+                .wirte_block_fast(cid, &cache, |s: &mut [u8]| {
+                    let n = buffer_0.len().min(s.len() - off);
+                    s[off..off + n].copy_from_slice(&buffer_0[..n]);
+                    n
+                })?;
+            cur += n;
+            buffer_0 = &buffer_0[n..];
+        }
+        debug_assert!(cur == end_offset);
+        inode.update_access_modify_time(manager.now());
+        inode.short_entry_sync_fast(manager)?;
+        Ok(buffer.len())
     }
     /// 自动扩容
     pub async fn write_at(&self, manager: &Fat32Manager, offset: usize, buffer: &[u8]) -> SysRet {

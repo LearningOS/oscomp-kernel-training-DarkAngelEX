@@ -6,7 +6,10 @@ use core::{
 };
 
 use alloc::{boxed::Box, collections::BTreeSet, sync::Arc};
-use ftl_util::{device::BlockDevice, error::SysR};
+use ftl_util::{
+    device::BlockDevice,
+    error::{SysError, SysR},
+};
 use vfs::VfsSpawner;
 
 use crate::{
@@ -49,6 +52,14 @@ impl CacheManager {
     pub async fn set_waker(&mut self, waker: Waker) {
         self.inner.lock().await.set_waker(waker)
     }
+    pub fn get_block_fast(&self, cid: CID) -> SysR<Arc<Cache>> {
+        stack_trace!();
+        debug_assert!(cid.is_next());
+        if let Some(c) = self.index.get(cid) {
+            return Ok(c);
+        }
+        Err(SysError::EAGAIN)
+    }
     /// 获取簇号对应的缓存块
     pub async fn get_block(&self, cid: CID) -> SysR<Arc<Cache>> {
         stack_trace!();
@@ -82,6 +93,22 @@ impl CacheManager {
         let c = inner.force_insert_block(blk, cid);
         inner.become_dirty(cid, &mut sem.into_multiply());
         Ok(c)
+    }
+    pub fn wirte_block_fast<T: Copy, V>(
+        &self,
+        cid: CID,
+        cache: &Cache,
+        op: impl FnOnce(&mut [T]) -> V,
+    ) -> SysR<V> {
+        stack_trace!();
+        let sem = self.dirty_semaphore.try_take().ok_or(SysError::EAGAIN)?;
+        let r = cache.access_rw_fast(op)?;
+        stack_trace!();
+        self.inner
+            .try_lock()
+            .ok_or(SysError::EAGAIN)?
+            .become_dirty(cid, &mut sem.into_multiply());
+        Ok(r)
     }
     pub async fn write_block<T: Copy, V>(
         &self,

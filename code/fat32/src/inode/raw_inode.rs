@@ -207,6 +207,35 @@ impl RawInode {
     /// 获取第n个簇(首个簇为0)
     ///
     /// 如果n超出了fat链表, 返回Ok(Err(链表长度))
+    pub fn get_nth_block_fast(
+        &self,
+        manager: &Fat32Manager,
+        n: usize,
+    ) -> SysR<Result<(CID, Arc<Cache>), usize>> {
+        if let Some((ln, c)) = &*self.last_cache.shared_lock() {
+            if *ln == n {
+                return Ok(Ok(c.clone()));
+            }
+        }
+        let x = self.cache.inner.shared_lock().try_get_nth_block_cid(n);
+        let x = match x {
+            Some(x) => x,
+            None => return Err(SysError::EAGAIN),
+        };
+        match x {
+            Ok(cid) => {
+                let cache = manager.caches.get_block_fast(cid)?;
+                self.last_cache
+                    .unique_lock()
+                    .replace((n, (cid, cache.clone())));
+                Ok(Ok((cid, cache)))
+            }
+            Err(tup) => Ok(Err(tup)),
+        }
+    }
+    /// 获取第n个簇(首个簇为0)
+    ///
+    /// 如果n超出了fat链表, 返回Ok(Err(链表长度))
     pub async fn get_nth_block(
         &self,
         manager: &Fat32Manager,
@@ -218,9 +247,8 @@ impl RawInode {
                 return Ok(Ok(c.clone()));
             }
         }
-        let ci = &self.cache.inner;
         // 如果和下面写在同一行, 锁shared_lock将会在unique_lock后析构, 导致死锁
-        let x = ci.shared_lock().try_get_nth_block_cid(n);
+        let x = self.cache.inner.shared_lock().try_get_nth_block_cid(n);
         let x = if let Some(x) = x {
             x
         } else {
@@ -318,6 +346,24 @@ impl RawInode {
                 }
             }
         }
+        Ok(())
+    }
+    pub fn short_entry_sync_fast(&self, manager: &Fat32Manager) -> SysR<()> {
+        stack_trace!();
+        if self.is_root {
+            return Ok(());
+        }
+        let (entry, short) = self.cache.inner.shared_lock().entry();
+        // 这个文件已经detach
+        if entry.cid == CID::FREE {
+            return Ok(());
+        }
+        let cache = manager.caches.get_block_fast(entry.cid)?;
+        manager
+            .caches
+            .wirte_block_fast(entry.cid, &cache, |a: &mut [RawName]| {
+                a[entry.entry_off].set_short(&short);
+            })?;
         Ok(())
     }
     pub async fn short_entry_sync(&self, manager: &Fat32Manager) -> SysR<()> {

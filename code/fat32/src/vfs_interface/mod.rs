@@ -280,12 +280,32 @@ impl FsInode for Fat32InodeV {
             Ok(())
         })
     }
+    fn read_at_fast(&self, buf: &mut [u8], (offset, ptr): (usize, Option<&AtomicUsize>)) -> SysRet {
+        let inode = self.inode.file()?;
+        let n = inode.read_at_fast(self.manager(), offset, buf)?;
+        if let Some(ptr) = ptr {
+            ptr.store(offset + n, Ordering::Release);
+        }
+        Ok(n)
+    }
+    fn write_at_fast(&self, buf: &[u8], (offset, ptr): (usize, Option<&AtomicUsize>)) -> SysRet {
+        let inode = self.inode.file()?;
+        let n = inode.write_at_fast(self.manager(), offset, buf)?;
+        if let Some(ptr) = ptr {
+            ptr.store(offset + n, Ordering::Release);
+        }
+        Ok(n)
+    }
     fn read_at<'a>(
         &'a self,
         buf: &'a mut [u8],
         (offset, ptr): (usize, Option<&'a AtomicUsize>),
     ) -> ASysRet {
         Box::pin(async move {
+            static mut N: usize = 0;
+            unsafe {
+                N += 100;
+            }
             let inode = self.inode.file()?;
             let n = inode.read_at(self.manager(), offset, buf).await?;
             if let Some(ptr) = ptr {

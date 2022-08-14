@@ -21,6 +21,7 @@ pub fn range_check<T: Ord + Copy>(outer: Range<T>, inner: Range<T>) -> Result<()
         .ok_or(())
 }
 pub fn ur_iter(URange { start, end }: URange) -> impl Iterator<Item = UserAddr4K> {
+    debug_assert!(start <= end);
     struct CurEndIter {
         cur: UserAddr4K,
         end: UserAddr4K,

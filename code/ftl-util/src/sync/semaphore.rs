@@ -126,11 +126,30 @@ impl<S: MutexSupport> Semaphore<S> {
             inner.release_task();
         }
     }
+    pub fn try_take(&self) -> Option<SemaphoreGuard<S>> {
+        Some(SemaphoreGuard {
+            inner: self.try_take_n(1)?,
+        })
+    }
     /// 获取一个信号量
     pub async fn take(&self) -> SemaphoreGuard<S> {
         SemaphoreGuard {
             inner: self.take_n(1).await,
         }
+    }
+    pub fn try_take_n(&self, n: usize) -> Option<MultiplySemaphore<S>> {
+        debug_assert!(n <= isize::MAX as usize);
+        let val = n as isize;
+        let mut sem = self.inner.lock();
+        sem.queue.lazy_init();
+        if sem.queue.is_empty() && sem.cur >= val {
+            sem.cur -= val;
+            return Some(MultiplySemaphore {
+                val,
+                ptr: self.inner.clone(),
+            });
+        }
+        None
     }
     /// 获取一个信号量
     pub async fn take_n(&self, n: usize) -> MultiplySemaphore<S> {
