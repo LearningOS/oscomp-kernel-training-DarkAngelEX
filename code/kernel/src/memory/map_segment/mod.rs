@@ -1,4 +1,4 @@
-use alloc::{boxed::Box, sync::Arc, vec::Vec};
+use alloc::{boxed::Box, sync::Arc};
 use ftl_util::error::SysR;
 
 use crate::{
@@ -22,7 +22,7 @@ use self::{
 };
 
 use super::{
-    address::{PageCount, PhyAddrRef4K, UserAddr, UserAddr4K},
+    address::{PageCount, UserAddr, UserAddr4K},
     allocator::frame::{iter::FrameDataIter, FrameAllocator},
     asid::Asid,
     AccessType, PTEFlags, PageTable,
@@ -46,7 +46,6 @@ pub struct MapSegment {
     sc_manager: SCManager,
     futexs: FutexSet,
     id_allocator: HandlerIDAllocator,
-    release_cache: Vec<PhyAddrRef4K>,
 }
 
 impl MapSegment {
@@ -57,7 +56,6 @@ impl MapSegment {
             sc_manager: SCManager::new(),
             futexs: FutexSet::new(),
             id_allocator: HandlerIDAllocator::default(),
-            release_cache: Vec::new(),
         }
     }
     pub fn fetch_futex(&mut self, ua: UserAddr<u32>) -> &mut OwnFutex {
@@ -121,21 +119,17 @@ impl MapSegment {
     /// 释放存在映射的空间
     pub fn unmap(&mut self, r: URange, allocator: &mut dyn FrameAllocator) {
         debug_assert!(r.start < r.end);
-        self.flush_rc_force();
         let sc_manager = &mut self.sc_manager; // stupid borrow checker
         let release = Self::release_impl(pt!(self), sc_manager, allocator);
         self.handlers.remove(r.clone(), release);
         self.futexs.remove(r);
-        self.flush_rc_force();
     }
     pub fn clear(&mut self, allocator: &mut dyn FrameAllocator) {
-        self.flush_rc_force();
         let sc_manager = &mut self.sc_manager;
         let release = Self::release_impl(pt!(self), sc_manager, allocator);
         self.handlers.clear(release);
         self.futexs.clear();
         assert!(sc_manager.is_empty());
-        self.flush_rc_force();
     }
     pub fn replace(
         &mut self,
@@ -201,9 +195,6 @@ impl MapSegment {
         allocator: &mut dyn FrameAllocator,
     ) -> TryR<DynDropRun<(UserAddr4K, Asid)>, Box<dyn AsyncHandler>> {
         debug_assert!(access.user);
-
-        self.flush_rc_maybe();
-
         // println!("page_fault {:#x}", addr.into_usize());
         let h = self
             .handlers
@@ -216,7 +207,7 @@ impl MapSegment {
             None => return h.page_fault(pt, addr, access, allocator),
             Some(a) => a,
         };
-        // 如果pte没有X标志位却需要执行, 那一定是出错了
+        // 如果pte没有X标志位, 那一定是用户故意的, 操作失败
         if access.exec {
             debug_assert!(!h.executable());
             debug_assert!(!pte.executable());
@@ -245,7 +236,7 @@ impl MapSegment {
         }
         // 分配一个新的页, 从原页面复制数据
         let x = allocator.alloc()?;
-        x.data()
+        x.ptr()
             .as_usize_array_mut()
             .copy_from_slice(pte.phy_addr().into_ref().as_usize_array());
         // 递减旧的页的引用计数, 如果它是最后一个说明在这期间有其他进程释放了它, 将他释放
@@ -308,41 +299,6 @@ impl MapSegment {
         }
         Ok(())
     }
-    /// 强制刷新共享计数使它在进程间可见
-    pub fn flush_rc_force(&mut self) {
-        Self::flush_rc_force_impl(&mut self.sc_manager, &mut self.release_cache);
-    }
-    fn flush_rc_force_impl(sc_manager: &mut SCManager, release: &mut Vec<PhyAddrRef4K>) {
-        debug_assert!(release.is_empty());
-        if sc_manager.no_need_to_submit() {
-            return;
-        }
-        {
-            let mut lk = shared::lock_updater();
-            sc_manager.flush(&mut *lk, |pa| release.push(pa));
-        }
-        if !release.is_empty() {
-            unsafe { frame::global::dealloc_iter(release.iter()) }
-            release.clear();
-        }
-    }
-    /// 刷新共享计数使它在进程间可见
-    pub fn flush_rc_maybe(&mut self) {
-        debug_assert!(self.release_cache.is_empty());
-        if self.sc_manager.submit_size() < 5 {
-            return;
-        }
-        let release = &mut self.release_cache;
-        if let Some(mut lk) = shared::try_lock_updater() {
-            self.sc_manager.flush(&mut *lk, |pa| release.push(pa));
-        } else {
-            return;
-        }
-        if !release.is_empty() {
-            unsafe { frame::global::dealloc_iter(release.iter()) }
-            release.clear();
-        }
-    }
     /// 共享优化 fork
     ///
     /// 发生错误时回退到执行前的状态, 不会让操作系统崩掉
@@ -350,9 +306,6 @@ impl MapSegment {
     /// 将写标志位设置为 may_shared()
     pub fn fork(&mut self) -> SysR<Self> {
         stack_trace!();
-
-        self.flush_rc_force();
-
         let src = pt!(self);
         let mut dst = PageTable::from_global(asid::alloc_asid())?;
         let allocator = &mut frame::default_allocator();
@@ -381,7 +334,7 @@ impl MapSegment {
                         // 变成共享页
                         let sc = if !src.shared() {
                             src.become_shared(shared_writable);
-                            self.sc_manager.insert_dup(addr, src.phy_addr().into_ref())
+                            self.sc_manager.insert_clone(addr)
                         } else {
                             debug_assert_eq!(src.writable(), shared_writable);
                             self.sc_manager.clone_ua(addr)
@@ -394,19 +347,13 @@ impl MapSegment {
                         Ok(()) => continue,
                         Err(x) => x,
                     };
-                    // error happen
                     stack_trace!();
-
-                    Self::flush_rc_force_impl(&mut self.sc_manager, &mut self.release_cache);
-
+                    // error happen
                     for (addr, dst) in dst.valid_pte_iter(r) {
                         if addr == e_addr {
                             break;
                         }
-                        // 一定不是最后一个引用
-                        if new_sm.remove_ua(addr) {
-                            panic!();
-                        }
+                        new_sm.remove_ua_result(addr).unwrap_err();
                         dst.reset();
                         if self.sc_manager.try_remove_unique(addr) {
                             src.try_get_pte_user(addr)
@@ -434,17 +381,11 @@ impl MapSegment {
                 sc_manager: new_sm,
                 futexs: self.futexs.fork(),
                 id_allocator: self.id_allocator.clone(),
-                release_cache: Vec::new(),
             };
             stack_trace!();
-
-            self.flush_rc_force();
-
             return Ok(new_ms);
         }
         stack_trace!();
-        Self::flush_rc_force_impl(&mut self.sc_manager, &mut self.release_cache);
-
         // 错误回退
         let (rr, e) = err_1.unwrap_err();
         new_sm.check_remove_all();
@@ -469,9 +410,6 @@ impl MapSegment {
                 }
             }
         }
-
-        self.flush_rc_force();
-
         flush.run();
         Err(e)
     }
