@@ -11,62 +11,49 @@ use alloc::{boxed::Box, vec::Vec};
 
 use crate::{memory::address::PhyAddrRef4K, sync::mutex::SpinLock};
 
-/// 包含原子计数的共享内存
-struct SharedBuffer(AtomicUsize);
+/// 包含原子计数的共享内存, 保存了物理内存以便释放
+struct SharedBuffer(AtomicUsize, PhyAddrRef4K);
 
 impl SharedBuffer {
+    /// 返回旧的值
     #[inline(always)]
-    pub unsafe fn increase_single_thread(&self) -> usize {
+    fn increase(&self) -> usize {
         let old = self.0.load(Ordering::Relaxed);
         self.0.store(old + 1, Ordering::Relaxed);
         old
     }
+    /// 返回旧的值
     #[inline(always)]
-    pub unsafe fn decrease_single_thread(&self) -> usize {
+    fn decrease(&self) -> usize {
         let old = self.0.load(Ordering::Relaxed);
         self.0.store(old - 1, Ordering::Relaxed);
         old
     }
-    /// 返回旧的值
-    #[inline(always)]
-    pub fn increase(&self) -> usize {
-        self.0.fetch_add(1, Ordering::Relaxed)
-    }
-    /// 返回旧的值
-    #[inline(always)]
-    pub fn decrease(&self) -> usize {
-        let v = self.0.load(Ordering::Relaxed);
-        debug_assert!(v != 0);
-        if v != 1 {
-            self.0.fetch_sub(1, Ordering::Relaxed)
-        } else {
-            self.0.store(0, Ordering::Relaxed);
-            1
-        }
-    }
 }
 
 /// 计数器共享所有权句柄, 只能手动释放
-pub struct SharedCounter(NonNull<SharedBuffer>);
+#[derive(Debug)]
+pub struct SharedPage(NonNull<SharedBuffer>);
 
-impl Drop for SharedCounter {
+impl Drop for SharedPage {
     fn drop(&mut self) {
         panic!("SharedCount must be released manually")
     }
 }
 
-unsafe impl Send for SharedCounter {}
-unsafe impl Sync for SharedCounter {}
+unsafe impl Send for SharedPage {}
+unsafe impl Sync for SharedPage {}
 
-impl SharedCounter {
+impl SharedPage {
+    // #[inline(always)]
+    // pub fn new(pa: PhyAddrRef4K) -> Self {
+    //     let ptr = Box::into_raw(Box::new(SharedBuffer(AtomicUsize::new(1), pa)));
+    //     unsafe { Self(NonNull::new_unchecked(ptr)) }
+    // }
+    /// 一次性生成一个值为2的内存, 降低一次递增操作
     #[inline(always)]
-    pub fn new() -> Self {
-        let ptr = Box::into_raw(Box::new(SharedBuffer(AtomicUsize::new(1))));
-        unsafe { Self(NonNull::new_unchecked(ptr)) }
-    }
-    #[inline(always)]
-    pub fn new_dup() -> (Self, Self) {
-        let ptr = Box::into_raw(Box::new(SharedBuffer(AtomicUsize::new(2))));
+    pub fn new_dup(pa: PhyAddrRef4K) -> (Self, Self) {
+        let ptr = Box::into_raw(Box::new(SharedBuffer(AtomicUsize::new(2), pa)));
         let ptr = unsafe { NonNull::new_unchecked(ptr) };
         (Self(ptr), Self(ptr))
     }
@@ -74,45 +61,51 @@ impl SharedCounter {
     fn buffer(&self) -> &SharedBuffer {
         unsafe { self.0.as_ref() }
     }
-    /// 递减引用计数, 如果这是最后一个, 返回true
+    /// 引用计数为1时返回Ok(()), 由外界负责释放内存, buffer将立刻释放
+    ///
+    /// try_consume失败后应该立刻加入decrease集合
+    #[must_use]
+    pub fn try_consume(self) -> Result<(), Self> {
+        if self.unique() {
+            unsafe { Box::from_raw(self.0.as_ptr()) }; // 释放共享内存
+            core::mem::forget(self);
+            return Ok(());
+        }
+        Err(self)
+    }
+    /// 递减buffer引用计数, 如果引用计数减为0, 返回true并释放buffer
+    ///
+    /// 必须持有锁才能操作
     #[must_use]
     #[inline(always)]
-    pub fn consume(self) -> bool {
+    fn consume(self, _guard: &mut SharedGuard) -> Option<PhyAddrRef4K> {
         let n = self.buffer().decrease();
         debug_assert_ne!(n, 0);
-        let release = n == 1;
-        if release {
+        if n == 1 {
+            let page = self.buffer().1;
             unsafe { Box::from_raw(self.0.as_ptr()) };
+            core::mem::forget(self);
+            Some(page)
+        } else {
+            core::mem::forget(self);
+            None
         }
-        core::mem::forget(self);
-        release
     }
     #[inline(always)]
     pub fn unique(&self) -> bool {
         self.buffer().0.load(Ordering::Relaxed) == 1
     }
-}
-
-impl Clone for SharedCounter {
-    #[inline(always)]
-    fn clone(&self) -> Self {
-        self.buffer().increase();
+    pub fn fork(&self, inc: &mut IncreaseCache) -> Self {
+        if self.unique() {
+            self.buffer().increase();
+        } else {
+            inc.push(Self(self.0));
+        }
         Self(self.0)
     }
 }
 
-pub struct SharedPage {
-    sc: SharedCounter,
-    page: PhyAddrRef4K,
-}
-
-impl SharedPage {
-    pub fn new(sc: SharedCounter, page: PhyAddrRef4K) -> Self {
-        Self { sc, page }
-    }
-}
-
-/// 增加原子计数
+/// 增加原子计数, 在fork时被使用
 pub struct IncreaseCache(Vec<SharedPage>);
 
 impl IncreaseCache {
@@ -122,21 +115,23 @@ impl IncreaseCache {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
     pub fn push(&mut self, page: SharedPage) {
         self.0.push(page)
     }
-    pub fn append(&mut self, src: &mut Self) {
-        self.0.append(&mut src.0)
-    }
+    #[inline]
     pub fn flush(&mut self, _guard: &mut SharedGuard) {
-        for page in self.0.drain(..) {
-            let old = unsafe { page.sc.buffer().increase_single_thread() };
+        for sc in self.0.drain(..) {
+            let old = sc.buffer().increase();
             debug_assert!(old != 0);
+            core::mem::forget(sc);
         }
     }
 }
 
-/// 递减原子计数
+/// 递减原子计数, 在page_fault或unmap中被使用
 pub struct DecreaseCache(Vec<SharedPage>);
 
 impl DecreaseCache {
@@ -146,18 +141,17 @@ impl DecreaseCache {
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
     pub fn push(&mut self, page: SharedPage) {
         self.0.push(page)
     }
-    pub fn append(&mut self, src: &mut Self) {
-        self.0.append(&mut src.0)
-    }
-    pub fn flush(&mut self, _guard: &mut SharedGuard, mut release: impl FnMut(PhyAddrRef4K)) {
+    #[inline]
+    pub fn flush(&mut self, guard: &mut SharedGuard, mut release: impl FnMut(PhyAddrRef4K)) {
         for page in self.0.drain(..) {
-            let old = unsafe { page.sc.buffer().decrease_single_thread() };
-            debug_assert!(old != 0);
-            if old == 1 {
-                release(page.page);
+            if let Some(pa) = page.consume(guard) {
+                release(pa)
             }
         }
     }
@@ -171,9 +165,9 @@ static SHARED_UPDATER: SpinLock<SharedGuard> = SpinLock::new(SharedGuard {
     _inner: PhantomData,
 });
 
-/// 全局原子计数更新队列, 按序处理
+/// 全局原子计数更新锁, 通过降低并行度来显著提高吞吐量
 ///
-/// 对值不为1的引用计数必须持有`SharedGuard`才能释放
+/// 值不为1的引用计数必须持有`SharedGuard`锁才能释放
 ///
 /// 总是先递增原子计数, 再递减原子计数
 pub fn lock_updater() -> impl DerefMut<Target = SharedGuard> {
