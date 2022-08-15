@@ -111,3 +111,5 @@ lmbench_all lat_proc -P 1 exec
 
 [kernel]user_fatal_error page_fault Pid(4) Tid(4) StorePageFault stval: 0xf7bf0 sepc: 0x6aa90 ra: 0x105fc
 error IR: 23 b0 07 01 10 61 21 05 
+
+./runtest.exe -w entry-dynamic.exe argv

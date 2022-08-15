@@ -613,15 +613,16 @@ impl UserSpace {
     }
 
     pub async fn load_linker_lazy(&mut self, file: &Arc<VfsFile>) -> SysR<Option<UserAddr<u8>>> {
+        stack_trace!();
         const PRINT_THIS: bool = false;
         let elf = crate::elf::parse(file).await?;
-        let s = match elf.find_section_by_name(".interp").await {
+        let s = match elf.find_section_by_name(".interp").await? {
             Some(s) => s,
             None => return Ok(None),
         };
         let allocator = &mut frame::default_allocator();
 
-        let s = s.raw_data(&elf).await;
+        let s = s.raw_data(&elf).await?;
         let mut s = String::from_utf8(s).unwrap();
         if PRINT_THIS {
             println!("load_linker interp: {:?}", s);

@@ -2,16 +2,17 @@
 
 use core::mem;
 
-use alloc::vec::Vec;
+use alloc::{string::String, vec::Vec};
 use ftl_util::error::{SysError, SysR};
 use vfs::{File, VfsFile};
 use xmas_elf::{
     header::{Class, HeaderPt1, HeaderPt2_, Machine_, Type_},
     program::{Flags, ProgramHeader32, ProgramHeader64, Type},
-    sections::SectionHeader_,
+    sections::{ShType, SHT_HIOS, SHT_HIPROC, SHT_HIUSER, SHT_LOOS, SHT_LOPROC, SHT_LOUSER},
 };
 
 pub async fn parse(file: &VfsFile) -> SysR<ElfAnalyzer<'_>> {
+    stack_trace!();
     const PH1_SIZE: usize = mem::size_of::<HeaderPt1>();
     const PH2_SIZE_32: usize = mem::size_of::<HeaderPt2_<u32>>();
     const PH2_SIZE_64: usize = mem::size_of::<HeaderPt2_<u64>>();
@@ -89,9 +90,56 @@ impl<'a> ElfAnalyzer<'a> {
             Class::None | Class::Other(_) => unreachable!(),
         }
     }
-    pub async fn find_section_by_name(&self, _nama: &str) -> Option<SectionHeader> {
-        None
-        // todo!()
+    pub async fn section_header(&self, index: u16) -> SysR<SectionHeader> {
+        stack_trace!();
+        assert!(index < self.pt2.sh_count);
+        let start = index as usize * self.pt2.sh_entry_size as usize + self.pt2.sh_offset as usize;
+        let size = self.pt2.sh_entry_size as usize;
+        let mut buf: [u8; mem::size_of::<SectionHeader_<u64>>()] = [0; _];
+        let n = self.file.read_at(start, &mut buf[..size]).await?;
+        if n < size {
+            println!("file to short!");
+            return Err(SysError::EFAULT);
+        }
+        match self.pt1.class() {
+            Class::ThirtyTwo => Ok(SectionHeader::Sh32(unsafe { mem::transmute_copy(&buf) })),
+            Class::SixtyFour => Ok(SectionHeader::Sh64(unsafe { mem::transmute_copy(&buf) })),
+            Class::None | Class::Other(_) => unreachable!(),
+        }
+    }
+    pub async fn find_section_by_name(&self, name: &str) -> SysR<Option<SectionHeader>> {
+        stack_trace!();
+        let count = self.pt2.sh_count;
+        for i in 0..count {
+            let section = self.section_header(i).await?;
+            if let Ok(sec_name) = section.get_name(self).await {
+                if sec_name == name {
+                    return Ok(Some(section));
+                }
+            }
+        }
+        Ok(None)
+    }
+    async fn get_shstr(&self, index: u32) -> SysR<String> {
+        stack_trace!();
+        let offset = self.section_header(self.pt2.sh_str_index).await?.offset();
+        let mut buf = [0; 128];
+        let mut cur = offset + index as usize;
+        let mut s = Vec::new();
+        'outer: loop {
+            let n = self.file.read_at(cur, &mut buf).await?;
+            for &c in &buf[..n] {
+                if c == 0 {
+                    break 'outer;
+                }
+                s.push(c);
+            }
+            if n < buf.len() {
+                break;
+            }
+            cur += n;
+        }
+        String::from_utf8(s).map_err(|_e| SysError::EFAULT)
     }
 }
 
@@ -187,13 +235,104 @@ impl HeaderPt2 {
     }
 }
 
+#[derive(Debug)]
 pub enum SectionHeader {
     Sh32(SectionHeader_<u32>),
     Sh64(SectionHeader_<u64>),
 }
 
+#[derive(Debug)]
+#[repr(C)]
+pub struct SectionHeader_<P> {
+    name: u32,
+    type_: ShType_,
+    flags: P,
+    address: P,
+    offset: P,
+    size: P,
+    link: u32,
+    info: u32,
+    align: P,
+    entry_size: P,
+}
+
 impl SectionHeader {
-    pub async fn raw_data(&self, _elf: &ElfAnalyzer<'_>) -> Vec<u8> {
-        todo!()
+    pub async fn raw_data(&self, elf: &ElfAnalyzer<'_>) -> SysR<Vec<u8>> {
+        stack_trace!();
+        assert_ne!(self.get_type().unwrap(), ShType::Null);
+        let mut v = Vec::new();
+        v.resize(self.size(), 0);
+        let n = elf.file.read_at(self.offset(), &mut v).await?;
+        if n != v.len() {
+            return Err(SysError::EFAULT);
+        }
+        Ok(v)
+    }
+    pub fn get_type(&self) -> SysR<ShType> {
+        self.type_().as_sh_type()
+    }
+    fn type_(&self) -> ShType_ {
+        match self {
+            SectionHeader::Sh32(s) => s.type_,
+            SectionHeader::Sh64(s) => s.type_,
+        }
+    }
+    fn name(&self) -> u32 {
+        match self {
+            SectionHeader::Sh32(s) => s.name,
+            SectionHeader::Sh64(s) => s.name,
+        }
+    }
+    fn size(&self) -> usize {
+        match self {
+            SectionHeader::Sh32(s) => s.size as _,
+            SectionHeader::Sh64(s) => s.size as _,
+        }
+    }
+    fn offset(&self) -> usize {
+        match self {
+            SectionHeader::Sh32(s) => s.offset as _,
+            SectionHeader::Sh64(s) => s.offset as _,
+        }
+    }
+    pub async fn get_name(&self, elf: &ElfAnalyzer<'_>) -> SysR<String> {
+        stack_trace!();
+        match self.get_type()? {
+            ShType::Null => Err(SysError::EFAULT),
+            _ => elf.get_shstr(self.name()).await,
+        }
+    }
+}
+
+#[derive(Debug)]
+#[derive(Copy, Clone)]
+pub struct ShType_(u32);
+
+impl ShType_ {
+    fn as_sh_type(self) -> SysR<ShType> {
+        match self.0 {
+            0 => Ok(ShType::Null),
+            1 => Ok(ShType::ProgBits),
+            2 => Ok(ShType::SymTab),
+            3 => Ok(ShType::StrTab),
+            4 => Ok(ShType::Rela),
+            5 => Ok(ShType::Hash),
+            6 => Ok(ShType::Dynamic),
+            7 => Ok(ShType::Note),
+            8 => Ok(ShType::NoBits),
+            9 => Ok(ShType::Rel),
+            10 => Ok(ShType::ShLib),
+            11 => Ok(ShType::DynSym),
+            // sic.
+            14 => Ok(ShType::InitArray),
+            15 => Ok(ShType::FiniArray),
+            16 => Ok(ShType::PreInitArray),
+            17 => Ok(ShType::Group),
+            18 => Ok(ShType::SymTabShIndex),
+            st if st >= SHT_LOOS && st <= SHT_HIOS => Ok(ShType::OsSpecific(st)),
+            st if st >= SHT_LOPROC && st <= SHT_HIPROC => Ok(ShType::ProcessorSpecific(st)),
+            st if st >= SHT_LOUSER && st <= SHT_HIUSER => Ok(ShType::User(st)),
+            _ => Err(SysError::EFAULT),
+        }
     }
 }
