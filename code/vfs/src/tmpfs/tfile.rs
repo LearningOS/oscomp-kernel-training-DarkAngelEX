@@ -7,6 +7,7 @@ use alloc::{boxed::Box, string::String, vec::Vec};
 use ftl_util::{
     async_tools::{ASysR, ASysRet},
     error::{SysError, SysR, SysRet},
+    faster,
     fs::{
         stat::{Stat, S_IFREG},
         DentryType,
@@ -64,7 +65,7 @@ impl TmpFsFile {
         }
         let end = lk.len().min(offset + buf.len());
         let n = end - offset;
-        // buf[..n].copy_from_slice(&lk[offset..end]);
+        faster::u8copy(&mut buf[..n], &lk[offset..end]);
         Ok(n)
     }
     fn write_at_fast(&self, offset: usize, buf: &[u8]) -> SysRet {

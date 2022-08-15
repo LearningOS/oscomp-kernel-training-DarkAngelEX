@@ -31,6 +31,7 @@ pub mod async_tools;
 pub mod container;
 pub mod device;
 pub mod error;
+pub mod faster;
 pub mod fs;
 pub mod local;
 pub mod rcu;
