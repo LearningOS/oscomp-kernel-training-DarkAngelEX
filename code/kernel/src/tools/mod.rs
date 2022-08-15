@@ -6,8 +6,11 @@ use core::{
     sync::atomic::{AtomicUsize, Ordering},
 };
 
-use alloc::string::String;
-use ftl_util::sync::{qspinlock::QSpinLock, spin_mutex::SpinMutex, Spin};
+use alloc::{string::String, vec::Vec};
+use ftl_util::{
+    faster::SmpCopy,
+    sync::{qspinlock::QSpinLock, spin_mutex::SpinMutex, Spin},
+};
 use riscv::register::sstatus;
 
 use crate::{hart::cpu, timer};
@@ -183,6 +186,7 @@ const COLOR_TEST: bool = false;
 const MULTI_THREAD_PERFORMANCE_TEST: bool = false;
 const MULTI_THREAD_STRESS_TEST: bool = false;
 const MULTI_THREAD_SPINLOCK_TEST: bool = false;
+const MULTI_THREAD_COPY_TEST: bool = false;
 
 static HART_ALLOC: AtomicUsize = AtomicUsize::new(0);
 
@@ -198,6 +202,7 @@ pub fn multi_thread_test(hart: usize) {
     multi_thread_performance_test(hart);
     multi_thread_stress_test(hart);
     multi_thread_spin_lock_test(hart);
+    milti_thread_copy_test(hart);
 }
 
 fn multi_thread_performance_test(hart: usize) {
@@ -339,4 +344,68 @@ fn run_lock(
             (end - start).as_millis()
         );
     }
+}
+
+static MC: SmpCopy = SmpCopy::new();
+static END: AtomicUsize = AtomicUsize::new(0);
+
+fn milti_thread_copy_test(hart: usize) {
+    if !MULTI_THREAD_COPY_TEST {
+        return;
+    }
+    if hart == 0 {
+        println!("milti_thread_copy_test begin");
+    }
+    for _ in 0..20 {
+        milti_thread_copy_test_impl(hart, 4, 4);
+    }
+    if hart == 0 {
+        panic!();
+    } else {
+        loop {}
+    }
+}
+
+fn milti_thread_copy_test_impl(hart: usize, max: usize, cut: usize) {
+    wait_all_hart();
+    if hart == 0 {
+        let mut srcs = Vec::new();
+        let mut dsts = Vec::new();
+        let ring = 32;
+        let bytes = 4096;
+        let bench = 1000;
+        for i in 0..ring {
+            srcs.push(Vec::new());
+            srcs.last_mut().unwrap().resize(bytes, i);
+            dsts.push(Vec::new());
+            dsts.last_mut().unwrap().resize(bytes, i);
+        }
+        let tp0 = timer::now();
+        const SMP: bool = true;
+        for i in 0..bench {
+            let dst = i % ring;
+            let src = (i + 1) % ring;
+            let dst = &mut dsts[dst][..];
+            let src = &srcs[src][..];
+            if SMP {
+                MC.init(dst, src, cut);
+                MC.wait();
+            } else {
+                dst.copy_from_slice(src);
+            }
+        }
+        let tp1 = timer::now();
+        let bw = bytes * bench;
+        let us = (tp1 - tp0).as_micros() as usize;
+        println!("mtc using {}us {} MB/s", us, bw / us);
+        END.store(1, Ordering::Relaxed);
+    } else if hart < max {
+        loop {
+            if END.load(Ordering::Relaxed) != 0 {
+                break;
+            }
+            MC.run();
+        }
+    }
+    wait_all_hart();
 }
