@@ -177,7 +177,6 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let local = local::hart_local();
-        local.local_rcu.critical_start();
         local.handle();
         let this = unsafe { self.get_unchecked_mut() };
         local.enter_task_switch(&mut this.local_switch);
@@ -189,7 +188,6 @@ impl<F: Future + Send + 'static> Future for OutermostFuture<F> {
         if !USING_ASID {
             sfence::sfence_vma_all_no_global();
         }
-        local.local_rcu.critical_end_tick();
         local.handle();
         ret
     }

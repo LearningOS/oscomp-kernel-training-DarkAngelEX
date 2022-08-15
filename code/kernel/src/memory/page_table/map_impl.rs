@@ -499,7 +499,7 @@ impl PageTable {
             for (i, pte) in &mut ptes[l[0]..=r[0]].iter_mut().enumerate() {
                 let (l, r, full) = PageTable::next_lr(l, r, xbegin, xend, i);
                 if pte.is_valid() {
-                    assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
+                    debug_assert!(pte.is_directory(), "unmap invalid directory: {:?}", ua);
                     let ptes = PageTable::ptes_from_pte(pte);
                     (page_count, ua) =
                         unmap_user_range_lazy_1(ptes, l, r, page_count, allocator, ua);

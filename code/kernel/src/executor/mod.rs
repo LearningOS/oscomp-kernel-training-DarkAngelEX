@@ -82,12 +82,10 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
         unsafe {
             let local = local::hart_local();
             let this = self.get_unchecked_mut();
-            local.local_rcu.critical_start();
             local.handle();
             local.switch_kernel_task(&mut this.always_local);
             let r = Pin::new_unchecked(&mut this.task).poll(cx);
             local.switch_kernel_task(&mut this.always_local);
-            local.local_rcu.critical_end_tick();
             local.handle();
             r
         }
@@ -97,10 +95,17 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
 /// 返回执行了多少个future
 pub fn run_until_idle() -> usize {
     let mut n = 0;
+    let local = local::hart_local();
     while let Some(task) = TASK_QUEUE.fetch() {
         stack_trace!();
+        local.local_rcu.critical_start();
+        local.handle();
         task.run();
+        local.local_rcu.critical_end_tick();
+        local.handle();
         n += 1;
     }
+    local.local_rcu.critical_end();
+    local.handle();
     n
 }

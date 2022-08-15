@@ -162,7 +162,6 @@ pub fn kmain(_hart_id: usize) -> ! {
                 timer::set_next_trigger_ex(dur);
             }
         }
-        hart_local.local_rcu.critical_end();
         unsafe {
             assert!(sstatus::read().sie());
             hart_local.enter_idle();

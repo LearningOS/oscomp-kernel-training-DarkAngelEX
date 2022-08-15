@@ -39,9 +39,6 @@ pub fn run_user_executor(cx: &mut UKContext) {
         fn __entry_user(cx: *mut UKContext);
     }
     unsafe {
-        let local = local::hart_local();
-        local.local_rcu.critical_end_tick();
-        local.local_rcu.critical_start();
         cx.fast_context().thread.timer_into_user();
 
         debug_assert!(sstatus::read().sie());
@@ -83,8 +80,6 @@ pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
     sstatus::set_sie();
     let thread = (*cx).fast_context().thread;
     thread.timer_leave_user();
-    let local = local::hart_local();
-    local.local_rcu.critical_start();
 
     local::handle_current_local();
 
@@ -101,8 +96,6 @@ pub unsafe extern "C" fn fast_processing_path(cx: *mut UKContext) -> Ctup2 {
         if thread.have_signal() {
             (*cx).fast_status = FastStatus::SkipSyscall;
         } else {
-            local.local_rcu.critical_end_tick();
-            local.local_rcu.critical_start();
             thread.timer_into_user();
 
             sstatus::clear_sie();
