@@ -64,7 +64,7 @@ impl TmpFsFile {
         }
         let end = lk.len().min(offset + buf.len());
         let n = end - offset;
-        buf[..n].copy_from_slice(&lk[offset..end]);
+        // buf[..n].copy_from_slice(&lk[offset..end]);
         Ok(n)
     }
     fn write_at_fast(&self, offset: usize, buf: &[u8]) -> SysRet {
