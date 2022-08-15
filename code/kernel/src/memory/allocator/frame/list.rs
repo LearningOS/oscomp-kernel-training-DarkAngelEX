@@ -11,8 +11,6 @@ const FRAME_RELEASE_MAGIC: usize = 0x1232_3895_2892_0389;
 const USIZE_PER_FRAME: usize = PAGE_SIZE / core::mem::size_of::<usize>();
 
 /// 这个数据结构用来放置未使用的frame, 同时绕过堆的使用
-///
-/// Node 从 Frame 中产生, 永不归还
 pub struct FrameList {
     head: Option<NonNull<Node>>,
     len: usize,

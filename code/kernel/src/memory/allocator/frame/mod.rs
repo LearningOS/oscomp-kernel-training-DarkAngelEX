@@ -1,10 +1,9 @@
 //! frame allocator which can be used in stack.
 
-use alloc::{boxed::Box, vec::Vec};
-use ftl_util::rcu::RcuCollect;
+use alloc::vec::Vec;
 
 use crate::{
-    memory::{self, address::PhyAddrRef4K},
+    memory::address::PhyAddrRef4K,
     tools::{allocator::TrackerAllocator, error::FrameOOM},
 };
 
@@ -85,7 +84,11 @@ impl TrackerAllocator<PhyAddrRef4K, FrameTracker> for XFrameAllocator {
         }
     }
     unsafe fn dealloc(&mut self, value: PhyAddrRef4K) {
-        self.release.push(value)
+        self.release.push(value);
+        if self.release.len() >= 32 {
+            global::dealloc_iter(self.release.iter());
+            self.release.clear();
+        }
     }
     fn alloc_directory(&mut self) -> Result<FrameTracker, FrameOOM> {
         global::alloc_directory()
@@ -98,10 +101,14 @@ impl TrackerAllocator<PhyAddrRef4K, FrameTracker> for XFrameAllocator {
 impl Drop for XFrameAllocator {
     fn drop(&mut self) {
         unsafe {
-            global::dealloc_iter(self.alloc.iter());
+            if !self.alloc.is_empty() {
+                global::dealloc_iter(self.alloc.iter());
+            }
             if !self.release.is_empty() {
-                let v = Box::new(RcuDealloc(core::mem::take(&mut self.release)));
-                memory::rcu::rcu_special_release(v.rcu_transmute());
+                global::dealloc_iter(self.release.iter());
+                // use crate::ftl_util::rcu::RcuCollect;
+                // let v = alloc::boxed::Box::new(RcuDealloc(core::mem::take(&mut self.release)));
+                // crate::memory::rcu::rcu_special_release(v.rcu_transmute());
             }
         }
     }
