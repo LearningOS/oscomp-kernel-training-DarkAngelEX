@@ -101,9 +101,6 @@ pub fn run_until_idle() -> usize {
     let mut n = 0;
     let local = local::hart_local();
     loop {
-        if TASK_QUEUE.len() >= 2 {
-            local::try_wake_sleep_hart();
-        }
         if let Some(task) = TASK_QUEUE.fetch() {
             stack_trace!();
             local.local_rcu.critical_start();
