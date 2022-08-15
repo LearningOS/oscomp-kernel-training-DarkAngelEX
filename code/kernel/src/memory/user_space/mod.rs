@@ -224,6 +224,7 @@ impl UserSpace {
         stack_trace!();
         self.map_segment.force_write_range(r, data, allocator)
     }
+    #[inline]
     pub fn page_fault(
         &mut self,
         addr: UserAddr4K,

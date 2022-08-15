@@ -2,7 +2,6 @@
 
 use core::convert::TryFrom;
 
-use alloc::sync::Arc;
 use riscv::register::scause::Exception;
 
 use crate::{
@@ -15,7 +14,7 @@ use crate::{
 };
 
 // return do_exit
-pub async fn page_fault(thread: &Arc<Thread>, e: Exception, stval: usize, sepc: usize) -> bool {
+pub async fn page_fault(thread: &Thread, e: Exception, stval: usize, sepc: usize) -> bool {
     let mut do_exit = false;
     let mut user_fatal_error = || {
         println!(

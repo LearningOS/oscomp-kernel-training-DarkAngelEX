@@ -74,6 +74,7 @@ impl PageTableEntry {
         // PTEFlags::from_bits(self.bits as u8).unwrap()
         unsafe { PTEFlags::from_bits_unchecked(self.bits as u8) }
     }
+    #[inline(always)]
     pub fn is_valid(&self) -> bool {
         (self.flags() & PTEFlags::V) != PTEFlags::empty()
     }

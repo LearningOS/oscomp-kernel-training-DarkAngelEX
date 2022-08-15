@@ -115,6 +115,7 @@ impl PageTable {
         pte_fn(pte);
     }
     /// 尝试获取addr对应的有效页表项(含V标志位), 如果未分配返回None
+    #[inline]
     pub fn try_get_pte_user(&mut self, addr: UserAddr4K) -> Option<&mut PageTableEntry> {
         stack_trace!();
         macro_rules! return_or_check {
@@ -125,6 +126,7 @@ impl PageTable {
                 debug_assert!($a);
             };
         }
+        #[inline(always)]
         fn next_pte(a: PhyAddr4K, i: usize) -> &'static mut PageTableEntry {
             &mut a.into_ref().as_pte_array_mut()[i]
         }
