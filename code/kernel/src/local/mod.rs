@@ -1,4 +1,4 @@
-use core::sync::atomic::Ordering;
+use core::sync::atomic::{AtomicBool, Ordering};
 
 use alloc::boxed::Box;
 use ftl_util::local::FTLCPULocal;
@@ -6,6 +6,7 @@ use riscv::register::sstatus;
 
 use crate::{
     config::PAGE_SIZE,
+    executor,
     hart::{self, cpu, floating, sbi, sfence},
     memory::{
         self,
@@ -55,7 +56,7 @@ pub struct HartLocal {
     local_mail: HartMailBox,
     _align64: Align64, // 让mailbox不会和其他部分共享cacheline
     mailbox: SpinNoIrqLock<HartMailBox>,
-    pub idle: bool,
+    pub sleep: AtomicBool,
 }
 
 unsafe impl Send for HartLocal {}
@@ -112,7 +113,7 @@ impl HartLocal {
             _align64: Align64,
             local_heap: LocalHeap::new(),
             local_rcu: LocalRcuManager::new(),
-            idle: false,
+            sleep: AtomicBool::new(false),
         }
     }
     pub unsafe fn set_hartid(&self, cpuid: usize) {
@@ -201,11 +202,20 @@ impl HartLocal {
             unsafe { sstatus::set_sie() };
         }
     }
-    pub fn enter_idle(&mut self) {
-        self.idle = true;
+    pub fn enter_sleep(&mut self) {
+        debug_assert!(!*self.sleep.get_mut());
+        *self.sleep.get_mut() = true;
+        executor::sleep_increase();
     }
-    pub fn leave_idle(&mut self) {
-        self.idle = false;
+    pub fn leave_sleep(&mut self) {
+        // 如果被其他核唤醒了, sleep将是true
+        if self
+            .sleep
+            .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+            .is_ok()
+        {
+            executor::sleep_decrease();
+        }
     }
 }
 
@@ -322,7 +332,10 @@ pub fn all_hart_sfence_vma_va_global(va: UserAddr4K) {
     all_hart_fn(move |m| m.spec_sfence(move || sfence::sfence_vma_va_global(va.into_usize())))
 }
 
-pub fn try_wake_idle_hart() {
+pub fn try_wake_sleep_hart() {
+    if !executor::have_sleep() {
+        return;
+    }
     let this_cpu = hart_local().cpuid();
     unsafe {
         for cur in cpu_local_in_use().iter() {
@@ -330,11 +343,17 @@ pub fn try_wake_idle_hart() {
             if cur_id == this_cpu {
                 continue;
             }
-            if cur.idle {
-                // println!("send ipi: {} -> {}", this_cpu, cur_id);
+            if cur.sleep.load(Ordering::Relaxed) {
+                if cur
+                    .sleep
+                    .compare_exchange(true, false, Ordering::Relaxed, Ordering::Relaxed)
+                    .is_err()
+                {
+                    continue;
+                }
+                executor::sleep_decrease();
                 let r = sbi::send_ipi(1 << cur_id);
                 assert_eq!(r, 0);
-                break;
             }
         }
     }

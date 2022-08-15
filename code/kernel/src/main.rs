@@ -164,9 +164,9 @@ pub fn kmain(_hart_id: usize) -> ! {
         }
         unsafe {
             assert!(sstatus::read().sie());
-            hart_local.enter_idle();
+            hart_local.enter_sleep();
             riscv::asm::wfi();
-            hart_local.leave_idle();
+            hart_local.leave_sleep();
         }
         // println!("hart {} running", hart_local.cpuid());
     }

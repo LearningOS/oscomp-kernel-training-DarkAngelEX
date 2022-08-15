@@ -1,6 +1,7 @@
 use core::{
     future::Future,
     pin::Pin,
+    sync::atomic::{AtomicUsize, Ordering},
     task::{Context, Poll},
 };
 
@@ -21,6 +22,9 @@ impl TaskQueue {
         Self {
             queue: SpinNoIrqLock::new(None),
         }
+    }
+    pub fn len(&self) -> usize {
+        unsafe { self.queue.unsafe_get().as_ref().unwrap().len() }
     }
     pub fn init(&self) {
         *self.queue.lock() = Some(VecDeque::new());
@@ -96,16 +100,37 @@ impl<F: Future<Output = ()> + Send + 'static> Future for KernelTaskFuture<F> {
 pub fn run_until_idle() -> usize {
     let mut n = 0;
     let local = local::hart_local();
-    while let Some(task) = TASK_QUEUE.fetch() {
-        stack_trace!();
-        local.local_rcu.critical_start();
-        local.handle();
-        task.run();
-        local.local_rcu.critical_end_tick();
-        local.handle();
-        n += 1;
+    loop {
+        if TASK_QUEUE.len() >= 2 {
+            local::try_wake_sleep_hart();
+        }
+        if let Some(task) = TASK_QUEUE.fetch() {
+            stack_trace!();
+            local.local_rcu.critical_start();
+            local.handle();
+            task.run();
+            local.local_rcu.critical_end_tick();
+            local.handle();
+            n += 1;
+        } else {
+            break;
+        }
     }
     local.local_rcu.critical_end();
     local.handle();
     n
+}
+
+static SLEEP_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+pub fn sleep_increase() {
+    SLEEP_COUNT.fetch_add(1, Ordering::Relaxed);
+}
+
+pub fn sleep_decrease() {
+    SLEEP_COUNT.fetch_sub(1, Ordering::Relaxed);
+}
+
+pub fn have_sleep() -> bool {
+    SLEEP_COUNT.load(Ordering::Relaxed) != 0
 }

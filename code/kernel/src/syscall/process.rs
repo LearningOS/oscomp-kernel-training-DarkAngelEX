@@ -101,7 +101,7 @@ impl Syscall<'_> {
             }
         }
         userloop::spawn(new);
-        local::try_wake_idle_hart();
+        local::try_wake_sleep_hart();
         if PRINT_SYSCALL_PROCESS || PRINT_THIS {
             println!("\t-> {:?}", tid);
         }

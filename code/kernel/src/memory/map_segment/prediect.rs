@@ -1,20 +1,17 @@
-use alloc::{
-    collections::{BTreeSet, VecDeque},
-    vec::Vec,
-};
+use alloc::{collections::VecDeque, vec::Vec};
 
 use crate::{memory::address::UserAddr4K, sync::mutex::SpinLock};
 
 const TARGET: usize = 10;
 
-/// 缺页错误预测器
+/// 缺页错误预测器, 预测前TARGET个缺页异常
 pub struct Predicter {
     inner: SpinLock<Inner>,
 }
 
 struct Inner {
     fifo: VecDeque<UserAddr4K>,
-    set: BTreeSet<UserAddr4K>, // 去重
+    cnt: usize, // 只接收前TARGET个结果
 }
 
 impl Predicter {
@@ -22,25 +19,34 @@ impl Predicter {
         Self {
             inner: SpinLock::new(Inner {
                 fifo: VecDeque::new(),
-                set: BTreeSet::new(),
+                cnt: 0,
             }),
         }
     }
     pub fn insert(&self, ua: UserAddr4K) {
+        if unsafe { self.inner.unsafe_get().cnt >= TARGET } {
+            return;
+        }
         let mut lk = self.inner.lock();
-        if !lk.set.insert(ua) {
+        if lk.cnt >= TARGET {
+            return;
+        }
+        if lk.fifo.contains(&ua) {
             return;
         }
         lk.fifo.push_back(ua);
+        lk.cnt += 1;
         if lk.fifo.len() <= TARGET {
             return;
         }
-        let old = lk.fifo.pop_front().unwrap();
-        let r = lk.set.remove(&old);
-        debug_assert!(r);
+        lk.fifo.pop_front().unwrap();
     }
-    /// 有序的迭代器
+    /// 返回有序集合
     pub fn take_in_order(&self) -> Vec<UserAddr4K> {
-        self.inner.lock().set.iter().map(|a| *a).collect()
+        let mut lk = self.inner.lock();
+        lk.cnt = 0;
+        let mut v: Vec<_> = lk.fifo.iter().copied().collect();
+        v.sort();
+        v
     }
 }
