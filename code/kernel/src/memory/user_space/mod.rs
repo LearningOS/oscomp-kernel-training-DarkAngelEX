@@ -612,7 +612,7 @@ impl UserSpace {
         Ok(Some(entry_point.into()))
     }
 
-    pub async fn load_linker_lazy(&mut self, file: &Arc<VfsFile>) -> SysR<Option<UserAddr<u8>>> {
+    pub async fn load_linker_lazy(&mut self, file: &VfsFile) -> SysR<Option<UserAddr<u8>>> {
         stack_trace!();
         const PRINT_THIS: bool = false;
         let elf = crate::elf::parse(file).await?;
