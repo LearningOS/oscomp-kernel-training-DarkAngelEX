@@ -41,9 +41,6 @@ impl FrameTracker {
         core::mem::forget(self);
         data
     }
-    pub fn ptr(&self) -> PhyAddrRef4K {
-        self.data
-    }
 }
 
 impl Drop for FrameTracker {

@@ -120,7 +120,7 @@ use crate::config::{IDIE_SPIN_TIME, TIME_INTERRUPT_PER_SEC};
 pub fn kmain(_hart_id: usize) -> ! {
     stack_trace!(to_yellow!("running in global space"));
     let hart_local = local::hart_local();
-    let always_local = local::always_local();
+    let always_local = hart_local.always_ref();
     assert!(always_local.sie_cur() == 0);
     assert!(always_local.sum_cur() == 0);
 

@@ -88,6 +88,9 @@ impl SleepQueue {
     pub fn ignore(timeout: Instant) -> bool {
         timeout.as_secs() >= i64::MAX as u64
     }
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
     pub fn push(&mut self, now: Instant, waker: Waker, tracer: &mut TimerTracer) {
         if Self::ignore(now) {
             return;
@@ -109,7 +112,7 @@ impl SleepQueue {
         }
         n
     }
-    pub fn next_instant(&mut self) -> Option<Instant> {
+    pub fn next_instant(&self) -> Option<Instant> {
         self.queue.peek().map(|(a, _)| a.0.timeout)
     }
 }
@@ -120,6 +123,9 @@ pub fn sleep_queue_init() {
     *SLEEP_QUEUE.lock() = Some(SleepQueue::new());
 }
 
+unsafe fn sq_unlock_run<T>(f: impl FnOnce(&SleepQueue) -> T) -> T {
+    f(SLEEP_QUEUE.unsafe_get().as_ref().unwrap_unchecked())
+}
 fn sq_run<T>(f: impl FnOnce(&mut SleepQueue) -> T) -> T {
     unsafe { f(SLEEP_QUEUE.lock().as_mut().unwrap_unchecked()) }
 }
@@ -147,10 +153,16 @@ fn pop_timer(tracer: &mut TimerTracer) {
 /// 返回唤醒的数量
 pub fn check_timer() -> usize {
     stack_trace!();
+    if unsafe { sq_unlock_run(|q| q.is_empty()) } {
+        return 0;
+    }
     let current = super::now();
     sq_run(|q| q.check_timer(current))
 }
 pub fn next_instant() -> Option<Instant> {
+    if unsafe { sq_unlock_run(|q| q.is_empty()) } {
+        return None;
+    }
     sq_run(|q| q.next_instant())
 }
 

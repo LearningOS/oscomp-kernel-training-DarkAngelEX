@@ -1,6 +1,6 @@
 #![allow(dead_code)]
 
-use ftl_util::error::SysR;
+use ftl_util::{error::SysR, faster};
 
 use crate::{
     config::PAGE_SIZE,
@@ -454,9 +454,10 @@ impl PageTable {
                     let perm =
                         src_pte.flags() & (PTEFlags::U | PTEFlags::R | PTEFlags::W | PTEFlags::X);
                     dst_pte.alloc_by(perm, allocator).map_err(|_| ua)?;
-                    let src = src_pte.phy_addr().into_ref().as_usize_array();
-                    let dst = dst_pte.phy_addr().into_ref().as_usize_array_mut();
-                    dst.copy_from_slice(src);
+                    faster::page_copy(
+                        dst_pte.phy_addr().into_ref().as_usize_array_mut(),
+                        src_pte.phy_addr().into_ref().as_usize_array(),
+                    );
                     memory_trace!("copy_user_range_lazy_2");
                 }
                 ua = ua.add_one_page();

@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::{async_tools::ASysR, error::SysR};
+use ftl_util::{async_tools::ASysR, error::SysR, faster};
 use vfs::File;
 
 use crate::{
@@ -258,8 +258,7 @@ pub trait UserAreaHandler: Send + 'static {
             let dst = dst.get_pte_user(a, allocator)?;
             debug_assert!(!dst.is_valid());
             dst.alloc_by(self.map_perm(), allocator)?;
-            let dst_array = dst.phy_addr().into_ref().as_usize_array_mut();
-            dst_array.copy_from_slice(src);
+            faster::page_copy(dst.phy_addr().into_ref().as_usize_array_mut(), src);
         }
         Ok(())
     }

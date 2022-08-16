@@ -105,14 +105,13 @@ pub fn run_until_idle() -> usize {
             local.handle();
             task.run();
             local.local_rcu.critical_end_tick();
-            local.handle();
             n += 1;
         } else {
+            local.local_rcu.critical_end();
+            local.handle();
             break;
         }
     }
-    local.local_rcu.critical_end();
-    local.handle();
     n
 }
 

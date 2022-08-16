@@ -1,6 +1,6 @@
 use core::sync::atomic::{AtomicPtr, AtomicU32, AtomicUsize, Ordering};
 
-/// 这个函数比copy_from_slice快! 因为copy_from_slice每次循环只会复制8字节.
+/// 这个函数比copy_from_slice快! 因为copy_from_slice每次循环只会复制8字节, 具有更大的循环开销.
 #[inline(never)]
 pub fn page_copy(dst: &mut [usize; 512], src: &[usize; 512]) {
     for i in 0..64 {

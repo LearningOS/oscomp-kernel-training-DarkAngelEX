@@ -2,7 +2,7 @@ use alloc::{
     boxed::Box,
     sync::{Arc, Weak},
 };
-use ftl_util::error::SysR;
+use ftl_util::{error::SysR, faster};
 
 use crate::{
     futex::{FutexSet, OwnFutex},
@@ -249,9 +249,10 @@ impl MapSegment {
         }
         // 分配一个新的页, 从原页面复制数据
         let x = allocator.alloc()?;
-        x.ptr()
-            .as_usize_array_mut()
-            .copy_from_slice(pte.phy_addr().into_ref().as_usize_array());
+        faster::page_copy(
+            x.data().as_usize_array_mut(),
+            pte.phy_addr().into_ref().as_usize_array(),
+        );
         // 递减旧的页的引用计数, 如果它是最后一个说明在这期间有其他进程释放了它, 将他释放
         if self.sc_manager.remove_ua(addr) {
             if PRINT_PAGE_FAULT {
@@ -368,10 +369,10 @@ impl MapSegment {
                                     break;
                                 }
                             }
-                            dst.phy_addr()
-                                .into_ref()
-                                .as_usize_array_mut()
-                                .copy_from_slice(src.phy_addr().into_ref().as_usize_array());
+                            faster::page_copy(
+                                dst.phy_addr().into_ref().as_usize_array_mut(),
+                                src.phy_addr().into_ref().as_usize_array(),
+                            );
                         } else {
                             stack_trace!();
                             debug_assert!(!dst.is_valid(), "fork addr: {:#x}", addr.into_usize());
