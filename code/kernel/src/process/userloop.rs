@@ -137,6 +137,10 @@ async fn userloop(thread: Arc<Thread>) {
         }
     }
     if thread.process.pid() == Pid(0) {
+        #[cfg(feature = "submit")]
+        {
+            println!("!TEST FINISH!");
+        }
         panic!("initproc exit");
     }
     exit::exit_impl(&thread).await;
