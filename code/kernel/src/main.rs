@@ -157,8 +157,8 @@ pub fn kmain(_hart_id: usize) -> ! {
                 continue;
             }
             let dur = end - now;
-            let tick_interval = Duration::SECOND / TIME_INTERRUPT_PER_SEC as u32;
-            if dur < tick_interval / 2 {
+            let tick_interval = Duration::from_millis(5);
+            if dur < tick_interval {
                 timer::set_next_trigger_ex(dur);
             }
         }
