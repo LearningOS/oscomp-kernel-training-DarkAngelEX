@@ -1,6 +1,13 @@
-use alloc::{boxed::Box, vec::Vec};
+use alloc::vec::Vec;
 
-use crate::{hart::sfence, memory::asid::USING_ASID, user::NativeAutoSie};
+use crate::{
+    hart::sfence,
+    memory::{
+        address::UserAddr4K,
+        asid::{Asid, USING_ASID},
+    },
+    user::NativeAutoSie,
+};
 
 bitflags! {
     pub struct MailEvent: usize {
@@ -17,10 +24,13 @@ impl MailEvent {
         .union(Self::SFENCE_SPEC);
 }
 
+/// 最多的定向刷表项, 超过这个数升级为全地址空间刷表
+const MAX_SPEC_SFENCE: usize = 5;
+
 /// HartMailBox 用来让多核CPU之间安全通信, 目前只用来发送sfence.vma和fence.i指令
 pub struct HartMailBox {
     event: MailEvent,
-    spec_sfence: Vec<Box<dyn FnOnce()>>,
+    spec_sfence: Vec<(usize, Option<u16>)>, // VirAddr, ASID
 }
 
 impl HartMailBox {
@@ -55,7 +65,14 @@ impl HartMailBox {
                 sfence::sfence_vma_all_no_global();
                 self.spec_sfence.clear();
             } else if self.event.contains(MailEvent::SFENCE_SPEC) {
-                self.spec_sfence.drain(..).for_each(|f| f());
+                for va_asid in self.spec_sfence.drain(..) {
+                    match va_asid {
+                        (0, None) => sfence::sfence_vma_all_no_global(),
+                        (va, None) => sfence::sfence_vma_va_global(va),
+                        (0, Some(asid)) => sfence::sfence_vma_asid(asid as usize),
+                        (va, Some(asid)) => sfence::sfence_vma_va_asid(va, asid as usize),
+                    }
+                }
             }
             self.event.remove(MailEvent::SFENCE_SET);
         }
@@ -64,14 +81,21 @@ impl HartMailBox {
     pub fn set_flag(&mut self, add: MailEvent) {
         self.event |= add;
     }
-    pub fn spec_sfence(&mut self, f: impl FnOnce() + 'static) {
+    pub fn spec_sfence(&mut self, va: Option<UserAddr4K>, asid: Option<Asid>) {
         if self
             .event
             .intersects(MailEvent::SFENCE_VMA_ALL_GLOBAL | MailEvent::SFENCE_VMA_ALL_NO_GLOBAL)
         {
             return;
         }
-        self.spec_sfence.push(Box::new(f));
+        if self.spec_sfence.len() > MAX_SPEC_SFENCE {
+            self.spec_sfence.clear();
+            self.event |= MailEvent::SFENCE_VMA_ALL_NO_GLOBAL;
+            return;
+        }
+        let va = va.map_or(0, |a| a.into_usize());
+        let asid = asid.map(|a| a.into_usize() as u16);
+        self.spec_sfence.push((va, asid));
         self.event |= MailEvent::SFENCE_SPEC;
     }
 }
