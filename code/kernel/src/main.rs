@@ -112,7 +112,7 @@ use core::time::Duration;
 use ftl_util::time::Instant;
 use riscv::register::{sie, sstatus};
 
-use crate::config::{IDIE_SPIN_TIME, TIME_INTERRUPT_PER_SEC};
+use crate::config::IDIE_SPIN_TIME;
 
 /// This function will be called by rust_main() in hart/mod.rs
 ///

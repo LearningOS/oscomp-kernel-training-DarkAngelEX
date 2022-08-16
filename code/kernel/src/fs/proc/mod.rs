@@ -68,6 +68,9 @@ impl FsInode for ProcRoot {
     fn is_dir(&self) -> bool {
         todo!()
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        todo!()
+    }
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         todo!()
     }

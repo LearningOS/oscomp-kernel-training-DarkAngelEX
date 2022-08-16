@@ -112,6 +112,9 @@ impl TmpFsDir {
     pub fn writable(&self) -> bool {
         self.writable.load(Ordering::Relaxed)
     }
+    pub fn dev_ino(&self) -> (usize, usize) {
+        (unsafe { (*self.fs.as_ptr()).dev }, self.ino)
+    }
     pub fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
         *stat = Stat::zeroed();
         stat.st_dev = unsafe { (*self.fs.as_ptr()).dev as u64 };

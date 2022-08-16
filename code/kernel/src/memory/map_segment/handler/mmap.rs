@@ -1,5 +1,5 @@
 use alloc::{boxed::Box, sync::Arc};
-use ftl_util::error::SysR;
+use ftl_util::{error::SysR, faster};
 use vfs::File;
 
 use crate::{
@@ -8,10 +8,15 @@ use crate::{
         address::{UserAddr, UserAddr4K},
         allocator::frame::{global::FrameTracker, FrameAllocator},
         asid::Asid,
-        map_segment::handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler},
+        map_segment::{
+            handler::{AsyncHandler, FileAsyncHandler, UserAreaHandler},
+            shared::SharedCounter,
+            zero_copy::{self, SharePage, ZeroCopy},
+        },
         page_table::PTEFlags,
         {AccessType, PageTable},
     },
+    sync::mutex::SpinLock,
     syscall::SysError,
     tools::{
         range::URange,
@@ -32,6 +37,7 @@ struct MmapHandlerSpec {
     perm: PTEFlags,
     shared: bool,
     init_program: bool,
+    zero_copy: Option<Arc<SpinLock<ZeroCopy>>>,
 }
 
 #[derive(Clone)]
@@ -50,6 +56,12 @@ impl MmapHandler {
         shared: bool,
         init_program: bool,
     ) -> Box<dyn UserAreaHandler> {
+        let zero_copy = if let Some(Ok(file)) = file.as_ref().map(|f| f.vfs_file()) {
+            let (dev, ino) = file.dev_ino();
+            Some(zero_copy::get_zero_copy(dev, ino))
+        } else {
+            None
+        };
         Box::new(MmapHandler {
             spec: MmapHandlerSpec {
                 id: None,
@@ -60,9 +72,44 @@ impl MmapHandler {
                 perm,
                 shared,
                 init_program,
+                zero_copy,
             },
             base: HandlerBase::new(),
         })
+    }
+
+    fn get_offset(&self, addr: UserAddr4K) -> usize {
+        self.spec
+            .offset
+            .wrapping_add(addr.into_usize())
+            .wrapping_sub(self.spec.addr.into_usize())
+    }
+
+    fn fast_load_data(
+        &self,
+        file: &dyn File,
+        addr: UserAddr4K,
+        dst: &mut [usize; 512],
+    ) -> SysR<()> {
+        let frame_buf: &mut [u8; 4096] = unsafe { core::mem::transmute(dst) };
+        let addr_uz = addr.into_usize();
+        let start_uz = self.spec.addr.into_usize();
+        let n = if addr_uz < start_uz {
+            let start = start_uz - addr_uz; // 未对齐偏移量
+            debug_assert!(start < PAGE_SIZE);
+            let read = file.read_at_fast(self.spec.offset, &mut frame_buf[start..])?;
+            start + read.min(self.spec.fill_size)
+        } else {
+            let offset = self.spec.offset + addr_uz - start_uz;
+            if offset < self.spec.offset + self.spec.fill_size {
+                let read = file.read_at_fast(offset, frame_buf)?;
+                read.min(self.spec.offset + self.spec.fill_size - offset)
+            } else {
+                0 // 填充0
+            }
+        };
+        frame_buf[n..].fill(0);
+        Ok(())
     }
 
     fn map_fast(
@@ -77,6 +124,9 @@ impl MmapHandler {
             return Err(SysError::EACCES);
         }
         let alloc = unsafe { &mut *(allocator as *mut _) };
+        let zc = self.spec.zero_copy.as_ref().unwrap();
+        let start = range.start;
+        let offset = self.get_offset(start).wrapping_sub(start.into_usize());
         for r in pt.each_pte_iter(range, alloc) {
             let (addr, pte) = r?;
             *cur = addr;
@@ -85,25 +135,20 @@ impl MmapHandler {
             }
             debug_assert!(addr >= self.spec.addr.floor());
             let frame: FrameTracker = allocator.alloc()?;
-
-            let frame_buf = frame.data().as_bytes_array_mut();
-            let addr_uz = addr.into_usize();
-            let start_uz = self.spec.addr.into_usize();
-            let n = if addr_uz < start_uz {
-                let start = start_uz - addr_uz; // 未对齐偏移量
-                debug_assert!(start < PAGE_SIZE);
-                let read = file.read_at_fast(self.spec.offset, &mut frame_buf[start..])?;
-                start + read.min(self.spec.fill_size)
+            let this_off = offset.wrapping_add(addr.into_usize());
+            let page = zc.lock().get(this_off).cloned();
+            if let Some(page) = page {
+                faster::page_copy(frame.data().as_usize_array_mut(), page.as_usize_array());
             } else {
-                let offset = self.spec.offset + addr_uz - start_uz;
-                if offset < self.spec.offset + self.spec.fill_size {
-                    let read = file.read_at_fast(offset, frame_buf)?;
-                    read.min(self.spec.offset + self.spec.fill_size - offset)
-                } else {
-                    0 // 填充0
-                }
-            };
-            frame.data().as_bytes_array_mut()[n..].fill(0);
+                self.fast_load_data(file, addr, frame.data().as_usize_array_mut())?;
+                let sp = allocator.alloc()?;
+                faster::page_copy(
+                    sp.data().as_usize_array_mut(),
+                    frame.data().as_usize_array_mut(),
+                );
+                zc.lock()
+                    .insert(this_off, SharePage::new(SharedCounter::new(), sp.consume()));
+            }
             pte.alloc_by_frame(self.perm(), frame.consume());
         }
         Ok(())
@@ -124,27 +169,20 @@ impl MmapHandler {
         if pte.is_valid() {
             return Ok(());
         }
+        // 调用这个函数的时候 try_rd_only_shared 已经失败了
         debug_assert!(addr >= self.spec.addr.floor());
         let frame: FrameTracker = allocator.alloc()?;
+        self.fast_load_data(file, addr, frame.data().as_usize_array_mut())?;
+        let zc = self.spec.zero_copy.as_ref().unwrap();
+        let sp = allocator.alloc()?;
+        let offset = self.get_offset(addr);
+        faster::page_copy(
+            sp.data().as_usize_array_mut(),
+            frame.data().as_usize_array_mut(),
+        );
+        zc.lock()
+            .insert(offset, SharePage::new(SharedCounter::new(), sp.consume()));
 
-        let frame_buf = frame.data().as_bytes_array_mut();
-        let addr_uz = addr.into_usize();
-        let start_uz = self.spec.addr.into_usize();
-        let n = if addr_uz < start_uz {
-            let start = start_uz - addr_uz; // 未对齐偏移量
-            debug_assert!(start < PAGE_SIZE);
-            let read = file.read_at_fast(self.spec.offset, &mut frame_buf[start..])?;
-            start + read.min(self.spec.fill_size)
-        } else {
-            let offset = self.spec.offset + addr_uz - start_uz;
-            if offset < self.spec.offset + self.spec.fill_size {
-                let read = file.read_at_fast(offset, frame_buf)?;
-                read.min(self.spec.offset + self.spec.fill_size - offset)
-            } else {
-                0 // 填充0
-            }
-        };
-        frame.data().as_bytes_array_mut()[n..].fill(0);
         pte.alloc_by_frame(self.perm(), frame.consume());
         Ok(())
     }
@@ -302,5 +340,32 @@ impl UserAreaHandler for MmapHandler {
             spec: self.spec.clone(),
             base: HandlerBase::new(),
         })
+    }
+    fn try_rd_only_shared(
+        &self,
+        addr: UserAddr4K,
+        allocator: &mut dyn FrameAllocator,
+    ) -> Option<SharePage> {
+        if let Some(zc) = self.spec.zero_copy.as_ref() {
+            if unsafe { zc.unsafe_get().is_empty() } {
+                return None;
+            }
+            debug_assert!(self.spec.file.is_some());
+            let offset = self.get_offset(addr);
+            if let Some(page) = zc.lock().get(offset).cloned() {
+                return Some(page);
+            }
+            let file = self.spec.file.as_ref().unwrap().vfs_file().ok()?;
+            let frame = allocator.alloc().ok()?;
+            self.fast_load_data(file, addr, frame.data().as_usize_array_mut())
+                .ok()?;
+            let (s0, s1) = SharedCounter::new_dup();
+            let s0 = SharePage::new(s0, frame.data());
+            let s1 = SharePage::new(s1, frame.consume());
+            zc.lock().insert(offset, s0);
+            Some(s1)
+        } else {
+            None
+        }
     }
 }

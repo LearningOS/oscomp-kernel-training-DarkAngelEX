@@ -24,6 +24,8 @@ use crate::{
 
 use self::base::HandlerBase;
 
+use super::zero_copy::SharePage;
+
 pub mod base;
 pub mod delay;
 pub mod manager;
@@ -193,6 +195,14 @@ pub trait UserAreaHandler: Send + 'static {
     ) {
         stack_trace!();
         self.unmap_ua_spec(pt, addr, allocator)
+    }
+    /// 零拷贝缓存复制只读页
+    fn try_rd_only_shared(
+        &self,
+        _addr: UserAddr4K,
+        _allocator: &mut dyn FrameAllocator,
+    ) -> Option<SharePage> {
+        None
     }
     /// 以 addr 为界切除 all 左侧, 即返回 all.start..addr, 自身变为 addr..all.end
     ///

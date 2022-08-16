@@ -152,6 +152,9 @@ impl FsInode for TmpFsFile {
             PL::POLLOUT
         }
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        (unsafe { (*self.fs.as_ptr()).dev }, self.ino)
+    }
     fn stat_fast(&self, stat: &mut Stat) -> SysR<()> {
         let (access_time, modify_time) = *self.timer.lock();
         *stat = Stat::zeroed();

@@ -173,6 +173,9 @@ impl FsInode for Fat32InodeV {
             PL::POLLOUT
         }
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        (self.manager().dev, self.ino)
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {
             let dev = self.manager().dev;

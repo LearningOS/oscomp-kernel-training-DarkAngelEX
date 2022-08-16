@@ -27,6 +27,9 @@ impl FsInode for ZeroInode {
     fn detach(&self) -> ASysR<()> {
         todo!()
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        (0, 100002)
+    }
     // === 目录操作 ===
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { Err(SysError::ENOTDIR) })

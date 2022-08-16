@@ -292,6 +292,9 @@ impl FsInode for BlockDeviceWraper {
     fn is_dir(&self) -> bool {
         false
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        todo!()
+    }
     fn stat<'a>(&'a self, _stat: &'a mut Stat) -> ASysR<()> {
         todo!()
     }

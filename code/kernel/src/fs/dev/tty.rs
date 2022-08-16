@@ -29,6 +29,9 @@ impl FsInode for TtyInode {
     fn is_dir(&self) -> bool {
         false
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        (0, 100001)
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {
             *stat = Stat::zeroed();

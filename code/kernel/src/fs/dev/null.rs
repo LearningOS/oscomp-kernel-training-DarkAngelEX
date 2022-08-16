@@ -24,6 +24,9 @@ impl FsInode for NullInode {
     fn is_dir(&self) -> bool {
         false
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        (0, 100000)
+    }
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()> {
         Box::pin(async move {
             stat.st_mode = S_IFCHR | 0o666;
@@ -77,11 +80,7 @@ impl FsInode for NullInode {
     ) -> SysRet {
         Ok(0)
     }
-    fn write_at_fast(
-        &self,
-        buf: &[u8],
-        _offset_with_ptr: (usize, Option<&AtomicUsize>),
-    ) -> SysRet {
+    fn write_at_fast(&self, buf: &[u8], _offset_with_ptr: (usize, Option<&AtomicUsize>)) -> SysRet {
         Ok(buf.len())
     }
     fn read_at<'a>(

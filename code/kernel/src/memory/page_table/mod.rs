@@ -41,7 +41,10 @@ bitflags! {
 }
 
 impl PTEFlags {
-    pub fn executable(&self) -> bool {
+    pub fn writable(self) -> bool {
+        self.contains(Self::W)
+    }
+    pub fn executable(self) -> bool {
         self.contains(Self::X)
     }
 }

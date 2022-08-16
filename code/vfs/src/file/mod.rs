@@ -121,6 +121,9 @@ impl VfsFile {
     pub fn is(&self, other: &Self) -> bool {
         core::ptr::eq(self.inode.as_ref(), other.inode.as_ref())
     }
+    pub fn dev_ino(&self) -> (usize, usize) {
+        self.fsinode().dev_ino()
+    }
     pub fn is_dir(&self) -> bool {
         self.inode.is_dir()
     }

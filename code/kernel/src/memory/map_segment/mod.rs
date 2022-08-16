@@ -36,6 +36,7 @@ pub mod handler;
 pub mod prediect;
 mod sc_manager;
 mod shared;
+pub mod zero_copy;
 
 type HandlerIDAllocator = LeakFromUsizeAllocator<HandlerID, ForwardWrapper>;
 
@@ -213,7 +214,25 @@ impl MapSegment {
         let pt = pt!(self);
         let pte = match pt.try_get_pte_user(addr) {
             // 这个页还没有被映射, 映射一个唯一页
-            None => return h.page_fault(pt, addr, access, allocator),
+            None => {
+                let perm = h.perm();
+                access.check(perm).map_err(|()| SysError::EFAULT)?;
+                if let Some(page) = h.try_rd_only_shared(addr, allocator) {
+                    let pte = pt.get_pte_user(addr, allocator)?;
+                    if access.write {
+                        let x = allocator.alloc()?;
+                        faster::page_copy(x.data().as_usize_array_mut(), page.as_usize_array());
+                        pte.alloc_by_frame(perm, x.consume());
+                    } else {
+                        let (sc, pa) = page.into_inner();
+                        self.sc_manager.insert_by(addr, sc);
+                        pte.alloc_by_frame(perm, pa);
+                        pte.become_shared(false);
+                    }
+                    return Ok(pt.flush_va_asid_fn(addr));
+                }
+                return h.page_fault(pt, addr, access, allocator);
+            }
             Some(a) => a,
         };
         // 如果pte没有X标志位, 那一定是用户故意的, 操作失败
@@ -232,6 +251,7 @@ impl MapSegment {
         // COW操作
         debug_assert!(pte.shared());
         self.predict.insert(addr);
+
         if let Some(predictor) = self.parent.upgrade() {
             predictor.insert(addr);
         }

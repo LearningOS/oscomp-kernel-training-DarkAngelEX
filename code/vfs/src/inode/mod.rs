@@ -32,6 +32,7 @@ pub trait FsInode: Send + Sync + 'static {
     fn stat_fast(&self, _stat: &mut Stat) -> SysR<()> {
         SysR::Err(SysError::EAGAIN)
     }
+    fn dev_ino(&self) -> (usize, usize);
     fn stat<'a>(&'a self, stat: &'a mut Stat) -> ASysR<()>;
     fn utimensat(&self, _times: [TimeSpec; 2], _now: fn() -> Instant) -> ASysR<()> {
         unimplemented!("utimensat {}", core::any::type_name::<Self>())

@@ -167,6 +167,12 @@ impl FsInode for TmpFsInode {
             TmpFsImpl::Dir(_) => unimplemented!(),
         }
     }
+    fn dev_ino(&self) -> (usize, usize) {
+        match self.0.as_ref() {
+            TmpFsImpl::File(f) => f.dev_ino(),
+            TmpFsImpl::Dir(d) => d.dev_ino(),
+        }
+    }
     /// Tmpfs不需要detach操作
     fn detach(&self) -> ASysR<()> {
         Box::pin(async move { Ok(()) })
