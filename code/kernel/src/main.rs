@@ -142,6 +142,12 @@ pub fn kmain(_hart_id: usize) -> ! {
             spin_end = None;
             continue;
         }
+        #[cfg(feature = "submit")]
+        {
+            if _hart_id <= 2 {
+                continue;
+            }
+        }
         let now = timer::now();
         match spin_end {
             None => {
