@@ -5,11 +5,11 @@ use core::{
 
 use alloc::{
     boxed::Box,
-    collections::BTreeMap,
     string::{String, ToString},
     vec::Vec,
 };
 use ftl_util::{
+    container::str_map::StrMap,
     error::{SysError, SysR},
     fs::{
         stat::{Stat, S_IFDIR},
@@ -25,7 +25,7 @@ use super::{TmpFs, TmpFsInode};
 pub struct TmpFsDir {
     readable: AtomicBool,
     writable: AtomicBool,
-    subs: RwSleepMutex<BTreeMap<String, TmpFsInode>, Spin>,
+    subs: RwSleepMutex<StrMap<TmpFsInode>, Spin>,
     ino: usize,
     fs: NonNull<TmpFs>,
 }
@@ -37,7 +37,7 @@ impl TmpFsDir {
         Self {
             readable: AtomicBool::new(r),
             writable: AtomicBool::new(w),
-            subs: RwSleepMutex::new(BTreeMap::new()),
+            subs: RwSleepMutex::new(StrMap::new()),
             ino,
             fs,
         }
@@ -63,7 +63,7 @@ impl TmpFsDir {
         }
         let ino = unsafe { (*self.fs.as_ptr()).inoalloc.fetch_add(1, Ordering::Relaxed) };
         let new = TmpFsInode::new(dir, rw, ino, self.fs);
-        lk.try_insert(name.to_string(), new.clone()).ok().unwrap();
+        lk.force_insert(name.to_string(), new.clone());
         Ok(Box::new(new))
     }
     pub async fn create(&self, name: &str, dir: bool, rw: (bool, bool)) -> SysR<Box<dyn FsInode>> {
@@ -73,7 +73,7 @@ impl TmpFsDir {
         }
         let ino = unsafe { (*self.fs.as_ptr()).inoalloc.fetch_add(1, Ordering::Relaxed) };
         let new = TmpFsInode::new(dir, rw, ino, self.fs);
-        lk.try_insert(name.to_string(), new.clone()).ok().unwrap();
+        lk.force_insert(name.to_string(), new.clone());
         Ok(Box::new(new))
     }
     pub async fn place_inode<'a>(
@@ -87,7 +87,7 @@ impl TmpFsDir {
             return Err(SysError::EEXIST);
         }
         let new = TmpFsInode::new_inode(inode);
-        lk.try_insert(name.to_string(), new.clone()).ok().unwrap();
+        lk.force_insert(name.to_string(), new.clone());
         Ok(Box::new(new))
     }
     pub async fn unlink_child<'a>(&'a self, name: &'a str, _release: bool) -> SysR<()> {
@@ -96,7 +96,7 @@ impl TmpFsDir {
         if sub.is_dir() {
             return Err(SysError::EISDIR);
         }
-        let _f = lk.remove(name).unwrap();
+        let _f = lk.force_remove(name);
         Ok(())
     }
     pub async fn rmdir_child<'a>(&'a self, name: &'a str) -> SysR<()> {
@@ -105,7 +105,7 @@ impl TmpFsDir {
         if unsafe { !child.dir()?.subs.unsafe_get().is_empty() } {
             return Err(SysError::ENOTEMPTY);
         }
-        let _sub = lk.remove(name).unwrap();
+        let _sub = lk.force_remove(name);
         Ok(())
     }
     pub async fn list(&self) -> SysR<Vec<(DentryType, String)>> {
