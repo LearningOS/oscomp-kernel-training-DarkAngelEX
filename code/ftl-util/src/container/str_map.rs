@@ -12,7 +12,7 @@ fn hash_fn(name: &str) -> usize {
     })
 }
 
-const MAX_TABLE: usize = 200;
+const MAX_TABLE: usize = 165; // 大小约 4KB
 
 pub struct StrMap<T> {
     table: [Vec<(String, T)>; MAX_TABLE],
