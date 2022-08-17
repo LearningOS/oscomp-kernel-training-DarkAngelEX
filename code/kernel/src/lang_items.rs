@@ -41,6 +41,7 @@ fn panic(info: &PanicInfo) -> ! {
                 .print_all_stack();
         }
     }
+    println!("!TEST FINISH!");
     println!("shutdown!!");
     // loop {}
     sbi::shutdown()
