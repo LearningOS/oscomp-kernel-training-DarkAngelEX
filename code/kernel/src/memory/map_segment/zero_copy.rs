@@ -1,11 +1,16 @@
 use core::mem::ManuallyDrop;
 
-use alloc::{collections::BTreeMap, sync::Arc};
+use alloc::{
+    collections::{BTreeMap, VecDeque},
+    sync::Arc,
+    vec::Vec,
+};
+use ftl_util::faster;
 
 use crate::{
     memory::{
-        address::PhyAddrRef4K,
-        allocator::frame::{self, FrameAllocator},
+        address::{PageCount, PhyAddrRef4K},
+        allocator::frame::{self, global::FrameTracker, FrameAllocator},
     },
     sync::mutex::SpinLock,
 };
@@ -40,6 +45,9 @@ impl SharePage {
         core::mem::forget(self);
         (sc, pa)
     }
+    pub fn addr(&self) -> PhyAddrRef4K {
+        self.1
+    }
     pub fn try_consume(self) -> Result<PhyAddrRef4K, Self> {
         if self.0.unique() {
             let pa = self.1;
@@ -63,27 +71,27 @@ impl SharePage {
 }
 
 pub struct ZeroCopy {
-    set: BTreeMap<usize, SharePage>,
+    shared: BTreeMap<usize, SharePage>,
 }
 
 impl ZeroCopy {
     pub fn new() -> Self {
         Self {
-            set: BTreeMap::new(),
+            shared: BTreeMap::new(),
         }
     }
     pub fn is_empty(&self) -> bool {
-        self.set.is_empty()
+        self.shared.is_empty()
     }
     pub fn contains(&self, offset: usize) -> bool {
-        self.set.contains_key(&offset)
+        self.shared.contains_key(&offset)
     }
     pub fn insert(&mut self, offset: usize, sc: SharePage) {
         // 由于会在多核环境下使用, 因此允许释放
-        let _ = self.set.insert(offset, sc);
+        let _ = self.shared.insert(offset, sc);
     }
     pub fn get(&self, offset: usize) -> Option<&SharePage> {
-        self.set.get(&offset)
+        self.shared.get(&offset)
     }
 }
 
@@ -101,4 +109,100 @@ pub fn get_zero_copy(dev: usize, ino: usize) -> Arc<SpinLock<ZeroCopy>> {
 
 pub fn remove_zero_copy(dev: usize, ino: usize) {
     let _ = ZERO_COPY_SEARCH.lock().remove(&(dev, ino));
+}
+
+/// 所有权页面缓存
+pub struct OwnCache(SharePage, Vec<FrameTracker>);
+
+const OWNER_HASH_SIZE: usize = 2048;
+const CACHE_COUNT: usize = 2; // 每个共享页面的缓存数量
+
+/// 所有权页面缓冲, 共享物理地址就是索引
+pub struct OwnManager {
+    requests: SpinLock<Option<VecDeque<SharePage>>>, // 复制请求
+    table: [SpinLock<Vec<OwnCache>>; OWNER_HASH_SIZE], // 共享页面所有权缓冲
+}
+
+impl OwnManager {
+    const NODE: SpinLock<Vec<OwnCache>> = SpinLock::new(Vec::new());
+    pub const fn new() -> Self {
+        Self {
+            table: [Self::NODE; _],
+            requests: SpinLock::new(None),
+        }
+    }
+    fn index(page: &SharePage) -> usize {
+        PageCount::page_floor(page.addr().into_usize()).0 % OWNER_HASH_SIZE
+    }
+    pub fn request_and_take_own(&self, page: &SharePage) -> Option<FrameTracker> {
+        let index = Self::index(page);
+        let mut ret = None;
+        let mut req = true;
+        let mut exist = false;
+        let mut lk = self.table[index].lock();
+        for cache in &mut *lk {
+            if cache.0.addr() != page.addr() {
+                continue;
+            }
+            exist = true;
+            ret = cache.1.pop();
+            if cache.1.len() >= CACHE_COUNT {
+                req = false;
+            }
+        }
+        if !exist {
+            lk.push(OwnCache(page.clone(), Vec::new()));
+        }
+        drop(lk);
+        if req {
+            self.requests
+                .lock()
+                .get_or_insert_with(|| VecDeque::new())
+                .push_back(page.clone());
+        }
+        ret
+    }
+    /// 需要保证pa的内容和page完全相同
+    pub fn insert_own_page(&self, page: &SharePage, pa: FrameTracker) {
+        let index = Self::index(page);
+        let mut lk = self.table[index].lock();
+        for cache in &mut *lk {
+            if cache.0.addr() != page.addr() {
+                continue;
+            }
+            cache.1.push(pa);
+            return;
+        }
+        // 找不到就会在这里释放内存
+    }
+    pub fn try_handle(&self) -> bool {
+        {
+            if unsafe { self.requests.unsafe_get().is_none() } {
+                return false;
+            }
+            if unsafe { self.requests.unsafe_get().as_ref().unwrap().is_empty() } {
+                return false;
+            }
+        }
+        let req = self.requests.lock().as_mut().unwrap().pop_front();
+        if let Some(req) = req {
+            if let Ok(dst) = frame::global::alloc() {
+                faster::page_copy(dst.data().as_usize_array_mut(), req.as_usize_array());
+                self.insert_own_page(&req, dst);
+                return true;
+            }
+        }
+        false
+    }
+}
+
+static OWN_MANAGER: OwnManager = OwnManager::new();
+
+pub fn request_and_take_own(page: &SharePage) -> Option<FrameTracker> {
+    OWN_MANAGER.request_and_take_own(page)
+}
+
+/// 不断生成共享页面
+pub fn own_try_handle() -> bool {
+    OWN_MANAGER.try_handle()
 }

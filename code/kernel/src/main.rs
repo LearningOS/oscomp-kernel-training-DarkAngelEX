@@ -107,13 +107,17 @@ mod timer;
 mod trap;
 mod user;
 
-use core::time::Duration;
+use core::{
+    sync::atomic::{AtomicUsize, Ordering},
+    time::Duration,
+};
 
 use ftl_util::time::Instant;
 use riscv::register::{sie, sstatus};
 
 use crate::config::IDIE_SPIN_TIME;
 
+static ENTER_CNT: AtomicUsize = AtomicUsize::new(0);
 /// This function will be called by rust_main() in hart/mod.rs
 ///
 /// It will run on each core.
@@ -133,6 +137,13 @@ pub fn kmain(_hart_id: usize) -> ! {
         sstatus::set_sie();
         sstatus::clear_sum();
     }
+    let entry_id = ENTER_CNT.fetch_add(1, Ordering::Relaxed);
+    if entry_id == 2 {
+        loop {
+            while memory::own_try_handle() {}
+            // timer::set_next_trigger_ex(Duration::from_micros(10));
+        }
+    }
     let mut spin_end: Option<Instant> = None;
     loop {
         if executor::run_until_idle() != 0 {
@@ -144,8 +155,13 @@ pub fn kmain(_hart_id: usize) -> ! {
         }
         #[cfg(feature = "submit")]
         {
-            if _hart_id <= 2 {
+            if entry_id < 2 {
                 continue;
+            }
+        }
+        if entry_id == 3 {
+            while memory::own_try_handle() {
+                spin_end = None;
             }
         }
         let now = timer::now();

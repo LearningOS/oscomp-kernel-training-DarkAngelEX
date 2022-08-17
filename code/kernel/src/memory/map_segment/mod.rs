@@ -220,8 +220,15 @@ impl MapSegment {
                 if let Some(page) = h.try_rd_only_shared(addr, allocator) {
                     let pte = pt.get_pte_user(addr, allocator)?;
                     if access.write {
-                        let x = allocator.alloc()?;
-                        faster::page_copy(x.data().as_usize_array_mut(), page.as_usize_array());
+                        let x = match zero_copy::request_and_take_own(&page) {
+                            Some(x) => x,
+                            None => {
+                                let x = allocator.alloc()?;
+                                let dst = x.data().as_usize_array_mut();
+                                faster::page_copy(dst, page.as_usize_array());
+                                x
+                            }
+                        };
                         pte.alloc_by_frame(perm, x.consume());
                     } else {
                         let (sc, pa) = page.into_inner();
