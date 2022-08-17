@@ -503,6 +503,9 @@ impl Syscall<'_> {
             );
         }
         let flags = OpenFlags::from_bits(flags).unwrap();
+        if flags.create() {
+            return Err(SysError::EAGAIN);
+        }
         let inode = self.fd_path_open_fast(fd, path, flags, mode)?;
         let close_on_exec = flags.contains(OpenFlags::CLOEXEC);
         let fd = self.alive_then(|a| a.fd_table.insert(inode, close_on_exec, flags))?;

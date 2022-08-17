@@ -42,7 +42,13 @@ pub trait FsInode: Send + Sync + 'static {
     // === 目录操作 ===
 
     fn list(&self) -> ASysR<Vec<(DentryType, String)>>;
+    fn search_fast(&self, _name: &str) -> SysR<Box<dyn FsInode>> {
+        Err(SysError::EAGAIN)
+    }
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>>;
+    fn create_fast(&self, _name: &str, _dir: bool, _rw: (bool, bool)) -> SysR<Box<dyn FsInode>> {
+        Err(SysError::EAGAIN)
+    }
     fn create<'a>(&'a self, name: &'a str, dir: bool, rw: (bool, bool)) -> ASysR<Box<dyn FsInode>>;
     fn place_inode<'a>(
         &'a self,
@@ -150,6 +156,10 @@ impl VfsInode {
     }
     pub async fn place_inode(&self, name: &str, inode: Box<dyn FsInode>) -> SysR<Arc<VfsInode>> {
         let fsinode = self.fsinode.place_inode(name, inode).await?;
+        Ok(Self::new(self.fssp, fsinode))
+    }
+    pub fn search_fast(&self, name: &str) -> SysR<Arc<VfsInode>> {
+        let fsinode = self.fsinode.search_fast(name)?;
         Ok(Self::new(self.fssp, fsinode))
     }
     /// 只有目录项可以运行

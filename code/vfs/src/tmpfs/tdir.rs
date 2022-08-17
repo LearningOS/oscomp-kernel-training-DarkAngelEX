@@ -46,10 +46,25 @@ impl TmpFsDir {
     pub(super) unsafe fn set_fs(&self, fs: NonNull<TmpFs>) {
         *(&self.fs as *const _ as *mut _) = fs;
     }
+    pub fn search_fast(&self, name: &str) -> SysR<Box<dyn FsInode>> {
+        let lk = self.subs.try_shared_lock().ok_or(SysError::EAGAIN)?;
+        let d = lk.get(name).ok_or(SysError::ENOENT)?.clone();
+        Ok(Box::new(d))
+    }
     pub async fn search(&self, name: &str) -> SysR<Box<dyn FsInode>> {
         let lk = self.subs.shared_lock().await;
         let d = lk.get(name).ok_or(SysError::ENOENT)?.clone();
         Ok(Box::new(d))
+    }
+    pub fn create_fast(&self, name: &str, dir: bool, rw: (bool, bool)) -> SysR<Box<dyn FsInode>> {
+        let mut lk = self.subs.try_unique_lock().ok_or(SysError::EAGAIN)?;
+        if lk.get(name).is_some() {
+            return Err(SysError::EEXIST);
+        }
+        let ino = unsafe { (*self.fs.as_ptr()).inoalloc.fetch_add(1, Ordering::Relaxed) };
+        let new = TmpFsInode::new(dir, rw, ino, self.fs);
+        lk.try_insert(name.to_string(), new.clone()).ok().unwrap();
+        Ok(Box::new(new))
     }
     pub async fn create(&self, name: &str, dir: bool, rw: (bool, bool)) -> SysR<Box<dyn FsInode>> {
         let mut lk = self.subs.unique_lock().await;

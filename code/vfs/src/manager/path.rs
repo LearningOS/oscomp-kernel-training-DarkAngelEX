@@ -70,11 +70,15 @@ impl Path {
             return Err(SysError::ENOTDIR);
         }
         let name_hash = HashName::hash_name(s);
+        let inode_seq = self.dentry.inode_seq();
         if let Some(next) = self.dentry.search_child_in_cache(s, name_hash) {
             self.dentry = next;
             return Ok(());
         }
-        Err(SysError::EAGAIN)
+        self.dentry = self
+            .dentry
+            .search_child_deep_fast(s, name_hash, inode_seq)?;
+        Ok(())
     }
     async fn search_child(&mut self, s: &str) -> SysR<()> {
         if name_invalid(s) || self.dentry.cache.closed() {

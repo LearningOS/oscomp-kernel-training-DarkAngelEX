@@ -106,6 +106,42 @@ impl Dentry {
             cache.take_dentry()
         }
     }
+
+    /// 如果序列号匹配说明子目录缓存没有变化, 跳过缓存名字搜索
+    ///
+    /// 此函数会持有睡眠锁
+    pub fn search_child_deep_fast(
+        self: &Arc<Self>,
+        name: &str,
+        name_hash: NameHash,
+        inode_seq: usize,
+    ) -> SysR<Arc<Dentry>> {
+        stack_trace!();
+        debug_assert!(self.is_dir());
+        let cache = self.cache.as_ref();
+        let _lk = cache.dir_lock.try_lock().ok_or(SysError::EAGAIN)?;
+        if inode_seq != self.inode_seq() {
+            if let Some(d) = self.search_child_in_cache(name, name_hash) {
+                return Ok(d);
+            }
+        }
+        if cache.closed() {
+            return Err(SysError::ENOENT);
+        }
+        let inode = cache.inode.lock().clone().into_inode()?;
+        let new = inode.search_fast(name)?;
+        let dentry = DentryCache::new_inited(
+            HashName::new(self.as_ref(), name),
+            new.is_dir(),
+            Some(self.clone()),
+            InodeS::Some(new),
+            (cache.lru, cache.fssp, cache.index),
+            true,
+        );
+        debug_assert!(inode_seq == self.inode_seq());
+        self.cache.seq_increase();
+        Ok(dentry)
+    }
     /// 如果序列号匹配说明子目录缓存没有变化, 跳过缓存名字搜索
     ///
     /// 此函数会持有睡眠锁

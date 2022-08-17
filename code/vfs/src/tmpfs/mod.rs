@@ -180,8 +180,14 @@ impl FsInode for TmpFsInode {
     fn list(&self) -> ASysR<Vec<(DentryType, String)>> {
         Box::pin(async move { self.dir()?.list().await })
     }
+    fn search_fast(&self, name: &str) -> SysR<Box<dyn FsInode>> {
+        self.dir()?.search_fast(name)
+    }
     fn search<'a>(&'a self, name: &'a str) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { self.dir()?.search(name).await })
+    }
+    fn create_fast(&self, name: &str, dir: bool, rw: (bool, bool)) -> SysR<Box<dyn FsInode>> {
+        self.dir()?.create_fast(name, dir, rw)
     }
     fn create<'a>(&'a self, name: &'a str, dir: bool, rw: (bool, bool)) -> ASysR<Box<dyn FsInode>> {
         Box::pin(async move { self.dir()?.create(name, dir, rw).await })
