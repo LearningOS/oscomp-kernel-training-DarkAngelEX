@@ -112,7 +112,9 @@ pub fn remove_zero_copy(dev: usize, ino: usize) {
 }
 
 /// 所有权页面缓存
-pub struct OwnCache(SharePage, Vec<FrameTracker>);
+///
+/// 第三个成员是在路的页面的数量, 防止一堆请求堆起来让内存溢出
+pub struct OwnCache(SharePage, Vec<FrameTracker>, usize);
 
 const OWNER_HASH_SIZE: usize = 2048;
 const CACHE_COUNT: usize = 2; // 每个共享页面的缓存数量
@@ -146,12 +148,15 @@ impl OwnManager {
             }
             exist = true;
             ret = cache.1.pop();
-            if cache.1.len() >= CACHE_COUNT {
+            if cache.1.len() + cache.2 >= CACHE_COUNT {
                 req = false;
+            } else {
+                cache.2 += 1;
             }
+            break;
         }
         if !exist {
-            lk.push(OwnCache(page.clone(), Vec::new()));
+            lk.push(OwnCache(page.clone(), Vec::new(), 1));
         }
         drop(lk);
         if req {
@@ -171,6 +176,9 @@ impl OwnManager {
                 continue;
             }
             cache.1.push(pa);
+            if cache.2 > 0 {
+                cache.2 -= 1;
+            }
             return;
         }
         // 找不到就会在这里释放内存

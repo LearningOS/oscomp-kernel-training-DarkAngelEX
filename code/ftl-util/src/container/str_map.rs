@@ -12,14 +12,12 @@ fn hash_fn(name: &str) -> usize {
     })
 }
 
-const MAX_TABLE: usize = 165; // 大小约 4KB
-
-pub struct StrMap<T> {
+pub struct StrMap<T, const MAX_TABLE: usize> {
     table: [Vec<(String, T)>; MAX_TABLE],
     len: usize,
 }
 
-impl<T> StrMap<T> {
+impl<T, const MAX_TABLE: usize> StrMap<T, MAX_TABLE> {
     const EMPTY_NODE: Vec<(String, T)> = Vec::new();
     pub const fn new() -> Self {
         Self {
@@ -64,11 +62,11 @@ impl<T> StrMap<T> {
         panic!()
     }
     pub fn iter<'a>(&'a self) -> impl Iterator<Item = (&'a String, &'a T)> {
-        struct Iter<'a, T> {
-            map: &'a StrMap<T>,
+        struct Iter<'a, T, const MAX_TABLE: usize> {
+            map: &'a StrMap<T, MAX_TABLE>,
             index: (usize, usize),
         }
-        impl<'a, T> Iterator for Iter<'a, T> {
+        impl<'a, T, const MAX_TABLE: usize> Iterator for Iter<'a, T, MAX_TABLE> {
             type Item = (&'a String, &'a T);
 
             fn next(&mut self) -> Option<Self::Item> {

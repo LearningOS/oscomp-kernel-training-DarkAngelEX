@@ -78,6 +78,7 @@ impl Fs for TmpFs {
 
 impl TmpFs {
     pub fn new(dev: usize) -> Box<Self> {
+        stack_trace!();
         let root = TmpFsInode::new(true, (true, true), 1, NonNull::dangling());
         let fs = Box::new(Self {
             dev,

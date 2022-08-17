@@ -25,7 +25,7 @@ use super::{TmpFs, TmpFsInode};
 pub struct TmpFsDir {
     readable: AtomicBool,
     writable: AtomicBool,
-    subs: RwSleepMutex<StrMap<TmpFsInode>, Spin>,
+    subs: RwSleepMutex<StrMap<TmpFsInode, 163>, Spin>,
     ino: usize,
     fs: NonNull<TmpFs>,
 }

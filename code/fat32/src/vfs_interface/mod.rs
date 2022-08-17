@@ -58,6 +58,7 @@ impl FsType for Fat32Type {
         "vfat".to_string()
     }
     fn new_fs(&self, dev: usize) -> Box<dyn Fs> {
+        stack_trace!();
         let list_max_dirty = self.list_max_dirty;
         let list_max_cache = self.list_max_cache;
         let block_max_dirty = self.block_max_dirty;

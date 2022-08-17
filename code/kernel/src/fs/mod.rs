@@ -102,6 +102,7 @@ pub async fn init() {
     fat32type.config_cache(1000, 1_000_000);
     fat32type.config_node(100);
     vfs.import_fstype(Box::new(fat32type));
+    stack_trace!();
     // 挂载几个全局目录, 这些会使用TmpFs常驻内存
     vfs.set_spec_dentry("dev".to_string());
     vfs.set_spec_dentry("etc".to_string());
@@ -109,7 +110,7 @@ pub async fn init() {
     vfs.set_spec_dentry("var".to_string());
     vfs.set_spec_dentry("usr".to_string());
     vfs.set_spec_dentry("proc".to_string());
-
+    stack_trace!();
     place_inode(&vfs, "/dev/null", Box::new(NullInode)).await;
     place_inode(&vfs, "/dev/tty", Box::new(TtyInode)).await;
     place_inode(&vfs, "/dev/zero", Box::new(ZeroInode)).await;
