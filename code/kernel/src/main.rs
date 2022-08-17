@@ -155,9 +155,10 @@ pub fn kmain(_hart_id: usize) -> ! {
         }
         #[cfg(feature = "submit")]
         {
-            if entry_id < 2 {
-                continue;
-            }
+            // if entry_id < 2 {
+            //     continue;
+            // }
+            continue;
         }
         let now = timer::now();
         match spin_end {
