@@ -138,12 +138,7 @@ pub fn kmain(_hart_id: usize) -> ! {
         sstatus::clear_sum();
     }
     let entry_id = ENTER_CNT.fetch_add(1, Ordering::Relaxed);
-    if entry_id == 2 {
-        loop {
-            while memory::own_try_handle() {}
-            // timer::set_next_trigger_ex(Duration::from_micros(10));
-        }
-    }
+
     let mut spin_end: Option<Instant> = None;
     loop {
         if executor::run_until_idle() != 0 {
@@ -153,15 +148,15 @@ pub fn kmain(_hart_id: usize) -> ! {
             spin_end = None;
             continue;
         }
+        if entry_id != 0 {
+            while memory::own_try_handle() {
+                spin_end = None;
+            }
+        }
         #[cfg(feature = "submit")]
         {
             if entry_id < 2 {
                 continue;
-            }
-        }
-        if entry_id == 3 {
-            while memory::own_try_handle() {
-                spin_end = None;
             }
         }
         let now = timer::now();
