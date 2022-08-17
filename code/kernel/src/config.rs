@@ -8,7 +8,7 @@ pub const TIME_INTERRUPT_PER_SEC: usize = 10;
 
 pub const USER_STACK_SIZE: usize = PAGE_SIZE * 64; // 256KB
 pub const USER_STACK_RESERVE: usize = PAGE_SIZE; // 一开始就映射的用户栈大小
-pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 8; // 内核栈大小, 每个CPU一个
+pub const KERNEL_STACK_SIZE: usize = PAGE_SIZE * 16; // 内核栈大小, 每个CPU一个
 pub const USER_FNO_DEFAULT: RLimit = RLimit::new_equal(200); // 控制最大文件打开数量等的默认值
 pub const FS_CACHE_MAX_SIZE: usize = 200; // vfs中缓存的inode数量
 

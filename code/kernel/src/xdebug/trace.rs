@@ -133,10 +133,6 @@ pub fn print_sp() {
     println!("current sp {:#016x}", sp);
 }
 
-fn using_stack_size_impl() -> usize {
-    local::stack_size()
-}
-
 fn using_stack_size_print_impl(current: usize) {
     let (m, k, b) = tools::size_to_mkb(current);
     print!("stack size: ");
@@ -157,8 +153,9 @@ fn using_stack_size_print_impl(current: usize) {
     println!();
 }
 
+/// 获取当前栈大小. 如果栈大小超过了设定大小则爆红输出
 pub fn using_stack_size() -> usize {
-    let current = using_stack_size_impl();
+    let current = local::stack_size();
     if current >= KERNEL_STACK_SIZE {
         using_stack_size_print_impl(current);
     }
@@ -166,7 +163,7 @@ pub fn using_stack_size() -> usize {
 }
 
 pub fn using_stack_size_print() -> usize {
-    let current = using_stack_size_impl();
+    let current = local::stack_size();
     using_stack_size_print_impl(current);
     current
 }

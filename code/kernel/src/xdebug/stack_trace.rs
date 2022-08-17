@@ -3,9 +3,13 @@ use ftl_util::xdebug::stack::XInfo;
 
 use crate::{hart::cpu, local, user::NativeAutoSie};
 
+use super::trace;
+
 pub fn init() {
     ftl_util::xdebug::stack::init(
         |msg, file, line| {
+            // 检测栈溢出, 溢出时会爆红, 但不会panic
+            trace::stack_detection();
             let info = StackInfo::new(msg, file, line);
             // 关中断防止中断处理程序干涉操作过程
             let _sie = NativeAutoSie::new();

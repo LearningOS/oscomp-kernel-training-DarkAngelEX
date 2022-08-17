@@ -257,12 +257,18 @@ pub unsafe fn cpu_local_in_use() -> &'static [HartLocal] {
     &HART_LOCAL[cpu::hart_range()]
 }
 
+/// 设置栈底地址, 用来在debug模式检测栈溢出
+/// 
+/// 调用此函数时需要保证目前函数使用的栈大小小于4KB
 pub fn set_stack() {
     let sp = hart::current_sp();
     // round up 4KB
     hart_local().kstack_bottom = (sp & !(PAGE_SIZE - 1)) + PAGE_SIZE;
 }
 
+/// 获取当前使用的栈空间大小, 栈底地址会在内核初始化时加载
+/// 
+/// 无栈协程架构中栈从不切换, 因此 kstack_bottom 是不变的
 #[inline(never)]
 pub fn stack_size() -> usize {
     let sp = hart::current_sp();

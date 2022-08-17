@@ -279,7 +279,7 @@ impl<'a> UserCheckImpl<'a> {
         self.handle_fault_async(ptr, AccessType::RW, allocator)
             .await
     }
-    /// 此函数只会处理简单的页错误, 例如简单的空间分配, 但无法处理文件映射
+    /// 此函数只会处理简单的页错误, 例如简单的空间分配, 以及以及缓存的文件映射
     ///
     /// 此函数不需要异步上下文!
     #[inline]

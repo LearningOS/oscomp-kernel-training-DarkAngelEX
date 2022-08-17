@@ -8,7 +8,7 @@ _start:
     # 1. set sp
     # sp = bootstack + (hartid + 1) * 0x10000
     add     t0, a0, 1
-    slli    t0, t0, 15 # 32KB
+    slli    t0, t0, 16 # 64KB, max stack size
     lui     sp, %hi(bootstack)
     addi    sp, sp, %lo(bootstack)
     add     sp, sp, t0
@@ -35,7 +35,7 @@ _start:
     .align 12   # page align
     .global bootstack
 bootstack:
-    .space 4096 * 8 * 8
+    .space 4096 * 16 * 8 # 64KB x 8 CPUs
     .global bootstacktop
 bootstacktop:
 
