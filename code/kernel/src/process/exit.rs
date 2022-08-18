@@ -48,7 +48,10 @@ pub async fn exit_impl(thread: &Thread) {
         memory::set_satp_by_global();
         (parent, children) = alive.take_parent_children();
         stack_trace!();
-        *lock = None; // 这里会释放进程页表
+        // *lock = None; // 这里会释放进程页表
+        let release = lock.take().unwrap();
+        // 由其他核析构当前进程, 掩盖延迟
+        crate::executor::kernel_spawn(async move { drop(release) });
     }
     local::all_hart_sfence_vma_asid(asid);
     become_zomble(parent, pid, thread.exit_send_signal());

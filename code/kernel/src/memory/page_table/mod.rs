@@ -64,6 +64,7 @@ impl PageTableEntry {
         }
     }
     pub const EMPTY: Self = Self { bits: 0 };
+    #[inline(always)]
     pub fn reset(&mut self) {
         *self = Self::EMPTY;
     }

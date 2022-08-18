@@ -184,13 +184,11 @@ impl OwnManager {
         // 找不到就会在这里释放内存
     }
     pub fn try_handle(&self) -> bool {
-        {
-            if unsafe { self.requests.unsafe_get().is_none() } {
-                return false;
-            }
-            if unsafe { self.requests.unsafe_get().as_ref().unwrap().is_empty() } {
-                return false;
-            }
+        if unsafe { self.requests.unsafe_get().is_none() } {
+            return false;
+        }
+        if unsafe { self.requests.unsafe_get().as_ref().unwrap().is_empty() } {
+            return false;
         }
         let req = self.requests.lock().as_mut().unwrap().pop_front();
         if let Some(req) = req {

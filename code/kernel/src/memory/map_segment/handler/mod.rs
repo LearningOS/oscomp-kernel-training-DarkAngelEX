@@ -33,6 +33,9 @@ pub mod map_all;
 pub mod mmap;
 
 pub trait UserAreaHandler: Send + 'static {
+    fn type_name(&self) -> &'static str {
+        core::any::type_name::<Self>()
+    }
     fn id(&self) -> HandlerID;
     fn perm(&self) -> PTEFlags;
     fn map_perm(&self) -> PTEFlags {

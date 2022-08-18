@@ -144,10 +144,6 @@ pub fn kmain(_hart_id: usize) -> ! {
         if executor::run_until_idle() != 0 {
             spin_end = None;
         }
-        if timer::sleep::check_timer() != 0 {
-            spin_end = None;
-            continue;
-        }
         if entry_id != 0 {
             while memory::own_try_handle() {
                 spin_end = None;
@@ -158,6 +154,9 @@ pub fn kmain(_hart_id: usize) -> ! {
             // if entry_id < 2 {
             //     continue;
             // }
+            continue;
+        }
+        if true {
             continue;
         }
         let now = timer::now();
