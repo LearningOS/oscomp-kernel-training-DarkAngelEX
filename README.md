@@ -1,3 +1,5 @@
+![image-20220531000711741](doc/pic/哈工大深圳.jpg)
+
 # FTL OS
 
 FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核实现赛道的参赛操作系统，来自哈尔滨工业大学（深圳）。FTL OS使用rust语言开发，基于rust async无栈协程进行上下文切换。FTL OS追求极致的性能与高可扩展性，支持qemu平台与Hifive Unmatched平台运行。
@@ -57,7 +59,7 @@ Pass!
 make all
 ```
 
-此命令将激活feature：`submit`、`hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了rust依赖库，或使用qemu方式编译一次来下载相关的库。
+此命令将激活feature：`submit`、`board_hifive`，初始化完成后依次运行所有的测试程序。文件系统将假设SD卡使用FAT32文件系统且只有一个分区。此模式使用离线编译，请确保本地已经按照大赛标准安装了rust依赖库，或使用qemu方式编译一次来下载相关的库。
 
 #### Hifive Unmatched普通模式运行
 
@@ -87,7 +89,7 @@ make native
 
 |         文件夹         |                       描述                        |
 | :--------------------: | :-----------------------------------------------: |
-|       bootloader       |                rust-sbi二进制文件                 |
+|       bootloader       |                   sbi二进制文件                   |
 |      dependencies      |                 项目依赖的外部库                  |
 |          disk          |       决赛第一阶段的发布版本，会被写入磁盘        |
 |        easy-fs         |      rCore-tutorial-v3的ext2文件系统，已弃用      |
@@ -102,6 +104,12 @@ make native
 |          user          |   修改自rCore-tutorial-v3，包含shell与测试程序    |
 |          vfs           |           FTL OS的异步多核虚拟文件系统            |
 
-## 决赛
+## 决赛第一阶段
 
-FTL OS已经在决赛第一阶段的评测中通过了全部测试点。
+FTL OS已经在决赛第一阶段的评测中通过了全部测试点，获得了220分。
+
+## 决赛第二阶段
+
+2022年8月18日18:39，FTL OS得分为117.7977分。
+
+![决赛第二阶段](doc/pic/8-18 18-39.png)
