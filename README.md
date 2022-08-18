@@ -6,6 +6,29 @@ FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核
 
 ![os](https://img.shields.io/badge/kernel-asynchronous-red)![ISA](https://img.shields.io/badge/ISA-RISC--V-yellow)![competition](https://img.shields.io/badge/os-competition-blue)
 
+## 项目结构
+
+[doc](doc)：项目文档，包含[项目文档](doc/基于RISC-V 64的多核异步操作系统FTL OS.pdf)、[文档目录](doc/README.md)与[内核设计](doc/内核设计.md)。
+
+[code](code)：项目代码，各个文件夹的描述如下：
+
+|         文件夹         |                       描述                        |
+| :--------------------: | :-----------------------------------------------: |
+|       bootloader       |                   sbi二进制文件                   |
+|      dependencies      |                 项目依赖的外部库                  |
+|          disk          |       决赛第一阶段的发布版本，会被写入磁盘        |
+|        easy-fs         |      rCore-tutorial-v3的ext2文件系统，已弃用      |
+|      easy-fs-fuse      | 通过easy-fs生成`fs.img`磁盘文件供qemu使用，已弃用 |
+|         fat32          |           FTL OS的FAT32异步多核文件系统           |
+|       fat32-fuse       |    通过fat32生成`fat32.img`磁盘文件供qemu使用     |
+|        ftl-util        |              FTL OS所有模块的基础库               |
+|          init          |           这里的所有文件都会被写入磁盘            |
+|         kernel         |                    FTL OS内核                     |
+| testsuits-for-oskernel |                   初赛测试程序                    |
+|       libc-test        |           决赛第一阶段的测试程序源代码            |
+|          user          |   修改自rCore-tutorial-v3，包含shell与测试程序    |
+|          vfs           |           FTL OS的异步多核虚拟文件系统            |
+
 ## 如何运行
 
 #### qemu运行
@@ -69,40 +92,17 @@ make all
 make native
 ```
 
-此命令仅激活feature：`hifive`，初始化完成后依次运行所有的测试程序。此模式用于本地调试，FTL OS没有读取SD卡分区表而是用magic number定位文件系统。如果文件系统初始化失败很可能是使用了错误的超级块号，请手动在[这里](code/kernel/src/drivers/block/mod.rs)修改`BPB_CID`为正确的超级块块号，SD卡分区表的读取将在未来加入。
+此命令仅激活feature：`hifive`，初始化完成后依次运行所有的测试程序。此模式用于本地调试，FTL OS没有读取SD卡分区表而是用magic number定位文件系统。如果文件系统初始化失败很可能是使用了错误的超级块号，请手动在[这里](code/kernel/src/drivers/block/mod.rs)修改`BPB_CID`为正确的超级块块号。
 
 ## 项目人员
 
-所有成员都来自哈尔滨工业大学（深圳）。
+FTL OS全部成员都来自哈尔滨工业大学（深圳）。
 
-叶自立（队长）：内核设计，异步、多核、文件系统设计。
+叶自立（队长）：内核设计，文件系统设计。
 
 樊博：linux实现研究，操作系统测试。
 
 李羿廷：SD卡驱动实现，信号系统。
-
-## 项目结构
-
-[doc](doc)：项目文档，包含[项目文档](doc/基于RISC-V 64的多核异步操作系统FTL OS.pdf)、[文档目录](doc/README.md)与[内核设计](doc/内核设计.md)。
-
-[code](code)：项目代码，各个文件夹的描述如下：
-
-|         文件夹         |                       描述                        |
-| :--------------------: | :-----------------------------------------------: |
-|       bootloader       |                   sbi二进制文件                   |
-|      dependencies      |                 项目依赖的外部库                  |
-|          disk          |       决赛第一阶段的发布版本，会被写入磁盘        |
-|        easy-fs         |      rCore-tutorial-v3的ext2文件系统，已弃用      |
-|      easy-fs-fuse      | 通过easy-fs生成`fs.img`磁盘文件供qemu使用，已弃用 |
-|         fat32          |           FTL OS的FAT32异步多核文件系统           |
-|       fat32-fuse       |    通过fat32生成`fat32.img`磁盘文件供qemu使用     |
-|        ftl-util        |              FTL OS所有模块的基础库               |
-|          init          |           这里的所有文件都会被写入磁盘            |
-|         kernel         |                    FTL OS内核                     |
-| testsuits-for-oskernel |                   初赛测试程序                    |
-|       libc-test        |           决赛第一阶段的测试程序源代码            |
-|          user          |   修改自rCore-tutorial-v3，包含shell与测试程序    |
-|          vfs           |           FTL OS的异步多核虚拟文件系统            |
 
 ## 决赛第一阶段
 
@@ -110,6 +110,12 @@ FTL OS已经在决赛第一阶段的评测中通过了全部测试点，获得�
 
 ## 决赛第二阶段
 
-2022年8月18日18:39，FTL OS得分为117.7977分。
+FTL OS已经通过了全部比赛测试，针对性地进行了性能优化，完成了部分移植工作。
+
+截至2022年8月18日18:39，FTL OS得分为117.7977，排名第一。
 
 ![决赛第二阶段](doc/pic/8-18 18-39.png)
+
+### 扩展任务-移植
+
+FTL OS正在尝试移植rustc编译器，移植尚未完成。
