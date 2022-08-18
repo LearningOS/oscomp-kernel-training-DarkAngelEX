@@ -115,7 +115,7 @@ use core::{
 use ftl_util::time::Instant;
 use riscv::register::{sie, sstatus};
 
-use crate::config::IDIE_SPIN_TIME;
+use crate::{config::IDIE_SPIN_TIME, user::NativeAutoSie};
 
 static ENTER_CNT: AtomicUsize = AtomicUsize::new(0);
 /// This function will be called by rust_main() in hart/mod.rs
@@ -145,6 +145,7 @@ pub fn kmain(_hart_id: usize) -> ! {
             spin_end = None;
         }
         if entry_id != 0 {
+            let _sie = NativeAutoSie::new();
             while memory::own_try_handle() {
                 spin_end = None;
             }
