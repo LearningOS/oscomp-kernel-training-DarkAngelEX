@@ -31,7 +31,7 @@ pub async fn exit_impl(thread: &Thread) {
     let (parent, mut children);
     let asid;
     thread.timer_fence();
-    {
+    let release = {
         let mut lock = process.alive.lock();
         let alive = match lock.as_mut() {
             Some(a) => a,
@@ -49,13 +49,12 @@ pub async fn exit_impl(thread: &Thread) {
         (parent, children) = alive.take_parent_children();
         stack_trace!();
         // *lock = None; // 这里会释放进程页表
-        let release = lock.take().unwrap();
-        // 由其他核析构当前进程, 掩盖延迟
-        crate::executor::kernel_spawn(async move { drop(release) });
-    }
+        lock.take().unwrap()
+    };
     local::all_hart_sfence_vma_asid(asid);
     become_zomble(parent, pid, thread.exit_send_signal());
     throw_children(&mut children);
+    drop(release); // 在通知父进程之后再析构
 }
 
 /// 在父进程中注册自身为僵尸并发送信号
