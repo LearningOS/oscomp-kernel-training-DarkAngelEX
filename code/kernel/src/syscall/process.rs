@@ -154,7 +154,7 @@ impl Syscall<'_> {
 
         if self.alive_then(|a| {
             if let Some(this) = a.program.as_ref() {
-                this.is(inode.as_ref())
+                this.is(&inode)
             } else {
                 false
             }

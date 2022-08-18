@@ -42,3 +42,40 @@ context switch overhead
 96 52.57
 / # 
 (end)
+
+
+(run-all)
+latency measurements
+Simple syscall: 7.1441 microseconds
+Simple read: 56.8279 microseconds
+Simple write: 58.6862 microseconds
+Simple stat: 127.0166 microseconds
+Simple fstat: 54.5563 microseconds
+Simple open/close: 108.9111 microseconds
+Select on 100 fd's: 124.8361 microseconds
+Signal handler installation: 80.5756 microseconds
+Signal handler overhead: 136.9987 microseconds
+Protection fault: 11.1898 microseconds
+Pipe latency: 232.8461 microseconds
+Process fork+exit: 731.4543 microseconds
+Process fork+execve: 5361.6728 microseconds
+cp: can't stat 'hello': No such file or directory
+Process fork+/bin/sh -c: 18585.3860 microseconds
+File /var/tmp/XXX write bandwidth:47952 KB/sec
+Pagefaults on /var/tmp/XXX: 76.0054 microseconds
+0.524288 408
+file system latency
+0k      2922    2889    4420
+1k      2097    2029    4128
+4k      2169    1944    4371
+10k     2323    2061    4319
+Bandwidth measurements
+Pipe bandwidth: 66.81 MB/sec
+0.524288 438.97
+0.524288 414.98
+0.524288 4376.35
+0.524288 64.55
+context switch overhead
+
+"size=32k ovr=126.65
+(end)
