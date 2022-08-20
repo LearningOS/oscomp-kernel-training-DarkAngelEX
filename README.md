@@ -8,7 +8,7 @@ FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核
 
 ## 项目结构
 
-[doc](doc)：项目文档，包含[项目文档](doc/基于RISC-V 64的多核异步操作系统FTL OS.pdf)、[文档目录](doc/README.md)与[内核设计](doc/内核设计.md)。
+[doc](doc)：项目文档，包含[初赛项目文档](doc/基于RISC-V64的多核异步操作系统FTLOS-初赛.pdf)、[文档目录](doc/README.md)与[内核设计](doc/内核设计.md)。
 
 [code](code)：项目代码，各个文件夹的描述如下：
 
