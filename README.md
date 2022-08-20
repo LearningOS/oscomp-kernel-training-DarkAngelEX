@@ -4,7 +4,7 @@
 
 FTL OS(faster than light)是2022全国大学生计算机系统能力大赛内核实现赛道的参赛操作系统，来自哈尔滨工业大学（深圳）。FTL OS使用rust语言开发，基于rust async无栈协程进行上下文切换。FTL OS追求极致的性能与高可扩展性，支持qemu平台与Hifive Unmatched平台运行。
 
-![os](https://img.shields.io/badge/kernel-asynchronous-red)![ISA](https://img.shields.io/badge/ISA-RISC--V-yellow)![competition](https://img.shields.io/badge/os-competition-blue)
+![os](https://img.shields.io/badge/kernel-asynchronous-red) ![ISA](https://img.shields.io/badge/ISA-RISC--V-yellow) ![competition](https://img.shields.io/badge/os-competition-blue) 
 
 ## 项目结构
 
