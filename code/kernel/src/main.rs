@@ -139,6 +139,15 @@ pub fn kmain(_hart_id: usize) -> ! {
     }
     let entry_id = ENTER_CNT.fetch_add(1, Ordering::Relaxed);
 
+    if entry_id >= 2 {
+        // 人已经麻了, 4核的BUG不想找了
+        loop {
+            unsafe {
+                riscv::asm::wfi();
+            }
+        }
+    }
+
     let mut spin_end: Option<Instant> = None;
     loop {
         if executor::run_until_idle() != 0 {

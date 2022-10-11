@@ -20,9 +20,12 @@ fn init_console() {
 #[test]
 fn test_main() {
     init_console();
-    let driver = driver::get_driver("../fat32-fuse/fat32.img");
+    // let path = "../fat32-fuse/fat32.img";
+    let path = "../../fat32.img";
+
+    let driver = driver::get_driver(path);
     let (executor, spawner) = ftl_util::async_tools::tiny_env::new_executor_and_spawner();
-    spawner.spawn(test(
+    spawner.spawn(imgtest(
         driver,
         Box::new(vfs::ZeroClock),
         Box::new(spawner.clone()),
@@ -42,17 +45,16 @@ pub async fn test(
     println!("test end!");
 }
 
+async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
+    for (i, (dt, name)) in dir.list(manager).await.unwrap().into_iter().enumerate() {
+        println!("{:>2} <{}> {:?}", i, name, dt);
+    }
+}
 async fn base_test(
     device: Arc<dyn BlockDevice>,
     clock: Box<dyn VfsClock>,
     spawner: Box<dyn VfsSpawner>,
 ) {
-    async fn show_dir(dir: &DirInode, manager: &Fat32Manager) {
-        for (i, (dt, name)) in dir.list(manager).await.unwrap().into_iter().enumerate() {
-            println!("{:>2} <{}> {:?}", i, name, dt);
-        }
-    }
-
     let mut manager = Fat32Manager::new(0, 100, 100, 100, 100, 100);
     manager.init(device, clock).await;
     let root = manager.search_dir(&[]).await.unwrap();
@@ -160,4 +162,22 @@ async fn delete_test(
     let dead = search_file!(root, "dead").unwrap();
     let n = dead.read_at(&manager, 0, &mut buffer[..]).await.unwrap();
     assert_eq!(0, n); // 新的文件什么也读不出来
+}
+
+pub async fn imgtest(
+    device: Arc<dyn BlockDevice>,
+    clock: Box<dyn VfsClock>,
+    spawner: Box<dyn VfsSpawner>,
+) {
+    let mut manager = Fat32Manager::new(0, 100, 100, 100, 100, 100);
+    manager.init(device, clock).await;
+    let root = manager.search_dir(&[]).await.unwrap();
+    println!("123434");
+    // show_dir(&root, &manager).await;
+    manager.spawn_sync_task((2, 2), spawner).await;
+    let test_dir = root.search_dir(&manager, "test_dir").await.unwrap();
+    show_dir(&test_dir, &manager).await;
+    // root.create_file(&manager, ".ash_history", false, false)
+    //     .await
+    //     .unwrap();
 }

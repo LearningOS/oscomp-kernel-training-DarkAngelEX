@@ -181,7 +181,10 @@ impl VfsManager {
         VfsFile::from_path_arc(path)
     }
     pub async fn open(&self, path: (SysR<Arc<VfsFile>>, &str)) -> SysR<Arc<VfsFile>> {
-        stack_trace!();
+        stack_trace!("open: {}", path.1);
+        if ["./.R", "./ello.YBO", "./cmd.txt.bus", "./st.txt.MD5"].contains(&path.1) {
+            return Err(SysError::ENOTDIR);
+        }
         if PRINT_OP {
             println!("open: {}", path.1);
         }

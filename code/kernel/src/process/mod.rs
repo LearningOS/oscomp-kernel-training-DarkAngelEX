@@ -186,9 +186,9 @@ impl AliveProcess {
 }
 
 #[cfg(feature = "submit")]
-static RUN_ALL_CASE: &[u8] = include_bytes!("../../run_all_case");
+static INITPROC: &[u8] = include_bytes!("../../run_all_case");
 #[cfg(not(feature = "submit"))]
-static RUN_ALL_CASE: &[u8] = &[];
+static INITPROC: &[u8] = include_bytes!("../../run_busybox");
 
 pub async fn init() {
     let initproc = "/initproc";
@@ -215,9 +215,9 @@ pub async fn init() {
         "LD_LIBRARY_PATH=/".to_string(),
     ];
 
-    if cfg!(feature = "submit") {
+    if cfg!(feature = "submit") || true {
         println!("running submit program!");
-        let thread = Thread::new_initproc(cwd, RUN_ALL_CASE, args, envp);
+        let thread = Thread::new_initproc(cwd, INITPROC, args, envp);
         userloop::spawn(thread);
     } else {
         println!("load initporc: {}", initproc);

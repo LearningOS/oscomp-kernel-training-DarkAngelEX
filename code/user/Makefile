@@ -24,9 +24,13 @@ build: binary
 
 submit: build
 	@-(find ../kernel/run_all_case) && (rm -rf ../kernel/run_all_case)
+	@-(find ../kernel/run_busybox) && (rm -rf ../kernel/run_busybox)
 	@-(find ../init/run_all_case) && (rm -rf ../init/run_all_case)
+	@-(find ../init/run_busybox) && (rm -rf ../init/run_busybox)
 	cp -f $(TARGET_DIR)/run_all_case ../kernel/run_all_case
+	cp -f $(TARGET_DIR)/run_busybox ../kernel/run_busybox
 	cp -f $(TARGET_DIR)/run_all_case ../init/run_all_case
+	cp -f $(TARGET_DIR)/run_busybox ../init/run_busybox
 
 clean:
 	@cargo clean

@@ -357,7 +357,9 @@ impl ListManager {
         let (uid, uoff) = self.get_unit_of_cid(cid);
         let blk = self.get_unit(uid).await?;
         blk.update_aid(self.aid_alloc.alloc());
-        debug_assert!(blk.raw_get(uoff).is_last());
+        // 为什么github的FAT32的链表是0结尾的?
+        // debug_assert!(blk.raw_get(uoff).is_last());
+        debug_assert!(!blk.raw_get(uoff).is_next());
         unsafe { blk.to_unique() }?;
         let cid = self.alloc_cluster(sems.try_take().unwrap()).await?;
         unsafe { blk.set(uoff, cid).unwrap() }; // 由to_unique保证成功
