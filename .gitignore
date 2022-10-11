@@ -21,3 +21,4 @@ login_gitee.sh
 busybox.S
 **/os.bin
 fat32.img
+kernel-qemu
