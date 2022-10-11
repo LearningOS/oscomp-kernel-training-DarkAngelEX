@@ -16,10 +16,10 @@ user:
 
 # 第一次运行需要make user
 kernel:
-	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "submit"' MODE=release
-#	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "stack_trace submit"' MODE=debug
-#	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "stack_trace"' MODE=debug
-#	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "stack_trace"' MODE=release
+	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--features "submit"' MODE=release
+#	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--features "stack_trace submit"' MODE=debug
+#	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--features "stack_trace"' MODE=debug
+#	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--features "stack_trace"' MODE=release
 	cp $(KERNEL_DIR)/os.bin ./kernel-qemu
 
 # 评测机会运行这一行
