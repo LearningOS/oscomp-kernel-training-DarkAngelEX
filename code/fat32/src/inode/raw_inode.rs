@@ -287,6 +287,8 @@ impl RawInode {
             self.cache.inner.unique_lock().append_first(new_cid);
             cur_len += 1;
             cid = new_cid;
+        } else if cur_len == n {
+            cache = Some(manager.caches.get_block(cid).await?);
         }
         let mut update = Vec::new();
         while cur_len < n {
