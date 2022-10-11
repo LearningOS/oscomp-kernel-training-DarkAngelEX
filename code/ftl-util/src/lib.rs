@@ -10,7 +10,6 @@
 #![feature(negative_impls)]
 #![feature(ptr_const_cast)]
 #![feature(sync_unsafe_cell)]
-#![feature(untagged_unions)]
 #![feature(unboxed_closures)]
 
 use crate::rcu::RcuDrop;

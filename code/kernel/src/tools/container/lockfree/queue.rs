@@ -293,7 +293,7 @@ impl<T> LockfreeQueue<T> {
         let node = LockfreeNode::new(value);
         let mut new_node: NonNull<_> = Box::leak(Box::new(node)).into();
         let fail_run = FailRun::new(move || unsafe {
-            Box::from_raw(new_node.as_ptr());
+            drop(Box::from_raw(new_node.as_ptr()));
         });
         // tail 定义为一定在 head 之后且距离队列尾很近的标记.
         let mut tail = self.tail.load();
@@ -399,7 +399,7 @@ impl<T> LockfreeQueue<T> {
             unsafe {
                 let old_head = head.get_ptr().unwrap().as_ptr();
                 // 释放内存
-                Box::from_raw(old_head);
+                drop(Box::from_raw(old_head));
                 // next become new dummy
                 let value = value.assume_init_read();
                 return Ok(Some(value));
@@ -753,13 +753,12 @@ pub mod test {
     // type Mutex<T> = SpinLock<T>;
     static TEST_QUEUE_0: LockfreeQueue<usize> = LockfreeQueue::new();
     static TEST_QUEUE_1: Mutex<LinkedList<usize>> = Mutex::new(LinkedList::new());
-    static TEST_QUEUE_2: Mutex<core::lazy::Lazy<VecDeque<usize>>> =
-        Mutex::new(core::lazy::Lazy::new(VecDeque::new));
+    static TEST_QUEUE_2: Mutex<core::cell::LazyCell<VecDeque<usize>>> =
+        Mutex::new(core::cell::LazyCell::new(VecDeque::new));
     static TEST_QUEUE_3: LockfreeStack<usize> = LockfreeStack::new();
     static mut SET_TABLE: [Vec<usize>; 4] = [Vec::new(), Vec::new(), Vec::new(), Vec::new()];
 
     pub fn multi_thread_performance_test(hart: usize, off: usize) {
-        stack_trace!();
         if hart == 0 {
             println!("{}lock_free queue test begin", tools::n_space(off));
             unsafe { TEST_QUEUE_0.init_uncheck() };

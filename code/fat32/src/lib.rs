@@ -1,7 +1,7 @@
 #![no_std]
 #![feature(new_uninit)]
 #![feature(allocator_api)]
-#![feature(bool_to_option)]
+// #![feature(bool_to_option)]
 #![feature(const_btree_new)]
 #![feature(const_trait_impl)]
 #![feature(negative_impls)]

@@ -1,5 +1,4 @@
-use core::lazy::OnceCell;
-
+use core::cell::OnceCell;
 use alloc::{
     collections::BTreeMap,
     sync::{Arc, Weak},

@@ -60,7 +60,7 @@ impl<T> ListNode<T> {
                 assert!((*nxt).prev == cur);
                 cur = nxt;
                 nxt = (*cur).next;
-                while cur.as_const() != self {
+                while cur.cast_const() != self {
                     assert!((*nxt).prev == cur);
                     cur = nxt;
                     nxt = (*cur).next;
@@ -79,11 +79,11 @@ impl<T> ListNode<T> {
     #[inline(always)]
     pub fn is_empty(&self) -> bool {
         debug_assert!(self.inited());
-        if self.prev.as_const() == self {
-            debug_assert!(self.next.as_const() == self);
+        if self.prev.cast_const() == self {
+            debug_assert!(self.next.cast_const() == self);
             true
         } else {
-            debug_assert!(self.next.as_const() != self);
+            debug_assert!(self.next.cast_const() != self);
             false
         }
     }
@@ -91,7 +91,7 @@ impl<T> ListNode<T> {
     ///
     /// 一旦pop后禁止再次被push
     pub fn is_empty_race(&self) -> bool {
-        unsafe { core::ptr::read_volatile(&self.prev) }.as_const() == self
+        unsafe { core::ptr::read_volatile(&self.prev) }.cast_const() == self
     }
     /// # Safety
     ///

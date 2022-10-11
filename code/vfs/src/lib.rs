@@ -6,13 +6,13 @@
 #![feature(generic_arg_infer)]
 #![feature(const_btree_new)]
 #![feature(build_hasher_simple_hash_one)]
-#![feature(bool_to_option)]
+// #![feature(bool_to_option)]
 #![feature(sync_unsafe_cell)]
 #![feature(trait_alias)]
 #![feature(get_mut_unchecked)]
 #![feature(receiver_trait)]
 #![feature(array_try_map)]
-#![feature(let_chains)]
+// #![feature(let_chains)]
 #![allow(dead_code)]
 
 const PRINT_OP: bool = false;

@@ -145,7 +145,7 @@ impl<T> LockfreeStack<T> {
             match self.head.compare_exchange(head, new_head) {
                 Ok(_) => unsafe {
                     let value = node.value.assume_init_read();
-                    Box::from_raw(head.get_ptr().unwrap().as_ptr());
+                    drop(Box::from_raw(head.get_ptr().unwrap().as_ptr()));
                     return Ok(Some(value));
                 },
                 Err(cur_head) => {
