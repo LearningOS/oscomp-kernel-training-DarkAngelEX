@@ -5,7 +5,7 @@ use vfs::File;
 use crate::{
     config::PAGE_SIZE,
     memory::{
-        address::{UserAddr, UserAddr4K},
+        address::UserAddr4K,
         allocator::frame::{self, global::FrameTracker, FrameAllocator},
         asid::Asid,
         page_table::{PTEFlags, PageTableEntry},
@@ -199,7 +199,7 @@ pub trait UserAreaHandler: Send + 'static {
         stack_trace!();
         self.unmap_ua_spec(pt, addr, allocator)
     }
-    /// 零拷贝缓存复制只读页
+    /// 零拷贝缓存复制只读页, 如果返回了Some则直接使用
     fn try_rd_only_shared(
         &self,
         _addr: UserAddr4K,
@@ -336,7 +336,7 @@ pub trait AsyncHandler: Send + Sync {
 pub struct FileAsyncHandler {
     id: HandlerID,
     perm: PTEFlags,
-    start: UserAddr<u8>,
+    start: UserAddr4K,
     offset: usize,
     fill_size: usize, // 文件映射的长度, 超过的填0
     file: Arc<dyn File>,
@@ -347,7 +347,7 @@ impl FileAsyncHandler {
     pub fn new(
         id: HandlerID,
         perm: PTEFlags,
-        start: UserAddr<u8>,
+        start: UserAddr4K,
         offset: usize,
         fill_size: usize,
         file: Arc<dyn File>,
@@ -386,7 +386,7 @@ impl AsyncHandler for FileAsyncHandler {
             let allocator = &mut frame::default_allocator();
             range.start = range.start.max(self.cur);
             for addr in tools::range::ur_iter(range) {
-                debug_assert!(addr >= self.start.floor());
+                debug_assert!(addr >= self.start);
                 let frame: FrameTracker = allocator.alloc()?;
 
                 let frame_buf = frame.data().as_bytes_array_mut();
@@ -436,7 +436,7 @@ impl AsyncHandler for FileAsyncHandler {
                 return Err(SysError::EACCES);
             }
             let allocator = &mut frame::default_allocator();
-            debug_assert!(addr >= self.start.floor());
+            debug_assert!(addr >= self.start);
             let frame: FrameTracker = allocator.alloc()?;
 
             let frame_buf = frame.data().as_bytes_array_mut();

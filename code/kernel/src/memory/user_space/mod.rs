@@ -475,15 +475,15 @@ impl UserSpace {
             let map_area = UserArea::new(start_va.floor()..end_va.ceil(), perm);
             max_end_4k = map_area.end();
             stack_trace!();
-
+            let align4k = start_va.into_usize() - start_va.floor().into_usize();
             // 将程序映射至用户地址空间
             space.map_segment.force_push(
                 map_area.range,
                 MmapHandler::box_new(
                     Some(file.clone()),
-                    start_va,
-                    ph.offset(),
-                    ph.file_size(),
+                    start_va.floor(),
+                    ph.offset() - align4k,
+                    ph.file_size() + align4k,
                     perm,
                     false,
                     true,
@@ -765,14 +765,15 @@ impl UserSpace {
             max_end_4k = map_area.end();
             stack_trace!();
 
+            let align4k = start_va.into_usize() - start_va.floor().into_usize();
             // 将程序映射至用户地址空间
             self.map_segment.replace_not_release(
                 map_area.range,
                 MmapHandler::box_new(
                     Some(file.clone()),
-                    start_va,
-                    ph.offset(),
-                    ph.file_size(),
+                    start_va.floor(),
+                    ph.offset() - align4k,
+                    ph.file_size() + align4k,
                     perm,
                     false,
                     true,

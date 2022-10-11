@@ -157,9 +157,9 @@ pub fn kmain(_hart_id: usize) -> ! {
             // }
             continue;
         }
-        if true {
-            continue;
-        }
+        // if true {
+        //     continue;
+        // }
         let now = timer::now();
         match spin_end {
             None => {

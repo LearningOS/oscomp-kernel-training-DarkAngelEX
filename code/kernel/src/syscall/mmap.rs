@@ -83,7 +83,7 @@ impl Syscall<'_> {
                     .ok_or(SysError::ENOMEM)?
             }
         };
-        let addr: UserAddr<u8> = range.start.into();
+        let addr = range.start;
         let perm = prot.into_perm();
 
         let handler = MmapHandler::box_new(file, addr, offset, usize::MAX, perm, shared, false);

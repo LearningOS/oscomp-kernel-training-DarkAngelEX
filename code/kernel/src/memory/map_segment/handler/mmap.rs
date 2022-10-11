@@ -5,7 +5,7 @@ use vfs::File;
 use crate::{
     config::PAGE_SIZE,
     memory::{
-        address::{UserAddr, UserAddr4K},
+        address::{PhyAddrRef4K, UserAddr4K},
         allocator::frame::{global::FrameTracker, FrameAllocator},
         asid::Asid,
         map_segment::{
@@ -31,9 +31,9 @@ use super::base::HandlerBase;
 struct MmapHandlerSpec {
     id: Option<HandlerID>,
     file: Option<Arc<dyn File>>,
-    addr: UserAddr<u8>, // 文件MMAP开始地址, 未对齐则在前面填充0
-    offset: usize,      // 文件偏移量
-    fill_size: usize,   // 文件长度, 超过的填0, 全部映射则填usize::MAX
+    addr: UserAddr4K, // 文件MMAP开始地址
+    offset: usize,    // 文件偏移量, 保证4K对齐(linux规范)
+    fill_size: usize, // 映射区域的长度, 超过的填0, 全部映射则填usize::MAX
     perm: PTEFlags,
     shared: bool,
     init_program: bool,
@@ -49,7 +49,7 @@ pub struct MmapHandler {
 impl MmapHandler {
     pub fn box_new(
         file: Option<Arc<dyn File>>,
-        addr: UserAddr<u8>,
+        addr: UserAddr4K,
         offset: usize,
         fill_size: usize,
         perm: PTEFlags,
@@ -84,31 +84,39 @@ impl MmapHandler {
             .wrapping_add(addr.into_usize())
             .wrapping_sub(self.spec.addr.into_usize())
     }
-
-    fn fast_load_data(
+    /// 这个页面完全是零, 不需要文件初始化
+    fn page_all_zero(&self, addr: UserAddr4K) -> bool {
+        addr.into_usize() - self.spec.addr.into_usize() >= self.spec.fill_size
+    }
+    /// 这个页面完全处于文件映射中, 不需要填充0
+    fn page_all_data(&self, addr: UserAddr4K) -> bool {
+        addr.into_usize() - self.spec.addr.into_usize() + PAGE_SIZE <= self.spec.fill_size
+    }
+    /// 这个页面是否包含0填充区域, 如果包含则返回填充的byte下标
+    ///
+    /// 如果这个页面全为0则panic, 请保证已经用page_all_zero检查
+    fn need_fill_at(&self, addr: UserAddr4K) -> Option<usize> {
+        debug_assert!(!self.page_all_zero(addr));
+        let start = addr.into_usize() - self.spec.addr.into_usize();
+        if start + PAGE_SIZE <= self.spec.fill_size {
+            return None;
+        }
+        debug_assert!(self.spec.fill_size - start < PAGE_SIZE);
+        Some(self.spec.fill_size - start)
+    }
+    fn fill_page_at(page: PhyAddrRef4K, at: usize) {
+        page.as_bytes_array_mut()[at..].fill(0);
+    }
+    /// 这个函数不会在末尾填充0, 因此可以直接把页面添加到零拷贝缓存中
+    fn fast_load_data_no_fill(
         &self,
         file: &dyn File,
         addr: UserAddr4K,
         dst: &mut [usize; 512],
     ) -> SysR<()> {
         let frame_buf: &mut [u8; 4096] = unsafe { core::mem::transmute(dst) };
-        let addr_uz = addr.into_usize();
-        let start_uz = self.spec.addr.into_usize();
-        let n = if addr_uz < start_uz {
-            let start = start_uz - addr_uz; // 未对齐偏移量
-            debug_assert!(start < PAGE_SIZE);
-            let read = file.read_at_fast(self.spec.offset, &mut frame_buf[start..])?;
-            start + read.min(self.spec.fill_size)
-        } else {
-            let offset = self.spec.offset + addr_uz - start_uz;
-            if offset < self.spec.offset + self.spec.fill_size {
-                let read = file.read_at_fast(offset, frame_buf)?;
-                read.min(self.spec.offset + self.spec.fill_size - offset)
-            } else {
-                0 // 填充0
-            }
-        };
-        frame_buf[n..].fill(0);
+        let offset = self.spec.offset + (addr.into_usize() - self.spec.addr.into_usize());
+        file.read_at_fast(offset, frame_buf)?;
         Ok(())
     }
 
@@ -133,14 +141,19 @@ impl MmapHandler {
             if pte.is_valid() {
                 continue;
             }
-            debug_assert!(addr >= self.spec.addr.floor());
+            debug_assert!(addr >= self.spec.addr);
             let frame: FrameTracker = allocator.alloc()?;
+            if self.page_all_zero(addr) {
+                frame.data().as_usize_array_mut().fill(0);
+                pte.alloc_by_frame(self.perm(), frame.consume());
+                continue;
+            }
             let this_off = offset.wrapping_add(addr.into_usize());
             let page = zc.lock().get(this_off).cloned();
             if let Some(page) = page {
                 faster::page_copy(frame.data().as_usize_array_mut(), page.as_usize_array());
             } else {
-                self.fast_load_data(file, addr, frame.data().as_usize_array_mut())?;
+                self.fast_load_data_no_fill(file, addr, frame.data().as_usize_array_mut())?;
                 let sp = allocator.alloc()?;
                 faster::page_copy(
                     sp.data().as_usize_array_mut(),
@@ -148,6 +161,9 @@ impl MmapHandler {
                 );
                 zc.lock()
                     .insert(this_off, SharePage::new(SharedCounter::new(), sp.consume()));
+            }
+            if let Some(at) = self.need_fill_at(addr) {
+                Self::fill_page_at(frame.data(), at)
             }
             pte.alloc_by_frame(self.perm(), frame.consume());
         }
@@ -170,9 +186,14 @@ impl MmapHandler {
             return Ok(());
         }
         // 调用这个函数的时候 try_rd_only_shared 已经失败了
-        debug_assert!(addr >= self.spec.addr.floor());
+        debug_assert!(addr >= self.spec.addr);
         let frame: FrameTracker = allocator.alloc()?;
-        self.fast_load_data(file, addr, frame.data().as_usize_array_mut())?;
+        if self.page_all_zero(addr) {
+            frame.data().as_usize_array_mut().fill(0);
+            pte.alloc_by_frame(self.perm(), frame.consume());
+            return Ok(());
+        }
+        self.fast_load_data_no_fill(file, addr, frame.data().as_usize_array_mut())?;
         let zc = self.spec.zero_copy.as_ref().unwrap();
         let sp = allocator.alloc()?;
         let offset = self.get_offset(addr);
@@ -182,7 +203,9 @@ impl MmapHandler {
         );
         zc.lock()
             .insert(offset, SharePage::new(SharedCounter::new(), sp.consume()));
-
+        if let Some(at) = self.need_fill_at(addr) {
+            Self::fill_page_at(frame.data(), at)
+        }
         pte.alloc_by_frame(self.perm(), frame.consume());
         Ok(())
     }
@@ -341,11 +364,16 @@ impl UserAreaHandler for MmapHandler {
             base: HandlerBase::new(),
         })
     }
+
     fn try_rd_only_shared(
         &self,
         addr: UserAddr4K,
         allocator: &mut dyn FrameAllocator,
     ) -> Option<SharePage> {
+        stack_trace!();
+        if !self.page_all_data(addr) {
+            return None;
+        }
         if let Some(zc) = self.spec.zero_copy.as_ref() {
             if unsafe { zc.unsafe_get().is_empty() } {
                 return None;
@@ -357,7 +385,7 @@ impl UserAreaHandler for MmapHandler {
             }
             let file = self.spec.file.as_ref().unwrap().vfs_file().ok()?;
             let frame = allocator.alloc().ok()?;
-            self.fast_load_data(file, addr, frame.data().as_usize_array_mut())
+            self.fast_load_data_no_fill(file, addr, frame.data().as_usize_array_mut())
                 .ok()?;
             let (s0, s1) = SharedCounter::new_dup();
             let s0 = SharePage::new(s0, frame.data());
