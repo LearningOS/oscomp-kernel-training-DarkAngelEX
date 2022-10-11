@@ -12,7 +12,8 @@ all_old:
 
 # 这一行会产生init程序, 只需要运行一次(非常慢)
 user:
-	cd $(USER_DIR) && make submit ADD_ARGS='--offline'
+#	cd $(USER_DIR) && make submit ADD_ARGS='--offline'
+	cd $(USER_DIR) && make submit ADD_ARGS=''
 
 # 第一次运行需要make user
 kernel:
