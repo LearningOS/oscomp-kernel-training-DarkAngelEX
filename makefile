@@ -27,7 +27,7 @@ kernel:
 	cp $(KERNEL_DIR)/os.bin ./kernel-qemu
 
 # 评测机会运行这一行
-all: env user kernel
+all: user kernel
 
 fs:
 	cp fat32src.img fat32.img -f
