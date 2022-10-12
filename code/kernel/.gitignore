@@ -1,4 +1,5 @@
 run_all_case
+run_busybox
 src/linker.ld
 xdisasm
 locgin_gitee.sh

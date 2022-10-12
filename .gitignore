@@ -22,3 +22,6 @@ busybox.S
 **/os.bin
 fat32.img
 kernel-qemu
+
+**/init/run_all_case
+**/init/run_busybox
