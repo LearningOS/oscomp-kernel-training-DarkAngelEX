@@ -10,6 +10,9 @@ all_old:
 	cd $(KERNEL_DIR) && make take_bin ADD_ARGS='--offline --features "board_hifive submit"' MODE=release
 	cp $(KERNEL_DIR)/os.bin ./os.bin
 
+env:
+	cd $(KERNEL_DIR) && make env
+
 # 这一行会产生init程序, 只需要运行一次(非常慢)
 user:
 #	cd $(USER_DIR) && make submit ADD_ARGS='--offline'
@@ -24,7 +27,7 @@ kernel:
 	cp $(KERNEL_DIR)/os.bin ./kernel-qemu
 
 # 评测机会运行这一行
-all: user kernel
+all: env user kernel
 
 fs:
 	cp fat32src.img fat32.img -f
